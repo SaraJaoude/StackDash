@@ -4,8 +4,8 @@ import { Section } from "@/components/section";
 const sources: readonly string[] = [
   "Deployments and failed builds from Vercel and GitHub Actions",
   "Merged pull requests and published releases from GitHub",
-  "Payments and failed renewals from Stripe",
-  "Usage and budget thresholds from OpenAI API, Anthropic API, Resend, Supabase, ElevenLabs, and Cloudflare",
+  "Usage and budget thresholds from Resend, ElevenLabs, OpenAI API, Anthropic API, and Supabase",
+  "Payments from Stripe and usage from Cloudflare, once their official APIs are confirmed",
 ];
 
 export function LiveEvents() {
