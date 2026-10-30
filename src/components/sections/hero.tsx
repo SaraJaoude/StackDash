@@ -30,6 +30,14 @@ function barColor(percentUsed: number): string {
   return "bg-success";
 }
 
+// Entrance timing for the preview, after the figure's own rise-late. Rows stagger in, each bar
+// fills just after its row lands, and the budget alert arrives once the 91% bar has filled, so
+// the preview reads as the dashboard noticing the problem.
+const ROW_START_MS = 350;
+const ROW_STAGGER_MS = 80;
+const BAR_AFTER_ROW_MS = 200;
+const ALERT_DELAY_MS = 1500;
+
 /** Hero: one promise, one primary action, and an honest picture of the dashboard. */
 export function Hero() {
   return (
@@ -79,34 +87,40 @@ export function Hero() {
             <p className="font-mono text-xs text-muted">7 providers · synced 4 min ago</p>
           </div>
 
-          <p className="mx-5 mt-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning">
+          <p
+            className="rise-in mx-5 mt-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning"
+            style={{ animationDelay: `${ALERT_DELAY_MS}ms` }}
+          >
             <span aria-hidden="true">▲</span>
             Anthropic API passed 90% of your $25 monthly budget.
           </p>
 
           <ul className="divide-y divide-line px-5 py-2">
-            {previewRows.map((row) => (
-              <li key={row.provider} className="py-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-sm">{row.provider}</span>
-                  <span className="font-mono text-sm tabular-nums">{row.value}</span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted">
-                  <span>{row.detail}</span>
-                  <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
-                    {row.source}
-                  </span>
-                </div>
-                {row.percentUsed === undefined ? null : (
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
-                    <div
-                      className={`h-full rounded-full ${barColor(row.percentUsed)}`}
-                      style={{ width: `${row.percentUsed}%` }}
-                    />
+            {previewRows.map((row, index) => {
+              const rowDelayMs = ROW_START_MS + index * ROW_STAGGER_MS;
+              return (
+                <li key={row.provider} className="rise-in py-3" style={{ animationDelay: `${rowDelayMs}ms` }}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="text-sm">{row.provider}</span>
+                    <span className="font-mono text-sm tabular-nums">{row.value}</span>
                   </div>
-                )}
-              </li>
-            ))}
+                  <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted">
+                    <span>{row.detail}</span>
+                    <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
+                      {row.source}
+                    </span>
+                  </div>
+                  {row.percentUsed === undefined ? null : (
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
+                      <div
+                        className={`bar-fill h-full rounded-full ${barColor(row.percentUsed)}`}
+                        style={{ width: `${row.percentUsed}%`, animationDelay: `${rowDelayMs + BAR_AFTER_ROW_MS}ms` }}
+                      />
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
 
           <figcaption className="border-t border-line px-5 py-3 text-xs text-muted">

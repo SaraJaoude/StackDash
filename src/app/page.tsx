@@ -4,6 +4,7 @@ import { FinalCta } from "@/components/sections/final-cta";
 import { Hero } from "@/components/sections/hero";
 import { HowItWorks } from "@/components/sections/how-it-works";
 import { Integrations } from "@/components/sections/integrations";
+import { LiveEvents } from "@/components/sections/live-events";
 import { OpenSource } from "@/components/sections/open-source";
 import { Problem } from "@/components/sections/problem";
 import { Roadmap } from "@/components/sections/roadmap";
@@ -18,6 +19,7 @@ export default function Home() {
       <SiteNav />
       <main id="main" className="flex-1">
         <Hero />
+        <LiveEvents />
         <Problem />
         <HowItWorks />
         <Features />

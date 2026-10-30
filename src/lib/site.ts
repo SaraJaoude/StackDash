@@ -22,6 +22,7 @@ export interface NavLink {
 // Homepage sections in page order. The footer renders all of them; the header renders the
 // subset in HEADER_LABELS so the two lists cannot drift apart.
 export const sectionLinks: readonly NavLink[] = [
+  { label: "Live events", href: "#live-events" },
   { label: "The problem", href: "#problem" },
   { label: "How it works", href: "#how-it-works" },
   { label: "Features", href: "#features" },

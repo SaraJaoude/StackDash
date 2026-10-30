@@ -82,10 +82,96 @@ summary {
   animation: rise 0.6s ease-out 0.15s both;
 }
 
+/* Staggered rise: the delay comes from an inline animation-delay per item. */
+.rise-in {
+  animation: rise 0.5s ease-out both;
+}
+
+/* Usage bars grow from empty to their value. */
+@keyframes bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+.bar-fill {
+  transform-origin: left;
+  animation: bar-fill 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * Live feed rows. Animating grid-template-rows from 0fr to 1fr opens the row to its natural
+ * height, so the rows below slide down instead of jumping. The leaving row closes the same way.
+ */
+@keyframes feed-enter {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+  to {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+}
+
+@keyframes feed-exit {
+  from {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+
+@keyframes feed-highlight {
+  from {
+    background-color: var(--accent-soft);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes live-pulse {
+  from {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  to {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+.feed-enter {
+  animation:
+    feed-enter 0.5s ease-out both,
+    feed-highlight 2.4s ease-out both;
+}
+
+.feed-exit {
+  animation: feed-exit 0.5s ease-in both;
+}
+
+.live-pulse {
+  animation: live-pulse 1.6s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
-  .rise-late {
+  .rise-late,
+  .rise-in,
+  .bar-fill,
+  .feed-enter,
+  .feed-exit,
+  .live-pulse {
     animation: none;
+  }
+  /* Without the closing animation the leaving row would stay on screen. */
+  .feed-exit {
+    display: none;
   }
   html {
     scroll-behavior: auto;
