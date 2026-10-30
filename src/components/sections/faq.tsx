@@ -20,6 +20,10 @@ const faq: readonly FaqItem[] = [
     answer: `No. It asks for read-only access wherever a provider offers it. Some providers only expose usage data to keys that can also write. In that case the integration is labeled Elevated access required before you connect, and ${site.name} still only performs read operations.`,
   },
   {
+    question: "Will any of my data be public?",
+    answer: "Not unless you choose to share it. Everything is private by default. An optional feature being explored for after the first release would let you publish milestone cards or a project page, picking each metric yourself. Credentials can never be published, and spending, budgets, and billing details are never shared automatically.",
+  },
+  {
     question: "Are the costs exact?",
     answer: "Each number is labeled with where it came from. Verified cost comes from a provider's billing API. Estimated cost is calculated from usage and published pricing. Allowances, budgets, and credit balances are shown separately. Some providers report with a delay, so every account shows when it last synced.",
   },

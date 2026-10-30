@@ -8,6 +8,7 @@ import { OpenSource } from "@/components/sections/open-source";
 import { Problem } from "@/components/sections/problem";
 import { Roadmap } from "@/components/sections/roadmap";
 import { Security } from "@/components/sections/security";
+import { ShareProgress } from "@/components/sections/share-progress";
 import { SiteNav } from "@/components/site-nav";
 
 // Fully static: no request data, so the whole page prerenders at build time.
@@ -23,6 +24,7 @@ export default function Home() {
         <Integrations />
         <Security />
         <OpenSource />
+        <ShareProgress />
         <Roadmap />
         <Faq />
         <FinalCta />

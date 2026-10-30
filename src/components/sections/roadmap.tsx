@@ -35,6 +35,7 @@ const phases: readonly Phase[] = [
     items: [
       "Anomaly detection and spend forecasts",
       "Alerts by email, Slack, Discord, and webhook",
+      "Shareable milestone cards and opt-in public project pages",
       "Cost optimization suggestions",
       "Many more integrations",
     ],

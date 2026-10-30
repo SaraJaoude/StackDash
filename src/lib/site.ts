@@ -28,6 +28,7 @@ export const sectionLinks: readonly NavLink[] = [
   { label: "Integrations", href: "#integrations" },
   { label: "Security", href: "#security" },
   { label: "Open source", href: "#open-source" },
+  { label: "Share progress", href: "#share" },
   { label: "Roadmap", href: "#roadmap" },
   { label: "FAQ", href: "#faq" },
 ];
