@@ -1,6 +1,7 @@
 import { BellIcon, GaugeIcon, LayersIcon, MailIcon, ReportIcon, TimelineIcon } from "@/components/icons";
 import { IconCard, type IconCardItem } from "@/components/icon-card";
 import { Section } from "@/components/section";
+import { SeverityBadge, type Severity } from "@/components/severity-badge";
 
 const features: readonly IconCardItem[] = [
   {
@@ -35,8 +36,6 @@ const features: readonly IconCardItem[] = [
   },
 ];
 
-type Severity = "Alert" | "Failed" | "Summary" | "Event";
-
 interface TimelineEvent {
   time: string;
   severity: Severity;
@@ -51,13 +50,6 @@ const timeline: readonly TimelineEvent[] = [
   { time: "07:55", severity: "Event", text: "Pull request #42 merged in acme/api" },
   { time: "07:31", severity: "Alert", text: "Anthropic API spending passed $20 this month" },
 ];
-
-const SEVERITY_CLASSES: Record<Severity, string> = {
-  Alert: "border-warning/40 text-warning",
-  Failed: "border-danger/40 text-danger",
-  Summary: "border-line text-muted",
-  Event: "border-line text-muted",
-};
 
 interface CostLabel {
   term: string;
@@ -97,11 +89,7 @@ export function Features() {
               <li key={event.time} className="flex items-start gap-4 py-3.5">
                 <span className="w-11 shrink-0 font-mono text-xs leading-5 text-muted">{event.time}</span>
                 <span className="flex-1 text-sm leading-5">{event.text}</span>
-                <span
-                  className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${SEVERITY_CLASSES[event.severity]}`}
-                >
-                  {event.severity}
-                </span>
+                <SeverityBadge severity={event.severity} />
               </li>
             ))}
           </ol>
