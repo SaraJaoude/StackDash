@@ -9,10 +9,10 @@ export function SiteFooter() {
     <footer className="border-t border-line">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-12 sm:flex-row sm:items-start sm:justify-between">
         <div className="max-w-xs">
-          <p className="flex items-center gap-2 font-mono text-sm font-semibold">
-            <Wordmark />
+          <div className="flex flex-wrap items-center gap-3">
+            <Wordmark withTagline />
             <StatusBadge />
-          </p>
+          </div>
           <p className="mt-3 text-sm leading-6 text-muted">
             {site.tagline}. Open source, built in public.
           </p>
