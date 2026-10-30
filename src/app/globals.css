@@ -145,14 +145,16 @@ summary {
   }
 }
 
+/* Enter and exit share one duration and easing, so the opening and closing rows always add up to
+ * one row of height and the page below the feed does not bob on every arrival. */
 .feed-enter {
   animation:
-    feed-enter 0.5s ease-out both,
+    feed-enter 0.5s ease-in-out both,
     feed-highlight 2.4s ease-out both;
 }
 
 .feed-exit {
-  animation: feed-exit 0.5s ease-in both;
+  animation: feed-exit 0.5s ease-in-out both;
 }
 
 .live-pulse {

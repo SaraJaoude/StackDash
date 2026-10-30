@@ -106,7 +106,7 @@ export function LiveEventFeed() {
         </button>
       </div>
 
-      <ol aria-label="Example live events" className="divide-y divide-line">
+      <ol aria-label="Example live events">
         {rows.map(({ key, position }) => {
           const event = eventAt(key);
           const leaving = position === VISIBLE_ROWS;
@@ -119,7 +119,9 @@ export function LiveEventFeed() {
           return (
             <li key={key} aria-hidden={leaving ? true : undefined} className={`grid ${motion}`}>
               <div className="min-h-0 overflow-hidden">
-                <div className="px-5 py-3">
+                {/* The divider sits inside the clipped track, so it closes with a leaving row
+                    instead of doubling the figcaption's top border. */}
+                <div className={`px-5 py-3 ${position > 0 ? "border-t border-line" : ""}`}>
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="font-mono text-xs text-foreground">{event.platform}</span>
                     <span className="shrink-0 font-mono text-xs tabular-nums text-muted">
