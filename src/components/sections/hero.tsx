@@ -1,53 +1,41 @@
-import { ArrowRightIcon } from "@/components/icons";
+import { ArrowRightIcon, BellIcon, GaugeIcon, ReportIcon, TimelineIcon } from "@/components/icons";
+import type { Icon } from "@/components/icon-card";
 import { GitHubButton } from "@/components/github-button";
+import { HeroPreview } from "@/components/sections/hero-preview";
 import { site } from "@/lib/site";
 
-type CostSource = "Verified cost" | "Estimated cost" | "Allowance" | "Budget";
-
-interface PreviewRow {
-  provider: string;
-  detail: string;
-  value: string;
-  source: CostSource;
-  /** Share of the allowance or budget used, 0 to 100. Absent when there is no limit to compare against. */
-  percentUsed?: number;
+interface HeroFeature {
+  icon: Icon;
+  title: string;
+  body: string;
 }
 
-// Illustrative values only, labeled as such in the UI. Not real provider data.
-const previewRows: readonly PreviewRow[] = [
-  { provider: "Anthropic API", detail: "$22.80 of a $25 budget", value: "91%", source: "Budget", percentUsed: 91 },
-  { provider: "Resend", detail: "Monthly emails · resets in 9 days", value: "75%", source: "Allowance", percentUsed: 75 },
-  { provider: "ElevenLabs", detail: "Included credits · resets in 14 days", value: "68%", source: "Allowance", percentUsed: 68 },
-  { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", value: "42%", source: "Allowance", percentUsed: 42 },
-  { provider: "OpenAI API", detail: "Spent this month", value: "$14.50", source: "Verified cost" },
-  { provider: "Vercel", detail: "Usage charges this month", value: "$12.30", source: "Verified cost" },
-  { provider: "Supabase", detail: "Projected from usage and pricing", value: "$4.20", source: "Estimated cost" },
+// Each line names a part of the preview above it, so the picture doubles as the feature list.
+const heroFeatures: readonly HeroFeature[] = [
+  { icon: ReportIcon, title: "Verified and estimated spend", body: "Every figure says where it came from." },
+  { icon: GaugeIcon, title: "Allowances and reset dates", body: "See what is left before it runs out." },
+  { icon: BellIcon, title: "Budget alerts", body: "Once per billing period, not every hour." },
+  { icon: TimelineIcon, title: "Live events", body: "Deploys, payments, and alerts from every platform." },
 ];
 
-function barColor(percentUsed: number): string {
-  if (percentUsed >= 90) return "bg-danger";
-  if (percentUsed >= 75) return "bg-warning";
-  return "bg-success";
-}
+// The feature strip follows the preview's own entrance (see hero-preview.tsx).
+const FEATURES_START_MS = 1400;
+const FEATURES_STAGGER_MS = 90;
 
-// Entrance timing for the preview, after the figure's own rise-late. Rows stagger in, each bar
-// fills just after its row lands, and the budget alert arrives once the 91% bar has filled, so
-// the preview reads as the dashboard noticing the problem.
-const ROW_START_MS = 350;
-const ROW_STAGGER_MS = 80;
-const BAR_AFTER_ROW_MS = 200;
-const ALERT_DELAY_MS = 1500;
-
-/** Hero: one promise, one primary action, and an honest picture of the dashboard. */
+/** Hero: one promise, one primary action, and a moving picture of the dashboard. */
 export function Hero() {
   return (
     <section id="top" aria-labelledby="hero-title" className="relative overflow-hidden">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-[-20%] h-[480px] w-[min(720px,100vw)] -translate-x-1/2 rounded-full bg-accent/10 blur-[120px]"
+        className="pointer-events-none absolute inset-x-0 top-0 h-[900px] bg-[linear-gradient(to_right,var(--line)_1px,transparent_1px),linear-gradient(to_bottom,var(--line)_1px,transparent_1px)] bg-[size:56px_56px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,black,transparent)]"
       />
-      <div className="relative mx-auto grid w-full max-w-6xl items-center gap-14 px-6 pb-24 pt-14 sm:pt-20 lg:grid-cols-[1fr_1fr] lg:gap-10">
-        <div>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-[-10%] h-[560px] w-[min(960px,100vw)] -translate-x-1/2 rounded-full bg-accent/10 blur-[140px]"
+      />
+      <div className="relative mx-auto w-full max-w-6xl px-6 pb-24 pt-14 sm:pt-20">
+        <div className="mx-auto max-w-3xl text-center">
           <p className="rise inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
             <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
             Open source · In development
@@ -60,13 +48,13 @@ export function Hero() {
             {site.tagline}.
           </h1>
 
-          <p className="rise-late mt-6 max-w-xl text-lg leading-8 text-muted">
+          <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted">
             {site.name} brings the spending, usage, quotas, and activity of the services you build on
             into one dashboard. See what you have spent, how much allowance is left, and when it resets,
             and get an alert before a limit or budget becomes a problem.
           </p>
 
-          <div className="rise-late mt-10 flex flex-wrap items-center gap-4">
+          <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4">
             <GitHubButton />
             <a
               href="#how-it-works"
@@ -81,52 +69,27 @@ export function Hero() {
           </p>
         </div>
 
-        <figure className="rise-late rounded-xl border border-line bg-panel shadow-2xl shadow-black/40">
-          <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3.5">
-            <p className="text-sm font-medium">This month</p>
-            <p className="font-mono text-xs text-muted">7 providers · synced 4 min ago</p>
-          </div>
+        <div className="mt-16">
+          <HeroPreview />
+        </div>
 
-          <p
-            className="rise-in mx-5 mt-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs leading-5 text-warning"
-            style={{ animationDelay: `${ALERT_DELAY_MS}ms` }}
-          >
-            <span aria-hidden="true">▲</span>
-            Anthropic API passed 90% of your $25 monthly budget.
-          </p>
-
-          <ul className="divide-y divide-line px-5 py-2">
-            {previewRows.map((row, index) => {
-              const rowDelayMs = ROW_START_MS + index * ROW_STAGGER_MS;
-              return (
-                <li key={row.provider} className="rise-in py-3" style={{ animationDelay: `${rowDelayMs}ms` }}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="text-sm">{row.provider}</span>
-                    <span className="font-mono text-sm tabular-nums">{row.value}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between gap-3 text-xs text-muted">
-                    <span>{row.detail}</span>
-                    <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
-                      {row.source}
-                    </span>
-                  </div>
-                  {row.percentUsed === undefined ? null : (
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line" aria-hidden="true">
-                      <div
-                        className={`bar-fill h-full rounded-full ${barColor(row.percentUsed)}`}
-                        style={{ width: `${row.percentUsed}%`, animationDelay: `${rowDelayMs + BAR_AFTER_ROW_MS}ms` }}
-                      />
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
-          <figcaption className="border-t border-line px-5 py-3 text-xs text-muted">
-            Example data. Every figure is labeled as verified, estimated, an allowance, or your own budget.
-          </figcaption>
-        </figure>
+        <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          {heroFeatures.map((feature, index) => (
+            <li
+              key={feature.title}
+              className="rise-in flex gap-3"
+              style={{ animationDelay: `${FEATURES_START_MS + index * FEATURES_STAGGER_MS}ms` }}
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg border border-line bg-panel text-accent">
+                <feature.icon />
+              </span>
+              <div>
+                <p className="text-sm font-medium">{feature.title}</p>
+                <p className="mt-0.5 text-sm leading-6 text-muted">{feature.body}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   );

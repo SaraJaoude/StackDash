@@ -3,8 +3,35 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
 
+type Platform =
+  | "Vercel"
+  | "GitHub"
+  | "GitHub Actions"
+  | "Resend"
+  | "Stripe"
+  | "Anthropic API"
+  | "Supabase"
+  | "ElevenLabs"
+  | "OpenAI API"
+  | "Cloudflare";
+
+// Short text marks stand in for logos: no third-party artwork, and the full name is always
+// printed beside the mark.
+const PLATFORM_MARKS: Record<Platform, string> = {
+  Vercel: "V",
+  GitHub: "GH",
+  "GitHub Actions": "GA",
+  Resend: "R",
+  Stripe: "S",
+  "Anthropic API": "A",
+  Supabase: "SB",
+  ElevenLabs: "11",
+  "OpenAI API": "AI",
+  Cloudflare: "CF",
+};
+
 interface FeedEvent {
-  platform: string;
+  platform: Platform;
   severity: Severity;
   text: string;
 }
@@ -28,12 +55,22 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Resend", severity: "Event", text: "Domain mail.acme.dev verified" },
 ];
 
-const VISIBLE_ROWS = 6;
+// Ten rows match the height of the month column beside the feed. Below the lg breakpoint the
+// columns stack, so only the first COMPACT_ROWS show.
+const VISIBLE_ROWS = 10;
+const COMPACT_ROWS = 6;
 const TICK_SECONDS = 3;
+const EVENTS_TODAY_BEFORE_FEED = 1278;
 
 // The first render shows the first VISIBLE_ROWS events, newest on top. Server and client agree
 // on it, so hydration matches and the page still prerenders statically.
 const INITIAL_SEQ = VISIBLE_ROWS - 1;
+
+// The rows present at load rise in as the hero window settles.
+const INITIAL_ROWS_START_MS = 700;
+const INITIAL_ROWS_STAGGER_MS = 70;
+
+const eventCount = new Intl.NumberFormat("en-US");
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -86,8 +123,8 @@ export function LiveEventFeed() {
   }
 
   return (
-    <figure className="rounded-xl border border-line bg-panel shadow-2xl shadow-black/40">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-3">
+    <div className="p-5 sm:p-6">
+      <div className="flex items-center justify-between gap-3">
         <p className="flex items-center gap-2.5 text-sm font-medium">
           <span className="relative flex size-2" aria-hidden="true">
             {playing ? <span className="live-pulse absolute inset-0 rounded-full bg-success" /> : null}
@@ -96,41 +133,68 @@ export function LiveEventFeed() {
           Live events
           <span className="font-mono text-xs font-normal text-muted">{playing ? "Streaming" : "Paused"}</span>
         </p>
-        <button
-          type="button"
-          onClick={() => setChoice(playing ? "paused" : "playing")}
-          className="min-h-8 rounded-md border border-line px-3 font-mono text-xs text-muted transition-colors hover:border-line-strong hover:text-foreground"
-        >
-          {playing ? "Pause" : "Resume"}
-          <span className="sr-only"> live events</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <span className="hidden font-mono text-xs tabular-nums text-muted sm:inline">
+            {eventCount.format(EVENTS_TODAY_BEFORE_FEED + seq)} events today
+          </span>
+          <button
+            type="button"
+            onClick={() => setChoice(playing ? "paused" : "playing")}
+            className="min-h-7 rounded-md border border-line px-2.5 font-mono text-xs text-muted transition-colors hover:border-line-strong hover:text-foreground"
+          >
+            {playing ? "Pause" : "Resume"}
+            <span className="sr-only"> live events</span>
+          </button>
+        </div>
       </div>
 
-      <ol aria-label="Example live events">
+      <ol aria-label="Example live events" className="mt-4 overflow-hidden rounded-lg border border-line bg-panel-raised">
         {rows.map(({ key, position }) => {
           const event = eventAt(key);
           const leaving = position === VISIBLE_ROWS;
-          // Rows present on first render do not animate; only arrivals and departures do.
-          const motion = leaving ? "feed-exit" : key > INITIAL_SEQ && position === 0 ? "feed-enter" : "";
+          const arriving = key > INITIAL_SEQ && position === 0;
+          const initial = key <= INITIAL_SEQ;
           // Ages are whole multiples of TICK_SECONDS under a minute, so a fixed English string is
           // exact. Intl.RelativeTimeFormat output differs between the server's and the browser's
           // ICU data, which would break hydration.
           const ageSeconds = position * TICK_SECONDS;
+          const rowMotion = leaving ? "feed-exit" : arriving ? "feed-enter" : "";
+          // Keyed to the event, not its position, so a row's delay never changes as it moves down.
+          const contentMotion = arriving ? "feed-arrival" : initial ? "rise-in" : "";
           return (
-            <li key={key} aria-hidden={leaving ? true : undefined} className={`grid ${motion}`}>
+            <li
+              key={key}
+              aria-hidden={leaving ? true : undefined}
+              className={`grid ${rowMotion} ${position >= COMPACT_ROWS ? "max-lg:hidden" : ""}`}
+            >
               <div className="min-h-0 overflow-hidden">
-                {/* The divider sits inside the clipped track, so it closes with a leaving row
-                    instead of doubling the figcaption's top border. */}
-                <div className={`px-5 py-3 ${position > 0 ? "border-t border-line" : ""}`}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-mono text-xs text-foreground">{event.platform}</span>
-                    <span className="shrink-0 font-mono text-xs tabular-nums text-muted">
-                      {ageSeconds === 0 ? "now" : `${ageSeconds}s ago`}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-start justify-between gap-3">
-                    <span className="text-sm leading-5">{event.text}</span>
-                    <SeverityBadge severity={event.severity} />
+                {/* The divider sits inside the clipped track, so it closes with a leaving row. */}
+                <div
+                  data-severity={event.severity}
+                  className={`flex gap-3 px-3.5 py-2.5 ${position > 0 ? "border-t border-line" : ""} ${contentMotion}`}
+                  style={
+                    initial
+                      ? { animationDelay: `${INITIAL_ROWS_START_MS + (INITIAL_SEQ - key) * INITIAL_ROWS_STAGGER_MS}ms` }
+                      : undefined
+                  }
+                >
+                  <span
+                    aria-hidden="true"
+                    className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel font-mono text-[10px] font-semibold text-foreground"
+                  >
+                    {PLATFORM_MARKS[event.platform]}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="font-mono text-xs text-muted">{event.platform}</span>
+                      <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted">
+                        {ageSeconds === 0 ? "now" : `${ageSeconds}s ago`}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-start justify-between gap-3">
+                      <span className="text-sm leading-5">{event.text}</span>
+                      <SeverityBadge severity={event.severity} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -138,10 +202,6 @@ export function LiveEventFeed() {
           );
         })}
       </ol>
-
-      <figcaption className="border-t border-line px-5 py-3 text-xs text-muted">
-        Example data. These events are simulated in your browser.
-      </figcaption>
-    </figure>
+    </div>
   );
 }

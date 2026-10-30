@@ -84,7 +84,31 @@ summary {
 
 /* Staggered rise: the delay comes from an inline animation-delay per item. */
 .rise-in {
-  animation: rise 0.5s ease-out both;
+  animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/*
+ * Hero product window: tilts up out of the page and settles flat. The stage sets the
+ * perspective so the window's own transform stays a plain rotate.
+ */
+.window-stage {
+  perspective: 1800px;
+}
+
+@keyframes window-in {
+  from {
+    opacity: 0;
+    transform: rotateX(18deg) translateY(56px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.window-in {
+  transform-origin: 50% 0%;
+  animation: window-in 1.3s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
 }
 
 /* Usage bars grow from empty to their value. */
@@ -96,21 +120,146 @@ summary {
 
 .bar-fill {
   transform-origin: left;
-  animation: bar-fill 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: bar-fill 1.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/*
+ * Numbers that count up from zero. --count is registered as an integer so it interpolates, and
+ * CSS counters print it. The element's real value sits in data-value and in screen-reader text,
+ * so a browser without @property, round(), or mod() simply shows the final number.
+ */
+@property --count {
+  syntax: "<integer>";
+  inherits: false;
+  initial-value: 0;
+}
+
+@keyframes count-up {
+  from {
+    --count: 0;
+  }
+}
+
+.count-up {
+  --count: var(--count-to);
+  font-variant-numeric: tabular-nums;
+}
+
+.count-up::after {
+  content: attr(data-value);
+}
+
+@supports (width: round(down, 1.5px, 1px)) and (width: mod(3px, 2px)) {
+  .count-up {
+    animation: count-up 1.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .count-up[data-format="usd"] {
+    counter-reset: dollars round(down, var(--count) / 100) cents mod(var(--count), 100);
+  }
+
+  .count-up[data-format="usd"]::after {
+    content: "$" counter(dollars) "." counter(cents, decimal-leading-zero);
+  }
+
+  .count-up[data-format="percent"] {
+    counter-reset: percent var(--count);
+  }
+
+  .count-up[data-format="percent"]::after {
+    content: counter(percent) "%";
+  }
+
+  .count-up[data-format="integer"] {
+    counter-reset: whole var(--count);
+  }
+
+  .count-up[data-format="integer"]::after {
+    content: counter(whole);
+  }
+}
+
+/* Sparkline: the line draws left to right, then the area and today's point fade in. */
+@keyframes spark-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+.spark-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: spark-draw 1.8s cubic-bezier(0.65, 0, 0.35, 1) 0.7s both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.spark-area {
+  animation: fade-in 0.8s ease-out 1.9s both;
+}
+
+@keyframes spark-ping {
+  from {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+
+.spark-dot {
+  animation: fade-in 0.3s ease-out 2.3s both;
+}
+
+.spark-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  /* Hidden outside its two runs: no backwards fill, so it never shows before the dot lands. */
+  opacity: 0;
+  animation: spark-ping 1.2s ease-out 2.4s 2 forwards;
+}
+
+/* The budget alert drops in once the 91% bar has filled, then pulses twice to draw the eye. */
+@keyframes alert-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.97);
+  }
+}
+
+@keyframes alert-glow {
+  from {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--warning) 0%, transparent);
+  }
+}
+
+.alert-in {
+  animation:
+    alert-in 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 2.1s both,
+    alert-glow 1s ease-out 2.5s 2;
 }
 
 /*
  * Live feed rows. Animating grid-template-rows from 0fr to 1fr opens the row to its natural
  * height, so the rows below slide down instead of jumping. The leaving row closes the same way.
+ * Enter and exit share one duration and easing, so the opening and closing rows always add up to
+ * one row of height and the page below the feed does not bob on every arrival.
  */
 @keyframes feed-enter {
   from {
     grid-template-rows: 0fr;
-    opacity: 0;
   }
   to {
     grid-template-rows: 1fr;
-    opacity: 1;
   }
 }
 
@@ -125,13 +274,48 @@ summary {
   }
 }
 
-@keyframes feed-highlight {
+.feed-enter {
+  animation: feed-enter 0.55s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.feed-exit {
+  animation: feed-exit 0.55s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+/* The arriving event's content slides down into its opening slot and sharpens. */
+@keyframes feed-content-in {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+    filter: blur(4px);
+  }
+}
+
+/* A severity-colored edge and wash mark the newest event, then fade. */
+@keyframes feed-flash {
   from {
     background-color: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--flash);
   }
   to {
     background-color: transparent;
+    box-shadow: inset 2px 0 0 transparent;
   }
+}
+
+.feed-arrival {
+  --flash: var(--accent);
+  animation:
+    feed-content-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both,
+    feed-flash 2.6s ease-out both;
+}
+
+.feed-arrival[data-severity="Alert"] {
+  --flash: var(--warning);
+}
+
+.feed-arrival[data-severity="Failed"] {
+  --flash: var(--danger);
 }
 
 @keyframes live-pulse {
@@ -145,18 +329,6 @@ summary {
   }
 }
 
-/* Enter and exit share one duration and easing, so the opening and closing rows always add up to
- * one row of height and the page below the feed does not bob on every arrival. */
-.feed-enter {
-  animation:
-    feed-enter 0.5s ease-in-out both,
-    feed-highlight 2.4s ease-out both;
-}
-
-.feed-exit {
-  animation: feed-exit 0.5s ease-in-out both;
-}
-
 .live-pulse {
   animation: live-pulse 1.6s ease-out infinite;
 }
@@ -165,11 +337,23 @@ summary {
   .rise,
   .rise-late,
   .rise-in,
+  .window-in,
   .bar-fill,
+  .count-up,
+  .spark-line,
+  .spark-area,
+  .spark-dot,
+  .spark-ping,
+  .alert-in,
   .feed-enter,
   .feed-exit,
+  .feed-arrival,
   .live-pulse {
     animation: none;
+  }
+  /* The ping is decoration that only exists while it animates. */
+  .spark-ping {
+    display: none;
   }
   /* Without the closing animation the leaving row would stay on screen. */
   .feed-exit {

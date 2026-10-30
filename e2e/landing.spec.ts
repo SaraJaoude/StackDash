@@ -53,14 +53,14 @@ test.describe("landing page", () => {
     test("a new event arrives on top while streaming, and pausing stops it", async ({ page }) => {
       await page.goto("/");
       const rows = page.getByRole("list", { name: "Example live events" }).getByRole("listitem");
-      await expect(rows).toHaveCount(6);
+      await expect(rows).toHaveCount(10);
       const firstEvent = await newestEvent(rows);
 
       await expect(async () => {
         await page.clock.runFor(3_000);
         await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
       }).toPass();
-      await expect(rows, "the leaving row stays out of the accessibility tree").toHaveCount(6);
+      await expect(rows, "the leaving row stays out of the accessibility tree").toHaveCount(10);
 
       await page.getByRole("button", { name: "Pause live events" }).click();
       await expect(page.getByRole("button", { name: "Resume live events" })).toBeVisible();
