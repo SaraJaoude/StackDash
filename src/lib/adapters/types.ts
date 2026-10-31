@@ -79,6 +79,9 @@ export type OAuthCredential = Readonly<{
   expiresAt?: Date;
   scopes: readonly string[];
   tokenType: string;
+  // Non-secret identifiers the provider returns with the grant and the adapter needs later
+  // (Vercel team and configuration ids, GitHub installation id, Stripe account id).
+  metadata?: Readonly<Record<string, string>>;
 }>;
 
 /** What the provider granted, for comparing against what the adapter requests. */
@@ -87,6 +90,9 @@ export type OAuthGrant = Pick<OAuthCredential, "scopes">;
 export type OAuthClient = Readonly<{
   clientId: string;
   clientSecret: Secret;
+  // Provider-specific app settings beyond the id and secret (GitHub App id and private key,
+  // Vercel integration slug), keyed by the names in `OAuthDescriptor.extraEnv`.
+  extra: Readonly<Record<string, Secret>>;
 }>;
 
 export type OAuthDescriptor = Readonly<{
@@ -98,6 +104,8 @@ export type OAuthDescriptor = Readonly<{
   // Names of the environment variables, never their values.
   clientIdEnv: string;
   clientSecretEnv: string;
+  // Extra settings: key used in `OAuthClient.extra` mapped to its environment variable name.
+  extraEnv?: Readonly<Record<string, string>>;
 }>;
 
 /**
@@ -133,6 +141,8 @@ export type Permission = Readonly<
 export type ExternalAccount = Readonly<{
   externalId: string;
   displayName: string;
+  // Provider vocabulary for the account: `team`, `organization`, `user`, `account`, `project`.
+  kind: string;
 }>;
 
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>;
@@ -153,7 +163,7 @@ export type AdapterContext = Readonly<{
 export type OAuthContext = AdapterContext & Readonly<{ client: OAuthClient }>;
 
 export type AuthorizeUrlParams = Readonly<{
-  clientId: string;
+  client: OAuthClient;
   state: string;
   redirectUri: string;
   // S256 challenge. Required when `oauth.pkce` is true.
@@ -165,6 +175,9 @@ export type ExchangeCodeInput = Readonly<{
   redirectUri: string;
   // Required when `oauth.pkce` is true.
   codeVerifier?: string;
+  // Every query parameter the provider sent to the callback, for provider-specific values such
+  // as GitHub's `installation_id` or Vercel's `configurationId`. Untrusted: adapters verify them.
+  callbackParams: Readonly<Record<string, string>>;
 }>;
 
 /** One decrypted credential for one connection and one external account. */
@@ -190,6 +203,9 @@ export interface ProviderAdapter {
   readonly dataCollected: readonly string[];
   readonly eventTypes: readonly EventType[];
   readonly oauth: OAuthDescriptor;
+  // Decided on #37: each adapter declares how often it polls, hourly unless its provider's
+  // limits or retention need otherwise. Must be at least 60.
+  readonly pollIntervalSeconds: number;
 
   buildAuthorizeUrl(params: AuthorizeUrlParams): URL;
   exchangeCode(input: ExchangeCodeInput, ctx: OAuthContext): Promise<OAuthCredential>;
@@ -197,10 +213,10 @@ export interface ProviderAdapter {
   refreshTokens?(credential: OAuthCredential, ctx: OAuthContext): Promise<OAuthCredential>;
   // Omitted when the provider has no revocation endpoint.
   revoke?(credential: OAuthCredential, ctx: OAuthContext): Promise<void>;
-  listAccounts(credential: OAuthCredential, ctx: AdapterContext): Promise<ExternalAccount[]>;
+  listAccounts(credential: OAuthCredential, ctx: OAuthContext): Promise<ExternalAccount[]>;
   /** Requested scopes absent from the grant. Empty means nothing is missing. */
   detectMissingPermissions(grant: OAuthGrant): string[];
-  sync(input: SyncInput, ctx: AdapterContext): Promise<SyncResult>;
+  sync(input: SyncInput, ctx: OAuthContext): Promise<SyncResult>;
 }
 
 export type ValidationIssue = Readonly<{
