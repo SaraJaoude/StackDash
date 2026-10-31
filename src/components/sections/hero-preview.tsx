@@ -1,9 +1,10 @@
 import { LiveEventFeed } from "@/components/live-event-feed";
+import type { Platform } from "@/lib/site";
 
 type CostSource = "Verified cost" | "Estimated cost" | "Allowance" | "Budget";
 
 interface PreviewRow {
-  provider: string;
+  provider: Platform;
   detail: string;
   source: CostSource;
   measure: { kind: "share"; percentUsed: number } | { kind: "amount"; amountMinor: number };

@@ -131,3 +131,9 @@ supabase/config.toml     local Supabase stack configuration
 supabase/migrations/     forward-only SQL migrations
 e2e/                     Playwright specs
 ```
+
+## Third-party marks
+
+The platform logos on the landing page use path data from [Simple Icons](https://simpleicons.org)
+(CC0-1.0). The logos remain trademarks of their owners and identify the integrations DevMacro
+connects to. Their use implies no endorsement.
