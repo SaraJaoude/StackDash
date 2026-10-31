@@ -1,0 +1,34 @@
+{
+  "entitlements": [
+    {
+      "feature": { "key": "security.audit_logs_days", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 7, "unlimited": false, "unit": "days" }
+    },
+    {
+      "feature": { "key": "log.retention_days", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 7, "unlimited": false, "unit": "days" }
+    },
+    {
+      "feature": { "key": "function.max_count", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 500, "unlimited": false, "unit": "functions" }
+    },
+    {
+      "feature": { "key": "realtime.max_concurrent_users", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 0, "unlimited": true, "unit": "users" }
+    },
+    {
+      "feature": { "key": "auth.mfa_phone", "type": "boolean" },
+      "hasAccess": true,
+      "type": "boolean",
+      "config": { "enabled": true }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "examplecorp",
+  "name": "Example Corp",
+  "plan": "free",
+  "opt_in_tags": [],
+  "allowed_release_channels": ["ga"]
+}

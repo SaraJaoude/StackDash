@@ -1,0 +1,24 @@
+{
+  "projects": [
+    {
+      "ref": "abcdefghijklmnopqrst",
+      "name": "example-app",
+      "cloud_provider": "AWS",
+      "region": "us-east-1",
+      "is_branch": false,
+      "status": "ACTIVE_HEALTHY",
+      "inserted_at": "2026-01-15T12:00:00Z",
+      "databases": [
+        {
+          "infra_compute_size": "nano",
+          "region": "us-east-1",
+          "status": "ACTIVE_HEALTHY",
+          "cloud_provider": "AWS",
+          "identifier": "abcdefghijklmnopqrst",
+          "type": "PRIMARY"
+        }
+      ]
+    }
+  ],
+  "pagination": { "count": 1, "limit": 100, "offset": 0 }
+}

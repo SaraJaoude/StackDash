@@ -1,0 +1,4 @@
+[
+  { "name": "auth", "healthy": false, "status": "UNHEALTHY", "error": "synthetic upstream timeout" },
+  { "name": "db", "healthy": true, "status": "ACTIVE_HEALTHY" }
+]

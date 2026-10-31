@@ -1,0 +1,9 @@
+{
+  "result": [
+    { "action": "login", "events": 42 },
+    { "action": "user_signedup", "events": 3 },
+    { "action": "token_refreshed", "events": 310 },
+    { "action": "logout", "events": "7" },
+    { "action": "user_deleted", "events": 1 }
+  ]
+}
