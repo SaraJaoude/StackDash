@@ -3,7 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";
 import { ProviderIdSchema } from "@/lib/adapters/types";
-import { requireUser } from "@/lib/auth/session";
+import { safeNextPath } from "@/lib/auth/redirect";
+import { isSameOrigin } from "@/lib/auth/same-origin";
+import { getCurrentUser } from "@/lib/auth/session";
 import {
   callbackRedirectUri,
   connectFeedbackQuery,
@@ -23,23 +25,46 @@ import {
 } from "@/lib/workspaces/access";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
 
+/** A text field of the posted form, or null when it is missing or a file. */
+function textField(form: FormData, name: string): string | null {
+  const value = form.get(name);
+  return typeof value === "string" ? value : null;
+}
+
 /**
- * Starts connecting a provider (#40): `GET ?workspace=<slug>&consent=1[&connection=<id>]`, sent by
- * the permission disclosure form. Authorizes the member, checks consent for full-access
- * permissions, stores a single-use state (with the PKCE verifier sealed), and redirects to the
- * provider's consent screen.
+ * Starts connecting a provider (#40): a `POST` of `workspace=<slug>&consent=1[&connection=<id>]`
+ * from the permission disclosure form. It creates a state row and sends the user to a provider, so
+ * it refuses a request posted from another site. Authorizes the member, checks consent for
+ * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and
+ * redirects to the provider's consent screen with a 303, so the browser follows with a `GET`.
  */
-export async function GET(request: NextRequest, ctx: RouteContext<"/api/connections/[provider]/start">) {
+export async function POST(request: NextRequest, ctx: RouteContext<"/api/connections/[provider]/start">) {
+  if (!isSameOrigin(request)) {
+    return new NextResponse(
+      "Connecting a provider must start from DevMacro. Go back to Connections and choose the provider again.",
+      { status: 403, headers: { "Content-Type": "text/plain; charset=utf-8" } },
+    );
+  }
+
   const { provider: providerParam } = await ctx.params;
   const parsedProvider = ProviderIdSchema.safeParse(providerParam);
   if (!parsedProvider.success) notFound();
   const provider = parsedProvider.data;
   if (provider === "fake" && !isFakeProviderEnabled()) notFound();
 
-  const query = request.nextUrl.searchParams;
-  const slug = query.get("workspace") ?? "";
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    // Not a form body, so there is no workspace to send the user back to.
+    return new NextResponse("Connecting a provider needs the form on the Connections page. Go back and try again.", {
+      status: 400,
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  }
+  const slug = textField(form, "workspace") ?? "";
   if (!isWorkspaceSlug(slug)) notFound();
-  const reconnectParam = query.get("connection");
+  const reconnectParam = textField(form, "connection");
   const connectionsPath = workspacePath(slug, "connections");
   const disclosurePath = `${connectionsPath}/new/${provider}`;
 
@@ -49,7 +74,14 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
     return NextResponse.redirect(url, 303);
   };
 
-  await requireUser(disclosurePath);
+  // `redirect()` answers a route handler with a 307, which would re-post the form to the sign-in
+  // page, so a signed-out user gets an explicit 303 instead.
+  if ((await getCurrentUser()) === null) {
+    const signIn = new URL("/sign-in", request.nextUrl.origin);
+    signIn.searchParams.set("next", safeNextPath(disclosurePath));
+    return NextResponse.redirect(signIn, 303);
+  }
+
   let access: WorkspaceAccess;
   try {
     access = await requireWorkspaceAction(slug, "manage_connections");
@@ -67,13 +99,12 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
   const reconnectExtra: Record<string, string> =
     reconnectParam === null ? {} : { connection: reconnectParam };
   const needsConsent = adapter.permissions.some((permission) => permission.access === "full");
-  if (needsConsent && query.get("consent") !== "1") {
+  if (needsConsent && textField(form, "consent") !== "1") {
     return back(disclosurePath, { error: "consent_required", provider }, reconnectExtra);
   }
 
   try {
     let reconnectId: string | undefined;
-    let redirectAfter = connectionsPath;
     if (reconnectParam !== null) {
       // Re-read in this workspace: a missing id and another tenant's id get the same answer.
       const existing = isConnectionId(reconnectParam)
@@ -83,7 +114,6 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
         return back(connectionsPath, { error: "invalid", provider });
       }
       reconnectId = existing.id;
-      redirectAfter = `${connectionsPath}/${existing.id}`;
     }
 
     const state = newStateToken();
@@ -96,7 +126,6 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/connecti
       provider,
       userId: access.user.id,
       ...(pkce === null ? {} : { codeVerifier: pkce.verifier }),
-      redirectAfter,
       ...(reconnectId === undefined ? {} : { reconnectId }),
       now: new Date(),
     });

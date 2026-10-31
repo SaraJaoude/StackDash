@@ -60,7 +60,7 @@ describe("retention (#37)", () => {
 
     expect(store.snapshots.map((row) => row.snapshot_date).sort()).toEqual(["2025-09-30", "2026-10-31"]);
     expect(store.events.map((row) => row.dedupe_key)).toEqual(["exactly-13-months"]);
-    expect(result).toEqual({ snapshots: 1, events: 1, jobs: 0, complete: true });
+    expect(result).toEqual({ oauthStates: 0, snapshots: 1, events: 1, jobs: 0, complete: true });
   });
 
   it("deletes finished sync jobs older than 30 days and never queued or running ones", async () => {
@@ -77,6 +77,21 @@ describe("retention (#37)", () => {
     expect(store.jobs.map((job) => job.dedupe_key).sort()).toEqual(["kept-exact", "old-queued"]);
   });
 
+  it("deletes OAuth states once expired and keeps flows still in progress", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const at = (ms: number) => new Date(NOW.getTime() + ms).toISOString();
+    store.oauthStates.push(
+      { state: "abandoned", workspace_id: WORKSPACE_ID, expires_at: at(-60_000) },
+      { state: "expires-now", workspace_id: WORKSPACE_ID, expires_at: at(0) },
+      { state: "in-progress", workspace_id: WORKSPACE_ID, expires_at: at(1) },
+    );
+
+    const result = await runRetention(store, NOW, () => true);
+
+    expect(store.oauthStates.map((row) => row.state)).toEqual(["in-progress"]);
+    expect(result.oauthStates).toBe(2);
+  });
+
   it("deletes in batches of 1000 and is safe to re-run", async () => {
     const store = new MemoryJobStore(() => NOW);
     for (let i = 0; i < 2 * RETENTION_BATCH_SIZE + 5; i += 1) {
@@ -90,7 +105,7 @@ describe("retention (#37)", () => {
     expect(purge.mock.calls.every(([, limit]) => limit === RETENTION_BATCH_SIZE)).toBe(true);
 
     const second = await runRetention(store, NOW, () => true);
-    expect(second).toEqual({ snapshots: 0, events: 0, jobs: 0, complete: true });
+    expect(second).toEqual({ oauthStates: 0, snapshots: 0, events: 0, jobs: 0, complete: true });
   });
 
   it("stops between batches when the time budget runs out and reports the run incomplete", async () => {

@@ -123,14 +123,14 @@ isOneToOne: false
                   ]
                 },"connection_credentials": {
                   Row: {
-                    "access_expires_at": string | null,"auth_tag": string,"ciphertext": string,"connection_id": string,"iv": string,"key_id": string,"updated_at": string,"workspace_id": string
+                    "auth_tag": string,"ciphertext": string,"connection_id": string,"iv": string,"key_id": string,"updated_at": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "access_expires_at"?: string | null,"auth_tag": string,"ciphertext": string,"connection_id": string,"iv": string,"key_id": string,"updated_at"?: string,"workspace_id": string
+                    "auth_tag": string,"ciphertext": string,"connection_id": string,"iv": string,"key_id": string,"updated_at"?: string,"workspace_id": string
                   }
                   Update: {
-                    "access_expires_at"?: string | null,"auth_tag"?: string,"ciphertext"?: string,"connection_id"?: string,"iv"?: string,"key_id"?: string,"updated_at"?: string,"workspace_id"?: string
+                    "auth_tag"?: string,"ciphertext"?: string,"connection_id"?: string,"iv"?: string,"key_id"?: string,"updated_at"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
@@ -201,14 +201,14 @@ isOneToOne: false
                   ]
                 },"oauth_states": {
                   Row: {
-                    "code_verifier_ciphertext": string | null,"code_verifier_iv": string | null,"code_verifier_tag": string | null,"created_at": string,"expires_at": string,"key_id": string | null,"pending_installation_id": string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id": string | null,"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
+                    "code_verifier_ciphertext": string | null,"code_verifier_iv": string | null,"code_verifier_tag": string | null,"created_at": string,"expires_at": string,"key_id": string | null,"pending_installation_id": string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id": string | null,"state": string,"user_id": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at": string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
+                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at": string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"state": string,"user_id": string,"workspace_id": string
                   }
                   Update: {
-                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at"?: string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"redirect_after"?: string,"state"?: string,"user_id"?: string,"workspace_id"?: string
+                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at"?: string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"state"?: string,"user_id"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
@@ -453,6 +453,9 @@ isOneToOne: false
             }[]
                            },
 "purge_activity_events":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_oauth_states":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
 "purge_sync_jobs":

@@ -148,7 +148,7 @@ export async function completeConnection(input: CompleteConnectionInput): Promis
         .eq("id", connectionId)
         .eq("workspace_id", workspaceId);
       if (cleanupError) {
-        await deleteCredential(connectionId).catch(() => undefined);
+        await deleteCredential({ workspaceId, connectionId }).catch(() => undefined);
       }
     }
     throw error;

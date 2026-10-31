@@ -95,6 +95,8 @@ export interface JobStore {
   purgeSnapshots(beforeDate: string, limit: number): Promise<number>;
   purgeEvents(before: Date, limit: number): Promise<number>;
   purgeJobs(before: Date, limit: number): Promise<number>;
+  /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
+  purgeOAuthStates(before: Date, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
@@ -319,6 +321,12 @@ export function createSupabaseJobStore(): JobStore {
     async purgeJobs(before, limit) {
       const { data, error } = await db.rpc("purge_sync_jobs", { p_before: before.toISOString(), p_limit: limit });
       if (error) throw failure("purge_sync_jobs", error);
+      return data;
+    },
+
+    async purgeOAuthStates(before, limit) {
+      const { data, error } = await db.rpc("purge_oauth_states", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_oauth_states", error);
       return data;
     },
 

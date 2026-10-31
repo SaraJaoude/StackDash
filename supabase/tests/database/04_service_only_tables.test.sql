@@ -33,9 +33,9 @@ insert into public.connection_credentials (connection_id, workspace_id, key_id, 
 values ('e00000a1-0000-4000-8000-000000000000', 'e00000a0-0000-4000-8000-000000000000', 'deadbeef',
         '\x00'::bytea, '\x01'::bytea, '\x02'::bytea);
 
-insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at)
+insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at)
 values ('rls-service-state', 'e00000a0-0000-4000-8000-000000000000', 'fake', 'e0000001-0000-4000-8000-000000000000',
-        '/app', now() + interval '10 minutes');
+        now() + interval '10 minutes');
 
 insert into public.access_invites (email, invited_by)
 values ('rls-service-invited@example.com', 'pgtap');
@@ -56,8 +56,8 @@ select throws_ok($$
 select throws_ok($$ select state from public.oauth_states $$, '42501'::char(5), null::text,
   'service only: anon cannot select oauth_states');
 select throws_ok($$
-    insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at)
-    values ('anon-state', 'e00000a0-0000-4000-8000-000000000000', 'fake', 'e0000001-0000-4000-8000-000000000000', '/app', now() + interval '10 minutes')
+    insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at)
+    values ('anon-state', 'e00000a0-0000-4000-8000-000000000000', 'fake', 'e0000001-0000-4000-8000-000000000000', now() + interval '10 minutes')
   $$, '42501'::char(5), null::text,
   'service only: anon cannot insert oauth_states');
 select throws_ok($$ select email from public.access_invites $$, '42501'::char(5), null::text,
@@ -85,8 +85,8 @@ select throws_ok($$
 select throws_ok($$ select state from public.oauth_states $$, '42501'::char(5), null::text,
   'service only: an authenticated owner cannot select oauth_states');
 select throws_ok($$
-    insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at)
-    values ('auth-state', 'e00000a0-0000-4000-8000-000000000000', 'fake', 'e0000001-0000-4000-8000-000000000000', '/app', now() + interval '10 minutes')
+    insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at)
+    values ('auth-state', 'e00000a0-0000-4000-8000-000000000000', 'fake', 'e0000001-0000-4000-8000-000000000000', now() + interval '10 minutes')
   $$, '42501'::char(5), null::text,
   'service only: an authenticated owner cannot insert oauth_states');
 select throws_ok($$ select email from public.access_invites $$, '42501'::char(5), null::text,

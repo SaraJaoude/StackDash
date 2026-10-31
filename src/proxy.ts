@@ -3,12 +3,26 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
+import { PROVIDER_AUTHORIZE_ORIGINS } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
-// Enforced on every proxied response: the directives that do not depend on scripts. Identical to
-// the static landing policy in next.config.ts (e2e/auth.spec.ts asserts they match).
-// frame-ancestors is ignored in report-only mode, so it must stay in the enforced header.
-const ENFORCED_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+/**
+ * Where a form on an app page may lead. Browsers apply form-action to every redirect hop of a
+ * form submission, so the list names where those chains go: without JavaScript the sign-in form
+ * posts, then redirects through Supabase Auth to GitHub, and the connect form posts to the start
+ * route, which redirects to the provider's authorize page. The landing page has no such form and
+ * keeps `form-action 'self'` (next.config.ts).
+ */
+function formActionSources(supabaseOrigin: string): string {
+  return ["'self'", ...new Set([supabaseOrigin, "https://github.com", ...Object.values(PROVIDER_AUTHORIZE_ORIGINS)])].join(" ");
+}
+
+// Enforced on every proxied response: the directives that do not depend on scripts. The same as
+// the static landing policy in next.config.ts apart from form-action (e2e/auth.spec.ts asserts
+// both). frame-ancestors is ignored in report-only mode, so it must stay in the enforced header.
+function enforcedPolicy(supabaseOrigin: string): string {
+  return `frame-ancestors 'none'; base-uri 'self'; form-action ${formActionSources(supabaseOrigin)}; object-src 'none'`;
+}
 
 /**
  * Builds the per-request nonce policy. Next.js reads the nonce from the request's CSP header and
@@ -36,10 +50,7 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
     `connect-src 'self' ${supabaseOrigin} ${supabaseSocket}`,
     "object-src 'none'",
     "base-uri 'self'",
-    // Without JavaScript the sign-in form posts, then redirects through Supabase Auth to GitHub;
-    // browsers apply form-action to every hop of that redirect chain. The enforced policy keeps
-    // form-action 'self' for now, so only the JavaScript path (a fetch, then a navigation) works.
-    `form-action 'self' ${supabaseOrigin} https://github.com`,
+    `form-action ${formActionSources(supabaseOrigin)}`,
     "frame-ancestors 'none'",
     // Local Supabase serves plain http on 127.0.0.1, which this directive would break.
     ...(isDev ? [] : ["upgrade-insecure-requests"]),
@@ -90,7 +101,8 @@ export async function proxy(request: NextRequest) {
     response = NextResponse.redirect(signIn);
   } else {
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-    const policy = contentSecurityPolicy(nonce, new URL(NEXT_PUBLIC_SUPABASE_URL));
+    const supabaseUrl = new URL(NEXT_PUBLIC_SUPABASE_URL);
+    const policy = contentSecurityPolicy(nonce, supabaseUrl);
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("Content-Security-Policy", policy);
     response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -100,7 +112,7 @@ export async function proxy(request: NextRequest) {
     // There is no reporting endpoint yet, so violations only show in the browser console; issue
     // #125 tracks collecting reports and moving to enforcement.
     response.headers.set("Content-Security-Policy-Report-Only", policy);
-    response.headers.set("Content-Security-Policy", ENFORCED_CSP);
+    response.headers.set("Content-Security-Policy", enforcedPolicy(supabaseUrl.origin));
   }
 
   for (const { name, value, options } of cookiesToApply) response.cookies.set(name, value, options);

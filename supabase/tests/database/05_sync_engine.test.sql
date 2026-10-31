@@ -252,26 +252,26 @@ reset request.jwt.claims;
 
 select throws_ok(
   $$
-    insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at, reconnect_connection_id)
+    insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at, reconnect_connection_id)
     values ('rls-sync-cross-state', 'f00000b0-0000-4000-8000-000000000000', 'fake', 'f0000001-0000-4000-8000-000000000000',
-            '/app', now() + interval '10 minutes', 'f00000a2-0000-4000-8000-000000000000')
+            now() + interval '10 minutes', 'f00000a2-0000-4000-8000-000000000000')
   $$,
   '23503'::char(5), null::text,
   'oauth_states: reconnect_connection_id cannot point at a connection in another workspace');
 
 select lives_ok(
   $$
-    insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at, reconnect_connection_id, pending_installation_id)
+    insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at, reconnect_connection_id, pending_installation_id)
     values ('rls-sync-same-state', 'f00000a0-0000-4000-8000-000000000000', 'fake', 'f0000001-0000-4000-8000-000000000000',
-            '/app', now() + interval '10 minutes', 'f00000a2-0000-4000-8000-000000000000', '12345678')
+            now() + interval '10 minutes', 'f00000a2-0000-4000-8000-000000000000', '12345678')
   $$,
   'oauth_states: reconnect_connection_id may point at a connection in its own workspace');
 
 select throws_ok(
   $$
-    insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at, pending_installation_id)
+    insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at, pending_installation_id)
     values ('rls-sync-bad-install', 'f00000a0-0000-4000-8000-000000000000', 'fake', 'f0000001-0000-4000-8000-000000000000',
-            '/app', now() + interval '10 minutes', '123; drop table')
+            now() + interval '10 minutes', '123; drop table')
   $$,
   '23514'::char(5), null::text,
   'oauth_states: pending_installation_id must be digits only (untrusted callback input)');

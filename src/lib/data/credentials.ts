@@ -99,8 +99,6 @@ export async function saveCredential({
       connection_id: connectionId,
       workspace_id: workspaceId,
       ...encryptedToColumns(encrypted),
-      // Stored in clear so the scheduler can find tokens due for refresh without decrypting.
-      access_expires_at: credential.expiresAt?.toISOString() ?? null,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "connection_id" },
@@ -134,13 +132,15 @@ export async function loadCredential({
 
 /**
  * Deletes a connection's stored credential (disconnect or revoke). The caller must have authorized
- * the user for the connection's workspace. Deleting a missing row is not an error.
+ * the user for `workspaceId`; the workspace filter keeps a connection id from another workspace
+ * from matching anything. Deleting a missing row is not an error.
  */
-export async function deleteCredential(connectionId: string): Promise<void> {
+export async function deleteCredential({ workspaceId, connectionId }: CredentialKey): Promise<void> {
   const supabase = createAdminClient();
   const { error } = await supabase
     .from("connection_credentials")
     .delete()
-    .eq("connection_id", connectionId);
+    .eq("connection_id", connectionId)
+    .eq("workspace_id", workspaceId);
   if (error) throw failure("delete", error);
 }

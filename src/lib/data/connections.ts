@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import { z } from "zod";
 
+import { afterCursorFilter, encodeCursor, type Cursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -52,53 +53,23 @@ export function isConnectionId(value: string): boolean {
   return IdSchema.safeParse(value).success;
 }
 
-// Cursor: the created_at and id of the last row on the previous page, so pages never overlap even
-// when two connections share a timestamp.
-const CursorSchema = z.object({ createdAt: z.iso.datetime({ offset: true }), id: IdSchema }).strict();
-export type ConnectionsCursor = z.infer<typeof CursorSchema>;
-
-export function encodeConnectionsCursor(cursor: ConnectionsCursor): string {
-  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
-}
-
-export function decodeConnectionsCursor(value: string | undefined): ConnectionsCursor | null {
-  if (value === undefined || value.length === 0 || value.length > 200) return null;
-  try {
-    const parsed = CursorSchema.safeParse(JSON.parse(Buffer.from(value, "base64url").toString("utf8")));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-export type ConnectionsPage = Readonly<{ items: ConnectionSummary[]; nextCursor: string | null }>;
-
-/** One page of the workspace's connections, oldest first. */
+/** One page of the workspace's connections, oldest first, after `after` (from `decodeCursor`). */
 export const listConnections = cache(
-  async (workspaceId: string, after: ConnectionsCursor | null): Promise<ConnectionsPage> => {
+  async (workspaceId: string, after: Cursor | null): Promise<Page<ConnectionSummary>> => {
     const supabase = await createClient();
-    let query = supabase
-      .from("connections")
-      .select(CONNECTION_COLUMNS)
-      .eq("workspace_id", workspaceId)
+    let query = supabase.from("connections").select(CONNECTION_COLUMNS).eq("workspace_id", workspaceId);
+    if (after !== null) query = query.or(afterCursorFilter("created_at", after));
+    const { data, error } = await query
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(CONNECTIONS_PAGE_SIZE + 1);
-    if (after !== null) {
-      // Values are validated by CursorSchema, so they are safe inside the PostgREST filter.
-      query = query.or(
-        `created_at.gt.${after.createdAt},and(created_at.eq.${after.createdAt},id.gt.${after.id})`,
-      );
-    }
-    const { data, error } = await query;
     if (error) throw new Error("Failed to list connections", { cause: error });
     const items = data.slice(0, CONNECTIONS_PAGE_SIZE);
     const last = items.at(-1);
-    const nextCursor =
-      data.length > CONNECTIONS_PAGE_SIZE && last !== undefined
-        ? encodeConnectionsCursor({ createdAt: last.created_at, id: last.id })
-        : null;
-    return { items, nextCursor };
+    return {
+      items,
+      nextCursor: data.length > CONNECTIONS_PAGE_SIZE && last !== undefined ? encodeCursor([last.created_at, last.id]) : null,
+    };
   },
 );
 

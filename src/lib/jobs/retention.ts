@@ -3,9 +3,11 @@ import { utcDate } from "./ingest";
 
 /*
  * Retention (#37 decision): daily snapshots and activity events are kept 13 months, sync job rows
- * 30 days. Triggered alerts are kept while their rule exists, so they are not touched here.
- * Deletes run in batches of RETENTION_BATCH_SIZE by primary key until a batch comes back short, so
- * the job is safe to re-run and a run cut short by the time budget is finished by the next one.
+ * 30 days. Triggered alerts are kept while their rule exists, so they are not touched here. OAuth
+ * states go once expired: a finished connect flow deletes its own state, so an expired one belongs
+ * to an abandoned flow and still holds a sealed PKCE verifier bound to a user.
+ * Deletes run in batches of RETENTION_BATCH_SIZE until a batch comes back short, so the job is
+ * safe to re-run and a run cut short by the time budget is finished by the next one.
  */
 
 export const HISTORY_RETENTION_MONTHS = 13;
@@ -53,6 +55,7 @@ export function retentionCutoffs(now: Date): RetentionCutoffs {
 }
 
 export type RetentionResult = {
+  oauthStates: number;
   snapshots: number;
   events: number;
   jobs: number;
@@ -72,13 +75,16 @@ async function purgeAll(purge: () => Promise<number>, hasTime: () => boolean): P
 
 export async function runRetention(store: JobStore, now: Date, hasTime: () => boolean): Promise<RetentionResult> {
   const cutoffs = retentionCutoffs(now);
+  // First: the table is small, and its rows hold secrets, so a long history purge never delays it.
+  const oauthStates = await purgeAll(() => store.purgeOAuthStates(now, RETENTION_BATCH_SIZE), hasTime);
   const snapshots = await purgeAll(() => store.purgeSnapshots(cutoffs.snapshotsBeforeDate, RETENTION_BATCH_SIZE), hasTime);
   const events = await purgeAll(() => store.purgeEvents(cutoffs.eventsBefore, RETENTION_BATCH_SIZE), hasTime);
   const jobs = await purgeAll(() => store.purgeJobs(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
   return {
+    oauthStates: oauthStates.deleted,
     snapshots: snapshots.deleted,
     events: events.deleted,
     jobs: jobs.deleted,
-    complete: snapshots.complete && events.complete && jobs.complete,
+    complete: oauthStates.complete && snapshots.complete && events.complete && jobs.complete,
   };
 }

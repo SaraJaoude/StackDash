@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { severityFor, type AlertSeverity } from "@/lib/alerts/evaluate";
-import { decodeCursor, encodeCursor, type Cursor, type Page } from "@/lib/data/alert-rules";
+import { beforeCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -40,11 +40,6 @@ function toAlert({ alert_rules: rule, ...row }: SelectedRow): TriggeredAlert {
   return { ...row, severity: severityFor(rule?.threshold_percent ?? null) };
 }
 
-/** PostgREST `or` filter for rows after `cursor` in (triggered_at desc, id desc) order. */
-function beforeCursorFilter([triggeredAt, id]: Cursor): string {
-  return `triggered_at.lt."${triggeredAt}",and(triggered_at.eq."${triggeredAt}",id.lt.${id})`;
-}
-
 /**
  * One page of the workspace's triggered alerts, newest first. Acknowledged alerts are left out
  * unless `includeAcknowledged`; a missing or malformed `after` cursor means the first page.
@@ -55,7 +50,7 @@ export const listTriggeredAlerts = cache(
     let query = supabase.from("triggered_alerts").select(COLUMNS).eq("workspace_id", workspaceId);
     if (!includeAcknowledged) query = query.is("acknowledged_at", null);
     const cursor = decodeCursor(after);
-    if (cursor !== null) query = query.or(beforeCursorFilter(cursor));
+    if (cursor !== null) query = query.or(beforeCursorFilter("triggered_at", cursor));
     const { data, error } = await query
       .order("triggered_at", { ascending: false })
       .order("id", { ascending: false })
@@ -67,7 +62,7 @@ export const listTriggeredAlerts = cache(
       items,
       nextCursor:
         data.length > TRIGGERED_ALERTS_PAGE_SIZE && last !== undefined
-          ? encodeCursor({ created_at: last.triggered_at, id: last.id })
+          ? encodeCursor([last.triggered_at, last.id])
           : null,
     };
   },

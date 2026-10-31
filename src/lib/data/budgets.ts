@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import type { BudgetValues } from "@/lib/alerts/rule-schema";
-import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/alert-rules";
+import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -33,7 +33,7 @@ export const listBudgets = cache(async (workspaceId: string, after: string | nul
   const supabase = await createClient();
   let query = supabase.from("budgets").select(BUDGET_COLUMNS).eq("workspace_id", workspaceId);
   const cursor = decodeCursor(after);
-  if (cursor !== null) query = query.or(afterCursorFilter(cursor));
+  if (cursor !== null) query = query.or(afterCursorFilter("created_at", cursor));
   const { data, error } = await query
     .order("created_at", { ascending: true })
     .order("id", { ascending: true })
@@ -41,7 +41,10 @@ export const listBudgets = cache(async (workspaceId: string, after: string | nul
   if (error) throw new Error("Failed to list budgets", { cause: error });
   const items = data.slice(0, BUDGETS_PAGE_SIZE);
   const last = items.at(-1);
-  return { items, nextCursor: data.length > BUDGETS_PAGE_SIZE && last !== undefined ? encodeCursor(last) : null };
+  return {
+    items,
+    nextCursor: data.length > BUDGETS_PAGE_SIZE && last !== undefined ? encodeCursor([last.created_at, last.id]) : null,
+  };
 });
 
 /** Every budget (bounded), for the rule form's budget picker and for naming budgets in rule summaries. */

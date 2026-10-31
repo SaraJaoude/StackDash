@@ -1,9 +1,9 @@
 import "server-only";
 
 import { cache } from "react";
-import { z } from "zod";
 
 import { SUGGESTED_PERCENTS, type AlertRuleValues, type ProviderId } from "@/lib/alerts/rule-schema";
+import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -41,8 +41,6 @@ export type ScopeTargets = { projects: ProjectOption[]; connections: ConnectionO
 /** An allowance metric seen in this workspace's snapshots, offered as an optional rule filter. */
 export type AllowanceMetric = { metricKey: string; label: string; connectionIds: string[] };
 
-export type Page<T> = { items: T[]; nextCursor: string | null };
-
 const RULE_COLUMNS =
   "id, kind, scope, provider, project_id, connection_id, metric_key, budget_id, threshold_percent, threshold_amount_minor, currency, paused, created_at" as const;
 
@@ -56,38 +54,6 @@ const COVERAGE_LIMIT = 500;
 
 const ALLOWANCE_KINDS = ["included_allowance", "remaining_allowance"] as const satisfies readonly Database["public"]["Enums"]["metric_kind"][];
 
-// ── Keyset cursors, shared with budgets.ts ──────────────────────────────────────────────────────
-// Lists are ordered oldest first by (created_at, id). The cursor is the last row's pair, base64url
-// encoded so the timestamp's `+` survives a query string. It is validated before it reaches a
-// PostgREST filter, so a crafted cursor can never add a condition.
-
-const cursorSchema = z.tuple([
-  z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/),
-  z.guid(),
-]);
-
-export type Cursor = z.infer<typeof cursorSchema>;
-
-export function encodeCursor(row: { created_at: string; id: string }): string {
-  return Buffer.from(JSON.stringify([row.created_at, row.id])).toString("base64url");
-}
-
-/** The decoded cursor, or null for a missing or malformed one (which then means "first page"). */
-export function decodeCursor(raw: string | null | undefined): Cursor | null {
-  if (raw === null || raw === undefined || raw.length > 200) return null;
-  try {
-    const parsed = cursorSchema.safeParse(JSON.parse(Buffer.from(raw, "base64url").toString("utf8")));
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
-}
-
-/** PostgREST `or` filter for rows after `cursor` in (created_at, id) order. */
-export function afterCursorFilter([createdAt, id]: Cursor): string {
-  return `created_at.gt."${createdAt}",and(created_at.eq."${createdAt}",id.gt.${id})`;
-}
-
 // ── Reads ───────────────────────────────────────────────────────────────────────────────────────
 
 /** One page of the workspace's alert rules, oldest first. */
@@ -96,7 +62,7 @@ export const listAlertRules = cache(
     const supabase = await createClient();
     let query = supabase.from("alert_rules").select(RULE_COLUMNS).eq("workspace_id", workspaceId);
     const cursor = decodeCursor(after);
-    if (cursor !== null) query = query.or(afterCursorFilter(cursor));
+    if (cursor !== null) query = query.or(afterCursorFilter("created_at", cursor));
     const { data, error } = await query
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
@@ -104,7 +70,10 @@ export const listAlertRules = cache(
     if (error) throw new Error("Failed to list alert rules", { cause: error });
     const items = data.slice(0, RULES_PAGE_SIZE);
     const last = items.at(-1);
-    return { items, nextCursor: data.length > RULES_PAGE_SIZE && last !== undefined ? encodeCursor(last) : null };
+    return {
+      items,
+      nextCursor: data.length > RULES_PAGE_SIZE && last !== undefined ? encodeCursor([last.created_at, last.id]) : null,
+    };
   },
 );
 

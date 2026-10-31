@@ -19,14 +19,23 @@ function connectionIdFrom(page: Page): string {
 }
 
 /**
+ * Posts the disclosure form to the start route, as the browser does: same-origin, with the
+ * site's Origin header.
+ */
+function postStart(page: Page, provider: string, form: Record<string, string>) {
+  return page.request.post(`/api/connections/${provider}/start`, {
+    form,
+    headers: { Origin: new URL(test.info().project.use.baseURL ?? "").origin },
+    maxRedirects: 0,
+  });
+}
+
+/**
  * Calls the start route as the signed-in user, lets `edit` change the fake authorize URL (to
  * decline a scope or cancel, as a person would on a real consent screen), then follows it.
  */
 async function startFakeConnect(page: Page, slug: string, edit: (url: URL) => void): Promise<void> {
-  const response = await page.request.get(
-    `/api/connections/fake/start?${new URLSearchParams({ workspace: slug, consent: "1" }).toString()}`,
-    { maxRedirects: 0 },
-  );
+  const response = await postStart(page, "fake", { workspace: slug, consent: "1" });
   expect(response.status()).toBe(303);
   const location = response.headers().location;
   if (location === undefined) throw new Error("The start route did not redirect.");
@@ -308,10 +317,7 @@ viewerTest.describe("connections as a viewer", () => {
       await expect(page.getByRole("link", { name: "Reconnect" })).toHaveCount(0);
 
       // The start route refuses a viewer even when called directly.
-      const response = await page.request.get(
-        `/api/connections/fake/start?${new URLSearchParams({ workspace: workspace.slug, consent: "1" }).toString()}`,
-        { maxRedirects: 0 },
-      );
+      const response = await postStart(page, "fake", { workspace: workspace.slug, consent: "1" });
       expect(response.status()).toBe(303);
       expect(response.headers().location).toContain("error=forbidden");
     } finally {
@@ -322,10 +328,20 @@ viewerTest.describe("connections as a viewer", () => {
 
 test.describe("connections when signed out", () => {
   test("sends the start route to sign-in", async ({ page }) => {
-    const response = await page.request.get("/api/connections/fake/start?workspace=abcdefghij&consent=1", {
+    const response = await postStart(page, "fake", { workspace: "abcdefghij", consent: "1" });
+    expect(response.status()).toBe(303);
+    expect(response.headers().location).toContain("/sign-in");
+  });
+
+  test("the start route refuses a cross-site post and a GET", async ({ request }) => {
+    const crossSite = await request.post("/api/connections/fake/start", {
+      form: { workspace: "abcdefghij", consent: "1" },
+      headers: { Origin: "https://evil.example" },
       maxRedirects: 0,
     });
-    expect([303, 307]).toContain(response.status());
-    expect(response.headers().location).toContain("/sign-in");
+    expect(crossSite.status()).toBe(403);
+
+    const link = await request.get("/api/connections/fake/start?workspace=abcdefghij&consent=1", { maxRedirects: 0 });
+    expect(link.status()).toBe(405);
   });
 });

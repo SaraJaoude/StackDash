@@ -44,8 +44,9 @@ The timeline gets exactly one `devmacro.sync_failed` event per failure episode. 
 
 ## Retention
 
-The daily retention job deletes, in batches of 1000 rows by primary key:
+The daily retention job deletes, in batches of 1000 rows:
 
+- `oauth_states` whose `expires_at` has passed. A finished connect flow deletes its own state, so these belong to abandoned flows (a closed tab on the provider's consent screen, or GitHub's approval pending path) and still hold a sealed PKCE verifier. They go first, ahead of the larger tables.
 - `usage_snapshots` with `snapshot_date` more than 13 months before today (UTC).
 - `activity_events` with `occurred_at` more than 13 months ago.
 - Finished `sync_jobs` (succeeded or failed) created more than 30 days ago. Queued and running jobs are never deleted.

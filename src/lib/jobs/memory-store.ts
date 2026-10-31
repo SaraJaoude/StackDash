@@ -26,6 +26,7 @@ export type MemoryAccount = Tables<"external_accounts">;
 export type MemoryJob = Tables<"sync_jobs">;
 export type MemorySnapshot = SnapshotRow & { id: string };
 export type MemoryEvent = EventRow & { id: string };
+export type MemoryOAuthState = Pick<Tables<"oauth_states">, "state" | "workspace_id" | "expires_at">;
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -37,6 +38,7 @@ export class MemoryJobStore implements JobStore {
   jobs: MemoryJob[] = [];
   snapshots: MemorySnapshot[] = [];
   events: MemoryEvent[] = [];
+  oauthStates: MemoryOAuthState[] = [];
   credentials = new Map<string, OAuthCredential>();
   savedCredentials: OAuthCredential[] = [];
 
@@ -348,6 +350,18 @@ export class MemoryJobStore implements JobStore {
     );
     this.jobs = kept;
     return deleted;
+  }
+
+  async purgeOAuthStates(before: Date, limit: number): Promise<number> {
+    const doomed = new Set(
+      this.oauthStates
+        .filter((row) => new Date(row.expires_at).getTime() <= before.getTime())
+        .sort((a, b) => a.expires_at.localeCompare(b.expires_at) || a.state.localeCompare(b.state))
+        .slice(0, limit)
+        .map((row) => row.state),
+    );
+    this.oauthStates = this.oauthStates.filter((row) => !doomed.has(row.state));
+    return doomed.size;
   }
 
   async enqueueDailySummaries(date: string): Promise<number> {

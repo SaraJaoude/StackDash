@@ -138,7 +138,7 @@ async function ConnectProviderContent({
           <span>{connectErrorMessage("not_configured", adapter.displayName)}</span>
         </p>
       ) : (
-        <form method="get" action={`/api/connections/${provider}/start`} className="mt-6" noValidate>
+        <form method="post" action={`/api/connections/${provider}/start`} className="mt-6" noValidate>
           <input type="hidden" name="workspace" value={workspace.slug} />
           {reconnect === null ? null : <input type="hidden" name="connection" value={reconnect.id} />}
           {fullAccess.length === 0 ? null : (

@@ -19,7 +19,7 @@ import {
 } from "./oauth-state";
 
 describe("connectOrigin and callbackRedirectUri", () => {
-  const request = "http://localhost:3100/api/connections/fake/start?workspace=abc";
+  const request = "http://localhost:3100/api/connections/fake/start";
 
   it("uses the request origin when NEXT_PUBLIC_SITE_URL is unset", () => {
     expect(connectOrigin(request, undefined)).toBe("http://localhost:3100");

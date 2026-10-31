@@ -100,7 +100,7 @@ export async function disconnectConnection({
   userId,
 }: Readonly<{ workspaceId: string; connectionId: string; provider: ProviderId; userId: string }>): Promise<RevokeOutcome> {
   const outcome = await revokeAtProvider(workspaceId, connectionId, provider);
-  await deleteCredential(connectionId);
+  await deleteCredential({ workspaceId, connectionId });
   // Status and schedule are server-written columns; the caller was authorized above.
   const { error } = await createAdminClient()
     .from("connections")

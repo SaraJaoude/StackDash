@@ -86,7 +86,6 @@ export type CreateStateInput = Readonly<{
   userId: string;
   // Present only for providers that use PKCE.
   codeVerifier?: string;
-  redirectAfter: string;
   reconnectId?: string;
   // GitHub second step only: the installation from the first step, still untrusted.
   pendingInstallationId?: string;
@@ -107,7 +106,6 @@ export async function createOAuthState(input: CreateStateInput): Promise<void> {
       code_verifier_ciphertext: sealed === null ? null : toBytea(sealed.ciphertext),
       code_verifier_tag: sealed === null ? null : toBytea(sealed.authTag),
       key_id: sealed?.keyId ?? null,
-      redirect_after: input.redirectAfter,
       reconnect_connection_id: input.reconnectId ?? null,
       pending_installation_id: input.pendingInstallationId ?? null,
       expires_at: stateExpiresAt(input.now).toISOString(),
@@ -120,7 +118,6 @@ export type ConsumedState = Readonly<{
   provider: ProviderId;
   userId: string;
   codeVerifier: string | undefined;
-  redirectAfter: string;
   reconnectId: string | undefined;
   pendingInstallationId: string | undefined;
   expiresAt: Date;
@@ -138,7 +135,7 @@ export async function consumeOAuthState(state: string): Promise<ConsumedState | 
     .delete()
     .eq("state", state)
     .select(
-      "workspace_id, provider, user_id, code_verifier_iv, code_verifier_ciphertext, code_verifier_tag, key_id, redirect_after, reconnect_connection_id, pending_installation_id, expires_at",
+      "workspace_id, provider, user_id, code_verifier_iv, code_verifier_ciphertext, code_verifier_tag, key_id, reconnect_connection_id, pending_installation_id, expires_at",
     )
     .maybeSingle();
   if (error) throw new Error(`oauth_states consume failed (code ${error.code}).`);
@@ -166,7 +163,6 @@ export async function consumeOAuthState(state: string): Promise<ConsumedState | 
     provider: data.provider,
     userId: data.user_id,
     codeVerifier,
-    redirectAfter: data.redirect_after,
     reconnectId: data.reconnect_connection_id ?? undefined,
     pendingInstallationId: data.pending_installation_id ?? undefined,
     expiresAt: new Date(data.expires_at),

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { PROVIDER_AUTHORIZE_ORIGINS } from "@/lib/providers";
+
 import { fakeAdapter } from "./fake";
 import {
   availableProviders,
@@ -132,5 +134,25 @@ describe("createOAuthContext", () => {
     expect(ctx.timeoutMs).toBe(15_000);
     expect(ctx.now()).toBeInstanceOf(Date);
     expect(createAdapterContext().timeoutMs).toBe(15_000);
+  });
+});
+
+describe("PROVIDER_AUTHORIZE_ORIGINS", () => {
+  it("names the origin of every live adapter's authorize URL, which the proxy's form-action allows", () => {
+    for (const id of liveProviderIds) {
+      const adapter = getAdapter(id);
+      const client = {
+        clientId: "client-id",
+        clientSecret: new Secret("client-secret"),
+        extra: Object.fromEntries(Object.keys(adapter.oauth.extraEnv ?? {}).map((key) => [key, new Secret("devmacro")])),
+      };
+      const url = adapter.buildAuthorizeUrl({
+        client,
+        state: "state",
+        redirectUri: `https://devmacro.example/api/connections/${id}/callback`,
+        codeChallenge: "challenge",
+      });
+      expect(url.origin, id).toBe(PROVIDER_AUTHORIZE_ORIGINS[id]);
+    }
   });
 });

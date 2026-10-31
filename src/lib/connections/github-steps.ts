@@ -51,7 +51,6 @@ export async function githubCallbackStep({
         provider: "github",
         userId: consumed.userId,
         codeVerifier: pkce.verifier,
-        redirectAfter: consumed.redirectAfter,
         ...(consumed.reconnectId === undefined ? {} : { reconnectId: consumed.reconnectId }),
         pendingInstallationId: callback.installationId,
         now,

@@ -1,10 +1,42 @@
 import { test } from "@playwright/test";
 
-import { expect, ownerTest, signOutTest } from "./fixtures/auth";
+import { PROVIDER_AUTHORIZE_ORIGINS } from "../src/lib/providers";
 
-// The enforced policy shared by the landing page (next.config.ts) and app routes (src/proxy.ts).
-// Asserting it on both keeps the two copies identical.
+import { authEnv, expect, ownerTest, signOutTest } from "./fixtures/auth";
+
+// The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
+function directives(policy: string): Map<string, string[]> {
+  return new Map(
+    policy.split(";").map((directive): [string, string[]] => {
+      const [name = "", ...sources] = directive.trim().split(/\s+/);
+      return [name, sources];
+    }),
+  );
+}
+
+/**
+ * App routes (src/proxy.ts) enforce the landing directives, except that form-action also allows
+ * exactly the no-JavaScript sign-in chain (Supabase Auth, then GitHub) and each live provider's
+ * authorize page, because browsers check form-action on every redirect after a form post.
+ */
+function expectAppPolicy(policy: string | undefined): void {
+  const app = directives(policy ?? "");
+  const baseline = directives(BASELINE_CSP);
+  expect([...app.keys()]).toEqual([...baseline.keys()]);
+  for (const [name, sources] of baseline) {
+    if (name !== "form-action") expect(app.get(name), name).toEqual(sources);
+  }
+  expect(new Set(app.get("form-action"))).toEqual(
+    new Set([
+      "'self'",
+      new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL).origin,
+      "https://github.com",
+      ...Object.values(PROVIDER_AUTHORIZE_ORIGINS),
+    ]),
+  );
+}
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -32,10 +64,10 @@ test.describe("signed out", () => {
     await expect(page.getByRole("main").getByRole("status")).toBeAttached();
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 
-    // App routes enforce only the script-independent baseline (the same policy as the landing
-    // page) and report the nonce policy, until #125 moves it to enforcement.
+    // App routes enforce only the script-independent directives (form-action widened for the
+    // redirect chains above) and report the nonce policy, until #125 moves it to enforcement.
     const headers = response?.headers() ?? {};
-    expect(headers["content-security-policy"]).toBe(BASELINE_CSP);
+    expectAppPolicy(headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"] ?? "").toMatch(
       /script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/,
     );

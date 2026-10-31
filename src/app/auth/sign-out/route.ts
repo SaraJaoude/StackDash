@@ -1,20 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { isSameOrigin } from "@/lib/auth/same-origin";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
-
-// A bare POST handler gets no framework CSRF protection, so it checks that the form was posted
-// from this site. A cross-site form cannot forge the Origin header.
-function isSameOrigin(request: NextRequest): boolean {
-  const origin = request.headers.get("origin");
-  const host = request.headers.get("x-forwarded-host") ?? request.headers.get("host");
-  if (origin === null || host === null) return false;
-  try {
-    return new URL(origin).host === host;
-  } catch {
-    return false;
-  }
-}
 
 /**
  * Ends this browser's session. `signOut` revokes the session's refresh token on the auth server

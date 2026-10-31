@@ -262,8 +262,8 @@ select 'd00000b2-0000-4000-8000-000000000000', id, 'fake', 'active', 'Cascade co
 insert into public.connection_credentials (connection_id, workspace_id, key_id, iv, ciphertext, auth_tag)
 select 'd00000b2-0000-4000-8000-000000000000', id, 'deadbeef', '\x00'::bytea, '\x01'::bytea, '\x02'::bytea from rls_test.ids where key = 'team';
 
-insert into public.oauth_states (state, workspace_id, provider, user_id, redirect_after, expires_at)
-select 'rls-life-cascade-state', id, 'fake', 'd0000001-0000-4000-8000-000000000000', '/app', now() + interval '10 minutes'
+insert into public.oauth_states (state, workspace_id, provider, user_id, expires_at)
+select 'rls-life-cascade-state', id, 'fake', 'd0000001-0000-4000-8000-000000000000', now() + interval '10 minutes'
 from rls_test.ids where key = 'team';
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind, project_id)

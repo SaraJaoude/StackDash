@@ -27,6 +27,21 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   fake: null,
 };
 
+/**
+ * Origin of each live provider's authorize page, the first page the connect form leads to: the
+ * form posts to the start route, which answers with a redirect there. Browsers apply CSP
+ * `form-action` to every redirect hop of a form submission, so src/proxy.ts allows these origins.
+ * Plain data so the proxy bundle stays small; registry.test.ts checks every adapter's
+ * `buildAuthorizeUrl` against it, so the two cannot drift.
+ */
+export const PROVIDER_AUTHORIZE_ORIGINS: Readonly<Record<Exclude<ProviderId, "fake">, string>> = {
+  vercel: "https://vercel.com",
+  github: "https://github.com",
+  resend: "https://api.resend.com",
+  stripe: "https://marketplace.stripe.com",
+  supabase: "https://api.supabase.com",
+};
+
 /** Who produced an event: a provider, or DevMacro itself (daily summaries, alerts) when null. */
 export function providerName(provider: ProviderId | null): string {
   return provider === null ? "DevMacro" : PROVIDER_NAMES[provider];
