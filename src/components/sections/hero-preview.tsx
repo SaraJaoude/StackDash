@@ -1,12 +1,5 @@
 import { LiveEventFeed } from "@/components/live-event-feed";
 
-// Lets the count-up target travel as a typed inline custom property instead of a cast.
-declare module "react" {
-  interface CSSProperties {
-    "--count-to"?: number;
-  }
-}
-
 type CostSource = "Verified cost" | "Estimated cost" | "Allowance" | "Budget";
 
 interface PreviewRow {
