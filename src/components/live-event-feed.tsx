@@ -1,34 +1,8 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { PlatformLogo, type Platform } from "@/components/platform-logo";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
-
-type Platform =
-  | "Vercel"
-  | "GitHub"
-  | "GitHub Actions"
-  | "Resend"
-  | "Stripe"
-  | "Anthropic API"
-  | "Supabase"
-  | "ElevenLabs"
-  | "OpenAI API"
-  | "Cloudflare";
-
-// Short text marks stand in for logos: no third-party artwork, and the full name is always
-// printed beside the mark.
-const PLATFORM_MARKS: Record<Platform, string> = {
-  Vercel: "V",
-  GitHub: "GH",
-  "GitHub Actions": "GA",
-  Resend: "R",
-  Stripe: "S",
-  "Anthropic API": "A",
-  Supabase: "SB",
-  ElevenLabs: "11",
-  "OpenAI API": "AI",
-  Cloudflare: "CF",
-};
 
 interface FeedEvent {
   platform: Platform;
@@ -36,23 +10,25 @@ interface FeedEvent {
   text: string;
 }
 
-// Illustrative events only, labeled as such in the UI. Ordered so neighbors come from different
-// platforms, because the point of the feed is many sources in one place.
+// Illustrative events only, labeled as such in the UI. Every event is one a planned integration
+// can collect (issues #11, #46, #47, #51, #62, #111, #118). Ordered so neighbors come from
+// different platforms, because the point of the feed is many sources in one place.
 const feedEvents: readonly FeedEvent[] = [
-  { platform: "Vercel", severity: "Event", text: "Production deployment of acme-web is ready" },
-  { platform: "GitHub", severity: "Event", text: "Pull request #128 merged in acme/api" },
+  { platform: "Vercel", severity: "Success", text: "Production deployment of acme-web is ready" },
+  { platform: "Supabase", severity: "Success", text: "New signup on acme-app" },
+  { platform: "Stripe", severity: "Success", text: "Payment of $49.00 received for the Pro plan" },
+  { platform: "GitHub", severity: "Success", text: "acme/cli reached 1,000 stars" },
   { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 80%" },
-  { platform: "Stripe", severity: "Event", text: "Payment of $49.00 received for the Pro plan" },
-  { platform: "GitHub Actions", severity: "Failed", text: "Workflow ci failed on main in acme/api" },
-  { platform: "Anthropic API", severity: "Alert", text: "Spending passed 90% of your $25 budget" },
-  { platform: "Supabase", severity: "Event", text: "Database egress reached 2.1 GB of 5 GB" },
-  { platform: "ElevenLabs", severity: "Event", text: "Character credits reset for the new billing period" },
+  { platform: "Supabase", severity: "Summary", text: "Yesterday: 312 logins from 148 active users" },
+  { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
   { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
-  { platform: "OpenAI API", severity: "Event", text: "Spending today reached $3.10" },
-  { platform: "GitHub", severity: "Event", text: "Release v1.4.0 published in acme/cli" },
+  { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 75%" },
+  { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
+  { platform: "GitHub", severity: "Success", text: "Pull request #128 merged in acme/api" },
   { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
-  { platform: "Cloudflare", severity: "Event", text: "Workers requests reached 60% of the daily allowance" },
-  { platform: "Resend", severity: "Event", text: "Domain mail.acme.dev verified" },
+  { platform: "Vercel", severity: "Alert", text: "Spending passed 90% of your $25 budget" },
+  { platform: "GitHub", severity: "Success", text: "New fork of acme/api" },
+  { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
 ];
 
 // Ten rows match the height of the month column beside the feed. Below the lg breakpoint the
@@ -183,11 +159,8 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <span
-                    aria-hidden="true"
-                    className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel font-mono text-[10px] font-semibold text-foreground"
-                  >
-                    {PLATFORM_MARKS[event.platform]}
+                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-foreground">
+                    <PlatformLogo platform={event.platform} className="size-3.5" />
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">

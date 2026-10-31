@@ -27,12 +27,12 @@ const features: readonly IconCardItem[] = [
   {
     icon: TimelineIcon,
     title: "One activity timeline",
-    body: "Deployments, merged pull requests, releases, and payments next to usage events. Filter by provider, project, account, or severity.",
+    body: "Signups, logins, payments, deployments, and GitHub stars next to usage events. Filter by provider, project, account, or severity.",
   },
   {
     icon: LayersIcon,
     title: "Many accounts, many projects",
-    body: "Several GitHub organizations, Vercel teams, or OpenAI organizations side by side, grouped the way you run your projects.",
+    body: "Several GitHub organizations, Vercel teams, or Supabase projects side by side, grouped the way you run your projects.",
   },
 ];
 
@@ -47,8 +47,8 @@ const timeline: readonly TimelineEvent[] = [
   { time: "09:00", severity: "Summary", text: "Yesterday: $7.15 across 4 providers, $0.65 of it estimated" },
   { time: "08:42", severity: "Failed", text: "Vercel deployment failed for acme-web in production" },
   { time: "08:10", severity: "Alert", text: "Resend reached 75% of its monthly email allowance" },
-  { time: "07:55", severity: "Event", text: "Pull request #42 merged in acme/api" },
-  { time: "07:31", severity: "Alert", text: "Anthropic API spending passed $20 this month" },
+  { time: "07:55", severity: "Success", text: "Pull request #42 merged in acme/api" },
+  { time: "07:31", severity: "Success", text: "Supabase: 12 new signups on acme-app since midnight" },
 ];
 
 interface CostLabel {
