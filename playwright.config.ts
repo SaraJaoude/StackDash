@@ -22,10 +22,13 @@ export default defineConfig({
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
   webServer: {
-    command: `npm run dev -- --port ${port}`,
+    // CI tests the production build: it is what users get, it caught the nonce CSP blocking
+    // hydration that dev mode hides, and it has no on-demand route compilation to race the first
+    // test that reaches a route. Local runs keep the dev server for fast iteration.
+    command: process.env.CI ? `npm run build && npm run start -- --port ${port}` : `npm run dev -- --port ${port}`,
     url: baseURL,
     reuseExistingServer: false,
-    timeout: 120_000,
+    timeout: process.env.CI ? 300_000 : 120_000,
     // Pass this process's environment through unchanged (CI sets the Supabase variables here).
     // Locally the dev server loads .env.local itself, and variables already set here take
     // precedence over it, so nothing is copied or overridden in this file.
