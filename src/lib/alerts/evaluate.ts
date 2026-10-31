@@ -182,7 +182,8 @@ function formatPercentNumber(percent: number): string {
   return `${PERCENT_FORMAT.format(percent)} percent`;
 }
 
-function severityFor(thresholdPercent: number | null): AlertSeverity {
+/** Warning below a 100 percent threshold, critical at or above it. Spend amount rules have no percent, so they warn. */
+export function severityFor(thresholdPercent: number | null): AlertSeverity {
   return thresholdPercent !== null && thresholdPercent >= 100 ? "critical" : "warning";
 }
 

@@ -21,6 +21,7 @@ import {
   updateAlertRule,
 } from "@/lib/data/alert-rules";
 import { deleteBudget as deleteBudgetRow, insertBudget, updateBudget } from "@/lib/data/budgets";
+import { acknowledgeTriggeredAlert } from "@/lib/data/triggered-alerts";
 import { logError } from "@/lib/log/logger";
 import { Constants } from "@/lib/supabase/database.types";
 import { requireWorkspaceAction } from "@/lib/workspaces/access";
@@ -218,5 +219,27 @@ export async function deleteBudget(
     const { workspace } = await requireWorkspaceAction(slug, "manage_budgets");
     const found = await deleteBudgetRow(workspace.id, budgetId);
     return found ? { ok: true } : { ok: false, message: BUDGET_GONE };
+  });
+}
+
+const acknowledgeSchema = z.object({ workspace: workspaceField, alertId: z.guid() }).strict();
+const ALERT_GONE = "This alert no longer exists. Reload the page to see the current alerts.";
+
+/**
+ * Acknowledges a triggered alert in the caller's name (`acknowledge_alert`: owners and admins).
+ * The alert stays in the history; acknowledging twice keeps the first acknowledgement.
+ */
+export async function acknowledgeAlert(
+  _previous: AlertActionResult | null,
+  formData: FormData,
+): Promise<AlertActionResult> {
+  const parsed = acknowledgeSchema.safeParse(pickFormFields(formData, ["workspace", "alertId"]));
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+  const { workspace: slug, alertId } = parsed.data;
+
+  return guarded("alerts.acknowledge_failed", "The alert could not be acknowledged. Try again in a moment.", async () => {
+    const { workspace, user } = await requireWorkspaceAction(slug, "acknowledge_alert");
+    const found = await acknowledgeTriggeredAlert(workspace.id, alertId, user.id);
+    return found ? { ok: true } : { ok: false, message: ALERT_GONE };
   });
 }
