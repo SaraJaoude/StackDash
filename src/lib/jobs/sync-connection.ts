@@ -1,0 +1,298 @@
+import { AdapterError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "@/lib/adapters/errors";
+import { validateAdapterEvents } from "@/lib/adapters/events";
+import { validateAdapterMetrics } from "@/lib/adapters/metrics";
+import type {
+  OAuthClient,
+  OAuthContext,
+  OAuthCredential,
+  ProviderAdapter,
+  ProviderId,
+} from "@/lib/adapters/types";
+import type { LogFields, Logger } from "@/lib/log/logger";
+import type { Database } from "@/lib/supabase/database.types";
+
+import { BACKOFF_CAP_MS, backoffDelayMs, rateLimitDelayMs } from "./backoff";
+import { ingestSyncResult } from "./ingest";
+import type { ClaimedJob, ConnectionKey, ConnectionPatch, EventRow, JobStore, SyncConnection } from "./store";
+
+/*
+ * One sync job for one connection (#44, #60). Strategy pattern: the job holds a ProviderAdapter and
+ * never branches on provider id; failures are classified by AdapterError.code only.
+ */
+
+type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
+
+// Refresh this long before the access token expires, so a token never expires mid-sync.
+export const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
+export const SYNC_FAILED_TYPE_ID = "devmacro.sync_failed";
+
+export type JobOutcome =
+  | { status: "succeeded" }
+  | { status: "retry"; runAfter: Date; errorCode: string; errorReference: string | null }
+  | { status: "failed"; errorCode: string; errorReference: string | null };
+
+export type SyncDeps = Readonly<{
+  store: JobStore;
+  getAdapter: (id: ProviderId) => ProviderAdapter;
+  loadOAuthClient: (adapter: ProviderAdapter) => OAuthClient | null;
+  createOAuthContext: (client: OAuthClient) => OAuthContext;
+  now: () => Date;
+  // Returns a value in [0, 1); injected so tests can pin the jitter.
+  random: () => number;
+  logError: (event: string, error: unknown, fields?: LogFields) => string;
+  log: Logger;
+}>;
+
+/** A failure that is ours or the instance's, not the provider's. */
+class SyncSetupError extends Error {
+  constructor(
+    readonly code: "provider_not_configured" | "credential_missing",
+    message: string,
+  ) {
+    super(message);
+    this.name = "SyncSetupError";
+  }
+}
+
+// The user has to act (reconnect, grant scopes): retrying cannot help.
+const PERMANENT_CODES: Record<string, true> = { auth_revoked: true, permission_missing: true, credential_missing: true };
+
+// Healthy means syncing normally. needs_attention and failed are the two failure states; an
+// episode starts when a connection leaves `active` for one of them.
+const SYNCABLE_STATUSES: Partial<Record<ConnectionStatus, true>> = { active: true, failed: true };
+
+function addMs(at: Date, ms: number): Date {
+  return new Date(at.getTime() + ms);
+}
+
+export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOutcome> {
+  if (job.workspace_id === null || job.connection_id === null) {
+    // The table's checks make this unreachable for kind 'sync'; fail loudly rather than guess.
+    return { status: "failed", errorCode: "invalid_job", errorReference: null };
+  }
+  const key: ConnectionKey = { workspaceId: job.workspace_id, connectionId: job.connection_id };
+  const connection = await deps.store.getConnection(key);
+  // Deleted, disconnected, or waiting for the user: nothing to do, and nothing went wrong.
+  if (connection === null || SYNCABLE_STATUSES[connection.status] !== true) {
+    deps.log.info("sync.skipped", { jobId: job.id, connectionId: key.connectionId, status: connection?.status ?? "missing" });
+    return { status: "succeeded" };
+  }
+
+  let adapter: ProviderAdapter | undefined;
+  try {
+    adapter = deps.getAdapter(connection.provider);
+    await syncConnection(adapter, connection, key, deps);
+    return { status: "succeeded" };
+  } catch (error) {
+    return handleFailure({ error, job, connection, key, adapter, deps });
+  }
+}
+
+async function syncConnection(
+  adapter: ProviderAdapter,
+  connection: SyncConnection,
+  key: ConnectionKey,
+  deps: SyncDeps,
+): Promise<void> {
+  const client = deps.loadOAuthClient(adapter);
+  if (client === null) {
+    throw new SyncSetupError("provider_not_configured", `${adapter.id} OAuth client is not configured on this instance`);
+  }
+  const ctx = deps.createOAuthContext(client);
+
+  let credential = await deps.store.loadCredential(key);
+  if (credential === null) throw new SyncSetupError("credential_missing", "Connection has no stored credential");
+  credential = await refreshIfExpiring(adapter, credential, key, ctx, deps);
+
+  const accounts = await deps.store.listIncludedAccounts(key);
+  const missingScopes = new Set(adapter.detectMissingPermissions({ scopes: credential.scopes }));
+
+  for (const account of accounts) {
+    const result = await adapter.sync(
+      account.sync_cursor === null
+        ? { credential, externalAccountId: account.external_id }
+        : { credential, externalAccountId: account.external_id, cursor: account.sync_cursor },
+      ctx,
+    );
+
+    const metrics = validateAdapterMetrics(adapter.id, result.metrics);
+    const events = validateAdapterEvents(adapter.eventTypes, result.events);
+    if (!metrics.ok || !events.ok) {
+      throw new InvalidResponseError(`${adapter.id} adapter returned an invalid batch`, {
+        cause: { metricIssues: metrics.ok ? [] : metrics.issues, eventIssues: events.ok ? [] : events.issues },
+      });
+    }
+    const foreign =
+      metrics.items.some((metric) => metric.externalAccountId !== account.external_id) ||
+      events.items.some((event) => event.externalAccountId !== account.external_id);
+    if (foreign) {
+      throw new InvalidResponseError(`${adapter.id} adapter returned data for another account`);
+    }
+
+    for (const partial of result.partialErrors ?? []) {
+      for (const scope of partial.missingScopes) missingScopes.add(scope);
+      if (partial.missingScopes.length === 0) {
+        deps.log.warn("sync.partial_error_without_scope", { connectionId: key.connectionId, provider: adapter.id });
+      }
+    }
+
+    await ingestSyncResult({
+      store: deps.store,
+      provider: adapter.id,
+      providerName: adapter.displayName,
+      connection,
+      account,
+      metrics: metrics.items,
+      events: events.items,
+      cursor: result.cursor,
+    });
+  }
+
+  // Recovery: a success ends any failure episode, so the next failure starts a new one.
+  const now = deps.now();
+  await deps.store.updateConnection(key, {
+    status: "active",
+    consecutive_failures: 0,
+    last_error_code: null,
+    last_error_reference: null,
+    last_synced_at: now.toISOString(),
+    next_sync_at: addMs(now, connection.poll_interval_seconds * 1000).toISOString(),
+    missing_scopes: [...missingScopes],
+  });
+}
+
+/**
+ * Refreshes before expiry and saves the new credential before anything else runs. Providers that
+ * rotate refresh tokens invalidate the old one on use, so the rotated token must be persisted at
+ * once: if it were lost, the connection could never refresh again. Two syncs of one connection
+ * never run together (sync_jobs_one_open_sync_per_connection), which is what keeps two refreshes
+ * from racing and one of them saving an already-dead token.
+ */
+async function refreshIfExpiring(
+  adapter: ProviderAdapter,
+  credential: OAuthCredential,
+  key: ConnectionKey,
+  ctx: OAuthContext,
+  deps: SyncDeps,
+): Promise<OAuthCredential> {
+  if (adapter.refreshTokens === undefined || credential.expiresAt === undefined) return credential;
+  if (credential.expiresAt.getTime() - deps.now().getTime() > TOKEN_REFRESH_SKEW_MS) return credential;
+
+  const refreshed = await adapter.refreshTokens(credential, ctx);
+  try {
+    await deps.store.saveCredential(key, refreshed);
+  } catch (error) {
+    // The old refresh token may already be spent. Logged distinctly so an operator can see why
+    // the connection will ask to be reconnected on its next sync.
+    deps.logError("sync.refreshed_credential_not_saved", error, { connectionId: key.connectionId, provider: adapter.id });
+    throw error;
+  }
+  return refreshed;
+}
+
+function syncFailedEvent(input: {
+  connection: SyncConnection;
+  job: ClaimedJob;
+  providerName: string;
+  status: "needs_attention" | "failed";
+  errorCode: string;
+  errorReference: string;
+  occurredAt: Date;
+}): EventRow {
+  const { connection, providerName } = input;
+  const account = connection.authorized_account_label ?? connection.display_name;
+  const action =
+    input.errorCode === "permission_missing"
+      ? `Reconnect ${providerName} in Connections and grant the requested permissions.`
+      : `Reconnect ${providerName} in Connections to resume syncing.`;
+  const body =
+    input.status === "needs_attention"
+      ? `DevMacro can no longer read ${providerName} data for ${account}. ${action} Reference ${input.errorReference}.`
+      : `${providerName} did not answer after several attempts. DevMacro keeps retrying every hour. If it keeps failing, reconnect ${providerName} in Connections. Reference ${input.errorReference}.`;
+  // The episode starts with the job whose failure took the connection out of `active`. Its
+  // created_at is stable across a re-run of that job, so a crash between writing this event and
+  // updating the connection cannot produce a second event for the same episode.
+  const episodeStart = new Date(input.job.created_at).toISOString();
+  return {
+    workspace_id: connection.workspace_id,
+    connection_id: connection.id,
+    external_account_id: null,
+    provider: null,
+    type_id: SYNC_FAILED_TYPE_ID,
+    severity: input.status === "needs_attention" ? "critical" : "warning",
+    title: `${providerName} sync failed for ${account}`,
+    body,
+    url: null,
+    occurred_at: input.occurredAt.toISOString(),
+    dedupe_key: `sync_failed:${connection.id}:${episodeStart}`,
+  };
+}
+
+async function handleFailure(input: {
+  error: unknown;
+  job: ClaimedJob;
+  connection: SyncConnection;
+  key: ConnectionKey;
+  adapter: ProviderAdapter | undefined;
+  deps: SyncDeps;
+}): Promise<JobOutcome> {
+  const { error, job, connection, key, adapter, deps } = input;
+  const errorCode = error instanceof AdapterError || error instanceof SyncSetupError ? error.code : "internal_error";
+  const errorReference = deps.logError("sync.failed", error, {
+    jobId: job.id,
+    connectionId: key.connectionId,
+    provider: connection.provider,
+    errorCode,
+    attempt: job.attempts,
+  });
+  const now = deps.now();
+  const consecutiveFailures = connection.consecutive_failures + 1;
+
+  // A connection already in `failed` gets one attempt per scheduled run; retries inside a job are
+  // for connections that were healthy until now.
+  const lastAttempt = job.attempts >= job.max_attempts || connection.status === "failed";
+  const permanent = PERMANENT_CODES[errorCode] === true;
+
+  if (!permanent && !lastAttempt) {
+    const delay =
+      error instanceof RateLimitedError
+        ? rateLimitDelayMs(error.retryAfterMs, job.attempts, deps.random)
+        : backoffDelayMs(job.attempts, deps.random);
+    await deps.store.updateConnection(key, {
+      consecutive_failures: consecutiveFailures,
+      last_error_code: errorCode,
+      last_error_reference: errorReference,
+    });
+    return { status: "retry", runAfter: addMs(now, delay), errorCode, errorReference };
+  }
+
+  const status: "needs_attention" | "failed" = permanent ? "needs_attention" : "failed";
+  if (connection.status === "active") {
+    // Written before the status change, see syncFailedEvent.
+    await deps.store.insertEvents([
+      syncFailedEvent({
+        connection,
+        job,
+        providerName: adapter?.displayName ?? connection.provider,
+        status,
+        errorCode,
+        errorReference,
+        occurredAt: now,
+      }),
+    ]);
+  }
+
+  const patch: ConnectionPatch = {
+    status,
+    consecutive_failures: consecutiveFailures,
+    last_error_code: errorCode,
+    last_error_reference: errorReference,
+    // needs_attention waits for the user; failed is retried by the scheduler once the cap elapses.
+    next_sync_at: status === "failed" ? addMs(now, BACKOFF_CAP_MS).toISOString() : null,
+  };
+  if (error instanceof PermissionMissingError && error.missingScopes.length > 0) {
+    patch.missing_scopes = [...new Set([...connection.missing_scopes, ...error.missingScopes])];
+  }
+  await deps.store.updateConnection(key, patch);
+  return { status: "failed", errorCode, errorReference };
+}
