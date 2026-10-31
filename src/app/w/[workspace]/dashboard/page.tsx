@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
@@ -21,7 +22,17 @@ const filtersSchema = z.object({
   provider: z.enum(Constants.public.Enums.provider_id).optional().catch(undefined),
 });
 
-export default async function DashboardPage({ params, searchParams }: PageProps<"/w/[workspace]/dashboard">) {
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function DashboardPage(props: PageProps<"/w/[workspace]/dashboard">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <DashboardPageContent {...props} />
+    </Suspense>
+  );
+}
+
+async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[workspace]/dashboard">) {
   const { workspace: slug } = await params;
   const access = await requireWorkspace(slug, "viewer");
   const filters = filtersSchema.parse(await searchParams);

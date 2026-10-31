@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import {
   AccountIncludedForm,
@@ -23,7 +25,17 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connection" };
 
-export default async function ConnectionPage({
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function ConnectionPage(props: PageProps<"/w/[workspace]/connections/[connectionId]">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <ConnectionContent {...props} />
+    </Suspense>
+  );
+}
+
+async function ConnectionContent({
   params,
   searchParams,
 }: PageProps<"/w/[workspace]/connections/[connectionId]">) {

@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
@@ -15,12 +17,22 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connect a provider" };
 
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function ConnectProviderPage(props: PageProps<"/w/[workspace]/connections/new/[provider]">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <ConnectProviderContent {...props} />
+    </Suspense>
+  );
+}
+
 /**
  * Permission disclosure (#40): every permission the provider will ask for, labelled Read or Full
  * access, with the reason for each full one, before the browser leaves for the provider. Full
  * access needs an explicit tick; the start route refuses the request without it.
  */
-export default async function ConnectProviderPage({
+async function ConnectProviderContent({
   params,
   searchParams,
 }: PageProps<"/w/[workspace]/connections/new/[provider]">) {

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
@@ -21,7 +23,17 @@ function first(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export default async function ConnectionsPage({ params, searchParams }: PageProps<"/w/[workspace]/connections">) {
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function ConnectionsPage(props: PageProps<"/w/[workspace]/connections">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <ConnectionsContent {...props} />
+    </Suspense>
+  );
+}
+
+async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[workspace]/connections">) {
   const [{ workspace: slug }, query] = await Promise.all([params, searchParams]);
   const { workspace, role } = await requireWorkspace(slug, "viewer");
   const canConnect = canPerform(role, "manage_connections");

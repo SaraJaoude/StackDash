@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
@@ -18,7 +20,17 @@ const DESCRIPTION = "Deploys, payments, alerts, and other activity from every pr
 // Per-member hidden event types arrive with #119; the query already excludes whatever is listed.
 const HIDDEN_TYPE_IDS: readonly string[] = [];
 
-export default async function TimelinePage({ params, searchParams }: PageProps<"/w/[workspace]/timeline">) {
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <TimelineContent {...props} />
+    </Suspense>
+  );
+}
+
+async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspace]/timeline">) {
   const { workspace: slug } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
   const query = parseTimelineSearchParams(await searchParams);

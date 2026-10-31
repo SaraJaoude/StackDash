@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
+import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LockIcon, MailIcon } from "@/components/icons";
@@ -10,7 +12,17 @@ import { RenameWorkspaceForm } from "./rename-workspace-form";
 
 export const metadata: Metadata = { title: "Settings" };
 
-export default async function SettingsPage({ params }: PageProps<"/w/[workspace]/settings">) {
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function SettingsPage(props: PageProps<"/w/[workspace]/settings">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <SettingsContent {...props} />
+    </Suspense>
+  );
+}
+
+async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">) {
   const { workspace: slug } = await params;
   const { user, workspace, role } = await requireWorkspace(slug, "viewer");
   const canRename = canPerform(role, "rename_workspace");

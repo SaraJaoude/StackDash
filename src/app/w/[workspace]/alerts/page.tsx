@@ -1,17 +1,34 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import { z } from "zod";
 
-import { EmptyState } from "@/components/app/empty-state";
+import { PageSkeleton } from "@/components/app/page-skeleton";
+import { AlertSettings } from "@/components/alerts/alert-settings";
 import { PageHeader } from "@/components/app/page-header";
-import { BellIcon } from "@/components/icons";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
-import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
+import { requireWorkspace } from "@/lib/workspaces/access";
 
 export const metadata: Metadata = { title: "Alerts" };
 
-export default async function AlertsPage({ params }: PageProps<"/w/[workspace]/alerts">) {
+// Opaque keyset cursors for the two lists; anything malformed falls back to the first page.
+const searchSchema = z.object({
+  rulesAfter: z.string().max(200).optional().catch(undefined),
+  budgetsAfter: z.string().max(200).optional().catch(undefined),
+});
+
+// Every section renders inside its own Suspense boundary so navigating between sections
+// has an instant shell; access checks and data reads stream in behind it.
+export default function AlertsPage(props: PageProps<"/w/[workspace]/alerts">) {
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <AlertsContent {...props} />
+    </Suspense>
+  );
+}
+
+async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]/alerts">) {
   const { workspace: slug } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
-  const canConnect = canPerform(role, "manage_connections");
+  const search = searchSchema.parse(await searchParams);
 
   return (
     <>
@@ -19,13 +36,20 @@ export default async function AlertsPage({ params }: PageProps<"/w/[workspace]/a
         title="Alerts"
         description="Thresholds for spend, budgets, and allowances, and the alerts they raise."
       />
-      <EmptyState
-        icon={<BellIcon width={20} height={20} />}
-        title="No alerts yet"
-        description="Alerts watch usage data, so connect a provider first. Then set a threshold here and DevMacro flags it before a limit or budget becomes a problem."
-        action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
-        deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
-      />
+      <Suspense
+        fallback={
+          <p role="status" className="mt-8 text-sm text-muted">
+            Loading alert rules and budgets
+          </p>
+        }
+      >
+        <AlertSettings
+          workspace={workspace}
+          role={role}
+          rulesAfter={search.rulesAfter ?? null}
+          budgetsAfter={search.budgetsAfter ?? null}
+        />
+      </Suspense>
     </>
   );
 }
