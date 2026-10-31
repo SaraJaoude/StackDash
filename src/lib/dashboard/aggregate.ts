@@ -53,8 +53,6 @@ export type DashboardInput = Readonly<{
   /** Only the accounts included in the dashboard; snapshots of any other account are ignored. */
   accounts: readonly AccountInput[];
   projects: readonly ProjectInput[];
-  /** Narrows everything to one provider; null shows every provider. */
-  provider: ProviderId | null;
   now: Date;
 }>;
 
@@ -136,10 +134,6 @@ export type ProjectSpend = Readonly<{
 }>;
 
 export type DashboardView = Readonly<{
-  /** False only when the workspace has no connections at all, before any filter. */
-  hasConnections: boolean;
-  /** Providers the workspace has connections for, for the filter. */
-  providers: readonly ProviderId[];
   totals: readonly CurrencyAmounts[];
   revenue: readonly CurrencyAmounts[];
   byProvider: readonly ProviderSummary[];
@@ -207,7 +201,8 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
   });
 }
 
-function isEstimated(row: SnapshotInput): boolean {
+/** Calculated by DevMacro from a price list (or otherwise derived), not reported by the provider. */
+export function isEstimated(row: Pick<SnapshotInput, "kind" | "provenance_source">): boolean {
   return row.kind === "estimated_spend" || row.provenance_source === "derived";
 }
 
@@ -399,10 +394,10 @@ function providerSummary(
 
 export function aggregateDashboard(input: DashboardInput): DashboardView {
   const { now } = input;
-  const allConnections = [...input.connections].sort(
+  // The caller has already narrowed connections, accounts, and snapshots to the scope filter.
+  const visible = [...input.connections].sort(
     (a, b) => a.provider.localeCompare(b.provider) || a.display_name.localeCompare(b.display_name) || a.id.localeCompare(b.id),
   );
-  const visible = allConnections.filter((connection) => input.provider === null || connection.provider === input.provider);
   const connections = new Map(visible.map((connection) => [connection.id, connection]));
   const accounts = new Map(
     input.accounts.filter((account) => connections.has(account.connection_id)).map((account) => [account.id, account]),
@@ -414,7 +409,7 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
   for (const row of dropSupersededBreakdowns(latestSnapshots(input.snapshots))) {
     const account = accounts.get(row.external_account_id);
     const connection = connections.get(row.connection_id);
-    // Excluded accounts, filtered providers, and rows whose account moved connection are skipped.
+    // Excluded accounts and rows whose account moved connection are skipped.
     if (account === undefined || connection === undefined || account.connection_id !== connection.id) continue;
     entries.push({ row, connection });
   }
@@ -452,9 +447,6 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
     });
 
   return {
-    hasConnections: allConnections.length > 0,
-    // Already sorted by provider, so the set keeps that order.
-    providers: [...new Set(allConnections.map((connection) => connection.provider))],
     totals: sumByCurrency(currentSpend, now),
     revenue: sumByCurrency(
       entries.filter(({ row }) => row.kind === "revenue" && isCurrentPeriod(row, now)),

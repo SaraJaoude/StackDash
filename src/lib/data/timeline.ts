@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { projectSelection, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -30,6 +31,8 @@ export type TimelineFilters = {
   /** Event types the viewer chose to hide (#119); excluded from every page. */
   hiddenTypeIds: readonly string[];
   cursor: TimelineCursor | null;
+  /** Provider, project, and account filter shared with the dashboard. */
+  scope: ScopeFilters;
 };
 
 export type TimelinePage = {
@@ -45,14 +48,45 @@ function olderThan(cursor: TimelineCursor): string {
   return `occurred_at.lt.${at},and(occurred_at.eq.${at},id.lt.${cursor.id})`;
 }
 
+// Accounts per workspace are a handful in the MVP; this bounds the project lookup.
+const PROJECT_ACCOUNTS_LIMIT = 1000;
+
+/**
+ * Ids of the workspace's provider accounts in the selected projects (and, for `unassigned`, in
+ * none), in one query. null when no project is selected. Project ids passed the scope schema's
+ * uuid check, so they are safe in the `or` list.
+ */
+async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): Promise<string[] | null> {
+  if (scope.projects.length === 0) return null;
+  const { projectIds, unassigned } = projectSelection(scope);
+  const conditions = [
+    ...(projectIds.length > 0 ? [`project_id.in.(${projectIds.join(",")})`] : []),
+    ...(unassigned ? ["project_id.is.null"] : []),
+  ];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("external_accounts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .or(conditions.join(","))
+    .order("created_at", { ascending: true })
+    .limit(PROJECT_ACCOUNTS_LIMIT);
+  if (error) throw new Error("Failed to load the accounts in the selected projects", { cause: error });
+  return data.map((account) => account.id);
+}
+
 /**
  * One page of the workspace's activity, newest first, keyset paginated on
  * (occurred_at desc, id desc) to match the table's index. Provider account and connection names
  * come from the same request as embedded resources, so a page is always one round trip. Type ids
- * in `types` and `hiddenTypeIds` must have passed `isEventTypeId`.
+ * in `types` and `hiddenTypeIds` must have passed `isEventTypeId`. A project filter costs one
+ * extra query first, to resolve the projects to their accounts.
  */
 export async function listTimelineEvents(workspaceId: string, filters: TimelineFilters): Promise<TimelinePage> {
   const supabase = await createClient();
+  const scope = timelineScope(filters.scope, await accountIdsInProjects(workspaceId, filters.scope));
+  // No account can match, so no event can either.
+  if (scope.accountIds !== null && scope.accountIds.length === 0) return { events: [], nextCursor: null };
   let query = supabase
     .from("activity_events")
     .select(
@@ -63,6 +97,8 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (filters.types.length > 0) query = query.in("type_id", [...filters.types]);
   if (filters.hiddenTypeIds.length > 0) query = query.not("type_id", "in", `(${filters.hiddenTypeIds.join(",")})`);
   if (filters.severities.length > 0) query = query.in("severity", [...filters.severities]);
+  if (scope.providers.length > 0) query = query.in("provider", [...scope.providers]);
+  if (scope.accountIds !== null) query = query.in("external_account_id", [...scope.accountIds]);
   const range = occurredRange(filters.from, filters.to);
   if (range.from !== null) query = query.gte("occurred_at", range.from);
   if (range.toExclusive !== null) query = query.lt("occurred_at", range.toExclusive);

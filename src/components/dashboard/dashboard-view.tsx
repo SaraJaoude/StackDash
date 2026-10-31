@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
-import type { CurrencyAmounts, DashboardView as View, ProviderId } from "@/lib/dashboard/aggregate";
-import { providerName } from "@/lib/providers";
+import { ScopeFilter } from "@/components/filters/scope-filter";
+import type { CurrencyAmounts, DashboardView as View } from "@/lib/dashboard/aggregate";
+import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
+import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
+import { TrendChart } from "./trend-chart";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();
@@ -52,68 +55,90 @@ function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: 
   );
 }
 
-function ProviderFilter({
-  providers,
-  selected,
-  action,
-}: {
-  providers: readonly ProviderId[];
-  selected: ProviderId | null;
-  action: string;
-}) {
-  const selectId = useId();
+export type DashboardTrends = Readonly<{
+  granularity: TrendGranularity;
+  series: readonly TrendSeries[];
+  /** Links to each trend period, keeping the current filter. */
+  hrefs: Readonly<Record<TrendGranularity, string>>;
+}>;
+
+const TREND_PERIODS = [
+  { granularity: "daily", label: "Daily" },
+  { granularity: "monthly", label: "Monthly" },
+] as const satisfies readonly { granularity: TrendGranularity; label: string }[];
+
+function TrendsSection({ trends }: { trends: DashboardTrends }) {
   return (
-    // A plain GET form: the filter lives in the URL, works without JavaScript, and can be shared.
-    <form method="get" action={action} className="mt-6 flex flex-wrap items-end gap-3">
-      <div>
-        <label htmlFor={selectId} className="block text-sm font-medium">
-          Provider
-        </label>
-        <select
-          id={selectId}
-          name="provider"
-          defaultValue={selected ?? ""}
-          className="mt-1 block min-h-10 rounded-md border border-line bg-panel-raised px-3 py-2 text-sm text-foreground"
-        >
-          <option value="">All providers</option>
-          {providers.map((provider) => (
-            <option key={provider} value={provider}>
-              {providerName(provider)}
-            </option>
+    <Section
+      title="Trends"
+      description="Each provider metric as reported per UTC day or month, compared with the period before. Days or months with no data are shown as unavailable, never as zero, and currencies and units are never mixed in one chart."
+    >
+      <nav aria-label="Trend period" className="flex flex-wrap gap-2">
+        {TREND_PERIODS.map(({ granularity, label }) => {
+          const current = granularity === trends.granularity;
+          return (
+            <Link
+              key={granularity}
+              href={trends.hrefs[granularity]}
+              aria-current={current ? "page" : undefined}
+              className={`inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors ${
+                current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"
+              }`}
+            >
+              {`${label}, ${trendWindowLabel(granularity)}`}
+            </Link>
+          );
+        })}
+      </nav>
+      {trends.series.length === 0 ? (
+        <p className="mt-4 text-sm text-muted">
+          No history to chart for the {trendWindowLabel(trends.granularity)}. Trends appear after the first syncs.
+        </p>
+      ) : (
+        <ul className="mt-4 grid gap-4 lg:grid-cols-2">
+          {trends.series.map((series) => (
+            <li key={series.key}>
+              <TrendChart series={series} />
+            </li>
           ))}
-        </select>
-      </div>
-      <button
-        type="submit"
-        className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm font-medium transition-colors hover:bg-panel-raised"
-      >
-        Apply filter
-      </button>
-      {selected === null ? null : (
-        <Link href={action} className="inline-flex min-h-10 items-center px-2 text-sm text-muted underline underline-offset-4">
-          Show all providers
-        </Link>
+        </ul>
       )}
-    </form>
+    </Section>
   );
 }
 
 export function DashboardView({
   view,
   now,
-  selectedProvider,
   dashboardPath,
+  scope,
+  scopeOptions,
+  scopeDescription,
+  trends,
 }: {
   view: View;
   now: Date;
-  selectedProvider: ProviderId | null;
   dashboardPath: string;
+  scope: ScopeFilters;
+  scopeOptions: ScopeOptions;
+  /** The active filter in words, or null when nothing is filtered. */
+  scopeDescription: string | null;
+  trends: DashboardTrends;
 }) {
+  const count = view.byProvider.length;
+  const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
   return (
     <>
-      {view.providers.length > 1 || selectedProvider !== null ? (
-        <ProviderFilter providers={view.providers} selected={selectedProvider} action={dashboardPath} />
-      ) : null}
+      <ScopeFilter
+        action={dashboardPath}
+        scope={scope}
+        options={scopeOptions}
+        hidden={trends.granularity === "daily" ? undefined : { trend: trends.granularity }}
+      />
+
+      <p role="status" aria-live="polite" className="mt-6 text-sm text-muted">
+        {scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
+      </p>
 
       <Section
         title="Spending this billing period"
@@ -136,7 +161,7 @@ export function DashboardView({
 
       <Section title="By provider" description="Spend, credit balance, and allowances for each connected account.">
         {view.byProvider.length === 0 ? (
-          <p className="text-sm text-muted">No connections match this filter. Choose another provider or show all providers.</p>
+          <p className="text-sm text-muted">No connections match these filters. Choose other filters or clear them.</p>
         ) : (
           <ul className="space-y-4">
             {view.byProvider.map((summary) => (
@@ -160,6 +185,8 @@ export function DashboardView({
           </ul>
         )}
       </Section>
+
+      <TrendsSection trends={trends} />
     </>
   );
 }

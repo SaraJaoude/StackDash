@@ -1,6 +1,14 @@
 import { z } from "zod";
 
 import type { Severity } from "@/components/severity-badge";
+import {
+  appendScopeParams,
+  hasScopeFilters,
+  paramValues,
+  repeatedParam,
+  ScopeSearchParamsSchema,
+  type ScopeFilters,
+} from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -170,32 +178,17 @@ export type TimelineQuery = {
   /** London calendar date `YYYY-MM-DD`, inclusive. */
   to: string | null;
   cursor: TimelineCursor | null;
+  /** Provider, project, and account filter shared with the dashboard. */
+  scope: ScopeFilters;
 };
 
 type SearchParamValue = string | string[] | undefined;
 export type RawSearchParams = Record<string, SearchParamValue>;
 
-function values(value: unknown): string[] {
-  if (typeof value === "string") return [value];
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string");
-  return [];
-}
-
-/**
- * Every valid value of a repeated parameter, deduplicated, in URL order, at most `max`. Optional
- * first: zod 4 rejects an absent key unless the schema accepts undefined.
- */
-function many<T extends string>(isValid: (value: string) => value is T, max: number) {
-  return z
-    .unknown()
-    .optional()
-    .transform((raw) => [...new Set(values(raw).map((item) => item.trim()).filter(isValid))].slice(0, max));
-}
-
 /** The first value of a parameter when it is valid, otherwise null. */
 function one<T>(parse: (value: string) => T | null) {
   return z.unknown().optional().transform((raw) => {
-    const first = values(raw)[0]?.trim();
+    const first = paramValues(raw)[0]?.trim();
     return first === undefined || first === "" ? null : parse(first);
   });
 }
@@ -203,9 +196,10 @@ function one<T>(parse: (value: string) => T | null) {
 const isSeverity = (value: string): value is EventSeverity =>
   (EVENT_SEVERITIES as readonly string[]).includes(value);
 
-const TimelineSearchParamsSchema = z.object({
-  type: many(isEventTypeId, MAX_TYPE_FILTERS),
-  severity: many(isSeverity, EVENT_SEVERITIES.length),
+// One schema for the whole URL: the shared scope filter plus the timeline's own keys.
+const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
+  type: repeatedParam(isEventTypeId, MAX_TYPE_FILTERS),
+  severity: repeatedParam(isSeverity, EVENT_SEVERITIES.length),
   from: one((value) => (isIsoDate(value) ? value : null)),
   to: one((value) => (isIsoDate(value) ? value : null)),
   cursor: one(decodeCursor),
@@ -220,11 +214,18 @@ export function parseTimelineSearchParams(searchParams: RawSearchParams): Timeli
     from: parsed.from,
     to: parsed.to,
     cursor: parsed.cursor,
+    scope: { providers: parsed.provider, projects: parsed.project, accounts: parsed.account },
   };
 }
 
 export function hasActiveFilters(query: TimelineQuery): boolean {
-  return query.types.length > 0 || query.severities.length > 0 || query.from !== null || query.to !== null;
+  return (
+    query.types.length > 0 ||
+    query.severities.length > 0 ||
+    query.from !== null ||
+    query.to !== null ||
+    hasScopeFilters(query.scope)
+  );
 }
 
 /** Link to `basePath` carrying the filters in `query`, and `cursor` when given. */
@@ -234,6 +235,7 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   for (const severity of query.severities) params.append("severity", severity);
   if (query.from !== null) params.set("from", query.from);
   if (query.to !== null) params.set("to", query.to);
+  appendScopeParams(params, query.scope);
   if (cursor !== null) params.set("cursor", encodeCursor(cursor));
   const search = params.toString();
   return search === "" ? basePath : `${basePath}?${search}`;

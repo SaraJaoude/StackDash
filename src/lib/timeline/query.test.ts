@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { EMPTY_SCOPE } from "@/lib/filters/scope";
+
 import {
   decodeCursor,
   EVENT_SEVERITIES,
@@ -21,6 +23,9 @@ const CURSOR: TimelineCursor = {
   occurredAt: "2026-06-15T23:30:00.123456+00:00",
   id: "70000000-0000-4000-8000-000000000001",
 };
+
+const PROJECT_ID = "10000000-0000-4000-8000-000000000001";
+const ACCOUNT_ID = "20000000-0000-4000-8000-000000000002";
 
 describe("encodeCursor and decodeCursor", () => {
   it("round trips a cursor with microseconds intact", () => {
@@ -115,6 +120,9 @@ describe("parseTimelineSearchParams", () => {
         from: "2026-06-01",
         to: "2026-06-15",
         cursor: token,
+        provider: "vercel",
+        project: ["unassigned", PROJECT_ID],
+        account: ACCOUNT_ID,
       }),
     ).toEqual({
       types: ["vercel.deployment_failed", "github.release_published"],
@@ -122,11 +130,19 @@ describe("parseTimelineSearchParams", () => {
       from: "2026-06-01",
       to: "2026-06-15",
       cursor: CURSOR,
+      scope: { providers: ["vercel"], projects: ["unassigned", PROJECT_ID], accounts: [ACCOUNT_ID] },
     });
   });
 
   it("returns no filters for empty params", () => {
-    expect(parseTimelineSearchParams({})).toEqual({ types: [], severities: [], from: null, to: null, cursor: null });
+    expect(parseTimelineSearchParams({})).toEqual({
+      types: [],
+      severities: [],
+      from: null,
+      to: null,
+      cursor: null,
+      scope: EMPTY_SCOPE,
+    });
   });
 
   it("drops invalid values instead of failing", () => {
@@ -137,8 +153,18 @@ describe("parseTimelineSearchParams", () => {
         from: "2026-02-30",
         to: "",
         cursor: "not a cursor",
+        provider: ["bogus", "github"],
+        project: "not-a-uuid",
+        account: "1,2",
       }),
-    ).toEqual({ types: ["vercel.deployment_failed"], severities: ["info"], from: null, to: null, cursor: null });
+    ).toEqual({
+      types: ["vercel.deployment_failed"],
+      severities: ["info"],
+      from: null,
+      to: null,
+      cursor: null,
+      scope: { providers: ["github"], projects: [], accounts: [] },
+    });
   });
 
   it("accepts a single string where a list is allowed and removes duplicates", () => {
@@ -187,7 +213,7 @@ describe("severityBadge", () => {
 });
 
 describe("timelineHref and hasActiveFilters", () => {
-  const empty = { types: [], severities: [], from: null, to: null, cursor: null };
+  const empty = { types: [], severities: [], from: null, to: null, cursor: null, scope: EMPTY_SCOPE };
 
   it("returns the bare path with no filters", () => {
     expect(timelineHref("/w/abc/timeline", empty, null)).toBe("/w/abc/timeline");
@@ -206,5 +232,14 @@ describe("timelineHref and hasActiveFilters", () => {
 
   it("does not count a cursor alone as a filter", () => {
     expect(hasActiveFilters({ ...empty, cursor: CURSOR })).toBe(false);
+  });
+
+  it("carries the scope filter into the link and counts it as a filter", () => {
+    const query = { ...empty, scope: { providers: ["vercel" as const], projects: [PROJECT_ID], accounts: [ACCOUNT_ID] } };
+    const params = new URL(timelineHref("/w/abc/timeline", query, null), "https://example.com").searchParams;
+    expect(params.getAll("provider")).toEqual(["vercel"]);
+    expect(params.getAll("project")).toEqual([PROJECT_ID]);
+    expect(params.getAll("account")).toEqual([ACCOUNT_ID]);
+    expect(hasActiveFilters(query)).toBe(true);
   });
 });

@@ -235,3 +235,103 @@ viewerTest.describe("dashboard as a viewer", () => {
     }
   });
 });
+
+/** A second provider beside the fake one: a GitHub organization, unassigned, spending USD 50.00. */
+async function seedSecondProvider(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const now = new Date();
+  const fresh = new Date(now.getTime() - HOUR_MS / 6).toISOString();
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "github",
+      status: "active",
+      display_name: "GitHub e2e organization",
+      poll_interval_seconds: 3_600,
+      last_synced_at: fresh,
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_id: "org_e2e",
+      display_name: "Acme organization",
+      kind: "organization",
+    })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const { error } = await admin.from("usage_snapshots").insert({
+    workspace_id: workspace.id,
+    connection_id: connection.id,
+    external_account_id: account.id,
+    metric_key: "github.spend.month",
+    kind: "verified_spend",
+    label: "GitHub spend this month",
+    snapshot_date: now.toISOString().slice(0, 10),
+    amount_minor: 5_000,
+    currency: "USD",
+    period_start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+    period_end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
+    retrieved_at: fresh,
+    provenance_source: "provider_api",
+  });
+  if (error) throw new Error(`Seeding a snapshot failed (code ${error.code}).`);
+}
+
+ownerTest.describe("dashboard filters", () => {
+  ownerTest("narrows by provider and project, keeps the filter in the URL, and announces the result", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard filters");
+    try {
+      await seedDashboard(workspace);
+      await seedSecondProvider(workspace);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+      await expect(status).toHaveText("Showing 2 connections");
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
+      await expect(usd).toContainText("$173.45");
+
+      const filters = page.getByRole("region", { name: "Filters" });
+      await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "Example provider" }).check();
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]provider=fake(&|$)/);
+      await expect(status).toHaveText("Showing 1 connection for provider Example provider");
+      await expect(usd).toContainText("$123.45");
+      await expect(usd).not.toContainText("$173.45");
+      await expect(page.getByRole("region", { name: "By provider" })).not.toContainText("GitHub e2e organization");
+
+      // Keyboard only: tick the project and submit with Enter.
+      const checkout = filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" });
+      await checkout.focus();
+      await page.keyboard.press("Space");
+      await expect(checkout).toBeChecked();
+      await filters.getByRole("button", { name: "Apply filters" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]project=[0-9a-f-]{36}(&|$)/);
+      await expect(status).toHaveText("Showing 1 connection for provider Example provider, project Checkout");
+      const byProject = page.getByRole("region", { name: "By project" });
+      await expect(byProject.getByRole("region", { name: "Checkout" })).toBeVisible();
+      await expect(byProject.getByRole("region", { name: "Unassigned" })).toHaveCount(0);
+      await expect(page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in EUR" })).toHaveCount(0);
+
+      // The filtered view is bookmarkable: reloading the URL shows the same result.
+      await page.reload();
+      await expect(status).toHaveText("Showing 1 connection for provider Example provider, project Checkout");
+      await expect(checkout).toBeChecked();
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      await filters.getByRole("link", { name: "Clear filters" }).click();
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/dashboard$`));
+      await expect(status).toHaveText("Showing 2 connections");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});

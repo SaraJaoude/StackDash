@@ -82,7 +82,7 @@ function quantity(
 }
 
 function input(snapshots: SnapshotInput[], overrides: Partial<DashboardInput> = {}): DashboardInput {
-  return { snapshots, connections: [connection], accounts, projects, provider: null, now: NOW, ...overrides };
+  return { snapshots, connections: [connection], accounts, projects, now: NOW, ...overrides };
 }
 
 describe("aggregateDashboard totals", () => {
@@ -163,19 +163,11 @@ describe("aggregateDashboard totals", () => {
     expect(view.revenue[0]?.verified?.amountMinor).toBe(9_000);
   });
 
-  it("narrows to one provider while still reporting that connections exist", () => {
-    const view = aggregateDashboard(
-      input([money({ metric_key: "fake.spend.month", amount_minor: 1, currency: "USD" })], { provider: "vercel" }),
-    );
-    expect(view.hasConnections).toBe(true);
+  it("shows nothing for an empty workspace or a scope that matched no connection", () => {
+    const view = aggregateDashboard(input([], { connections: [], accounts: [] }));
     expect(view.byProvider).toEqual([]);
     expect(view.totals).toEqual([]);
-    expect(view.providers).toEqual(["fake"]);
-  });
-
-  it("reports no connections for an empty workspace", () => {
-    const view = aggregateDashboard(input([], { connections: [], accounts: [] }));
-    expect(view.hasConnections).toBe(false);
+    expect(view.byProject).toEqual([]);
   });
 });
 

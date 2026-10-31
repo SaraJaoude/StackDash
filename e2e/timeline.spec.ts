@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
@@ -223,6 +224,115 @@ viewerTest.describe("timeline as a viewer", () => {
       await expect(eventHeading(page, 0)).toBeVisible();
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(eventHeading(page, 59)).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+/**
+ * Adds a project "Checkout" holding a GitHub organization with three release events, beside the
+ * 60 unassigned Vercel events from `seedTimeline`.
+ */
+async function seedGitHubProject(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const { data: project, error: projectError } = await admin
+    .from("projects")
+    .insert({ workspace_id: workspace.id, name: "Checkout" })
+    .select("id")
+    .single();
+  if (projectError) throw new Error(`Seeding a project failed (code ${projectError.code}).`);
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "github",
+      status: "active",
+      display_name: "GitHub e2e connection",
+      poll_interval_seconds: 3600,
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_id: "org_e2e",
+      display_name: "Acme e2e organization",
+      kind: "organization",
+      project_id: project.id,
+    })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const events: EventInsert[] = [0, 1, 2].map((index) => ({
+    workspace_id: workspace.id,
+    connection_id: connection.id,
+    external_account_id: account.id,
+    provider: "github",
+    type_id: "github.release_published",
+    severity: "info",
+    title: `GitHub release ${index}`,
+    body: null,
+    url: null,
+    occurred_at: new Date(NEWEST_MS - (index * 2 + 1) * (HOUR_MS / 2)).toISOString(),
+    dedupe_key: `e2e-timeline-github-${index}`,
+  }));
+  const { error } = await admin.from("activity_events").insert(events);
+  if (error) throw new Error(`Seeding events failed (code ${error.code}).`);
+}
+
+ownerTest.describe("timeline scope filters", () => {
+  ownerTest("narrows by provider and by project, keeps the filter in the URL, and announces the result", async ({ page }) => {
+    const workspace = await seedTimeline("Timeline scope");
+    try {
+      await seedGitHubProject(workspace);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+      await expect(status).toHaveText("Showing 50 events");
+      const filters = page.getByRole("region", { name: "Filters" });
+
+      await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "GitHub" }).check();
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
+      await expect(status).toHaveText("Showing 3 events for provider GitHub");
+      await expect(eventItems(page)).toHaveCount(3);
+      await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toBeVisible();
+      await expect(eventHeading(page, 0)).toHaveCount(0);
+
+      await filters.getByRole("link", { name: "Clear filters" }).click();
+      await expect(status).toHaveText("Showing 50 events");
+
+      // Keyboard only: tick the Unassigned project and submit with Enter.
+      const unassigned = filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Unassigned" });
+      await unassigned.focus();
+      await page.keyboard.press("Space");
+      await filters.getByRole("button", { name: "Apply filters" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]project=unassigned(&|$)/);
+      await expect(status).toHaveText("Showing 50 events for project Unassigned");
+      await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
+      await expect(eventHeading(page, 0)).toBeVisible();
+
+      // Paging keeps the filter.
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(status).toHaveText("Showing 10 older events for project Unassigned");
+
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" }).check();
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]project=[0-9a-f-]{36}(&|$)/);
+      await expect(status).toHaveText("Showing 3 events for project Checkout");
+      await expect(eventItems(page)).toHaveCount(3);
+
+      // The filtered view is bookmarkable: reloading the URL shows the same result.
+      await page.reload();
+      await expect(status).toHaveText("Showing 3 events for project Checkout");
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

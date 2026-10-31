@@ -1,6 +1,5 @@
-import Form from "next/form";
-import Link from "next/link";
-
+import { ScopeFilter } from "@/components/filters/scope-filter";
+import type { ScopeOptions } from "@/lib/filters/scope";
 import { typeOwnerName } from "@/lib/providers";
 import {
   EVENT_SEVERITIES,
@@ -15,30 +14,31 @@ const DATE_INPUT =
   "mt-1 block min-h-10 w-full rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-sm text-foreground [color-scheme:dark]";
 
 /**
- * A plain GET form, so the filters live in the URL: a filtered view can be bookmarked, shared,
- * and reloaded, and it works before any JavaScript loads. Submitting starts from the newest
- * events, because the form carries no cursor.
+ * The shared scope filter (provider, project, account) with the timeline's own fields: event
+ * type, severity, and dates. Submitting starts from the newest events, because the form carries
+ * no cursor.
  */
 export function TimelineFilters({
   action,
   query,
   typeIds,
+  scopeOptions,
 }: {
   action: string;
   query: TimelineQuery;
   /** Type ids present in the workspace; selected ones are added so they can be unticked. */
   typeIds: readonly string[];
+  scopeOptions: ScopeOptions;
 }) {
   const typeOptions = [...new Set([...typeIds, ...query.types])].sort();
-  // Inputs are uncontrolled, so the form remounts when the filters in the URL change; otherwise
-  // a client navigation (such as Clear filters) would leave the old boxes ticked.
-  const formKey = JSON.stringify([query.types, query.severities, query.from, query.to]);
   return (
-    <section aria-labelledby="timeline-filters-title" className="mt-8 rounded-xl border border-line bg-panel">
-      <h2 id="timeline-filters-title" className="border-b border-line px-5 py-3 text-sm font-semibold">
-        Filters
-      </h2>
-      <Form key={formKey} action={action} className="grid gap-6 px-5 py-5 md:grid-cols-[2fr_1fr_1fr]">
+    <ScopeFilter
+      action={action}
+      scope={query.scope}
+      options={scopeOptions}
+      resetKey={JSON.stringify([query.types, query.severities, query.from, query.to])}
+    >
+      <div className="grid gap-6 md:grid-cols-[2fr_1fr_1fr]">
         <fieldset className="min-w-0">
           <legend className="text-sm font-medium">Event type</legend>
           <div className="mt-2 grid max-h-56 gap-1 overflow-y-auto pr-1 sm:grid-cols-2">
@@ -105,22 +105,7 @@ export function TimelineFilters({
             </label>
           </div>
         </fieldset>
-
-        <div className="flex flex-wrap items-center gap-3 md:col-span-3">
-          <button
-            type="submit"
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
-          >
-            Apply filters
-          </button>
-          <Link
-            href={action}
-            className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
-          >
-            Clear filters
-          </Link>
-        </div>
-      </Form>
-    </section>
+      </div>
+    </ScopeFilter>
   );
 }
