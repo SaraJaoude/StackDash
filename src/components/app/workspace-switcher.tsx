@@ -84,7 +84,7 @@ export function WorkspaceSwitcher({
         hidden={!open}
         className="absolute left-0 top-full z-50 mt-2 w-64 max-w-[calc(100vw-3rem)] rounded-lg border border-line-strong bg-panel-raised p-1.5 shadow-xl shadow-black/40"
       >
-        <p className="px-2.5 pb-1.5 pt-1 font-mono text-[11px] uppercase tracking-widest text-muted">
+        <p className="px-2.5 pb-1.5 pt-1 font-mono text-[11px] text-muted">
           Your workspaces
         </p>
         <ul className="max-h-80 overflow-y-auto">

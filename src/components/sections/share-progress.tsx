@@ -84,7 +84,7 @@ export function ShareProgress() {
                 <dd className="flex items-center gap-3">
                   <span className="font-mono text-sm tabular-nums">{metric.value}</span>
                   <span
-                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide ${PROVENANCE_CLASSES[metric.provenance]}`}
+                    className={`rounded-full border px-2 py-0.5 font-mono text-[10px] ${PROVENANCE_CLASSES[metric.provenance]}`}
                   >
                     {metric.provenance}
                   </span>

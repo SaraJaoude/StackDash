@@ -1,7 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
 
 // textContent, not innerText: toHaveText compares textContent, and innerText applies CSS such as
-// uppercase badges and line breaks.
+// line breaks.
 async function newestEvent(rows: Locator): Promise<string> {
   const text = await rows.first().textContent();
   if (!text) throw new Error("The newest live event has no text");

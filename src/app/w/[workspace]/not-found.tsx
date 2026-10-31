@@ -5,7 +5,7 @@ import Link from "next/link";
 export default function WorkspaceNotFound() {
   return (
     <div className="mx-auto max-w-xl rounded-xl border border-line bg-panel px-6 py-10 sm:px-10">
-      <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-muted">Not found</p>
+      <p className="font-mono text-[11px] font-medium text-muted">Not found</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">We could not find that workspace</h1>
       <p className="mt-3 text-sm leading-6 text-muted">
         The link may be mistyped, or you may not be a member of this workspace. Check the address, or

@@ -13,7 +13,7 @@ export function Section({ id, eyebrow, title, intro, children }: SectionProps) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-24 border-t border-line">
       <div className="mx-auto w-full max-w-6xl px-6 py-24 sm:py-32">
-        <p className="font-mono text-xs uppercase tracking-widest text-accent">{eyebrow}</p>
+        <p className="font-mono text-xs text-accent">{eyebrow}</p>
         <h2 id={`${id}-title`} className="mt-3 max-w-2xl text-3xl font-semibold tracking-tight sm:text-4xl">
           {title}
         </h2>

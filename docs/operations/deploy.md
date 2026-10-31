@@ -213,3 +213,4 @@ Run every check against the production URL and write down the deployment URL you
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.
+- Turning on GitHub secret scanning and push protection for the repository. In **Settings, Code security** (called **Advanced Security** in newer GitHub layouts), enable **Secret scanning** and **Push protection**. For a private repository this needs GitHub Secret Protection, a paid part of GitHub Advanced Security; both are free once the repository is public. Until they are on, the gitleaks scan in CI is the only automated secret check, and it only runs after a push. Confirm with `gh api repos/eddiejaoude/DevMacro --jq '.security_and_analysis'`: `secret_scanning` and `secret_scanning_push_protection` must both show `"status": "enabled"`.

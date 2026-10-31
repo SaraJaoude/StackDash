@@ -18,7 +18,7 @@ export function ErrorPanel({
 }) {
   return (
     <div role="alert" className="mx-auto max-w-xl rounded-xl border border-danger/40 bg-panel px-6 py-10 sm:px-10">
-      <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-danger">Error</p>
+      <p className="font-mono text-[11px] font-medium text-danger">Error</p>
       <h1 className="mt-2 text-2xl font-semibold tracking-tight">{title}</h1>
       <p className="mt-3 text-sm leading-6 text-muted">{description}</p>
       {referenceId === undefined ? null : (

@@ -135,7 +135,7 @@ function MonthSummary() {
       <dl className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {statTiles.map((stat) => (
           <div key={stat.term} className="rounded-lg border border-line bg-panel-raised px-3.5 py-3">
-            <dt className="font-mono text-[10px] uppercase tracking-wide text-muted">{stat.term}</dt>
+            <dt className="font-mono text-[10px] text-muted">{stat.term}</dt>
             <dd className="mt-1 text-2xl font-semibold tracking-tight">
               <CountUp value={stat.value} format={stat.format} delayMs={STATS_DELAY_MS} />
               {stat.unit ? <span className="ml-1.5 text-sm font-normal text-muted">{stat.unit}</span> : null}
@@ -154,7 +154,7 @@ function MonthDetail() {
     <div className="p-5 sm:p-6">
       <div className="rounded-lg border border-line bg-panel-raised px-3 pb-1 pt-2.5">
         <div className="flex items-baseline justify-between gap-3">
-          <p className="font-mono text-[10px] uppercase tracking-wide text-muted">Verified spend per day</p>
+          <p className="font-mono text-[10px] text-muted">Verified spend per day</p>
           <p className="font-mono text-xs text-muted">
             Today <span className="text-foreground">{usd.format(todayMinor / 100)}</span>
           </p>
@@ -205,7 +205,7 @@ function MonthDetail() {
               </div>
               <div className="mt-0.5 flex items-center justify-between gap-3 text-xs text-muted">
                 <span>{row.detail}</span>
-                <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
+                <span className="shrink-0 rounded-full border border-line px-2 py-0.5 font-mono text-[10px]">
                   {row.source}
                 </span>
               </div>

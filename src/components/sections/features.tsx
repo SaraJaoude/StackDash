@@ -106,7 +106,7 @@ export function Features() {
           <dl className="mt-6 divide-y divide-line rounded-xl border border-line bg-panel">
             {costLabels.map((label) => (
               <div key={label.term} className="grid gap-1 px-5 py-3 sm:grid-cols-[10rem_1fr] sm:gap-4">
-                <dt className="font-mono text-xs uppercase tracking-wide text-foreground">{label.term}</dt>
+                <dt className="font-mono text-xs text-foreground">{label.term}</dt>
                 <dd className="text-sm text-muted">{label.definition}</dd>
               </div>
             ))}
