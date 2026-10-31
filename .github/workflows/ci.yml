@@ -58,6 +58,39 @@ jobs:
       - name: Audit production dependencies
         run: npm audit --audit-level=high --omit=dev
 
+  secrets:
+    name: Secret scan (full history)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Gitleaks v8.30.1, the official image, pinned by digest. Bump the tag and digest together.
+      GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every commit on every branch, so a secret committed and later deleted is still found.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The gitleaks CLI from its official image needs no license key and no third-party action.
+      # Pushed commits that added sample values are allowlisted by SHA in .gitleaks.toml.
+      - name: Scan git history with gitleaks
+        run: |
+          set -uo pipefail
+          log="${RUNNER_TEMP}/gitleaks.log"
+          status=0
+          docker run --rm -v "${GITHUB_WORKSPACE}:/repo:ro" -w /repo "${GITLEAKS_IMAGE}" \
+            detect --source . --redact --verbose --no-banner --no-color 2> "${log}" || status=$?
+          cat "${log}"
+          # Gitleaks exits 0 when git itself fails (it logs ERR and scans 0 commits), so a scan
+          # that read no history fails here instead of passing silently.
+          if grep -q ' ERR ' "${log}" || ! grep -qE ' INF [1-9][0-9]* commits scanned' "${log}"; then
+            echo "::error::Gitleaks did not scan the git history. See the log above."
+            exit 1
+          fi
+          exit "${status}"
+
   db:
     name: Database lint, types, and tests
     runs-on: ubuntu-latest

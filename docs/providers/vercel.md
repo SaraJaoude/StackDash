@@ -303,14 +303,14 @@ The Redirect URL used in the token exchange must equal the one in the console, s
 
 ## Sample responses
 
-All samples below are **from documentation, not recorded**. Ids are the documentation's synthetic values. Arrays are trimmed.
+All samples below are **from documentation, not recorded**. Ids are the documentation's synthetic values; tokens are shown as placeholders. Arrays are trimmed.
 
 Token exchange, `POST /v2/oauth/access_token`:
 
 ```json
 {
   "token_type": "Bearer",
-  "access_token": "xEbuzM1ZAJ46afITQlYqH605",
+  "access_token": "<access-token>",
   "installation_id": "icfg_ijgU3GzRxyz7nGpwwsSmbNkI",
   "user_id": "2tUzTmv4ljvFVHifEf9TGdpH",
   "team_id": null

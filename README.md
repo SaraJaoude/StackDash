@@ -181,8 +181,17 @@ npm run db:types:check   # fails if src/lib/supabase/database.types.ts is stale
 npm run build            # production build
 ```
 
-CI also runs `supabase db lint --level error --fail-on error` and
-`npm audit --audit-level=high --omit=dev`.
+CI also runs `supabase db lint --level error --fail-on error`,
+`npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. Run the scan
+locally from a normal clone (not a git worktree) with:
+
+```bash
+docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 detect --source . --redact --verbose
+```
+
+Never commit a credential-shaped value, even a sample: use a placeholder such as `<access-token>`
+in docs and build fake keys at runtime in tests. `.gitleaks.toml` allowlists only the exact
+already-pushed commits that predate this rule.
 
 ### End-to-end tests
 

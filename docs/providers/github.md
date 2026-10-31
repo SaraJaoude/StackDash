@@ -263,11 +263,11 @@ Setup URL redirect after install (from documentation, not recorded; `setup_actio
 <SITE_URL>/api/connections/github/callback?installation_id=12345678&setup_action=install&state=AB12t
 ```
 
-`POST /app/installations/{installation_id}/access_tokens` (from documentation, not recorded):
+`POST /app/installations/{installation_id}/access_tokens` (from documentation, not recorded; the token is shown as a placeholder):
 
 ```json
 {
-  "token": "ghs_16C7e42F292c6912E7710c838347Ae178B4a",
+  "token": "<installation-token>",
   "expires_at": "2016-07-11T22:14:10Z",
   "permissions": { "metadata": "read", "organization_administration": "read" },
   "repository_selection": "selected"

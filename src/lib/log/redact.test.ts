@@ -26,7 +26,8 @@ const RESEND_KEY = join("re_", "123456789_AbCdEfGhIjKlMnOpQrSt");
 const VERCEL_PREFIXED = join("vcp_", "AbCdEfGhIjKlMnOpQrSt1234");
 const VERCEL_LEGACY = join("Xk9", "2LmQpR7tVbN4wZcY8hJd3Fs");
 const SUPABASE_PAT = join("sbp_", "0123456789abcdef0123456789abcdef01234567");
-const SUPABASE_SECRET = join("sb_secret_", "N7UND0UgjKTVK-Uodkm0Hg_xSvEMPvz");
+const SUPABASE_SECRET = join("sb_secret_", "FakeKeyFor", "RedactTests", "0123");
+const BASIC_CREDENTIALS = btoa("user:password");
 const HEX_BLOB = join("9f86d081884c7d659a2feaa0c55ad015", "a3bf4f1b2b0b822cd15d6c15b0f00a08");
 const BASE64_BLOB = join("dGhpcyBpcyBhIHNlY3Jl", "dCBibG9iIHdpdGggMzIrIGNoYXJz");
 const JWT = join(
@@ -39,7 +40,7 @@ describe("redactString", () => {
   const masked: readonly { name: string; input: string; secret: string }[] = [
     { name: "Bearer token in a header line", input: `Authorization: Bearer ${GITHUB_OAUTH}`, secret: GITHUB_OAUTH },
     { name: "Bearer token with opaque value", input: "Bearer abc.def-ghi_jkl", secret: "abc.def-ghi_jkl" },
-    { name: "Basic credentials", input: "Basic dXNlcjpwYXNzd29yZA==", secret: "dXNlcjpwYXNzd29yZA" },
+    { name: "Basic credentials", input: `Basic ${BASIC_CREDENTIALS}`, secret: BASIC_CREDENTIALS },
     { name: "bare JWT", input: `session ${JWT} expired`, secret: JWT },
     { name: "JWT inside a URL query string", input: `https://app.example.com/cb?state=${JWT}&next=/`, secret: JWT },
     { name: "sk_live_ inside a URL query string", input: `https://api.example.com/v1?state=${STRIPE_LIVE}&page=2`, secret: STRIPE_LIVE },

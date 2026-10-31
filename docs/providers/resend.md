@@ -244,16 +244,16 @@ Every DevMacro deployment registers its own client, because the redirect URI and
 
 ## Sample responses
 
-From documentation, not recorded. Trimmed. Identifiers are the documentation's synthetic values.
+From documentation, not recorded. Trimmed. Identifiers are the documentation's synthetic values; tokens are shown as placeholders.
 
 `POST /oauth/token` (authorization code or refresh):
 
 ```json
 {
-  "access_token": "eyJhbGciOiJFUzI1NiIsImtpZCI6Im9hdXRoX2tleSIsInR5cCI6ImF0K2p3dCJ9...",
+  "access_token": "<access-token>",
   "token_type": "Bearer",
   "expires_in": 900,
-  "refresh_token": "JcL7aYfE7S9h3L4qv0o2e1w8m6n5b3x9RkP2tD4uV6Q",
+  "refresh_token": "<refresh-token>",
   "scope": "emails:send"
 }
 ```
