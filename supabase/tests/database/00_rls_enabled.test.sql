@@ -25,7 +25,9 @@ select is_empty(
 -- under test is empty or a table was renamed away from the contract.
 select results_eq(
   $$
-    select c.relname::text
+    -- name columns carry collation "C"; cast to the default collation so the
+    -- row comparison against the text literals below is well defined.
+    select c.relname::text collate "default"
     from pg_catalog.pg_class c
     join pg_catalog.pg_namespace n on n.oid = c.relnamespace
     where n.nspname = 'public'
@@ -69,15 +71,19 @@ select is_empty(
 );
 
 -- Credential, OAuth state, and invite tables are service role only: RLS on and
--- no policy at all, so even a stray grant exposes nothing.
+-- no policy for any Data API role, so even a stray grant exposes nothing.
+-- access_invites legitimately has a policy for supabase_auth_admin (the invite
+-- hook runs as that role, which does not bypass RLS), so only client facing
+-- roles are checked.
 select is_empty(
   $$
-    select tablename::text
+    select tablename::text || ' ' || array_to_string(roles, ',')
     from pg_catalog.pg_policies
     where schemaname = 'public'
       and tablename in ('connection_credentials', 'oauth_states', 'access_invites')
+      and roles && array['public', 'anon', 'authenticated']::name[]
   $$,
-  'rls enabled: service only tables (connection_credentials, oauth_states, access_invites) have no policies'
+  'rls enabled: service only tables (connection_credentials, oauth_states, access_invites) have no policy for public, anon, or authenticated'
 );
 
 select * from finish();
