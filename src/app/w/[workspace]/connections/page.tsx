@@ -11,9 +11,10 @@ import { formatAbsolute, formatRelative } from "@/components/connections/format"
 import { ProviderMark } from "@/components/connections/provider-mark";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
-import { ProviderIdSchema, type ProviderAdapter, type ProviderId } from "@/lib/adapters/types";
+import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
 import { connectErrorMessage, ConnectFeedbackSchema } from "@/lib/connections/oauth-state";
 import { decodeConnectionsCursor, listConnections, type ConnectionSummary } from "@/lib/data/connections";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
@@ -40,8 +41,6 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
   const connectionsPath = workspacePath(workspace.slug, "connections");
 
   const catalog = availableProviders();
-  const names = new Map<ProviderId, string>(catalog.map((adapter) => [adapter.id, adapter.displayName]));
-  const nameOf = (id: ProviderId) => names.get(id) ?? (id === "fake" ? "Example provider" : id);
 
   const after = decodeConnectionsCursor(first(query.after));
   const page = await listConnections(workspace.id, after);
@@ -67,7 +66,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
           <p>
             {connectErrorMessage(
               feedback.data.error,
-              feedback.data.provider === undefined ? "the provider" : nameOf(feedback.data.provider),
+              feedback.data.provider === undefined ? "the provider" : PROVIDER_NAMES[feedback.data.provider],
             )}
           </p>
           {feedback.data.ref === undefined ? null : (
@@ -83,8 +82,8 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
           <p>The connection, its credential, and its history are deleted.</p>
           {first(query.revoke) === "manual" ? (
             <p className="mt-1">
-              DevMacro could not revoke access at {nameOf(deleted.data)}. Remove DevMacro&apos;s access in your{" "}
-              {nameOf(deleted.data)} account settings.
+              DevMacro could not revoke access at {PROVIDER_NAMES[deleted.data]}. Remove DevMacro&apos;s access in your{" "}
+              {PROVIDER_NAMES[deleted.data]} account settings.
             </p>
           ) : null}
         </FeedbackBanner>
@@ -112,7 +111,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
                 <ConnectionRow
                   key={connection.id}
                   connection={connection}
-                  providerName={nameOf(connection.provider)}
+                  providerName={PROVIDER_NAMES[connection.provider]}
                   href={`${connectionsPath}/${connection.id}`}
                   now={now}
                 />

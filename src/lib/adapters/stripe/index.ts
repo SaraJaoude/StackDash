@@ -20,6 +20,7 @@ import {
   type SyncInput,
   type SyncResult,
 } from "@/lib/adapters/types";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   BalanceTransactionSchema,
   ChargeObjectSchema,
@@ -507,7 +508,7 @@ async function settle<T>(
 
 export const stripeAdapter: ProviderAdapter = {
   id: "stripe",
-  displayName: "Stripe",
+  displayName: PROVIDER_NAMES.stripe,
   capabilities: {
     oauth: true,
     polling: true,

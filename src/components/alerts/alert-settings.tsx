@@ -12,6 +12,7 @@ import {
 } from "@/lib/data/alert-rules";
 import { listBudgetOptions, listBudgets, listSnapshotCurrencies } from "@/lib/data/budgets";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
 import { workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
@@ -23,7 +24,6 @@ import {
   defaultBudgetValues,
   defaultRuleValues,
   formatMinorAmount,
-  PROVIDER_LABELS,
   ruleToFormValues,
   type AlertFormOptions,
 } from "./labels";
@@ -75,14 +75,14 @@ export async function AlertSettings({
   const budgetsById = new Map(budgetOptions.map((budget) => [budget.id, budget]));
   const metricLabels = new Map(metrics.map((metric) => [metric.metricKey, metric.label]));
   const connectionLabel = (connection: ConnectionOption) =>
-    `${connection.display_name} (${PROVIDER_LABELS[connection.provider]})`;
+    `${connection.display_name} (${PROVIDER_NAMES[connection.provider]})`;
 
   function scopeLabel(item: Scoped): string {
     switch (item.scope) {
       case "workspace":
         return "the whole workspace";
       case "provider":
-        return item.provider === null ? "one provider" : PROVIDER_LABELS[item.provider];
+        return item.provider === null ? "one provider" : PROVIDER_NAMES[item.provider];
       case "project": {
         const name = item.project_id === null ? undefined : projectNames.get(item.project_id);
         return name === undefined ? "one project" : `the project ${name}`;
@@ -140,7 +140,7 @@ export async function AlertSettings({
     workspaceSlug: workspace.slug,
     providers: Constants.public.Enums.provider_id
       .filter((provider) => liveProviders.has(provider) || connectedProviders.has(provider))
-      .map((provider) => ({ value: provider, label: PROVIDER_LABELS[provider] })),
+      .map((provider) => ({ value: provider, label: PROVIDER_NAMES[provider] })),
     projects: targets.projects.map((project) => ({ value: project.id, label: project.name })),
     connections: targets.connections.map((connection) => ({ value: connection.id, label: connectionLabel(connection) })),
     budgets: budgetOptions.map((budget) => ({
@@ -153,7 +153,7 @@ export async function AlertSettings({
       const provider = connectionsById.get(metric.connectionIds[0] ?? "")?.provider;
       return {
         value: metric.metricKey,
-        label: provider === undefined ? metric.label : `${PROVIDER_LABELS[provider]}: ${metric.label}`,
+        label: provider === undefined ? metric.label : `${PROVIDER_NAMES[provider]}: ${metric.label}`,
       };
     }),
   };
@@ -205,13 +205,13 @@ export async function AlertSettings({
             {suggestedProviders.map((provider) => (
               <li key={provider} className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
                 <p className="text-sm">
-                  <span className="font-medium">{PROVIDER_LABELS[provider]}:</span> alert at 75%, 90%, and 100% of
+                  <span className="font-medium">{PROVIDER_NAMES[provider]}:</span> alert at 75%, 90%, and 100% of
                   each allowance.
                 </p>
                 <AddSuggestedAlerts
                   workspaceSlug={workspace.slug}
                   provider={provider}
-                  providerLabel={PROVIDER_LABELS[provider]}
+                  providerLabel={PROVIDER_NAMES[provider]}
                   afterAddFocusId={RULES_HEADING_ID}
                 />
               </li>

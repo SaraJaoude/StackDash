@@ -9,26 +9,7 @@ import {
   type ProviderId,
   type ValueSource,
 } from "@/lib/dashboard/aggregate";
-import type { Platform } from "@/lib/site";
-
-const PROVIDER_NAMES: Record<ProviderId, string> = {
-  vercel: "Vercel",
-  github: "GitHub",
-  resend: "Resend",
-  stripe: "Stripe",
-  supabase: "Supabase",
-  fake: "Test provider",
-};
-
-// The test provider has no brand mark.
-const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
-  vercel: "Vercel",
-  github: "GitHub",
-  resend: "Resend",
-  stripe: "Stripe",
-  supabase: "Supabase",
-  fake: null,
-};
+import { providerName, providerPlatform } from "@/lib/providers";
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {
   pending: "Pending",
@@ -38,17 +19,13 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
   failed: "Failed",
 };
 
-export function providerName(provider: ProviderId): string {
-  return PROVIDER_NAMES[provider];
-}
-
 export function connectionStatusLabel(status: ConnectionStatus): string {
   return STATUS_LABELS[status];
 }
 
 /** The provider's mark as decoration; its name is always printed beside it. */
 export function ProviderMark({ provider }: { provider: ProviderId }) {
-  const platform = PROVIDER_PLATFORMS[provider];
+  const platform = providerPlatform(provider);
   return (
     <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-white">
       {platform === null ? <ServerIcon className="size-4" /> : <PlatformLogo platform={platform} className="size-4" />}

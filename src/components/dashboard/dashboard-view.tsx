@@ -2,10 +2,10 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import type { CurrencyAmounts, DashboardView as View, ProviderId } from "@/lib/dashboard/aggregate";
+import { providerName } from "@/lib/providers";
 
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
-import { providerName } from "./value-meta";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { addDecimals, InvalidDecimalError, toMinorUnits, type Decimal } from "@/lib/money";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   AuthRevokedError,
   fetchJson,
@@ -335,7 +336,7 @@ async function syncDeployments(
 
 export const vercelAdapter: ProviderAdapter = {
   id: "vercel",
-  displayName: "Vercel",
+  displayName: PROVIDER_NAMES.vercel,
   capabilities: {
     oauth: true,
     polling: true,

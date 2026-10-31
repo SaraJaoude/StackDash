@@ -1,15 +1,20 @@
-import type { Database } from "@/lib/supabase/database.types";
 import type { Platform } from "@/lib/site";
+import type { Database } from "@/lib/supabase/database.types";
+
+/**
+ * The one home for provider display names and brand marks. Client-safe: plain data and pure
+ * functions, so adapters, server pages, and client components all read the same strings.
+ */
 
 type ProviderId = Database["public"]["Enums"]["provider_id"];
 
-const PROVIDER_NAMES: Record<ProviderId, string> = {
+export const PROVIDER_NAMES: Record<ProviderId, string> = {
   vercel: "Vercel",
   github: "GitHub",
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
-  fake: "Fake provider",
+  fake: "Example provider",
 };
 
 // The test-only fake provider has no brand mark; its name is still printed.

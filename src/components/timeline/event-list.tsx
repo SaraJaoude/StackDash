@@ -1,10 +1,10 @@
 import { PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
 import type { TimelineEvent } from "@/lib/data/timeline";
+import { providerName, providerPlatform } from "@/lib/providers";
 import { severityBadge } from "@/lib/timeline/query";
 
 import { EventTime } from "./event-time";
-import { providerName, providerPlatform } from "./provider";
 
 /** One page of events, newest first. Every row prints its provider and severity as words. */
 export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {

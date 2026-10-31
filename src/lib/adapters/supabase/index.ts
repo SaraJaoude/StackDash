@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { InvalidResponseError, PermissionMissingError, fetchJson } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -613,7 +614,7 @@ function readCursor(raw: string | undefined, ctx: OAuthContext, ref: string): Cu
 
 export const supabaseAdapter: ProviderAdapter = {
   id: "supabase",
-  displayName: "Supabase",
+  displayName: PROVIDER_NAMES.supabase,
   capabilities: {
     oauth: true,
     polling: true,

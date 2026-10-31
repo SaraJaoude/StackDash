@@ -1,14 +1,13 @@
 import Form from "next/form";
 import Link from "next/link";
 
+import { typeOwnerName } from "@/lib/providers";
 import {
   EVENT_SEVERITIES,
   eventTypeLabel,
   severityBadge,
   type TimelineQuery,
 } from "@/lib/timeline/query";
-
-import { typeOwnerName } from "./provider";
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
 const CHECKBOX = "size-4 shrink-0 accent-accent";

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   AuthRevokedError,
   fetchJson,
@@ -395,7 +396,7 @@ function permissionGap(error: unknown, what: string): PermissionMissingError | u
 
 export const resendAdapter: ProviderAdapter = {
   id: "resend",
-  displayName: "Resend",
+  displayName: PROVIDER_NAMES.resend,
   capabilities: {
     oauth: true,
     polling: true,

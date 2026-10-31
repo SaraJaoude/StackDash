@@ -9,16 +9,10 @@ import {
   type ProviderSummary,
   type QuantityValue,
 } from "@/lib/dashboard/aggregate";
+import { providerName } from "@/lib/providers";
 
 import { CurrencyAmountsList, MoneyValueBlock } from "./currency-amounts";
-import {
-  connectionStatusLabel,
-  Freshness,
-  ProvenanceBadge,
-  ProviderMark,
-  providerName,
-  Unavailable,
-} from "./value-meta";
+import { connectionStatusLabel, Freshness, ProvenanceBadge, ProviderMark, Unavailable } from "./value-meta";
 
 function QuantityCell({ label, value }: { label: string; value: QuantityValue | null }) {
   return (

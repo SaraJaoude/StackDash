@@ -14,15 +14,6 @@ import { currencyMinorDigits, decimalToMinorUnits } from "@/lib/money";
  * Everything here is plain data or pure functions, safe on either side.
  */
 
-export const PROVIDER_LABELS: Record<ProviderId, string> = {
-  vercel: "Vercel",
-  github: "GitHub",
-  resend: "Resend",
-  stripe: "Stripe",
-  supabase: "Supabase",
-  fake: "Test provider",
-};
-
 export const KIND_LABELS: Record<AlertRuleKind, string> = {
   allowance_percent: "Usage reaches a percentage of a provider allowance",
   spend_amount: "Spend reaches an amount",

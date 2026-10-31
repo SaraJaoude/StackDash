@@ -1,3 +1,4 @@
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError } from "../errors";
 import type { ActivityEvent } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -181,7 +182,7 @@ function parseCursor(cursor: string | undefined, ctx: OAuthContext): Cursor | un
 
 export const githubAdapter: ProviderAdapter = {
   id: "github",
-  displayName: "GitHub",
+  displayName: PROVIDER_NAMES.github,
   capabilities: {
     oauth: true,
     polling: true,

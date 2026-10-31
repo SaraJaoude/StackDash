@@ -20,6 +20,7 @@ import {
   type SyncResult,
 } from "@/lib/adapters/types";
 import { addDecimals, parseDecimal, toMinorUnits } from "@/lib/money";
+import { PROVIDER_NAMES } from "@/lib/providers";
 
 /**
  * In-memory provider for unit tests, sync engine tests, and Playwright e2e (#40). It never touches
@@ -276,7 +277,7 @@ function parseCursor(cursor: string | undefined): Date | undefined {
 
 export const fakeAdapter: ProviderAdapter = {
   id: "fake",
-  displayName: "Example provider",
+  displayName: PROVIDER_NAMES.fake,
   capabilities: {
     oauth: true,
     polling: true,

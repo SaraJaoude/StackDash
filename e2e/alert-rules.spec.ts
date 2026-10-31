@@ -184,15 +184,15 @@ ownerTest.describe("alert rules as the owner", () => {
       await page.goto(`/w/${workspace.slug}/alerts`);
 
       const suggestions = page.getByRole("region", { name: "Suggested alerts" });
-      await expect(suggestions).toContainText("Test provider: alert at 75%, 90%, and 100% of each allowance.");
+      await expect(suggestions).toContainText("Example provider: alert at 75%, 90%, and 100% of each allowance.");
       // Suggestions are never enabled on their own.
       await expect(page.getByText("No alert rules yet")).toBeVisible();
 
-      await suggestions.getByRole("button", { name: "Add these alerts for Test provider" }).click();
+      await suggestions.getByRole("button", { name: "Add these alerts for Example provider" }).click();
       for (const percent of [75, 90, 100]) {
         await expect(
           rulesList(page).getByRole("listitem").filter({ hasText: `Alert at ${percent}% of every allowance` }),
-        ).toContainText("Applies to Test provider");
+        ).toContainText("Applies to Example provider");
       }
       await expect(suggestions).toHaveCount(0);
     } finally {

@@ -20,6 +20,7 @@ import { LockIcon } from "@/components/icons";
 import { availableProviders } from "@/lib/adapters/registry";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
@@ -54,7 +55,7 @@ async function ConnectionContent({
 
   // The fake provider is absent from the registry when its flag is off; its rows still render.
   const adapter = availableProviders().find((candidate) => candidate.id === connection.provider);
-  const providerName = adapter?.displayName ?? (connection.provider === "fake" ? "Example provider" : connection.provider);
+  const providerName = PROVIDER_NAMES[connection.provider];
   const connectionsPath = workspacePath(workspace.slug, "connections");
   const reconnectHref = `${connectionsPath}/new/${connection.provider}?${new URLSearchParams({ connection: connection.id }).toString()}`;
   const lastSynced = connection.last_synced_at === null ? null : new Date(connection.last_synced_at);
