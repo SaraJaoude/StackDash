@@ -319,6 +319,7 @@ export const budgetInputSchema = z
   .object({
     name: z
       .string({ error: "Enter a budget name." })
+      .min(1, "Enter a budget name.")
       .refine((name) => [...name].length <= BUDGET_NAME_MAX, {
         message: `Use ${BUDGET_NAME_MAX} characters or fewer.`,
       }),
