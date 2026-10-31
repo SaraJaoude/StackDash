@@ -85,6 +85,12 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
             {roleLabel(membership.role)}
           </span>
         ) : null}
+        <Link
+          href="/account"
+          className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
+        >
+          Account
+        </Link>
         <SignOutButton />
       </div>
     </>

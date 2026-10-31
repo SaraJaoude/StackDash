@@ -4,12 +4,10 @@ import { refresh } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
-import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import type { ProviderId } from "@/lib/adapters/types";
-import { deleteCredential, loadCredential } from "@/lib/data/credentials";
+import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
 import { enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { logError } from "@/lib/log/logger";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction, workspacePath, type WorkspaceAccess } from "@/lib/workspaces/access";
 import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions";
@@ -29,17 +27,6 @@ const STALE_FORM_MESSAGE = "This form is out of date. Reload the page and try ag
 
 // Fixture ids skip the RFC version bits, so `guid` rather than `uuid`.
 const Id = z.guid();
-
-// Where to remove DevMacro's access by hand when the provider has no revoke endpoint or it failed.
-// Providers not listed get the generic account settings wording.
-const MANUAL_REVOKE_STEPS: Partial<Record<ProviderId, string>> = {
-  github:
-    "Uninstall the DevMacro GitHub App at github.com/settings/installations, or for an organization in the organization's settings under GitHub Apps.",
-};
-
-function manualRevokeStep(provider: ProviderId, providerName: string): string {
-  return MANUAL_REVOKE_STEPS[provider] ?? `Remove DevMacro's access in your ${providerName} account settings.`;
-}
 
 const accountProjectSchema = z
   .object({ workspace: z.string().min(1), accountId: Id, projectId: z.union([Id, z.literal("")]) })
@@ -218,33 +205,6 @@ export async function syncNow(
   return { ok: true, message: "Sync queued. New numbers appear within a few minutes." };
 }
 
-/**
- * Revokes the grant at the provider where it supports that. Returns null on success, otherwise
- * the manual step the user still has to take. Never throws: a failed revoke must not stop the
- * local credential from being deleted.
- */
-async function revokeAtProvider(workspaceId: string, connectionId: string, provider: ProviderId): Promise<string | null> {
-  let providerName = "the provider";
-  try {
-    const adapter = getAdapter(provider);
-    providerName = adapter.displayName;
-    if (adapter.revoke === undefined) {
-      return `${adapter.displayName} does not let apps revoke their own access. ${manualRevokeStep(provider, providerName)}`;
-    }
-    const credential = await loadCredential({ workspaceId, connectionId });
-    if (credential === null) return null;
-    const client = loadOAuthClient(adapter);
-    if (client === null) {
-      return `${adapter.displayName} is no longer set up on this instance, so DevMacro could not revoke access. ${manualRevokeStep(provider, providerName)}`;
-    }
-    await adapter.revoke(credential, createOAuthContext(client));
-    return null;
-  } catch (error) {
-    const referenceId = logError("connections.revoke_failed", error, { provider });
-    return `DevMacro could not revoke access at ${providerName} (reference ${referenceId}). ${manualRevokeStep(provider, providerName)}`;
-  }
-}
-
 export async function disconnect(
   _previous: ConnectionActionResult | null,
   formData: FormData,
@@ -261,15 +221,15 @@ export async function disconnect(
     const connection = await findConnection(access, parsed.data.connectionId);
     if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
 
-    manualStep = await revokeAtProvider(access.workspace.id, connection.id, connection.provider);
-    await deleteCredential(connection.id);
-    // Status and schedule are server-written columns; the caller was authorized above.
-    const { error } = await createAdminClient()
-      .from("connections")
-      .update({ status: "revoked", next_sync_at: null, updated_by: access.user.id })
-      .eq("workspace_id", access.workspace.id)
-      .eq("id", connection.id);
-    if (error) throw new Error(`Disconnect status update failed (code ${error.code}).`);
+    manualStep = manualRevokeMessage(
+      connection.provider,
+      await disconnectConnection({
+        workspaceId: access.workspace.id,
+        connectionId: connection.id,
+        provider: connection.provider,
+        userId: access.user.id,
+      }),
+    );
   } catch (error) {
     return failure("connections.disconnect_failed", error, "The connection could not be disconnected. Try again in a moment.");
   }
@@ -302,7 +262,10 @@ export async function deleteConnection(
     if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
     provider = connection.provider;
     if (connection.status !== "revoked") {
-      manualStep = await revokeAtProvider(access.workspace.id, connection.id, connection.provider);
+      manualStep = manualRevokeMessage(
+        connection.provider,
+        await revokeAtProvider(access.workspace.id, connection.id, connection.provider),
+      );
     }
     // The cascade removes the credential, accounts, snapshots, events, and jobs with it.
     const supabase = await createClient();

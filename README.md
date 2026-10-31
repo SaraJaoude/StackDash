@@ -292,7 +292,7 @@ src/
     sign-in/                   GitHub sign-in page
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
-    account/                   account Server Actions (delete account)
+    account/                   account page, delete account action, signed-out "account deleted" page
     w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
@@ -300,6 +300,7 @@ src/
   components/
     sections/                  landing page sections
     app/                       app shell: navigation, workspace switcher, page states
+    account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules

@@ -56,7 +56,9 @@ describe("isAppPath", () => {
   it.each([
     ["/app", true],
     ["/app/settings", true],
-    ["/w/abc", true],
+    ["/account", true],
+    ["/account/deleted", false],
+    ["/accounts", false],
     ["/", false],
     ["/apple", false],
     ["/sign-in", false],

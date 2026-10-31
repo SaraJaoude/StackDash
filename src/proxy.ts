@@ -98,9 +98,10 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// Only the signed-in app and its auth pages. The landing page, API routes, and static assets stay
-// out: they need no session refresh, and a nonce would force the static landing page to render per
-// request. next.config.ts applies the static CSP to every path NOT listed here; keep them in sync.
+// Only the signed-in app, the account page, and the auth pages. The landing page, the signed-out
+// /account/deleted page, API routes, and static assets stay out: they need no session refresh, and
+// a nonce would force the static landing page to render per request. next.config.ts applies the
+// static CSP to every path NOT listed here; keep them in sync.
 export const config = {
-  matcher: ["/app", "/app/:path*", "/w/:path*", "/sign-in", "/auth/:path*"],
+  matcher: ["/app", "/app/:path*", "/w/:path*", "/account", "/sign-in", "/auth/:path*"],
 };

@@ -10,9 +10,12 @@ const PARSE_BASE = "https://devmacro.invalid";
 // or "/\t/evil.com" can navigate to another origin even though it looks relative.
 const UNSAFE_CHARACTERS = /[\\\u0000-\u001f\u007f]/;
 
-/** Paths of the signed-in app: the proxy requires a session for these, and `next` may only target them. */
+/**
+ * Paths of the signed-in app: the proxy requires a session for these, and `next` may only target
+ * them. `/account` is exact: `/account/deleted` is shown after sign-out and must stay public.
+ */
 export function isAppPath(pathname: string): boolean {
-  return pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/w/");
+  return pathname === "/app" || pathname.startsWith("/app/") || pathname.startsWith("/w/") || pathname === "/account";
 }
 
 /**

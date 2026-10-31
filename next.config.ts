@@ -17,9 +17,9 @@ const staticCsp = {
   value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
 };
 
-// Every path except the proxy matcher in src/proxy.ts (/app, /app/*, /w/*, /sign-in, /auth/*).
-// Keep the two lists in sync.
-const outsideProxy = "/((?!app$|app/|w/|sign-in$|auth/).*)";
+// Every path except the proxy matcher in src/proxy.ts (/app, /app/*, /w/*, /account, /sign-in,
+// /auth/*). Keep the two lists in sync.
+const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/).*)";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
