@@ -14,6 +14,10 @@
  *   trigger, and nothing here ever removes a recorded alert.
  * - Money is compared in the rule's (or budget's) currency only. Amounts in other currencies are
  *   ignored, never converted, never added.
+ * - Verified and estimated spend are never added together (the dashboard keeps them apart, and a
+ *   provider can report both for the same money). Spend rules count verified spend; an external
+ *   account with no current verified spend in the currency counts its estimated spend instead, and
+ *   the trigger is then marked estimated.
  * - `cycleKey` identifies the billing cycle the reading belongs to: the start date (`YYYY-MM-DD`,
  *   UTC) of the metric's period when it has one; else, for a point reading with a reset time,
  *   `resets:<reset instant, UTC, to the minute>` (a Resend daily quota gets a new key every day);
@@ -28,13 +32,11 @@
  */
 import {
   dropSupersededBreakdowns,
-  formatDateTime,
-  formatMoney,
-  formatQuantity,
   isCurrentPeriod,
   latestSnapshots,
   type SnapshotInput,
 } from "@/lib/dashboard/aggregate";
+import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -336,10 +338,12 @@ function evaluateAllowanceRule(
 type SpendTotal = Readonly<{ amountMinor: number; currency: string; isEstimated: boolean; cycleKey: string }>;
 
 /**
- * Verified plus estimated spend in one currency for the current billing period, over the rows every
- * target covers. Null when no spend reading in that currency is current: unavailable, not zero.
- * The cycle key is the latest period start among the rows summed, so the threshold re-arms when any
- * of the summed billing periods resets and its total starts again.
+ * Spend in one currency for the current billing period, over the rows every target covers. Per
+ * external account, verified spend is counted; estimated spend is counted only for an account with
+ * no current verified spend in that currency, and marks the total estimated. The two are never added
+ * for the same account. Null when no spend reading in that currency is current: unavailable, not
+ * zero. The cycle key is the latest period start among the rows counted, so the threshold re-arms
+ * when any of the counted billing periods resets and its total starts again.
  */
 function spendTotal(
   rows: readonly AlertSnapshotInput[],
@@ -347,23 +351,33 @@ function spendTotal(
   currency: string,
   now: Date,
 ): SpendTotal | null {
-  let amountMinor = 0;
-  let isEstimated = false;
-  let latestStart: string | null = null;
-  let counted = 0;
+  const verified = new Map<string, AlertSnapshotInput[]>();
+  const estimated = new Map<string, AlertSnapshotInput[]>();
   for (const row of rows) {
     if (row.kind !== "verified_spend" && row.kind !== "estimated_spend") continue;
     if (row.currency !== currency || row.amount_minor === null) continue;
     if (!targets.every((target) => inScope(target, scopedItem(row)))) continue;
     if (!isCurrentPeriod(row, now)) continue;
-    amountMinor += row.amount_minor;
+    const byAccount = row.kind === "verified_spend" ? verified : estimated;
+    const list = byAccount.get(row.external_account_id);
+    if (list === undefined) byAccount.set(row.external_account_id, [row]);
+    else list.push(row);
+  }
+  const counted = [...verified.values()].flat();
+  for (const [accountId, list] of estimated) {
+    if (!verified.has(accountId)) counted.push(...list);
+  }
+  if (counted.length === 0) return null;
+  let amountMinor = 0;
+  let isEstimated = false;
+  let latestStart: string | null = null;
+  for (const row of counted) {
+    amountMinor += row.amount_minor ?? 0;
     isEstimated ||= isEstimatedRow(row);
     if (row.period_start !== null && (latestStart === null || Date.parse(row.period_start) > Date.parse(latestStart))) {
       latestStart = row.period_start;
     }
-    counted += 1;
   }
-  if (counted === 0) return null;
   return { amountMinor, currency, isEstimated, cycleKey: latestStart === null ? utcMonthStart(now) : utcDateOf(latestStart) };
 }
 

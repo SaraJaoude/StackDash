@@ -396,14 +396,24 @@ describe("spend_amount", () => {
     expect(trigger?.message).toContain("Only EUR amounts are counted.");
   });
 
-  it("adds verified and estimated spend in one currency and says it is estimated", () => {
-    const estimated = spend(1000, "USD", {
+  const estimatedSpend = (amountMinor: number, overrides: Partial<AlertSnapshotInput> = {}) =>
+    spend(amountMinor, "USD", {
       metric_key: "vercel.estimated.usd",
       kind: "estimated_spend",
       provenance_source: "derived",
       pricing_source: "vercel-pricing-2026-10",
+      ...overrides,
     });
-    const [trigger] = evaluate([spendRule(2500, "USD")], [spend(2000, "USD"), estimated]);
+
+  it("never adds verified and estimated spend for the same account", () => {
+    expect(evaluate([spendRule(2500, "USD")], [spend(2000, "USD"), estimatedSpend(2000)])).toEqual([]);
+    const [trigger] = evaluate([spendRule(2000, "USD")], [spend(2000, "USD"), estimatedSpend(3000)]);
+    expect(trigger).toMatchObject({ isEstimated: false, observed: { amountMinor: 2000, currency: "USD" } });
+    expect(trigger?.message).not.toContain("estimated");
+  });
+
+  it("falls back to estimated spend for an account with no verified spend and says it is estimated", () => {
+    const [trigger] = evaluate([spendRule(2500, "USD")], [estimatedSpend(3000)]);
     expect(trigger).toMatchObject({
       isEstimated: true,
       observed: { amountMinor: 3000, currency: "USD" },
@@ -411,6 +421,20 @@ describe("spend_amount", () => {
       title: "Workspace spend passed $25.00",
     });
     expect(trigger?.message).toContain("estimated by DevMacro");
+  });
+
+  it("adds verified spend from one account to estimated spend from an account that has no verified spend", () => {
+    const otherAccount = { connection_id: "conn-vercel-2", external_account_id: "acct-vercel-2" };
+    const [trigger] = evaluate(
+      [spendRule(2500, "USD")],
+      [spend(2000, "USD"), estimatedSpend(4000), estimatedSpend(1000, otherAccount)],
+    );
+    expect(trigger).toMatchObject({ isEstimated: true, observed: { amountMinor: 3000, currency: "USD" } });
+  });
+
+  it("ignores estimated spend from a past period when choosing the fallback", () => {
+    const september = { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z" };
+    expect(evaluate([spendRule(1, "USD")], [estimatedSpend(3000, september)])).toEqual([]);
   });
 
   it("does not call verified spend estimated", () => {
@@ -454,6 +478,11 @@ describe("budget_percent", () => {
   it("is critical at or above 100 percent", () => {
     const [trigger] = evaluate([budgetRule(100)], [spend(10_000, "USD")]);
     expect(trigger?.severity).toBe("critical");
+  });
+
+  it("counts verified spend only when the same account also has an estimate", () => {
+    const estimate = spend(6000, "USD", { metric_key: "vercel.estimated.usd", kind: "estimated_spend", provenance_source: "derived" });
+    expect(evaluate([budgetRule(75)], [spend(5000, "USD"), estimate])).toEqual([]);
   });
 
   it("never fires on spend in another currency", () => {

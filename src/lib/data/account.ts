@@ -9,7 +9,7 @@ import {
   type RevocationFailure,
 } from "@/lib/account/delete-account";
 import type { ProviderId } from "@/lib/adapters/types";
-import { disconnectConnection, supportsRevoke } from "@/lib/connections/revoke";
+import { disconnectConnection, supportsRevoke, type RevokeOutcome } from "@/lib/connections/revoke";
 import { deleteCredential } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -30,6 +30,8 @@ type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
 const MAX_MEMBERSHIPS = 200;
 const MAX_MEMBER_ROWS = 5000;
 const MAX_CONNECTIONS = 500;
+// Connections disconnected at once, so one deletion cannot burst hundreds of provider revoke calls.
+const REVOKE_CONCURRENCY = 5;
 
 type CountResult = { count: number | null; error: { code: string } | null };
 
@@ -176,10 +178,10 @@ export type AccountDeletionResult =
  * Deletes the account of `userId`, who must be the signed-in user. The plan is rebuilt here, so
  * nothing the browser sent decides what is deleted. Blocked plans change nothing.
  *
- * Every connection in a workspace being deleted is disconnected first: DevMacro asks the provider
- * to revoke access where it can (a failure is recorded, not fatal) and deletes the credential. Then
- * the auth user is deleted, and the database cascade removes the profile, memberships, the
- * workspaces only this user belonged to, and every row in them.
+ * Every connection in a workspace being deleted is disconnected first, a few at a time: DevMacro
+ * asks the provider to revoke access where it can (a failure is recorded, not fatal) and deletes the
+ * credential. Then the auth user is deleted, and the database cascade removes the profile,
+ * memberships, the workspaces only this user belonged to, and every row in them.
  */
 export async function deleteUserAccount(userId: string): Promise<AccountDeletionResult> {
   const plan = planAccountDeletion(await loadMembershipFacts(userId));
@@ -188,26 +190,34 @@ export async function deleteUserAccount(userId: string): Promise<AccountDeletion
   const connections = await listConnections(plan.deletable.map((workspace) => workspace.workspaceId));
   const manual = new Set<ProviderId>();
   const failed: RevocationFailure[] = [];
-  const results = await Promise.all(
-    connections.map(async (connection) => {
+  // Outcomes by connection index, so the failure list keeps the connection order however the pool finishes.
+  const outcomes: RevokeOutcome[] = [];
+  let next = 0;
+  const worker = async () => {
+    for (let index = next++; index < connections.length; index = next++) {
+      const connection = connections[index];
+      if (connection === undefined) continue;
       if (connection.status === "revoked") {
         // Already disconnected; any credential left from a provider-side revoke goes too.
-        await deleteCredential(connection.id);
-        return { provider: connection.provider, outcome: { kind: "revoked" } as const };
+        await deleteCredential({ workspaceId: connection.workspace_id, connectionId: connection.id });
+        outcomes[index] = { kind: "revoked" };
+        continue;
       }
-      const outcome = await disconnectConnection({
+      outcomes[index] = await disconnectConnection({
         workspaceId: connection.workspace_id,
         connectionId: connection.id,
         provider: connection.provider,
         userId,
       });
-      return { provider: connection.provider, outcome };
-    }),
-  );
-  for (const { provider, outcome } of results) {
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(REVOKE_CONCURRENCY, connections.length) }, worker));
+  connections.forEach(({ provider }, index) => {
+    const outcome = outcomes[index];
+    if (outcome === undefined) return;
     if (outcome.kind === "failed") failed.push({ provider, referenceId: outcome.referenceId });
     else if (outcome.kind === "not_configured" || !supportsRevoke(provider)) manual.add(provider);
-  }
+  });
 
   const { error } = await createAdminClient().auth.admin.deleteUser(userId);
   if (error) throw new Error(`Deleting the auth user failed (status ${error.status ?? "unknown"}).`);

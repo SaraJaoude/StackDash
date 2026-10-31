@@ -113,6 +113,16 @@ describe("alertRuleInputSchema: spend amount", () => {
     expect(ruleErrors({ ...spendBase, currency: "usd", amountCustom: "10" }).fieldErrors.currency).toMatch(/capitals/);
   });
 
+  it("rejects a well-formed currency code the runtime does not know, and leaves the amount alone", () => {
+    const { fieldErrors } = ruleErrors({ ...spendBase, currency: "ABC", amountCustom: "10" });
+    expect(fieldErrors.currency).toBe("Choose a known currency code, such as USD.");
+    expect(fieldErrors.amountCustom).toBeUndefined();
+  });
+
+  it("accepts a known currency code", () => {
+    expect(alertRuleInputSchema.parse({ ...spendBase, currency: "USD", amountCustom: "10" }).currency).toBe("USD");
+  });
+
   it("rejects client minor units as an unknown field", () => {
     const { formError } = ruleErrors({ ...spendBase, amountPreset: "10", threshold_amount_minor: 1 });
     expect(formError).toBe(true);
@@ -196,6 +206,10 @@ describe("budgetInputSchema", () => {
     const { fieldErrors } = budgetErrors({ amount: "0", currency: "gbp", scope: "workspace" });
     expect(fieldErrors.name).toBe("Enter a budget name.");
     expect(fieldErrors.currency).toMatch(/capitals/);
+  });
+
+  it("rejects a well-formed currency code the runtime does not know", () => {
+    expect(budgetErrors({ ...base, currency: "ABC" }).fieldErrors.currency).toBe("Choose a known currency code, such as USD.");
   });
 
   it("rejects a zero amount", () => {

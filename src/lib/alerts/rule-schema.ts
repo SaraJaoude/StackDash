@@ -56,6 +56,8 @@ export const DEFAULT_CURRENCIES = ["USD", "EUR", "GBP"] as const;
 // Mirrors the alert_rules_metric_key_format and usage_snapshots checks.
 const METRIC_KEY_PATTERN = /^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$/;
 const CURRENCY_PATTERN = /^[A-Z]{3}$/;
+/** ISO 4217 codes the runtime knows. A well-formed unknown code ("ABC") would store a rule that never matches. */
+const KNOWN_CURRENCIES: ReadonlySet<string> = new Set(Intl.supportedValuesOf("currency"));
 const WHOLE_NUMBER_PATTERN = /^\d+$/;
 
 /** Form field names, so the client, the action, and the error mapping use one list. */
@@ -120,7 +122,8 @@ const scopeFields = {
 
 const currencySchema = z
   .string({ error: "Choose a currency." })
-  .regex(CURRENCY_PATTERN, "Choose a three-letter currency code in capitals, such as USD.");
+  .regex(CURRENCY_PATTERN, "Choose a three-letter currency code in capitals, such as USD.")
+  .refine((code) => KNOWN_CURRENCIES.has(code), "Choose a known currency code, such as USD.");
 
 const percentFields = {
   thresholdPreset: z.enum([...PERCENT_PRESETS, CUSTOM_CHOICE], { error: "Choose a threshold." }),
@@ -260,8 +263,8 @@ export const alertRuleInputSchema = z
   .superRefine((value, ctx) => {
     checkScopeTarget(value, ctx);
     if (value.kind === "spend_amount") {
-      // A malformed currency already has its own message; the amount cannot be judged without one.
-      if (value.amountPreset === CUSTOM_CHOICE && CURRENCY_PATTERN.test(value.currency)) {
+      // An unknown or malformed currency already has its own message; the amount cannot be judged without one.
+      if (value.amountPreset === CUSTOM_CHOICE && KNOWN_CURRENCIES.has(value.currency)) {
         const result = amountToMinorUnits(value.amountCustom, value.currency);
         if (!result.ok) ctx.addIssue({ code: "custom", message: result.message, path: ["amountCustom"] });
       }
@@ -330,7 +333,7 @@ export const budgetInputSchema = z
   .strict()
   .superRefine((value, ctx) => {
     checkScopeTarget(value, ctx);
-    if (!CURRENCY_PATTERN.test(value.currency)) return;
+    if (!KNOWN_CURRENCIES.has(value.currency)) return;
     const result = amountToMinorUnits(value.amount, value.currency);
     if (!result.ok) ctx.addIssue({ code: "custom", message: result.message, path: ["amount"] });
   })
