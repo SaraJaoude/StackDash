@@ -1,0 +1,57 @@
+{
+  "timePeriod": {
+    "year": 2026,
+    "month": 10
+  },
+  "organization": "example-org",
+  "usageItems": [
+    {
+      "product": "Actions",
+      "sku": "actions_linux",
+      "unitType": "minutes",
+      "pricePerUnit": 0.008,
+      "grossQuantity": 1000,
+      "grossAmount": 8,
+      "discountQuantity": 0,
+      "discountAmount": 0,
+      "netQuantity": 1000,
+      "netAmount": 8
+    },
+    {
+      "product": "Actions",
+      "sku": "actions_linux_4_core",
+      "unitType": "minutes",
+      "pricePerUnit": 0.016,
+      "grossQuantity": 0.3125,
+      "grossAmount": 0.005,
+      "discountQuantity": 0,
+      "discountAmount": 0,
+      "netQuantity": 0.3125,
+      "netAmount": 0.005
+    },
+    {
+      "product": "Actions",
+      "sku": "actions_linux_8_core",
+      "unitType": "minutes",
+      "pricePerUnit": 0.032,
+      "grossQuantity": 0.15625,
+      "grossAmount": 0.005,
+      "discountQuantity": 0,
+      "discountAmount": 0,
+      "netQuantity": 0.15625,
+      "netAmount": 0.005
+    },
+    {
+      "product": "Actions",
+      "sku": "actions_linux_16_core",
+      "unitType": "minutes",
+      "pricePerUnit": 0.064,
+      "grossQuantity": 0.078125,
+      "grossAmount": 0.005,
+      "discountQuantity": 0,
+      "discountAmount": 0,
+      "netQuantity": 0.078125,
+      "netAmount": 0.005
+    }
+  ]
+}

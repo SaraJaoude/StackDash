@@ -1,0 +1,9 @@
+{
+  "token": "ghs_fixtureinstallationtoken01",
+  "expires_at": "2026-10-31T13:00:00Z",
+  "permissions": {
+    "metadata": "read",
+    "organization_administration": "read"
+  },
+  "repository_selection": "selected"
+}

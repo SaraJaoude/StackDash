@@ -1,0 +1,26 @@
+[
+  {
+    "id": 7000002,
+    "full_name": "fork-owner-b/example-repo",
+    "owner": {
+      "login": "fork-owner-b",
+      "id": 8000002,
+      "type": "User"
+    },
+    "private": false,
+    "fork": true,
+    "created_at": "2026-10-30T09:00:00Z"
+  },
+  {
+    "id": 7000001,
+    "full_name": "fork-owner-a/example-repo",
+    "owner": {
+      "login": "fork-owner-a",
+      "id": 8000001,
+      "type": "User"
+    },
+    "private": false,
+    "fork": true,
+    "created_at": "2026-10-29T09:00:00Z"
+  }
+]

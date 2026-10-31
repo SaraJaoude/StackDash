@@ -1,0 +1,20 @@
+{
+  "total_count": 1,
+  "repository_selection": "selected",
+  "repositories": [
+    {
+      "id": 5000001,
+      "name": "example-repo",
+      "full_name": "example-org/example-repo",
+      "owner": {
+        "login": "example-org",
+        "id": 9000001,
+        "type": "Organization"
+      },
+      "private": false,
+      "html_url": "https://github.com/example-org/example-repo",
+      "stargazers_count": 95,
+      "forks_count": 3
+    }
+  ]
+}
