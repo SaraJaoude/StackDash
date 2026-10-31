@@ -3,133 +3,333 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on: see what you have spent, how much allowance is left, and when it resets, and
-get alerted before a limit or budget becomes a problem.
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, and Resend over OAuth (never
+with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace and
+project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a problem.
 
-**Status:** early development. This repository currently contains the landing page only. The
-dashboard, integrations, and self-hosting setup come next.
+**Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
+list. Webhooks come after the MVP.
 
 ## Stack
 
-- Next.js 16 (App Router, Cache Components) and React 19
-- TypeScript (strict)
+- Next.js 16 (App Router, Cache Components, Server Actions) and React 19
+- TypeScript (strict), Zod for validation
 - Tailwind CSS 4
-- Supabase (Postgres and Auth), run locally with the Supabase CLI
-- Vitest for unit tests, Playwright for end-to-end tests
-
-Resend (email) is planned and not wired in yet.
+- Supabase: Postgres with row level security, Auth (GitHub), `pg_cron` and `pg_net` for scheduled
+  syncs, run locally with the Supabase CLI
+- Vitest for unit tests, pgTAP (`supabase test db`) for database tests, Playwright with axe for
+  end-to-end tests
+- Hosted on Vercel with a Supabase project, see [Deploy](docs/operations/deploy.md)
 
 ## Run it locally
 
-Requires Node.js 20.9 or later and npm.
+Follow these steps in order from a fresh clone. Every command runs from the repository root.
+
+### 1. Prerequisites
+
+- Node.js 20.9 or later and npm (CI uses Node.js 22).
+- Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
+- The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
+  version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
+  version that generated the committed database types.
+- `openssl`, to generate secrets.
+
+### 2. Clone and install
 
 ```bash
 git clone git@github.com:eddiejaoude/DevMacro.git
 cd DevMacro
 npm ci
-cp .env.example .env.local   # fill in the Supabase values, see "Local database" below
-npm run dev
 ```
 
-Open <http://localhost:3000>. The landing page runs without Supabase; anything that signs in or
-reads data needs the local database below.
+### 3. Start the local Supabase stack
 
-## Local database
+`supabase/config.toml` enables GitHub sign-in and reads its OAuth credentials with
+`env(SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID)` and `env(SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET)`. The
+CLI refuses to start when they are unset, so export placeholders first:
 
-DevMacro uses the Supabase CLI to run Postgres, Auth, and the API locally in Docker. Its ports sit
-in the 554xx range (API on 55421, database on 55422, Studio on <http://localhost:55423>, email
-inbox on <http://localhost:55424>), so it runs beside other local Supabase projects.
+```bash
+export SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=local-placeholder
+export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=local-placeholder
+supabase start
+```
 
-1. Install the [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started)
-   (version 2.120 or later), for example `brew install supabase/tap/supabase`.
-2. Start Docker (Docker Desktop, OrbStack, or another Docker-compatible runtime).
-3. Start the stack. The first run downloads the images and applies every migration in
-   `supabase/migrations/`.
+Placeholders are enough for everything except signing in with GitHub in the browser (the checks
+and the end-to-end suite never sign in through GitHub). To sign in locally, register a separate
+GitHub OAuth app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
+[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in),
+export its real client ID and secret instead (or put both lines in `supabase/.env.local`, which is
+git ignored), and run `supabase stop` then `supabase start` again.
 
-   ```bash
-   supabase start
-   ```
+The first start downloads the images, applies every migration in `supabase/migrations/`, and loads
+`supabase/seed.sql`. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
+projects:
 
-4. Copy the keys into `.env.local`. `supabase status` prints them; this command prints them with
-   the names the app expects, ready to paste:
-
-   ```bash
-   supabase status -o env \
-     --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
-     --override-name auth.publishable_key=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
-     --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY
-   ```
-
-5. Apply migrations you have not run yet, for example after pulling new commits:
-
-   ```bash
-   supabase migration up
-   ```
-
-   Migrations are forward only. Add a new migration with `supabase migration new <name>` and
-   never edit one that has been merged. Do not use `supabase db reset` as part of the normal
-   workflow: it deletes all local data, and self-hosted installs upgrade with the same forward
-   only migrations.
-
-6. Regenerate the database types after any schema change and commit the result:
-
-   ```bash
-   npm run db:types         # writes src/lib/supabase/database.types.ts
-   npm run db:types:check   # fails if the committed types are stale
-   ```
-
-7. Run the unit tests:
-
-   ```bash
-   npm test
-   ```
+| Service | Address |
+| --- | --- |
+| API | `http://127.0.0.1:55421` |
+| Database | `postgresql://postgres:postgres@127.0.0.1:55422/postgres` |
+| Studio | <http://localhost:55423> |
+| Email inbox (local SMTP catcher) | <http://localhost:55424> |
 
 Stop the stack with `supabase stop`; your data is kept for the next `supabase start`.
 
-Sign-up is invite only, so the local Auth server has public sign-up turned off.
+### 4. Create `.env.local`
+
+```bash
+cp .env.example .env.local
+```
+
+Print the Supabase keys with the names the app expects and paste them into `.env.local`:
+
+```bash
+supabase status -o env \
+  --override-name api.url=NEXT_PUBLIC_SUPABASE_URL \
+  --override-name auth.publishable_key=NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY \
+  --override-name auth.service_role_key=SUPABASE_SERVICE_ROLE_KEY
+```
+
+Generate the two secrets and paste them into `DEVMACRO_ENCRYPTION_KEY` and `CRON_SECRET`:
+
+```bash
+openssl rand -base64 32   # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, base64
+openssl rand -hex 32      # CRON_SECRET: 64 hex characters
+```
+
+Leave the provider variables empty for now; step 8 turns on the fake provider instead. Every
+variable is described in [Environment variables](#environment-variables) and in `.env.example`.
+
+### 5. Apply migrations
+
+```bash
+supabase migration up
+```
+
+After a fresh `supabase start` this has nothing to do; run it after every pull to apply new
+migrations without touching your data. Migrations are forward only: add one with
+`supabase migration new <name>`, never edit a merged one, and regenerate the types after any schema
+change with `npm run db:types` (writes `src/lib/supabase/database.types.ts`, commit it).
+
+### 6. Seed data
+
+`supabase/seed.sql` holds synthetic data (the users `owner@example.com` and `viewer@example.com`,
+the workspace Acme, one project, one fake connection, three days of snapshots, a few events). The
+CLI loads it only when it creates the database: on the first `supabase start` and on
+`supabase db reset`. Never run `supabase db reset` to get it back: it deletes all local data,
+including connections and anything other tools share in this stack, and it is never used against a
+remote. To load the seed into an empty database by hand, see
+[Database schema](docs/architecture/schema.md) for what it contains, then run it with `psql`:
+
+```bash
+psql "postgresql://postgres:postgres@127.0.0.1:55422/postgres" -f supabase/seed.sql
+```
+
+The seed uses fixed ids, so it fails on a database that already holds them. Seed users have no
+password; they exist for tests and for browsing data in Studio.
+
+### 7. Invite yourself and sign in
+
+Sign-up is invite only: the `before_user_created` auth hook lets Supabase create a user only when
+the email is in `public.access_invites`. Invite the primary verified email of your GitHub account:
+
+```bash
+npm run invite -- you@example.com
+npm run dev
+```
+
+Open <http://localhost:3000/sign-in> and continue with GitHub. This needs the real GitHub OAuth app
+from step 3. After sign-in you land on your personal workspace dashboard. The landing page at
+<http://localhost:3000> works without signing in.
+
+### 8. Connect the fake provider
+
+The fake provider ("Example provider") is an in-memory provider with a dev-only consent screen. It
+lets you walk through connecting and syncing without any real provider app. Set these in
+`.env.local` (never in production) and restart `npm run dev`:
+
+```bash
+DEVMACRO_ENABLE_FAKE_PROVIDER=1
+FAKE_PROVIDER_CLIENT_ID=fake-client
+FAKE_PROVIDER_CLIENT_SECRET=fake-secret
+```
+
+In the app, open your workspace, go to **Connections**, add **Example provider**, and approve the
+consent screen. Connecting queues the first sync.
+
+### 9. Run a sync
+
+```bash
+npm run jobs:tick
+```
+
+This runs one scheduler tick directly with the settings in `.env.local`: it schedules due syncs,
+runs up to 10 queued jobs, and prints the counts as JSON. It needs no dev server and no
+`CRON_SECRET`. Refresh the dashboard and the timeline to see the synced usage and events. In
+production `pg_cron` calls `POST /api/jobs/tick` every minute instead, see
+[Jobs](docs/operations/jobs.md).
 
 ## Checks
 
+The Supabase stack from step 3 must be running for `test:db`, `db:types:check`, and `test:e2e`.
+
 ```bash
-npm run typecheck   # generate route types, then tsc (includes the generated database types)
-npm run lint        # eslint, zero warnings allowed
-npm test            # unit tests (Vitest)
-npm run build       # production build
+npm run typecheck        # generate route types, then tsc
+npm run lint             # eslint, zero warnings allowed
+npm test                 # unit tests (Vitest)
+npm run test:db          # database tests in supabase/tests/database (pgTAP, supabase test db)
+npm run db:types:check   # fails if src/lib/supabase/database.types.ts is stale
+npm run build            # production build
 ```
+
+CI also runs `supabase db lint --level error --fail-on error` and
+`npm audit --audit-level=high --omit=dev`.
 
 ### End-to-end tests
 
-Install the browser once, then run the suite. Playwright starts its own dev server on port 3100
-(override with `E2E_PORT`).
+Install the browser once, then run the suite:
 
 ```bash
 npx playwright install chromium
 npm run test:e2e
 ```
 
+Playwright starts its own dev server on port 3100 (override with `E2E_PORT=3200 npm run test:e2e`),
+which loads `.env.local`. The suite needs no GitHub app: `e2e/global-setup.ts` reads the Supabase
+keys from `.env.local`, invites and creates the synthetic users `e2e-owner@example.com` and
+`e2e-viewer@example.com` through the Auth admin API with a password generated for that run, signs
+them in, and saves the sessions in `e2e/.auth/` (git ignored). The connection and sync specs use
+the fake provider, so `.env.local` must contain `DEVMACRO_ENCRYPTION_KEY`, `CRON_SECRET`, and the
+three fake provider values from step 8, as CI writes them.
+
 ## Environment variables
 
-See [`.env.example`](.env.example). Values are never committed.
+See [`.env.example`](.env.example) for where each value comes from. Values are never committed.
+Public variables are inlined into the browser bundle at build time; every other variable is server
+only and must never get a `NEXT_PUBLIC_` prefix.
 
-| Variable                               | Purpose                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `NEXT_PUBLIC_SITE_URL`                 | Public origin used for absolute URLs in page metadata. Optional.                              |
-| `NEXT_PUBLIC_SUPABASE_URL`             | Supabase API URL. Public.                                                                     |
-| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key. Public; row level security limits what it can read.                 |
-| `SUPABASE_SERVICE_ROLE_KEY`            | Supabase service role key. Secret, server only, bypasses row level security. Never public.    |
+| Variable | Purpose | Kind | Required |
+| --- | --- | --- | --- |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs and provider callback URLs; falls back to the request origin | Public | Optional (set in production) |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
+| `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
+| `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
+| `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
+| `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
+| `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
+| `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
+| `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
+| `VERCEL_CLIENT_SECRET` | Vercel Integration client secret | Secret | Optional (enables Vercel) |
+| `VERCEL_INTEGRATION_SLUG` | Vercel Integration URL slug | Server only | Optional (enables Vercel) |
+| `GITHUB_APP_CLIENT_ID` | GitHub App client ID (billing data, not sign-in) | Server only | Optional (enables GitHub) |
+| `GITHUB_APP_CLIENT_SECRET` | GitHub App client secret | Secret | Optional (enables GitHub) |
+| `GITHUB_APP_SLUG` | GitHub App URL slug | Server only | Optional (enables GitHub) |
+| `GITHUB_APP_ID` | GitHub App numeric ID | Server only | Optional (enables GitHub) |
+| `GITHUB_APP_PRIVATE_KEY` | GitHub App private key, PEM with `\n` newlines | Secret | Optional (enables GitHub) |
+| `RESEND_CLIENT_ID` | Resend OAuth client ID | Server only | Optional (enables Resend) |
+| `RESEND_CLIENT_SECRET` | Resend OAuth client secret | Secret | Optional (enables Resend) |
+| `STRIPE_APP_CLIENT_ID` | Stripe App client ID | Server only | Optional (enables Stripe) |
+| `STRIPE_APP_SECRET_KEY` | Live secret key of the Stripe App's account, used for the token exchange | Secret | Optional (enables Stripe) |
+| `STRIPE_APP_TEST_SECRET_KEY` | Test mode secret key for test mode installs | Secret | Optional |
+| `SUPABASE_OAUTH_CLIENT_ID` | Supabase OAuth app client ID | Server only | Optional (enables Supabase) |
+| `SUPABASE_OAUTH_CLIENT_SECRET` | Supabase OAuth app client secret | Secret | Optional (enables Supabase) |
+| `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
+| `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
+| `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
+| `E2E_PORT` | Port of the Playwright dev server, read from the shell (default 3100) | Test only | Optional |
+
+A provider with any required variable empty shows as not set up in the connection catalog; the
+rest of the app keeps working. Each provider callback URL is
+`<SITE_URL>/api/connections/<provider>/callback`.
+
+## Operations
+
+- [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
+  Auth settings, Vercel project, environment variables, secrets, and verification.
+- [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
+  five provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+- [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
+
+### Invite testers
+
+```bash
+npm run invite -- tester@example.com            # add the email to public.access_invites
+npm run invite -- tester@example.com --remove   # stop new sign-ups with that email
+```
+
+The script reads `.env.local` when present, otherwise `NEXT_PUBLIC_SUPABASE_URL` and
+`SUPABASE_SERVICE_ROLE_KEY` from the environment. Removing an invite does not delete an existing
+account. For production, follow [Deploy, invite testers](docs/operations/deploy.md#4-invite-testers).
+
+### Rotate the encryption key
+
+`npm run keys:rotate` re-encrypts stored credentials under the current key without downtime. The
+full procedure is in the header of `scripts/rotate-encryption-key.ts`:
+
+1. Generate a new key with `openssl rand -base64 32`.
+2. Work out the id of the key in use now, the first 8 hex characters of its SHA-256:
+   `printf '%s' "$OLD_KEY" | openssl base64 -d -A | shasum -a 256 | cut -c1-8` (the script also
+   prints the current key id on every run).
+3. Set `DEVMACRO_ENCRYPTION_KEY` to the new key, add the old one to
+   `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` as `oldKeyId:oldBase64Key`, and deploy. New credentials use
+   the new key and old rows still decrypt.
+4. Once every running instance has the new configuration, run `npm run keys:rotate` with that
+   environment's variables. It prints counts only and is safe to re-run; repeat until "remaining"
+   is 0.
+5. After pending OAuth states sealed with the old key have expired, remove the old entry from
+   `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
+
+Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1); those
+connections need reconnecting.
 
 ## Project layout
 
 ```text
-src/app/                 routes, root layout, global styles, icon
-src/components/          shared UI (nav, footer, section shell, cards, icons)
-src/components/sections/ landing page sections
-src/lib/site.ts          site-wide constants and navigation links
-src/lib/env.ts           validated access to environment variables
-src/lib/supabase/        Supabase clients (server, browser, service role) and generated types
-supabase/config.toml     local Supabase stack configuration
-supabase/migrations/     forward-only SQL migrations
-e2e/                     Playwright specs
+src/
+  proxy.ts                     content security policy and Supabase session refresh
+  app/
+    page.tsx, layout.tsx       landing page and root layout
+    sign-in/                   GitHub sign-in page
+    auth/                      OAuth callback, error page, sign-out
+    app/                       entry after sign-in, sends you to a workspace
+    account/                   account Server Actions (delete account)
+    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
+    api/connections/[provider]/  provider OAuth start and callback routes
+    api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
+    api/dev/fake-provider/     dev-only consent screen of the fake provider
+  components/
+    sections/                  landing page sections
+    app/                       app shell: navigation, workspace switcher, page states
+    dashboard/                 dashboard view and provider cards
+    connections/               connection status, controls, provider marks
+    projects/                  project forms and rules
+    timeline/                  event list and filters
+    alerts/                    alert rules, budgets, triggered alerts
+    *.tsx                      shared UI (site nav, footer, badges, icons)
+  lib/
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, fake) and registry
+    connections/               connect, OAuth state, revoke
+    jobs/                      sync queue, runner, schedule, retries, retention, daily summary
+    alerts/                    alert rule schema and evaluation
+    dashboard/, timeline/      dashboard aggregation and timeline queries
+    data/                      data access per table
+    crypto/                    credential encryption and key ids
+    auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
+    log/                       structured logger with redaction
+    supabase/                  Supabase clients (server, browser, admin) and generated types
+    env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
+  types/                       ambient type declarations
+supabase/
+  config.toml                  local stack configuration (ports, GitHub auth, invite hook, seed)
+  migrations/                  forward-only SQL migrations
+  seed.sql                     synthetic local data
+  tests/database/              pgTAP tests (row level security, roles, sync engine)
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts
+e2e/                           Playwright specs, global-setup.ts, fixtures/
+docs/
+  architecture/schema.md       tables, relationships, functions
+  operations/                  deploy, OAuth apps, jobs
+  providers/                   one page per provider: app setup, permissions, data read
 ```
 
 ## Third-party marks
