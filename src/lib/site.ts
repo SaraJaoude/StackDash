@@ -43,3 +43,7 @@ export const navLinks: readonly NavLink[] = sectionLinks.filter((link) => HEADER
 if (navLinks.length !== HEADER_LABELS.size) {
   throw new Error("HEADER_LABELS names a label missing from sectionLinks: update both together");
 }
+
+// Pages outside the landing page. Kept apart from sectionLinks, which are all in-page anchors.
+export const docsLink: NavLink = { label: "Docs", href: "/docs" };
+export const signInLink: NavLink = { label: "Sign in", href: "/sign-in" };

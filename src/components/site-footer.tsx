@@ -1,10 +1,17 @@
+import Link from "next/link";
+
 import { GitHubIcon } from "@/components/icons";
 import { StatusBadge } from "@/components/status-badge";
 import { Wordmark } from "@/components/wordmark";
-import { sectionLinks, site } from "@/lib/site";
+import { docsLink, sectionLinks, signInLink, site } from "@/lib/site";
 
-/** Footer: the full section map, the repository, and one founder credit. */
-export function SiteFooter() {
+interface SiteFooterProps {
+  /** "/" off the landing page, so the section anchors lead back to it. */
+  anchorBase?: "" | "/";
+}
+
+/** Footer: the full section map, the docs and sign-in pages, the repository, and one founder credit. */
+export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
   return (
     <footer className="border-t border-line">
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-12 sm:flex-row sm:items-start sm:justify-between">
@@ -18,13 +25,25 @@ export function SiteFooter() {
           </p>
         </div>
 
-        <nav aria-label="Footer">
+        <nav aria-label="Footer" className="flex flex-col gap-8 sm:flex-row sm:gap-16">
           <ul className="grid grid-cols-2 gap-x-16 gap-y-2.5">
             {sectionLinks.map((link) => (
               <li key={link.href}>
-                <a href={link.href} className="text-sm text-muted transition-colors hover:text-foreground">
+                <a
+                  href={`${anchorBase}${link.href}`}
+                  className="text-sm text-muted transition-colors hover:text-foreground"
+                >
                   {link.label}
                 </a>
+              </li>
+            ))}
+          </ul>
+          <ul className="flex flex-col gap-y-2.5">
+            {[docsLink, signInLink].map((link) => (
+              <li key={link.href}>
+                <Link href={link.href} className="text-sm text-muted transition-colors hover:text-foreground">
+                  {link.label}
+                </Link>
               </li>
             ))}
           </ul>
