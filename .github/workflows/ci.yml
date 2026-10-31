@@ -15,8 +15,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Pinned so a CLI release cannot change local stack behavior or generated types under us.
-  SUPABASE_CLI_VERSION: 2.122.0
+  # Pinned to the CLI that generated src/lib/supabase/database.types.ts, so db:types:check
+  # compares like with like. Bump both together.
+  SUPABASE_CLI_VERSION: 2.120.0
+  # supabase/config.toml enables GitHub sign-in through env(); CI never signs in with GitHub,
+  # so placeholders let the local stack start without a real OAuth app.
+  SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID: ci-placeholder
+  SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET: ci-placeholder
 
 jobs:
   checks:
@@ -141,7 +146,7 @@ jobs:
             fi
           done
           encryption_key="$(openssl rand -base64 32)"
-          cron_secret="$(openssl rand -base64 32)"
+          cron_secret="$(openssl rand -hex 32)"
           echo "::add-mask::${encryption_key}"
           echo "::add-mask::${cron_secret}"
           umask 077
@@ -151,6 +156,10 @@ jobs:
             echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
             echo "DEVMACRO_ENCRYPTION_KEY=${encryption_key}"
             echo "CRON_SECRET=${cron_secret}"
+            # The fake provider drives the connect and sync flows without network or real apps.
+            echo "DEVMACRO_ENABLE_FAKE_PROVIDER=1"
+            echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
+            echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
           } > .env.local
 
       - name: End-to-end tests
