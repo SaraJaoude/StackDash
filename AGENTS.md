@@ -19,5 +19,6 @@ that file, stop and say so rather than guessing.
 
 Repo: `eddiejaoude/DevMacro` (working directory `DevMacro`, so pass `-R eddiejaoude/DevMacro` to
 every `gh issue` and `gh pr` command).
-Board: not created yet. Add the project number here once it exists.
+Board: project `26`, addressed as `--owner "@me"`:
+https://github.com/users/eddiejaoude/projects/26/views/1
 <!-- END:house-rules -->
