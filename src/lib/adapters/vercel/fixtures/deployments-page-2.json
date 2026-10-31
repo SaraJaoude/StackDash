@@ -1,0 +1,24 @@
+{
+  "deployments": [
+    {
+      "uid": "dpl_5gOlD2xYdDMDG1jTrHFnNZ2eUVd",
+      "name": "web",
+      "projectId": "prj_exampleWeb",
+      "url": "web-7hd02kq9s.vercel.app",
+      "inspectorUrl": "https://vercel.com/acme/web/L3jZP22slWgqAhrGGh9fpFvrUkXs",
+      "created": "1793372400000",
+      "createdAt": "1793372400000",
+      "buildingAt": "1793372405000",
+      "ready": "1793372580000",
+      "readyState": "READY",
+      "target": null,
+      "source": "git",
+      "type": "LAMBDAS"
+    }
+  ],
+  "pagination": {
+    "count": 1,
+    "next": null,
+    "prev": 1793372400000
+  }
+}
