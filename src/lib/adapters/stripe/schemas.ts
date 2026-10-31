@@ -1,0 +1,75 @@
+import { z } from "zod";
+
+/**
+ * Allowlist schemas for every Stripe response the adapter reads (docs/providers/stripe.md).
+ * `z.object` drops unknown keys, so personal data in Stripe objects (names, emails, addresses,
+ * card details, descriptions, metadata) never leaves the parse boundary.
+ */
+
+const StripeIdSchema = z.string().min(1).max(255);
+// Unix seconds, UTC.
+const UnixSecondsSchema = z.int().nonnegative();
+// Integers in the smallest currency unit; negative for refunds and fees billed on their own.
+const AmountMinorSchema = z.int();
+// Stripe returns lowercase ISO 4217 codes; DevMacro stores uppercase.
+const StripeCurrencySchema = z
+  .string()
+  .regex(/^[a-z]{3}$/, "must be a lowercase three-letter currency code")
+  .transform((currency) => currency.toUpperCase());
+
+/** `POST /v1/oauth/token`, same shape for the code exchange and refresh. `stripe_publishable_key` is not kept. */
+export const TokenResponseSchema = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+  stripe_user_id: StripeIdSchema,
+  livemode: z.boolean(),
+  scope: z.string(),
+  token_type: z.string().min(1),
+});
+export type TokenResponse = z.infer<typeof TokenResponseSchema>;
+
+export type StripeList<T> = { data: T[]; has_more: boolean };
+
+export function stripeListSchema<T extends z.ZodType>(item: T) {
+  return z.object({ data: z.array(item), has_more: z.boolean() });
+}
+
+const FeeDetailSchema = z.object({
+  amount: AmountMinorSchema,
+  currency: StripeCurrencySchema,
+  type: z.string().min(1),
+});
+
+/** `GET /v1/balance_transactions`. `description`, `source`, and `exchange_rate` are deliberately absent. */
+export const BalanceTransactionSchema = z.object({
+  id: StripeIdSchema,
+  amount: AmountMinorSchema,
+  created: UnixSecondsSchema,
+  currency: StripeCurrencySchema,
+  fee_details: z.array(FeeDetailSchema),
+  type: z.string().min(1),
+});
+export type BalanceTransaction = z.infer<typeof BalanceTransactionSchema>;
+
+/**
+ * `GET /v1/events`. `data.object` is a full snapshot with personal data, so it stays `unknown`
+ * here and is parsed per event type with the allowlists below, then dropped.
+ */
+export const EventSchema = z.object({
+  id: StripeIdSchema,
+  type: z.string().min(1),
+  created: UnixSecondsSchema,
+  data: z.object({ object: z.unknown() }),
+});
+export type StripeEvent = z.infer<typeof EventSchema>;
+
+// Only the fields the timeline uses. `failure_code` is a Stripe enum; free-text `failure_message` is never read.
+export const ChargeObjectSchema = z.object({
+  id: StripeIdSchema,
+  refunded: z.boolean().optional(),
+  failure_code: z.string().nullable().optional(),
+});
+
+export const CustomerObjectSchema = z.object({ id: StripeIdSchema });
+
+export const SubscriptionObjectSchema = z.object({ id: StripeIdSchema, status: z.string().min(1) });

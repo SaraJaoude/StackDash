@@ -1,0 +1,155 @@
+{
+  "object": "list",
+  "url": "/v1/events",
+  "has_more": false,
+  "data": [
+    {
+      "id": "evt_fixture_charge_refunded",
+      "object": "event",
+      "api_version": "2026-10-28.endive",
+      "created": 1794308400,
+      "data": {
+        "object": {
+          "id": "ch_fixture_refunded",
+          "object": "charge",
+          "amount": 2000,
+          "amount_refunded": 500,
+          "billing_details": {
+            "address": { "city": "Springfield", "country": "US", "line1": "1 Main Street", "postal_code": "12345" },
+            "email": "jane.doe@example.com",
+            "name": "Jane Doe",
+            "phone": "+15555550123"
+          },
+          "created": 1794301200,
+          "currency": "usd",
+          "description": "Order for Jane Doe",
+          "metadata": { "note": "VIP Jane Doe" },
+          "payment_method_details": { "card": { "brand": "visa", "exp_month": 12, "exp_year": 2030, "last4": "4242" }, "type": "card" },
+          "receipt_email": "jane.doe@example.com",
+          "refunded": false,
+          "status": "succeeded"
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "charge.refunded"
+    },
+    {
+      "id": "evt_fixture_charge_failed",
+      "object": "event",
+      "api_version": "2026-10-28.endive",
+      "created": 1794304800,
+      "data": {
+        "object": {
+          "id": "ch_fixture_failed",
+          "object": "charge",
+          "amount": 1500,
+          "amount_refunded": 0,
+          "billing_details": { "email": "jane.doe@example.com", "name": "Jane Doe" },
+          "created": 1794304800,
+          "currency": "usd",
+          "failure_code": "card_declined",
+          "failure_message": "Card of Jane Doe was declined",
+          "receipt_email": "jane.doe@example.com",
+          "refunded": false,
+          "status": "failed"
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "charge.failed"
+    },
+    {
+      "id": "evt_fixture_charge_succeeded",
+      "object": "event",
+      "api_version": "2019-02-19",
+      "created": 1794301200,
+      "data": {
+        "object": {
+          "id": "ch_fixture_refunded",
+          "object": "charge",
+          "amount": 2000,
+          "amount_refunded": 0,
+          "billing_details": { "email": "jane.doe@example.com", "name": "Jane Doe" },
+          "created": 1794301200,
+          "currency": "usd",
+          "failure_code": null,
+          "payment_method_details": { "card": { "brand": "visa", "last4": "4242" }, "type": "card" },
+          "receipt_email": "jane.doe@example.com",
+          "refunded": false,
+          "status": "succeeded"
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "charge.succeeded"
+    },
+    {
+      "id": "evt_fixture_customer_created",
+      "object": "event",
+      "api_version": "2026-10-28.endive",
+      "created": 1794222000,
+      "data": {
+        "object": {
+          "id": "cus_fixture",
+          "object": "customer",
+          "address": { "city": "Springfield", "country": "US", "line1": "1 Main Street", "postal_code": "12345" },
+          "created": 1794222000,
+          "email": "jane.doe@example.com",
+          "name": "Jane Doe",
+          "phone": "+15555550123",
+          "shipping": { "name": "Jane Doe", "address": { "line1": "1 Main Street" } }
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "customer.created"
+    },
+    {
+      "id": "evt_fixture_subscription_created",
+      "object": "event",
+      "api_version": "2026-10-28.endive",
+      "created": 1794132000,
+      "data": {
+        "object": {
+          "id": "sub_fixture_created",
+          "object": "subscription",
+          "created": 1794132000,
+          "currency": "usd",
+          "customer": "cus_fixture",
+          "description": "Plan for Jane Doe",
+          "status": "active"
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "customer.subscription.created"
+    },
+    {
+      "id": "evt_fixture_subscription_deleted",
+      "object": "event",
+      "api_version": "2026-10-28.endive",
+      "created": 1793892600,
+      "data": {
+        "object": {
+          "id": "sub_fixture_deleted",
+          "object": "subscription",
+          "canceled_at": 1793892600,
+          "currency": "usd",
+          "customer": "cus_fixture",
+          "ended_at": 1793892600,
+          "status": "canceled"
+        }
+      },
+      "livemode": true,
+      "pending_webhooks": 0,
+      "request": { "id": null, "idempotency_key": null },
+      "type": "customer.subscription.deleted"
+    }
+  ]
+}

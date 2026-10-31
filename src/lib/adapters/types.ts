@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Logger } from "@/lib/log/logger";
+import type { PermissionMissingError } from "./errors";
 import type { ActivityEvent, EventType } from "./events";
 import type { AdapterMetric } from "./metrics";
 
@@ -106,6 +107,9 @@ export type OAuthDescriptor = Readonly<{
   clientSecretEnv: string;
   // Extra settings: key used in `OAuthClient.extra` mapped to its environment variable name.
   extraEnv?: Readonly<Record<string, string>>;
+  // Keys of `extraEnv` an instance may leave unset (Stripe's test mode key). Every other extra is
+  // required for the provider to count as set up on this instance.
+  optionalExtraKeys?: readonly string[];
 }>;
 
 /**
@@ -192,6 +196,10 @@ export type SyncResult = {
   metrics: AdapterMetric[];
   events: ActivityEvent[];
   cursor?: string;
+  // Parts of the sync the grant could not reach while the rest succeeded (for example Vercel
+  // billing on a Hobby team). The sync runner records them on the connection as missing
+  // scopes so the user sees what is unavailable and why, instead of failing the whole sync.
+  partialErrors?: PermissionMissingError[];
 };
 
 export interface ProviderAdapter {

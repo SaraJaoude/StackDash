@@ -1,0 +1,137 @@
+{
+  "object": "list",
+  "url": "/v1/balance_transactions",
+  "has_more": false,
+  "data": [
+    {
+      "id": "txn_fixture_charge_usd_today",
+      "object": "balance_transaction",
+      "amount": 2000,
+      "available_on": 1794477600,
+      "created": 1794304800,
+      "currency": "usd",
+      "description": "Payment from jane.doe@example.com",
+      "exchange_rate": null,
+      "fee": 148,
+      "fee_details": [
+        { "amount": 88, "application": null, "currency": "usd", "description": "Stripe processing fees", "type": "stripe_fee" },
+        { "amount": 10, "application": null, "currency": "usd", "description": "Tax on Stripe fees", "type": "tax" },
+        { "amount": 50, "application": "ca_fixture_platform", "currency": "usd", "description": "Platform fee", "type": "application_fee" }
+      ],
+      "net": 1852,
+      "reporting_category": "charge",
+      "source": "ch_fixture_usd_today",
+      "status": "pending",
+      "type": "charge"
+    },
+    {
+      "id": "txn_fixture_transfer_usd",
+      "object": "balance_transaction",
+      "amount": -400,
+      "available_on": 1794222000,
+      "created": 1794222000,
+      "currency": "usd",
+      "description": null,
+      "exchange_rate": null,
+      "fee": 0,
+      "fee_details": [],
+      "net": -400,
+      "reporting_category": "transfer",
+      "source": "tr_fixture_transfer",
+      "status": "available",
+      "type": "transfer"
+    },
+    {
+      "id": "txn_fixture_charge_jpy",
+      "object": "balance_transaction",
+      "amount": 1500,
+      "available_on": 1794222000,
+      "created": 1794222000,
+      "currency": "jpy",
+      "description": null,
+      "exchange_rate": null,
+      "fee": 54,
+      "fee_details": [
+        { "amount": 54, "application": null, "currency": "jpy", "description": "Stripe processing fees", "type": "stripe_fee" }
+      ],
+      "net": 1446,
+      "reporting_category": "charge",
+      "source": "ch_fixture_jpy",
+      "status": "available",
+      "type": "charge"
+    },
+    {
+      "id": "txn_fixture_stripe_fee_usd",
+      "object": "balance_transaction",
+      "amount": -200,
+      "available_on": 1794132000,
+      "created": 1794132000,
+      "currency": "usd",
+      "description": "Billing fee",
+      "exchange_rate": null,
+      "fee": 0,
+      "fee_details": [],
+      "net": -200,
+      "reporting_category": "fee",
+      "source": null,
+      "status": "available",
+      "type": "stripe_fee"
+    },
+    {
+      "id": "txn_fixture_refund_usd",
+      "object": "balance_transaction",
+      "amount": -1000,
+      "available_on": 1793892600,
+      "created": 1793892600,
+      "currency": "usd",
+      "description": "Refund for jane.doe@example.com",
+      "exchange_rate": null,
+      "fee": 0,
+      "fee_details": [],
+      "net": -1000,
+      "reporting_category": "refund",
+      "source": "re_fixture_refund",
+      "status": "available",
+      "type": "refund"
+    },
+    {
+      "id": "txn_fixture_charge_eur",
+      "object": "balance_transaction",
+      "amount": 3000,
+      "available_on": 1793610000,
+      "created": 1793610000,
+      "currency": "eur",
+      "description": null,
+      "exchange_rate": 0.92,
+      "fee": 122,
+      "fee_details": [
+        { "amount": 117, "application": null, "currency": "eur", "description": "Stripe processing fees", "type": "stripe_fee" },
+        { "amount": 5, "application": null, "currency": "eur", "description": "Card network fee", "type": "payment_method_passthrough_fee" }
+      ],
+      "net": 2878,
+      "reporting_category": "charge",
+      "source": "ch_fixture_eur",
+      "status": "available",
+      "type": "charge"
+    },
+    {
+      "id": "txn_fixture_charge_usd_october",
+      "object": "balance_transaction",
+      "amount": 5000,
+      "available_on": 1792656000,
+      "created": 1792483200,
+      "currency": "usd",
+      "description": null,
+      "exchange_rate": null,
+      "fee": 175,
+      "fee_details": [
+        { "amount": 175, "application": null, "currency": "usd", "description": "Stripe processing fees", "type": "stripe_fee" }
+      ],
+      "net": 4825,
+      "reporting_category": "charge",
+      "source": "ch_fixture_usd_october",
+      "status": "available",
+      "type": "charge"
+    }
+  ]
+}
