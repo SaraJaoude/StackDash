@@ -3,18 +3,18 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
-import { PROVIDER_AUTHORIZE_ORIGINS } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
  * Where a form on an app page may lead. Browsers apply form-action to every redirect hop of a
- * form submission, so the list names where those chains go: without JavaScript the sign-in form
- * posts, then redirects through Supabase Auth to GitHub, and the connect form posts to the start
- * route, which redirects to the provider's authorize page. The landing page has no such form and
- * keeps `form-action 'self'` (next.config.ts).
+ * form submission, so the list names where that chain goes: without JavaScript the sign-in form
+ * posts, then redirects through Supabase Auth to GitHub. The connect form's start route answers
+ * with a page that moves on to the provider by meta refresh, a navigation form-action does not
+ * govern, so no provider origin belongs here. The landing page has no such form and keeps
+ * `form-action 'self'` (next.config.ts).
  */
 function formActionSources(supabaseOrigin: string): string {
-  return ["'self'", ...new Set([supabaseOrigin, "https://github.com", ...Object.values(PROVIDER_AUTHORIZE_ORIGINS)])].join(" ");
+  return `'self' ${supabaseOrigin} https://github.com`;
 }
 
 // Enforced on every proxied response: the directives that do not depend on scripts. The same as

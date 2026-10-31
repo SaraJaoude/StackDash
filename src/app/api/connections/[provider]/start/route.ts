@@ -6,6 +6,7 @@ import { ProviderIdSchema } from "@/lib/adapters/types";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { isSameOrigin } from "@/lib/auth/same-origin";
 import { getCurrentUser } from "@/lib/auth/session";
+import { handoffResponse } from "@/lib/connections/handoff-page";
 import {
   callbackRedirectUri,
   connectFeedbackQuery,
@@ -35,8 +36,10 @@ function textField(form: FormData, name: string): string | null {
  * Starts connecting a provider (#40): a `POST` of `workspace=<slug>&consent=1[&connection=<id>]`
  * from the permission disclosure form. It creates a state row and sends the user to a provider, so
  * it refuses a request posted from another site. Authorizes the member, checks consent for
- * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and
- * redirects to the provider's consent screen with a 303, so the browser follows with a `GET`.
+ * full-access permissions, stores a single-use state (with the PKCE verifier sealed), and answers
+ * with a page that moves on to the provider's consent screen by meta refresh. Not a redirect:
+ * browsers check form-action on every redirect hop after a form post, and the provider's hops are
+ * outside DevMacro's control (see handoff-page.ts).
  */
 export async function POST(request: NextRequest, ctx: RouteContext<"/api/connections/[provider]/start">) {
   if (!isSameOrigin(request)) {
@@ -74,11 +77,16 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
     return NextResponse.redirect(url, 303);
   };
 
+  const reconnectExtra: Record<string, string> =
+    reconnectParam === null ? {} : { connection: reconnectParam };
+
   // `redirect()` answers a route handler with a 307, which would re-post the form to the sign-in
-  // page, so a signed-out user gets an explicit 303 instead.
+  // page, so a signed-out user gets an explicit 303 instead. `next` keeps the reconnect target, so
+  // signing in returns to the same reconnect rather than starting a second connection.
   if ((await getCurrentUser()) === null) {
     const signIn = new URL("/sign-in", request.nextUrl.origin);
-    signIn.searchParams.set("next", safeNextPath(disclosurePath));
+    const reconnectQuery = new URLSearchParams(reconnectExtra).toString();
+    signIn.searchParams.set("next", safeNextPath(reconnectQuery === "" ? disclosurePath : `${disclosurePath}?${reconnectQuery}`));
     return NextResponse.redirect(signIn, 303);
   }
 
@@ -96,8 +104,6 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
   const client = loadOAuthClient(adapter);
   if (client === null) return back(connectionsPath, { error: "not_configured", provider });
 
-  const reconnectExtra: Record<string, string> =
-    reconnectParam === null ? {} : { connection: reconnectParam };
   const needsConsent = adapter.permissions.some((permission) => permission.access === "full");
   if (needsConsent && textField(form, "consent") !== "1") {
     return back(disclosurePath, { error: "consent_required", provider }, reconnectExtra);
@@ -118,7 +124,8 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
 
     const state = newStateToken();
     const pkce = adapter.oauth.pkce ? createPkcePair() : null;
-    const redirectUri = callbackRedirectUri(connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL), provider);
+    const appOrigin = connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL);
+    const redirectUri = callbackRedirectUri(appOrigin, provider);
     // Request data is all read above, so the clock is safe to read now.
     await createOAuthState({
       state,
@@ -136,7 +143,7 @@ export async function POST(request: NextRequest, ctx: RouteContext<"/api/connect
       redirectUri,
       ...(pkce === null ? {} : { codeChallenge: pkce.challenge }),
     });
-    return NextResponse.redirect(authorizeUrl, 303);
+    return handoffResponse({ providerName: adapter.displayName, authorizeUrl, appOrigin });
   } catch (error) {
     unstable_rethrow(error);
     const ref = logError("connections.start_failed", error, { provider });

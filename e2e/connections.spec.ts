@@ -1,4 +1,4 @@
-import { test, type Page } from "@playwright/test";
+import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
@@ -31,21 +31,50 @@ function postStart(page: Page, provider: string, form: Record<string, string>) {
 }
 
 /**
+ * Reads the authorize URL from the start route's handoff page: the target of its "Continue to"
+ * link, parsed with DOMParser, whose documents are inert, so the meta refresh never runs. Checks
+ * the refresh points at the same URL and that the page carries no script.
+ */
+async function handoffUrl(page: Page, response: APIResponse): Promise<URL> {
+  expect(response.status()).toBe(200);
+  const headers = response.headers();
+  expect(headers["content-type"]).toBe("text/html; charset=utf-8");
+  expect(headers["cache-control"]).toContain("no-store");
+  const html = await response.text();
+  expect(html).not.toMatch(/<script/i);
+  const { href, refresh } = await page.evaluate(
+    ({ source, name }) => {
+      const doc = new DOMParser().parseFromString(source, "text/html");
+      const link = [...doc.querySelectorAll("a")].find((anchor) => anchor.textContent === name);
+      return {
+        href: link?.getAttribute("href") ?? null,
+        refresh: doc.querySelector('meta[http-equiv="refresh"]')?.getAttribute("content") ?? null,
+      };
+    },
+    { source: html, name: `Continue to ${PROVIDER_NAME}` },
+  );
+  if (href === null) throw new Error("The start route did not answer with the handoff page.");
+  expect(refresh).toBe(`0;url=${href}`);
+  return new URL(href);
+}
+
+/**
  * Calls the start route as the signed-in user, lets `edit` change the fake authorize URL (to
  * decline a scope or cancel, as a person would on a real consent screen), then follows it.
  */
 async function startFakeConnect(page: Page, slug: string, edit: (url: URL) => void): Promise<void> {
   const response = await postStart(page, "fake", { workspace: slug, consent: "1" });
-  expect(response.status()).toBe(303);
-  const location = response.headers().location;
-  if (location === undefined) throw new Error("The start route did not redirect.");
-  const authorize = new URL(location);
+  const authorize = await handoffUrl(page, response);
   expect(authorize.pathname).toBe("/api/dev/fake-provider/authorize");
   edit(authorize);
   await page.goto(authorize.href);
 }
 
-/** Connects the fake provider through the catalog and disclosure page, with the keyboard. */
+/**
+ * Connects the fake provider through the catalog and disclosure page, with the keyboard. The
+ * start route answers with the handoff page, whose meta refresh moves on to the fake authorize
+ * route, so the browser ends on the new connection.
+ */
 async function connectThroughUi(page: Page, slug: string): Promise<string> {
   await page.goto(`/w/${slug}/connections`);
   await page.getByRole("link", { name: `Connect ${PROVIDER_NAME}` }).click();
@@ -327,10 +356,20 @@ viewerTest.describe("connections as a viewer", () => {
 });
 
 test.describe("connections when signed out", () => {
-  test("sends the start route to sign-in", async ({ page }) => {
+  test("sends the start route to sign-in, keeping a reconnect", async ({ page }) => {
     const response = await postStart(page, "fake", { workspace: "abcdefghij", consent: "1" });
     expect(response.status()).toBe(303);
-    expect(response.headers().location).toContain("/sign-in");
+    const signIn = new URL(response.headers().location ?? "");
+    expect(signIn.pathname).toBe("/sign-in");
+    expect(signIn.searchParams.get("next")).toBe("/w/abcdefghij/connections/new/fake");
+
+    // A session that expired on the reconnect page returns to the same reconnect after sign-in.
+    const connectionId = "00000000-0000-4000-8000-000000000000";
+    const reconnect = await postStart(page, "fake", { workspace: "abcdefghij", consent: "1", connection: connectionId });
+    expect(reconnect.status()).toBe(303);
+    expect(new URL(reconnect.headers().location ?? "").searchParams.get("next")).toBe(
+      `/w/abcdefghij/connections/new/fake?connection=${connectionId}`,
+    );
   });
 
   test("the start route refuses a cross-site post and a GET", async ({ request }) => {

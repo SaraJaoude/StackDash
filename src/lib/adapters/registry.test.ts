@@ -1,7 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { PROVIDER_AUTHORIZE_ORIGINS } from "@/lib/providers";
-
 import { fakeAdapter } from "./fake";
 import {
   availableProviders,
@@ -137,8 +135,8 @@ describe("createOAuthContext", () => {
   });
 });
 
-describe("PROVIDER_AUTHORIZE_ORIGINS", () => {
-  it("names the origin of every live adapter's authorize URL, which the proxy's form-action allows", () => {
+describe("buildAuthorizeUrl", () => {
+  it("is https for every live adapter, the only scheme the start route's handoff page accepts", () => {
     for (const id of liveProviderIds) {
       const adapter = getAdapter(id);
       const client = {
@@ -152,7 +150,7 @@ describe("PROVIDER_AUTHORIZE_ORIGINS", () => {
         redirectUri: `https://devmacro.example/api/connections/${id}/callback`,
         codeChallenge: "challenge",
       });
-      expect(url.origin, id).toBe(PROVIDER_AUTHORIZE_ORIGINS[id]);
+      expect(url.protocol, id).toBe("https:");
     }
   });
 });

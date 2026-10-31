@@ -1,7 +1,5 @@
 import { test } from "@playwright/test";
 
-import { PROVIDER_AUTHORIZE_ORIGINS } from "../src/lib/providers";
-
 import { authEnv, expect, ownerTest, signOutTest } from "./fixtures/auth";
 
 // The enforced policy of the landing page (next.config.ts).
@@ -18,8 +16,9 @@ function directives(policy: string): Map<string, string[]> {
 
 /**
  * App routes (src/proxy.ts) enforce the landing directives, except that form-action also allows
- * exactly the no-JavaScript sign-in chain (Supabase Auth, then GitHub) and each live provider's
- * authorize page, because browsers check form-action on every redirect after a form post.
+ * exactly the no-JavaScript sign-in chain (Supabase Auth, then GitHub), because browsers check
+ * form-action on every redirect after a form post. The connect form leaves by meta refresh, not a
+ * redirect, so no provider origin is listed.
  */
 function expectAppPolicy(policy: string | undefined): void {
   const app = directives(policy ?? "");
@@ -29,12 +28,7 @@ function expectAppPolicy(policy: string | undefined): void {
     if (name !== "form-action") expect(app.get(name), name).toEqual(sources);
   }
   expect(new Set(app.get("form-action"))).toEqual(
-    new Set([
-      "'self'",
-      new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL).origin,
-      "https://github.com",
-      ...Object.values(PROVIDER_AUTHORIZE_ORIGINS),
-    ]),
+    new Set(["'self'", new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL).origin, "https://github.com"]),
   );
 }
 
@@ -65,7 +59,7 @@ test.describe("signed out", () => {
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 
     // App routes enforce only the script-independent directives (form-action widened for the
-    // redirect chains above) and report the nonce policy, until #125 moves it to enforcement.
+    // sign-in chain above) and report the nonce policy, until #125 moves it to enforcement.
     const headers = response?.headers() ?? {};
     expectAppPolicy(headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"] ?? "").toMatch(
