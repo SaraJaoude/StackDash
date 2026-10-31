@@ -2,6 +2,7 @@ import "server-only";
 
 import { isAuthSessionMissingError } from "@supabase/supabase-js";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { cache } from "react";
 
 import { safeNextPath } from "@/lib/auth/redirect";
@@ -18,6 +19,10 @@ export type SessionUser = { id: string; email: string | null };
  * page, its layout, and its data loaders share one verification.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
+  // The session is per request and the auth client reads the clock (token expiry) while it sets
+  // up, which Cache Components rejects during prerendering. Waiting for the request first keeps
+  // every caller out of the static shell.
+  await connection();
   const supabase = await createClient();
   const { data, error } = await supabase.auth.getClaims();
   if (error !== null) {
