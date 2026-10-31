@@ -12,7 +12,7 @@ export function SiteNav() {
     <header className="sticky top-0 z-50 border-b border-line bg-background/80 backdrop-blur-md">
       <nav aria-label="Main" className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-6">
         <div className="flex items-center gap-2">
-          <a href="#top" className="inline-flex shrink-0">
+          <a href="#top" className="font-mono text-sm font-semibold tracking-tight">
             <Wordmark />
           </a>
           <span className="hidden sm:inline">
