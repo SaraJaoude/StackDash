@@ -66,8 +66,9 @@ enabled = true
 schema_paths = []
 
 [db.seed]
-# Disabled because the repository has no seed data; schema and reference data ship as migrations.
-enabled = false
+# Loads local development data during `supabase db reset`. Schema and reference data ship as
+# migrations; the seed is for local data only.
+enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
 sql_paths = ["./seed.sql"]
@@ -181,8 +182,10 @@ enable_refresh_token_rotation = true
 # Allows refresh tokens to be reused after expiry, up to the specified interval in seconds.
 # Requires enable_refresh_token_rotation = true.
 refresh_token_reuse_interval = 10
-# Allow/disallow new user signups to your project. Off because MVP sign-up is invite only.
-enable_signup = false
+# Allow/disallow new user signups to your project. On because Supabase Auth refuses OAuth sign-ups
+# before any hook runs when this is off. Invite-only access is enforced by the before-user-created
+# hook below, which rejects every email not in public.access_invites.
+enable_signup = true
 # Allow/disallow anonymous sign-ins to your project.
 enable_anonymous_sign_ins = false
 # Allow/disallow testing manual linking of accounts
@@ -226,8 +229,11 @@ web3 = 30
 # secret = ""
 
 [auth.email]
-# Allow/disallow new user signups via email to your project. Off because MVP sign-up is invite only.
-enable_signup = false
+# Allow/disallow new user signups via email to your project. The CLI also uses this to enable the
+# email provider itself, which local e2e fixtures need for password sign-in of admin-created test
+# users. The app never offers email sign-in, and the invite hook still gates every new user.
+# Production disables the email provider in the dashboard (see the deployment runbook).
+enable_signup = true
 # If enabled, a user will be required to confirm any email change on both the old, and new email
 # addresses. If disabled, only the new email is required to confirm.
 double_confirm_changes = true
@@ -285,9 +291,9 @@ max_frequency = "5s"
 # inactivity_timeout = "8h"
 
 # This hook runs before a new user is created and allows developers to reject the request based on the incoming user object.
-# [auth.hook.before_user_created]
-# enabled = true
-# uri = "pg-functions://postgres/auth/before-user-created-hook"
+[auth.hook.before_user_created]
+enabled = true
+uri = "pg-functions://postgres/public/hook_before_user_created"
 
 # This hook runs before a token is issued and allows you to add additional claims based on the authentication method used.
 # [auth.hook.custom_access_token]
@@ -341,6 +347,20 @@ url = ""
 # If enabled, the nonce check will be skipped. Required for local sign in with Google auth.
 skip_nonce_check = false
 # If enabled, it will allow the user to successfully authenticate when the provider does not return an email address.
+email_optional = false
+
+# Sign in with GitHub, the only sign-in method the app offers (issue #23). Register a GitHub OAuth
+# app with the callback below; see .env.example for where the two variables go.
+[auth.external.github]
+enabled = true
+client_id = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID)"
+# DO NOT commit your OAuth provider secret to git. Use environment variable substitution instead:
+secret = "env(SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET)"
+# The local Auth callback (API port 55421). Must match the GitHub OAuth app's callback URL.
+redirect_uri = "http://127.0.0.1:55421/auth/v1/callback"
+url = ""
+skip_nonce_check = false
+# DevMacro gates sign-up on the GitHub email, so an account without one cannot sign in.
 email_optional = false
 
 # Allow Solana wallet holders to sign in to your project via the Sign in with Solana (SIWS, EIP-4361) standard.
