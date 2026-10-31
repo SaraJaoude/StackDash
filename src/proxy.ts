@@ -5,9 +5,14 @@ import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
 import type { Database } from "@/lib/supabase/database.types";
 
+// Enforced on every proxied response: the directives that do not depend on scripts. Identical to
+// the static landing policy in next.config.ts (e2e/auth.spec.ts asserts they match).
+// frame-ancestors is ignored in report-only mode, so it must stay in the enforced header.
+const ENFORCED_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
 /**
- * Builds the per-request Content Security Policy. Next.js reads the nonce from the request's CSP
- * header and stamps it on its own scripts, so no page code has to handle it.
+ * Builds the per-request nonce policy. Next.js reads the nonce from the request's CSP header and
+ * stamps it on the scripts it renders per request, so no page code has to handle it.
  */
 function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   const isDev = process.env.NODE_ENV === "development";
@@ -32,7 +37,8 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
     "object-src 'none'",
     "base-uri 'self'",
     // Without JavaScript the sign-in form posts, then redirects through Supabase Auth to GitHub;
-    // browsers apply form-action to every hop of that redirect chain.
+    // browsers apply form-action to every hop of that redirect chain. The enforced policy keeps
+    // form-action 'self' for now, so only the JavaScript path (a fetch, then a navigation) works.
     `form-action 'self' ${supabaseOrigin} https://github.com`,
     "frame-ancestors 'none'",
     // Local Supabase serves plain http on 127.0.0.1, which this directive would break.
@@ -42,7 +48,7 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
 
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, and sets
- * the nonce CSP. This is not authorization: every page, Server Function, and route handler still
+ * the CSP headers. This is not authorization: every page, Server Function, and route handler still
  * checks the user itself, because a matcher can drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
@@ -88,7 +94,13 @@ export async function proxy(request: NextRequest) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("Content-Security-Policy", policy);
     response = NextResponse.next({ request: { headers: requestHeaders } });
-    response.headers.set("Content-Security-Policy", policy);
+    // Report-only for now: with Cache Components the static shell is prerendered at build time,
+    // so its inline scripts carry no nonce, and enforcing the nonce policy stops app pages from
+    // hydrating (the Next.js CSP guide notes partial prerendering is incompatible with nonces).
+    // There is no reporting endpoint yet, so violations only show in the browser console; issue
+    // #125 tracks collecting reports and moving to enforcement.
+    response.headers.set("Content-Security-Policy-Report-Only", policy);
+    response.headers.set("Content-Security-Policy", ENFORCED_CSP);
   }
 
   for (const { name, value, options } of cookiesToApply) response.cookies.set(name, value, options);

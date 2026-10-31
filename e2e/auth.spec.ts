@@ -2,6 +2,10 @@ import { test } from "@playwright/test";
 
 import { expect, ownerTest, signOutTest } from "./fixtures/auth";
 
+// The enforced policy shared by the landing page (next.config.ts) and app routes (src/proxy.ts).
+// Asserting it on both keeps the two copies identical.
+const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
+
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
     await page.goto("/app");
@@ -28,10 +32,13 @@ test.describe("signed out", () => {
     await expect(page.getByRole("main").getByRole("status")).toBeAttached();
     await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
 
-    // App routes get the per-request nonce policy from the proxy.
-    const policy = response?.headers()["content-security-policy"] ?? "";
-    expect(policy).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
-    expect(policy).toContain("frame-ancestors 'none'");
+    // App routes enforce only the script-independent baseline (the same policy as the landing
+    // page) and report the nonce policy, until #125 moves it to enforcement.
+    const headers = response?.headers() ?? {};
+    expect(headers["content-security-policy"]).toBe(BASELINE_CSP);
+    expect(headers["content-security-policy-report-only"] ?? "").toMatch(
+      /script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/,
+    );
   });
 
   test("a not-invited error explains what to do next", async ({ page }) => {
@@ -49,9 +56,9 @@ test.describe("signed out", () => {
 
   test("the landing page keeps its static policy without a nonce", async ({ page }) => {
     const response = await page.goto("/");
-    const policy = response?.headers()["content-security-policy"] ?? "";
-    expect(policy).toContain("frame-ancestors 'none'");
-    expect(policy).not.toContain("nonce-");
+    const headers = response?.headers() ?? {};
+    expect(headers["content-security-policy"]).toBe(BASELINE_CSP);
+    expect(headers["content-security-policy-report-only"]).toBeUndefined();
   });
 
   test("sign-out refuses a cross-site post", async ({ request }) => {
