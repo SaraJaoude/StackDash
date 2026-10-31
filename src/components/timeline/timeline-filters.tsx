@@ -85,7 +85,7 @@ export function TimelineFilters({
           </p>
           <div className="mt-2 grid gap-3">
             <label className="block text-sm">
-              From
+              From date
               <input
                 type="date"
                 name="from"
@@ -95,7 +95,7 @@ export function TimelineFilters({
               />
             </label>
             <label className="block text-sm">
-              To
+              To date
               <input
                 type="date"
                 name="to"

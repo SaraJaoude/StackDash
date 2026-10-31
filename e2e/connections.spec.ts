@@ -109,7 +109,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.goto(`/w/${workspace.slug}/connections`);
       const row = page.getByRole("list", { name: "Connections" }).getByRole("listitem").first();
       await expect(row.getByText("Status: Active")).toBeVisible();
-      await expect(row.getByText("Example team, Example sandbox")).toBeVisible();
+      // Exact: the display name link contains the same words in parentheses.
+      await expect(row.getByText("Example team, Example sandbox", { exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -193,8 +194,24 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await startFakeConnect(page, workspace.slug, () => undefined);
       await expect(page).toHaveURL(CONNECTION_URL);
       expect(callback).not.toBe("");
-      await page.goto(callback);
-      await expect(page.getByRole("alert").filter({ hasText: "could not be checked" })).toBeVisible();
+
+      // Replay the exact callback. A consumed state names no workspace, so the route falls back to
+      // the user's last-opened workspace, which parallel specs change; assert on the redirect
+      // itself (never a connection page, always the invalid outcome) rather than where it lands.
+      const replay = await page.request.get(callback, { maxRedirects: 0 });
+      expect(replay.status()).toBe(303);
+      const location = new URL(replay.headers().location ?? "", callback);
+      expect(location.pathname).not.toMatch(CONNECTION_URL);
+      if (location.pathname !== "/app") {
+        expect(location.pathname).toMatch(/^\/w\/[a-z0-9]+\/connections$/);
+        expect(location.searchParams.get("error")).toBe("invalid");
+        expect(location.searchParams.get("provider")).toBe("fake");
+      }
+      const { count } = await adminClient()
+        .from("connections")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id);
+      expect(count).toBe(1);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -204,7 +221,9 @@ ownerTest.describe("connecting a provider as the owner", () => {
     const workspace = await createTestWorkspace("Disconnect");
     try {
       const connectionId = await connectThroughUi(page, workspace.slug);
-      await page.getByRole("button", { name: "Disconnect" }).click();
+      // Scoped to main and exact: the workspace switcher's name contains "Disconnect" too.
+      const main = page.getByRole("main");
+      await main.getByRole("button", { name: "Disconnect", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
       await expect(dialog).toBeVisible();
       await expect(dialog).toContainText("Deletes the stored credential");
@@ -214,8 +233,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await dialog.getByRole("button", { name: "Cancel" }).click();
       await expect(dialog).toBeHidden();
 
-      await page.getByRole("button", { name: "Disconnect" }).click();
-      await dialog.getByRole("button", { name: "Disconnect" }).click();
+      await main.getByRole("button", { name: "Disconnect", exact: true }).click();
+      await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
       await expect(page.getByRole("status").filter({ hasText: "Disconnected. The credential is deleted" })).toBeVisible();
       await expect(page.getByText("Status: Disconnected").first()).toBeVisible();
 
@@ -240,9 +259,9 @@ ownerTest.describe("connecting a provider as the owner", () => {
     const workspace = await createTestWorkspace("Delete connection");
     try {
       const connectionId = await connectThroughUi(page, workspace.slug);
-      await page.getByRole("button", { name: "Delete connection and history" }).click();
+      await page.getByRole("main").getByRole("button", { name: "Delete connection and history", exact: true }).click();
       const dialog = page.getByRole("dialog", { name: "Delete this connection and its history?" });
-      await dialog.getByRole("button", { name: "Delete connection and history" }).click();
+      await dialog.getByRole("button", { name: "Delete connection and history", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/connections\\?deleted=fake`));
       await expect(page.getByRole("status").filter({ hasText: "Connection deleted" })).toBeVisible();
       const { count } = await adminClient()

@@ -156,8 +156,8 @@ ownerTest.describe("timeline as the owner", () => {
     const workspace = await seedTimeline("Timeline dates");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
-      await page.getByLabel("From").fill("2026-06-15");
-      await page.getByLabel("To").fill("2026-06-15");
+      await page.getByLabel("From date", { exact: true }).fill("2026-06-15");
+      await page.getByLabel("To date", { exact: true }).fill("2026-06-15");
       await page.getByRole("button", { name: "Apply filters" }).click();
 
       await expect(page.getByRole("status").filter({ hasText: "Showing 24 events" })).toBeVisible();
