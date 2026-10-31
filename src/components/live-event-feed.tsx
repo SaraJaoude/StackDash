@@ -56,7 +56,8 @@ const feedEvents: readonly FeedEvent[] = [
 ];
 
 // Ten rows match the height of the month column beside the feed. Below the lg breakpoint the
-// columns stack, so only the first COMPACT_ROWS show.
+// columns stack, so only the first COMPACT_ROWS show, and the row pushed to COMPACT_ROWS closes
+// as the new row opens, the same way the row at VISIBLE_ROWS does in the wide layout.
 const VISIBLE_ROWS = 10;
 const COMPACT_ROWS = 6;
 const TICK_SECONDS = 3;
@@ -153,19 +154,23 @@ export function LiveEventFeed() {
           const event = eventAt(key);
           const leaving = position === VISIBLE_ROWS;
           const arriving = key > INITIAL_SEQ && position === 0;
+          // Only a row moved down by an arrival closes. At load nothing has moved, so the row at
+          // COMPACT_ROWS is hidden like the ones after it.
+          const leavingCompact = seq > INITIAL_SEQ && position === COMPACT_ROWS;
+          const hiddenCompact = position >= COMPACT_ROWS && !leavingCompact;
           const initial = key <= INITIAL_SEQ;
           // Ages are whole multiples of TICK_SECONDS under a minute, so a fixed English string is
           // exact. Intl.RelativeTimeFormat output differs between the server's and the browser's
           // ICU data, which would break hydration.
           const ageSeconds = position * TICK_SECONDS;
-          const rowMotion = leaving ? "feed-exit" : arriving ? "feed-enter" : "";
+          const rowMotion = leaving ? "feed-exit" : arriving ? "feed-enter" : leavingCompact ? "feed-exit-compact" : "";
           // Keyed to the event, not its position, so a row's delay never changes as it moves down.
           const contentMotion = arriving ? "feed-arrival" : initial ? "rise-in" : "";
           return (
             <li
               key={key}
               aria-hidden={leaving ? true : undefined}
-              className={`grid ${rowMotion} ${position >= COMPACT_ROWS ? "max-lg:hidden" : ""}`}
+              className={`grid ${rowMotion} ${hiddenCompact ? "max-lg:hidden" : ""}`}
             >
               <div className="min-h-0 overflow-hidden">
                 {/* The divider sits inside the clipped track, so it closes with a leaving row. */}

@@ -263,6 +263,8 @@ summary {
   }
 }
 
+/* Visibility interpolates as visible until the final frame, so a closed row that stays in the
+ * DOM (the compact layout keeps it until the next arrival) also leaves the accessibility tree. */
 @keyframes feed-exit {
   from {
     grid-template-rows: 1fr;
@@ -271,6 +273,7 @@ summary {
   to {
     grid-template-rows: 0fr;
     opacity: 0;
+    visibility: hidden;
   }
 }
 
@@ -280,6 +283,14 @@ summary {
 
 .feed-exit {
   animation: feed-exit 0.55s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+/* Below lg the feed stacks and shows fewer rows, so the row pushed past the compact limit is the
+ * one that closes. Same animation as .feed-exit, so the height still holds. */
+@media (width < 64rem) {
+  .feed-exit-compact {
+    animation: feed-exit 0.55s cubic-bezier(0.65, 0, 0.35, 1) both;
+  }
 }
 
 /* The arriving event's content slides down into its opening slot and sharpens. */
@@ -358,6 +369,11 @@ summary {
   /* Without the closing animation the leaving row would stay on screen. */
   .feed-exit {
     display: none;
+  }
+  @media (width < 64rem) {
+    .feed-exit-compact {
+      display: none;
+    }
   }
   html {
     scroll-behavior: auto;

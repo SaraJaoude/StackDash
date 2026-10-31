@@ -8,6 +8,12 @@ async function newestEvent(rows: Locator): Promise<string> {
   return text;
 }
 
+// Waits until every animation inside the element has finished, so a measurement starts and ends on
+// a settled layout. It runs in the page, so it must not reference anything outside itself.
+async function settleAnimations(element: Element): Promise<void> {
+  await Promise.all(element.getAnimations({ subtree: true }).map((animation) => animation.finished));
+}
+
 test.describe("landing page", () => {
   test("states the product and sends the primary action to the GitHub repository", async ({ page }) => {
     await page.goto("/");
@@ -85,5 +91,54 @@ test.describe("landing page", () => {
         await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
       }).toPass();
     });
+
+    // 64rem is the lg breakpoint: from it the feed sits beside the month column and shows ten
+    // rows, below it the columns stack and the feed shows six.
+    const layouts = [
+      { name: "a phone", viewport: { width: 390, height: 844 }, rows: 6 },
+      { name: "one pixel below the lg breakpoint", viewport: { width: 1023, height: 900 }, rows: 6 },
+      { name: "the lg breakpoint", viewport: { width: 1024, height: 900 }, rows: 10 },
+    ] as const;
+
+    for (const layout of layouts) {
+      test(`the feed height never dips while an event arrives on ${layout.name}`, async ({ page }) => {
+        await page.setViewportSize(layout.viewport);
+        await page.goto("/");
+        // Freeze the page clock, so the only tick is the one this test runs.
+        await page.clock.pauseAt(Date.now() + 60_000);
+        const list = page.getByRole("list", { name: "Example live events" });
+        const rows = list.getByRole("listitem");
+        await list.evaluate(settleAnimations);
+        await expect(rows).toHaveCount(layout.rows);
+        const firstEvent = await newestEvent(rows);
+
+        // Every height the list takes while the rows open and close, starting with the settled one.
+        const heights = await list.evaluateHandle((element) => {
+          const seen = [element.getBoundingClientRect().height];
+          new ResizeObserver(() => seen.push(element.getBoundingClientRect().height)).observe(element);
+          return seen;
+        });
+
+        await expect(async () => {
+          await page.clock.runFor(3_000);
+          await expect(rows.first()).not.toHaveText(firstEvent, { timeout: 500 });
+        }).toPass();
+        await list.evaluate(settleAnimations);
+
+        // The opening and closing rows move together, so the height only travels between the
+        // settled heights before and after, which differ when the two rows wrap differently.
+        const seen = await heights.jsonValue();
+        const before = seen[0];
+        if (before === undefined) throw new Error("The settled list height was not recorded");
+        const after = await list.evaluate((element) => element.getBoundingClientRect().height);
+        const lowest = Math.min(before, after) - 1;
+        const highest = Math.max(before, after) + 1;
+        for (const height of seen) {
+          expect(height, `list height ${height} left the range ${lowest} to ${highest}`).toBeGreaterThanOrEqual(lowest);
+          expect(height, `list height ${height} left the range ${lowest} to ${highest}`).toBeLessThanOrEqual(highest);
+        }
+        await expect(rows, "the closed row leaves the accessibility tree").toHaveCount(layout.rows);
+      });
+    }
   });
 });
