@@ -12,8 +12,16 @@ const serverEnvSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
 });
 
+// Only presence is checked here; the key format (base64 of exactly 32 bytes, `keyId:base64` pairs)
+// is validated in `src/lib/crypto/credentials.ts`, which owns the keyring and its error messages.
+const encryptionEnvSchema = z.object({
+  DEVMACRO_ENCRYPTION_KEY: z.string().min(1),
+  DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: z.string().min(1).optional(),
+});
+
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
+export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
 
 function parseEnv<Schema extends z.ZodType>(
   schema: Schema,
@@ -61,5 +69,20 @@ export function serverEnv(): ServerEnv {
   }
   return parseEnv(serverEnvSchema, {
     SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
+}
+
+/**
+ * Credential encryption keys. Separate from `serverEnv()` so that code which only needs the
+ * service role (most of the server) does not fail when the encryption key is absent; only the
+ * credential paths require it.
+ */
+export function encryptionEnv(): EncryptionEnv {
+  if (typeof window !== "undefined") {
+    throw new Error("encryptionEnv() was called in the browser. Secret variables are server only.");
+  }
+  return parseEnv(encryptionEnvSchema, {
+    DEVMACRO_ENCRYPTION_KEY: process.env.DEVMACRO_ENCRYPTION_KEY,
+    DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: process.env.DEVMACRO_ENCRYPTION_KEYS_PREVIOUS,
   });
 }
