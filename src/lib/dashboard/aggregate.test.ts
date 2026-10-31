@@ -3,11 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateDashboard,
   dropSupersededBreakdowns,
-  formatDateTime,
-  formatMoney,
-  formatPercent,
-  formatPeriod,
-  formatRelative,
   freshnessLabel,
   isCurrentPeriod,
   isStale,
@@ -308,38 +303,7 @@ describe("latestSnapshots", () => {
   });
 });
 
-describe("formatting", () => {
-  it("formats minor units with each currency's own digits", () => {
-    expect(formatMoney(12_345, "USD")).toBe("$123.45");
-    expect(formatMoney(6_789, "EUR")).toBe("€67.89");
-    expect(formatMoney(1_500, "JPY")).toBe("¥1,500");
-    // Intl separates the code from the amount with a no-break space.
-    expect(formatMoney(1_234, "KWD")).toBe("KWD\u00a01.234");
-  });
-
-  it("formats percent on a 0 to 100 scale", () => {
-    expect(formatPercent(25)).toBe("25%");
-    expect(formatPercent(33.333)).toBe("33.3%");
-  });
-
-  it("shows an exclusive period end as the previous UTC day, also in British summer time", () => {
-    expect(formatPeriod({ start: MONTH.period_start, end: MONTH.period_end })).toBe("2026-10-01 to 2026-10-31");
-    expect(formatPeriod({ start: "2026-06-01T00:00:00.000Z", end: "2026-07-01T00:00:00.000Z" })).toBe(
-      "2026-06-01 to 2026-06-30",
-    );
-  });
-
-  it("formats a time in Europe/London", () => {
-    expect(formatDateTime("2026-07-01T00:00:00.000Z")).toBe("2026-07-01 01:00 BST");
-  });
-
-  it("reads relative time in the largest whole unit", () => {
-    expect(formatRelative("2026-10-15T07:00:00.000Z", NOW)).toBe("5 hours ago");
-    expect(formatRelative("2026-10-15T11:59:00.000Z", NOW)).toBe("1 minute ago");
-    expect(formatRelative("2026-10-15T13:00:00.000Z", NOW)).toBe("now");
-    expect(formatRelative("not a date", NOW)).toBe("unknown");
-  });
-
+describe("freshnessLabel", () => {
   it("labels stale values with when they were last updated", () => {
     expect(freshnessLabel("2026-10-15T07:00:00.000Z", true, NOW)).toBe("Stale: last updated 5 hours ago");
     expect(freshnessLabel("2026-10-15T11:00:00.000Z", false, NOW)).toBe("Updated 1 hour ago");

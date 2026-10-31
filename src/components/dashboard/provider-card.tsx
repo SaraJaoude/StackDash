@@ -1,14 +1,7 @@
 import { useId } from "react";
 
-import {
-  formatDateTime,
-  formatPercent,
-  formatPeriod,
-  formatQuantity,
-  type Allowance,
-  type ProviderSummary,
-  type QuantityValue,
-} from "@/lib/dashboard/aggregate";
+import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
+import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
 import { CurrencyAmountsList, MoneyValueBlock } from "./currency-amounts";

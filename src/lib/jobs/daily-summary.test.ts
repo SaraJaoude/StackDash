@@ -84,7 +84,7 @@ describe("daily summary (#64)", () => {
       connection_id: null,
       url: null,
       dedupe_key: "daily_summary:2026-10-14",
-      title: "Daily summary for Oct 14, 2026",
+      title: "Daily summary for 2026-10-14",
       occurred_at: "2026-10-15T00:00:00.000Z",
     });
   });

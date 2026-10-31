@@ -7,13 +7,14 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { formatAbsolute, formatRelative } from "@/components/connections/format";
 import { ProviderMark } from "@/components/connections/provider-mark";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
 import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
 import { connectErrorMessage, ConnectFeedbackSchema } from "@/lib/connections/oauth-state";
-import { decodeConnectionsCursor, listConnections, type ConnectionSummary } from "@/lib/data/connections";
+import { listConnections, type ConnectionSummary } from "@/lib/data/connections";
+import { decodeCursor } from "@/lib/data/cursor";
+import { formatDateTime, formatRelative } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -42,7 +43,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
 
   const catalog = availableProviders();
 
-  const after = decodeConnectionsCursor(first(query.after));
+  const after = decodeCursor(first(query.after));
   const page = await listConnections(workspace.id, after);
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
@@ -186,8 +187,8 @@ function ConnectionRow({
             {lastSynced === null ? (
               "Not synced yet"
             ) : (
-              <time dateTime={lastSynced.toISOString()} title={formatAbsolute(lastSynced)}>
-                {formatRelative(lastSynced, now)} ({formatAbsolute(lastSynced)})
+              <time dateTime={lastSynced.toISOString()} title={formatDateTime(lastSynced)}>
+                {formatRelative(lastSynced, now)} ({formatDateTime(lastSynced)})
               </time>
             )}
           </dd>
@@ -226,7 +227,7 @@ function CatalogCard({
         <ProviderMark provider={adapter.id} />
         <h3 className="font-semibold">{adapter.displayName}</h3>
       </div>
-      <p className="mt-3 text-xs font-medium uppercase tracking-widest text-muted">Data collected</p>
+      <p className="mt-3 text-xs font-medium text-muted">Data collected</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
         {adapter.dataCollected.map((item) => (
           <li key={item}>{item}</li>

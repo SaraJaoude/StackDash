@@ -13,9 +13,10 @@
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
  *   means no comparison; a previous value of zero gives a direction but no percent.
  */
+import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
-import { formatMoney, formatQuantity, isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
+import { isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
 
 export type TrendGranularity = "daily" | "monthly";
 
@@ -214,11 +215,9 @@ export function formatTrendValue(value: number, measure: TrendMeasure): string {
   return measure.type === "money" ? formatMoney(value, measure.currency) : formatQuantity(value, measure.unit);
 }
 
-const MONTH_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" });
-
 /** "2026-10-31" for a day, "October 2026" for a month. */
 export function bucketLabel(bucket: string, granularity: TrendGranularity): string {
-  return granularity === "daily" ? bucket : MONTH_FORMAT.format(new Date(`${bucket}-01T00:00:00Z`));
+  return granularity === "daily" ? bucket : formatUtcMonth(`${bucket}-01T00:00:00Z`);
 }
 
 const PERIOD_WORDS = {

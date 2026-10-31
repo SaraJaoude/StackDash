@@ -2,9 +2,9 @@ import Link from "next/link";
 
 import { SeverityBadge } from "@/components/severity-badge";
 import type { AlertSeverity } from "@/lib/alerts/evaluate";
-import { formatDateTime } from "@/lib/dashboard/aggregate";
 import { hasTriggeredAlerts, listTriggeredAlerts, type TriggeredAlert } from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
+import { formatDateTime } from "@/lib/format";
 import { workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 

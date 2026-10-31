@@ -9,7 +9,7 @@
  * - A value that is missing is `null` and shown as "Unavailable", never as 0.
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
-import { currencyMinorDigits } from "@/lib/money";
+import { formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -455,77 +455,6 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
     byProvider: visible.map((connection) => providerSummary(connection, byConnection.get(connection.id) ?? [], accountNames, now)),
     byProject,
   };
-}
-
-// Formatting. Values are formatted at the edge, in US English, with dates in Europe/London.
-
-const TIME_ZONE = "Europe/London";
-
-/** Formats an amount in minor units, using the currency's own number of minor digits. */
-export function formatMoney(amountMinor: number, currency: string): string {
-  const digits = currencyMinorDigits(currency);
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(amountMinor / 10 ** digits);
-}
-
-const QUANTITY_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
-const PERCENT_FORMAT = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
-
-export function formatQuantity(value: number, unit: string): string {
-  return `${QUANTITY_FORMAT.format(value)} ${unit}`;
-}
-
-/** `percent` is on a 0 to 100 scale. */
-export function formatPercent(percent: number): string {
-  return PERCENT_FORMAT.format(percent / 100);
-}
-
-// en-CA formats dates as YYYY-MM-DD, the house date format.
-const DATE_PARTS = { year: "numeric", month: "2-digit", day: "2-digit" } as const;
-const DATE_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: TIME_ZONE, ...DATE_PARTS });
-// Billing periods are calendar facts on UTC day boundaries, so they are shown as UTC dates; in
-// Europe/London summer time a period ending at UTC midnight would otherwise end a day late.
-const PERIOD_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC", ...DATE_PARTS });
-const TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
-  timeZone: TIME_ZONE,
-  hour: "2-digit",
-  minute: "2-digit",
-  timeZoneName: "short",
-});
-
-/** "2026-10-31 14:05 GMT", in Europe/London. */
-export function formatDateTime(iso: string): string {
-  const date = new Date(iso);
-  return `${DATE_FORMAT.format(date)} ${TIME_FORMAT.format(date)}`;
-}
-
-/** A period's end is exclusive, so the last day shown is the day before it ends. */
-export function formatPeriod(period: Period): string {
-  const lastDay = new Date(Date.parse(period.end) - 1);
-  return `${PERIOD_DATE_FORMAT.format(new Date(period.start))} to ${PERIOD_DATE_FORMAT.format(lastDay)}`;
-}
-
-const RELATIVE_FORMAT = new Intl.RelativeTimeFormat("en-US", { numeric: "auto" });
-
-const RELATIVE_UNITS = [
-  { unit: "day", seconds: 86_400 },
-  { unit: "hour", seconds: 3_600 },
-  { unit: "minute", seconds: 60 },
-] as const satisfies readonly { unit: Intl.RelativeTimeFormatUnit; seconds: number }[];
-
-/** "5 minutes ago". A time in the future (clock skew) reads as now. */
-export function formatRelative(iso: string, now: Date): string {
-  const time = Date.parse(iso);
-  if (Number.isNaN(time)) return "unknown";
-  const seconds = Math.max(0, Math.floor((now.getTime() - time) / 1000));
-  for (const { unit, seconds: size } of RELATIVE_UNITS) {
-    if (seconds >= size) return RELATIVE_FORMAT.format(-Math.floor(seconds / size), unit);
-  }
-  return RELATIVE_FORMAT.format(-seconds, "second");
 }
 
 /** "Updated 5 minutes ago", or "Stale: last updated 3 hours ago". */

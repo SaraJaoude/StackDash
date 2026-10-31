@@ -80,7 +80,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
       />
       <div className="ml-auto flex shrink-0 items-center gap-3">
         {membership ? (
-          <span className="hidden rounded-full border border-line px-2 py-0.5 font-mono text-[11px] font-medium uppercase leading-none tracking-widest text-muted sm:inline">
+          <span className="hidden rounded-full border border-line px-2 py-0.5 font-mono text-[11px] font-medium leading-none tracking-wide text-muted sm:inline">
             <span className="sr-only">Your role: </span>
             {roleLabel(membership.role)}
           </span>

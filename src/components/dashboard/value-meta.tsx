@@ -2,13 +2,13 @@ import type { SVGProps } from "react";
 
 import { PlatformLogo, ServerIcon, ShieldIcon } from "@/components/icons";
 import {
-  formatDateTime,
   freshnessLabel,
   type ConnectionStatus,
   type Provenance,
   type ProviderId,
   type ValueSource,
 } from "@/lib/dashboard/aggregate";
+import { formatDateTime } from "@/lib/format";
 import { providerName, providerPlatform } from "@/lib/providers";
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {

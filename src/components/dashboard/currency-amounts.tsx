@@ -1,4 +1,5 @@
-import { formatMoney, type CurrencyAmounts, type MoneyValue } from "@/lib/dashboard/aggregate";
+import type { CurrencyAmounts, MoneyValue } from "@/lib/dashboard/aggregate";
+import { formatMoney } from "@/lib/format";
 
 import { Freshness, ProvenanceBadge, ProvenanceDetail, Unavailable } from "./value-meta";
 

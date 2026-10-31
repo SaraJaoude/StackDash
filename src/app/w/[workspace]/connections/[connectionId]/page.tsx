@@ -13,12 +13,13 @@ import {
   SyncNowForm,
 } from "@/components/connections/connection-controls";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
+import { cooldownRemainingSeconds } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { cooldownRemainingSeconds, formatAbsolute, formatRelative } from "@/components/connections/format";
 import { ProviderMark } from "@/components/connections/provider-mark";
 import { LockIcon } from "@/components/icons";
 import { availableProviders } from "@/lib/adapters/registry";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
+import { formatDateTime, formatRelative } from "@/lib/format";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
@@ -123,7 +124,7 @@ async function ConnectionContent({
               "Not synced yet"
             ) : (
               <time dateTime={lastSynced.toISOString()}>
-                {formatRelative(lastSynced, now)} ({formatAbsolute(lastSynced)})
+                {formatRelative(lastSynced, now)} ({formatDateTime(lastSynced)})
               </time>
             )}
           </dd>

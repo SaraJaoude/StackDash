@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
-import { dropSupersededBreakdowns, formatMoney, formatQuantity, type ProviderId } from "@/lib/dashboard/aggregate";
+import { dropSupersededBreakdowns, type ProviderId } from "@/lib/dashboard/aggregate";
+import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
 import { utcDate } from "./ingest";
@@ -18,8 +19,6 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
 
 export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
 const DAY_MS = 86_400_000;
-
-const DATE_FORMAT = new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeZone: "Europe/London" });
 
 /** The UTC day a summary job created at `createdAt` reports on: the day before. */
 export function summaryDate(createdAt: Date): string {
@@ -100,7 +99,6 @@ export function buildDailySummary(input: {
   const providers = [...byProvider.entries()]
     .map(([id, rows]) => ({ info: input.provider(id), rows }))
     .sort((a, b) => a.info.name.localeCompare(b.info.name));
-  const day = DATE_FORMAT.format(new Date(`${input.date}T12:00:00.000Z`));
   return {
     workspace_id: input.workspaceId,
     connection_id: null,
@@ -108,7 +106,7 @@ export function buildDailySummary(input: {
     provider: null,
     type_id: DAILY_SUMMARY_TYPE_ID,
     severity: "info",
-    title: `Daily summary for ${day}`,
+    title: `Daily summary for ${input.date}`,
     body: providers.flatMap(({ info, rows }) => lines(info, rows)).join("\n"),
     url: null,
     // The end of the summarized day, so the summary sorts after everything it describes.
