@@ -201,17 +201,23 @@ isOneToOne: false
                   ]
                 },"oauth_states": {
                   Row: {
-                    "code_verifier_ciphertext": string | null,"code_verifier_iv": string | null,"code_verifier_tag": string | null,"created_at": string,"expires_at": string,"key_id": string | null,"provider": Database["public"]['Enums']["provider_id"],"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
+                    "code_verifier_ciphertext": string | null,"code_verifier_iv": string | null,"code_verifier_tag": string | null,"created_at": string,"expires_at": string,"key_id": string | null,"pending_installation_id": string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id": string | null,"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at": string,"key_id"?: string | null,"provider": Database["public"]['Enums']["provider_id"],"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
+                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at": string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"redirect_after": string,"state": string,"user_id": string,"workspace_id": string
                   }
                   Update: {
-                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at"?: string,"key_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"],"redirect_after"?: string,"state"?: string,"user_id"?: string,"workspace_id"?: string
+                    "code_verifier_ciphertext"?: string | null,"code_verifier_iv"?: string | null,"code_verifier_tag"?: string | null,"created_at"?: string,"expires_at"?: string,"key_id"?: string | null,"pending_installation_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"],"reconnect_connection_id"?: string | null,"redirect_after"?: string,"state"?: string,"user_id"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "oauth_states_reconnect_connection_fkey"
+      columns: ["workspace_id","reconnect_connection_id"]
+isOneToOne: false
+      referencedRelation: "connections"
+      referencedColumns: ["workspace_id","id"]
+    },{
       foreignKeyName: "oauth_states_workspace_id_fkey"
       columns: ["workspace_id"]
 isOneToOne: false
@@ -423,6 +429,12 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"enqueue_due_syncs":
+{ Args: { "p_limit": number }; Returns: number
+                           },
+"enqueue_sync_job":
+{ Args: { "p_connection_id": string,"p_workspace_id": string }; Returns: boolean
+                           },
 "generate_workspace_slug":
 { Args: Record<PropertyKey, never>; Returns: string
                            },
@@ -431,6 +443,23 @@ isOneToOne: false
                            },
 "hook_before_user_created":
 { Args: { "event": Json }; Returns: Json
+                           },
+"latest_usage_resets":
+{ Args: { "p_external_account_id": string,"p_workspace_id": string }; Returns: {
+              "metric_key": string,"resets_at": string
+            }[]
+                           },
+"purge_activity_events":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_sync_jobs":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_usage_snapshots":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"request_manual_sync":
+{ Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
                            },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number

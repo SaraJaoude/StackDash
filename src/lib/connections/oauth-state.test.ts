@@ -1,0 +1,140 @@
+import { createHash } from "node:crypto";
+
+import { describe, expect, it } from "vitest";
+
+import {
+  callbackRedirectUri,
+  connectErrorCodes,
+  connectErrorMessage,
+  ConnectFeedbackSchema,
+  connectFeedbackQuery,
+  connectOrigin,
+  createPkcePair,
+  isStateExpired,
+  isStateToken,
+  newStateToken,
+  OAUTH_STATE_TTL_SECONDS,
+  pkceChallenge,
+  stateExpiresAt,
+} from "./oauth-state";
+
+describe("connectOrigin and callbackRedirectUri", () => {
+  const request = "http://localhost:3100/api/connections/fake/start?workspace=abc";
+
+  it("uses the request origin when NEXT_PUBLIC_SITE_URL is unset", () => {
+    expect(connectOrigin(request, undefined)).toBe("http://localhost:3100");
+  });
+
+  it("uses the request origin when NEXT_PUBLIC_SITE_URL is blank", () => {
+    expect(connectOrigin(request, "  ")).toBe("http://localhost:3100");
+  });
+
+  it("prefers the site URL origin, dropping any path", () => {
+    expect(connectOrigin(request, "https://devmacro.example.com/some/path")).toBe("https://devmacro.example.com");
+  });
+
+  it("ignores a site URL that is not http or https", () => {
+    expect(connectOrigin(request, "javascript:alert(1)")).toBe("http://localhost:3100");
+  });
+
+  it("ignores a site URL that does not parse", () => {
+    expect(connectOrigin(request, "not a url")).toBe("http://localhost:3100");
+  });
+
+  it("builds the provider callback URL on that origin", () => {
+    expect(callbackRedirectUri("https://devmacro.example.com", "resend")).toBe(
+      "https://devmacro.example.com/api/connections/resend/callback",
+    );
+  });
+});
+
+describe("newStateToken and isStateToken", () => {
+  it("makes a 43 character base64url token that isStateToken accepts", () => {
+    const token = newStateToken();
+    expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(isStateToken(token)).toBe(true);
+  });
+
+  it("makes a different token every call", () => {
+    expect(newStateToken()).not.toBe(newStateToken());
+  });
+
+  it("rejects an empty value", () => {
+    expect(isStateToken("")).toBe(false);
+  });
+
+  it("rejects a value one character short", () => {
+    expect(isStateToken("a".repeat(42))).toBe(false);
+  });
+
+  it("rejects a value one character long", () => {
+    expect(isStateToken("a".repeat(44))).toBe(false);
+  });
+
+  it("rejects characters outside base64url", () => {
+    expect(isStateToken(`${"a".repeat(42)}.`)).toBe(false);
+  });
+});
+
+describe("PKCE", () => {
+  it("makes a 43 character verifier whose challenge is its base64url SHA-256", () => {
+    const { verifier, challenge } = createPkcePair();
+    expect(verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(challenge).toBe(createHash("sha256").update(verifier).digest("base64url"));
+  });
+
+  it("matches the RFC 7636 appendix B example", () => {
+    expect(pkceChallenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk")).toBe(
+      "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM",
+    );
+  });
+});
+
+describe("state expiry", () => {
+  const now = new Date("2026-10-31T12:00:00.000Z");
+
+  it("expires ten minutes after creation", () => {
+    expect(OAUTH_STATE_TTL_SECONDS).toBe(600);
+    expect(stateExpiresAt(now).toISOString()).toBe("2026-10-31T12:10:00.000Z");
+  });
+
+  it("is still valid one millisecond before expiry", () => {
+    expect(isStateExpired(stateExpiresAt(now), new Date(now.getTime() + 599_999))).toBe(false);
+  });
+
+  it("is expired exactly at expiry", () => {
+    expect(isStateExpired(stateExpiresAt(now), new Date(now.getTime() + 600_000))).toBe(true);
+  });
+});
+
+describe("connect feedback", () => {
+  it("round trips through the query string", () => {
+    const query = connectFeedbackQuery({ error: "failed", provider: "fake", ref: "REF-ABCDEFGH" });
+    const parsed = ConnectFeedbackSchema.parse(Object.fromEntries(new URLSearchParams(query)));
+    expect(parsed).toEqual({ error: "failed", provider: "fake", ref: "REF-ABCDEFGH" });
+  });
+
+  it("rejects an unknown error code", () => {
+    expect(ConnectFeedbackSchema.safeParse({ error: "<script>" }).success).toBe(false);
+  });
+
+  it("rejects a reference that does not match the reference format", () => {
+    expect(ConnectFeedbackSchema.safeParse({ error: "failed", ref: "stack trace" }).success).toBe(false);
+  });
+
+  it("names the provider in the cancelled message", () => {
+    expect(connectErrorMessage("cancelled", "Example provider")).toMatch(/^You cancelled connecting Example provider\./);
+  });
+
+  it("asks for the instance operator when the provider is not set up", () => {
+    expect(connectErrorMessage("not_configured", "Resend")).toContain(
+      "Ask the person who runs this DevMacro instance to register the Resend app.",
+    );
+  });
+
+  it("never uses em or en dashes or exclamation marks in any message", () => {
+    for (const code of connectErrorCodes) {
+      expect(connectErrorMessage(code, "Vercel")).not.toMatch(/[\u2013\u2014!]/);
+    }
+  });
+});
