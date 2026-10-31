@@ -199,7 +199,7 @@ select throws_ok(
 select lives_ok(
   $$
     insert into public.sync_jobs (workspace_id, connection_id, kind)
-    values ('f00000a0-0000-4000-8000-000000000000', 'f00000a1-0000-4000-8000-000000000000', 'daily_snapshot_rollover')
+    values ('f00000a0-0000-4000-8000-000000000000', 'f00000a1-0000-4000-8000-000000000000', 'daily_summary')
   $$,
   'one open sync: other job kinds for the same connection are not limited');
 

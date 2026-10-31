@@ -11,7 +11,7 @@ Each tick does three things, then answers with counts only (no data, no errors i
    - `failed` connections whose backoff has elapsed (`next_sync_at`, one hour after the last failure).
    - `needs_attention`, `pending`, and `revoked` connections are never scheduled. They wait for the user to reconnect.
 
-   It also queues the retention job once per UTC day (dedupe key `retention:YYYY-MM-DD`).
+   It also queues the retention job once per UTC day (dedupe key `retention:YYYY-MM-DD`), and one daily summary job per workspace with a connection that is not revoked (dedupe key `daily_summary:<workspace id>:YYYY-MM-DD`, for the previous UTC day). The summary writes one `devmacro.daily_summary` timeline event with each provider's usage and spending for that day, labeled verified, estimated, or unavailable, and never adds currencies together.
 2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job.
 3. **Run.** Runs the claimed jobs, three at a time, within a 50 second budget. Jobs not started when the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 

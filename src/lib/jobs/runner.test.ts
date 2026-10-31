@@ -52,6 +52,7 @@ function deps(store: MemoryJobStore, now: () => Date): SyncDeps {
     random: () => 0.5,
     logError: () => "REF-TEST0000",
     log: silent,
+    evaluateAlerts: async () => ({ triggered: 0 }),
   };
 }
 
@@ -82,6 +83,10 @@ describe("runTick", () => {
       }
 
       // Keeps the claimed batch to sync jobs only.
+      override async enqueueDailySummaries(): Promise<number> {
+        return 0;
+      }
+
       override async enqueueRetention(): Promise<boolean> {
         return false;
       }
@@ -108,7 +113,7 @@ describe("runTick", () => {
     const store = new MemoryJobStore(() => clock);
     const result = await runTick(deps(store, () => clock));
     expect(Object.keys(result).sort()).toEqual(
-      ["claimed", "failed", "released", "retentionQueued", "retried", "succeeded", "syncsQueued"].sort(),
+      ["claimed", "failed", "released", "retentionQueued", "retried", "succeeded", "summariesQueued", "syncsQueued"].sort(),
     );
   });
 });

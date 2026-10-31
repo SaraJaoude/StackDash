@@ -36,9 +36,12 @@ type Harness = {
   tick: () => Promise<TickResult>;
   failureEvents: () => MemoryEvent[];
   references: string[];
+  alertCalls: Array<{ workspaceId: string; now: string }>;
 };
 
-function setup(options: { start?: string; mode?: FakeMode; accounts?: number; adapter?: ProviderAdapter; random?: number } = {}): Harness {
+function setup(
+  options: { start?: string; mode?: FakeMode; accounts?: number; adapter?: ProviderAdapter; random?: number; alertsFail?: boolean } = {},
+): Harness {
   let clock = new Date(options.start ?? "2026-10-14T10:00:00.000Z");
   const now = () => clock;
   const store = new MemoryJobStore(now);
@@ -54,6 +57,7 @@ function setup(options: { start?: string; mode?: FakeMode; accounts?: number; ad
   }
   store.credentials.set(connection.id, credential(options.mode ?? "ok"));
   const references: string[] = [];
+  const alertCalls: Harness["alertCalls"] = [];
   const adapter = options.adapter ?? fakeAdapter;
   const deps: SyncDeps = {
     store,
@@ -74,6 +78,11 @@ function setup(options: { start?: string; mode?: FakeMode; accounts?: number; ad
       return reference;
     },
     log: silent,
+    evaluateAlerts: async (workspaceId, at) => {
+      alertCalls.push({ workspaceId, now: at.toISOString() });
+      if (options.alertsFail === true) throw new Error("alert evaluation failed");
+      return { triggered: 0 };
+    },
   };
   return {
     store,
@@ -90,6 +99,7 @@ function setup(options: { start?: string; mode?: FakeMode; accounts?: number; ad
     tick: () => runTick(deps),
     failureEvents: () => store.events.filter((event) => event.type_id === SYNC_FAILED_TYPE_ID),
     references,
+    alertCalls,
   };
 }
 
@@ -284,6 +294,35 @@ describe("sync job: failure episodes (#60)", () => {
     const events = harness.failureEvents();
     expect(events).toHaveLength(2);
     expect(events[0]?.dedupe_key).not.toBe(events[1]?.dedupe_key);
+  });
+});
+
+describe("sync job: alert evaluation (#65)", () => {
+  it("evaluates the workspace's alerts once per successful sync", async () => {
+    const harness = setup();
+    await harness.tick();
+    expect(harness.alertCalls).toEqual([{ workspaceId: WORKSPACE_ID, now: "2026-10-14T10:00:00.000Z" }]);
+    await harness.store.enqueueSync({ workspaceId: WORKSPACE_ID, connectionId: harness.connectionId });
+    await harness.tick();
+    expect(harness.alertCalls).toHaveLength(2);
+  });
+
+  it("does not evaluate alerts when the sync fails or is retried", async () => {
+    const harness = setup({ mode: "unavailable", random: 0 });
+    for (let attempt = 1; attempt <= 5; attempt += 1) await harness.tick();
+    const revoked = setup({ mode: "revoked" });
+    await revoked.tick();
+    expect(harness.alertCalls).toHaveLength(0);
+    expect(revoked.alertCalls).toHaveLength(0);
+  });
+
+  it("logs an alert evaluation error without failing the sync", async () => {
+    const harness = setup({ alertsFail: true });
+    await harness.tick();
+    expect(harness.alertCalls).toHaveLength(1);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+    expect(connectionOf(harness).status).toBe("active");
+    expect(harness.references).toHaveLength(1);
   });
 });
 

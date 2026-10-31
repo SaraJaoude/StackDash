@@ -1,8 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { backoffDelayMs } from "./backoff";
+import { runDailySummaryJob } from "./daily-summary";
 import { runRetention } from "./retention";
-import { scheduleDueJobs } from "./schedule";
+import { scheduleDueJobs, type ScheduleResult } from "./schedule";
 import type { ClaimedJob } from "./store";
 import { runSyncJob, type JobOutcome, type SyncDeps } from "./sync-connection";
 
@@ -37,9 +38,7 @@ export function isAuthorizedCronRequest(authorization: string | null, secret: st
   return timingSafeEqual(given, expected);
 }
 
-export type TickResult = {
-  syncsQueued: number;
-  retentionQueued: boolean;
+export type TickResult = ScheduleResult & {
   claimed: number;
   succeeded: number;
   retried: number;
@@ -48,19 +47,16 @@ export type TickResult = {
 };
 
 async function runJob(job: ClaimedJob, deps: SyncDeps, hasTime: () => boolean): Promise<JobOutcome> {
-  switch (job.kind) {
-    case "sync":
-      return runSyncJob(job, deps);
-    case "retention": {
-      const result = await runRetention(deps.store, deps.now(), hasTime);
-      deps.log.info("retention.finished", { jobId: job.id, ...result });
-      return { status: "succeeded" };
-    }
-    case "daily_snapshot_rollover":
-    case "daily_summary":
-      // Not produced by the MVP scheduler. Failing (without retry) keeps a stray row visible.
-      return { status: "failed", errorCode: "unsupported_kind", errorReference: null };
+  if (job.kind === "sync") return runSyncJob(job, deps);
+  if (job.kind === "daily_summary") return runDailySummaryJob(job, deps);
+  if (job.kind === "retention") {
+    const result = await runRetention(deps.store, deps.now(), hasTime);
+    deps.log.info("retention.finished", { jobId: job.id, ...result });
+    return { status: "succeeded" };
   }
+  // A kind this runner does not know (a row written by a newer version). Failing without retry
+  // keeps it visible instead of looping.
+  return { status: "failed", errorCode: "unsupported_kind", errorReference: null };
 }
 
 async function settle(job: ClaimedJob, deps: SyncDeps, hasTime: () => boolean): Promise<JobOutcome> {

@@ -61,6 +61,7 @@ describe("toSnapshotRow", () => {
       period_end: null,
       resets_at: null,
       snapshot_date: "2026-11-01",
+      retrieved_at: "2026-11-01T00:30:00.000Z",
       provenance_endpoint: "https://api.example.com/credits",
       pricing_source: null,
       external_account_id: "acct-row-1",

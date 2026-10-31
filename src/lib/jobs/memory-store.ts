@@ -1,6 +1,7 @@
 import type { OAuthCredential } from "@/lib/adapters/types";
 import type { Tables } from "@/lib/supabase/database.types";
 
+import { dailySummaryJobKey } from "./daily-summary";
 import type {
   ClaimedJob,
   ConnectionPatch,
@@ -10,6 +11,8 @@ import type {
   JobStore,
   ManualSyncResult,
   SnapshotRow,
+  SummaryConnection,
+  SummarySnapshot,
 } from "./store";
 
 /*
@@ -188,7 +191,7 @@ export class MemoryJobStore implements JobStore {
       job.started_at = this.#nowIso();
       job.finished_at = null;
     }
-    return claimable.map(({ id, workspace_id, connection_id, kind, attempts, max_attempts, created_at }) => ({
+    return claimable.map(({ id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key }) => ({
       id,
       workspace_id,
       connection_id,
@@ -196,6 +199,7 @@ export class MemoryJobStore implements JobStore {
       attempts,
       max_attempts,
       created_at,
+      dedupe_key,
     }));
   }
 
@@ -344,5 +348,47 @@ export class MemoryJobStore implements JobStore {
     );
     this.jobs = kept;
     return deleted;
+  }
+
+  async enqueueDailySummaries(date: string): Promise<number> {
+    const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
+    let queued = 0;
+    for (const workspaceId of workspaceIds) {
+      const dedupeKey = dailySummaryJobKey(workspaceId, date);
+      if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) continue;
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "daily_summary", dedupe_key: dedupeKey }));
+      queued += 1;
+    }
+    return queued;
+  }
+
+  async listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]> {
+    return this.connections
+      .filter((row) => row.workspace_id === workspaceId && row.status !== "revoked")
+      .map(({ id, provider }) => ({ id, provider }));
+  }
+
+  async listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]> {
+    return this.snapshots
+      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date === date)
+      .map((row) => ({
+        connection_id: row.connection_id,
+        external_account_id: row.external_account_id,
+        metric_key: row.metric_key,
+        kind: row.kind,
+        label: row.label,
+        snapshot_date: row.snapshot_date,
+        value: row.value ?? null,
+        unit: row.unit ?? null,
+        amount_minor: row.amount_minor ?? null,
+        currency: row.currency ?? null,
+        period_start: row.period_start ?? null,
+        period_end: row.period_end ?? null,
+        point_at: row.point_at ?? null,
+        resets_at: row.resets_at ?? null,
+        retrieved_at: row.retrieved_at,
+        provenance_source: row.provenance_source,
+        pricing_source: row.pricing_source ?? null,
+      }));
   }
 }

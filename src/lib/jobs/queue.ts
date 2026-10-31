@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
+import { evaluateWorkspaceAlerts } from "@/lib/alerts/run";
 import { log, logError } from "@/lib/log/logger";
 
 import { createSupabaseJobStore } from "./store";
@@ -53,5 +54,6 @@ export function createJobDeps(): SyncDeps {
     random: Math.random,
     logError,
     log,
+    evaluateAlerts: evaluateWorkspaceAlerts,
   };
 }

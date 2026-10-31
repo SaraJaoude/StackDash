@@ -9,6 +9,7 @@ import type {
   ProviderId,
 } from "@/lib/adapters/types";
 import type { LogFields, Logger } from "@/lib/log/logger";
+import { providerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { BACKOFF_CAP_MS, backoffDelayMs, rateLimitDelayMs } from "./backoff";
@@ -41,6 +42,8 @@ export type SyncDeps = Readonly<{
   random: () => number;
   logError: (event: string, error: unknown, fields?: LogFields) => string;
   log: Logger;
+  // evaluateWorkspaceAlerts from src/lib/alerts/run.ts in production; injected so tests stub it.
+  evaluateAlerts: (workspaceId: string, now: Date) => Promise<unknown>;
 }>;
 
 /** A failure that is ours or the instance's, not the provider's. */
@@ -78,14 +81,20 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
     return { status: "succeeded" };
   }
 
-  let adapter: ProviderAdapter | undefined;
   try {
-    adapter = deps.getAdapter(connection.provider);
-    await syncConnection(adapter, connection, key, deps);
-    return { status: "succeeded" };
+    await syncConnection(deps.getAdapter(connection.provider), connection, key, deps);
   } catch (error) {
-    return handleFailure({ error, job, connection, key, adapter, deps });
+    return handleFailure({ error, job, connection, key, deps });
   }
+
+  // Thresholds (#65) are checked against the fresh snapshots. A failure here is logged and does
+  // not fail the sync: the data is stored, and the next successful sync evaluates again.
+  try {
+    await deps.evaluateAlerts(key.workspaceId, deps.now());
+  } catch (error) {
+    deps.logError("sync.alert_evaluation_failed", error, { jobId: job.id, workspaceId: key.workspaceId });
+  }
+  return { status: "succeeded" };
 }
 
 async function syncConnection(
@@ -139,7 +148,6 @@ async function syncConnection(
     await ingestSyncResult({
       store: deps.store,
       provider: adapter.id,
-      providerName: adapter.displayName,
       connection,
       account,
       metrics: metrics.items,
@@ -193,22 +201,22 @@ async function refreshIfExpiring(
 function syncFailedEvent(input: {
   connection: SyncConnection;
   job: ClaimedJob;
-  providerName: string;
   status: "needs_attention" | "failed";
   errorCode: string;
   errorReference: string;
   occurredAt: Date;
 }): EventRow {
-  const { connection, providerName } = input;
+  const { connection } = input;
+  const name = providerName(connection.provider);
   const account = connection.authorized_account_label ?? connection.display_name;
   const action =
     input.errorCode === "permission_missing"
-      ? `Reconnect ${providerName} in Connections and grant the requested permissions.`
-      : `Reconnect ${providerName} in Connections to resume syncing.`;
+      ? `Reconnect ${name} in Connections and grant the requested permissions.`
+      : `Reconnect ${name} in Connections to resume syncing.`;
   const body =
     input.status === "needs_attention"
-      ? `DevMacro can no longer read ${providerName} data for ${account}. ${action} Reference ${input.errorReference}.`
-      : `${providerName} did not answer after several attempts. DevMacro keeps retrying every hour. If it keeps failing, reconnect ${providerName} in Connections. Reference ${input.errorReference}.`;
+      ? `DevMacro can no longer read ${name} data for ${account}. ${action} Reference ${input.errorReference}.`
+      : `${name} did not answer after several attempts. DevMacro keeps retrying every hour. If it keeps failing, reconnect ${name} in Connections. Reference ${input.errorReference}.`;
   // The episode starts with the job whose failure took the connection out of `active`. Its
   // created_at is stable across a re-run of that job, so a crash between writing this event and
   // updating the connection cannot produce a second event for the same episode.
@@ -220,7 +228,7 @@ function syncFailedEvent(input: {
     provider: null,
     type_id: SYNC_FAILED_TYPE_ID,
     severity: input.status === "needs_attention" ? "critical" : "warning",
-    title: `${providerName} sync failed for ${account}`,
+    title: `${name} sync failed for ${account}`,
     body,
     url: null,
     occurred_at: input.occurredAt.toISOString(),
@@ -233,10 +241,9 @@ async function handleFailure(input: {
   job: ClaimedJob;
   connection: SyncConnection;
   key: ConnectionKey;
-  adapter: ProviderAdapter | undefined;
   deps: SyncDeps;
 }): Promise<JobOutcome> {
-  const { error, job, connection, key, adapter, deps } = input;
+  const { error, job, connection, key, deps } = input;
   const errorCode = error instanceof AdapterError || error instanceof SyncSetupError ? error.code : "internal_error";
   const errorReference = deps.logError("sync.failed", error, {
     jobId: job.id,
@@ -273,7 +280,6 @@ async function handleFailure(input: {
       syncFailedEvent({
         connection,
         job,
-        providerName: adapter?.displayName ?? connection.provider,
         status,
         errorCode,
         errorReference,

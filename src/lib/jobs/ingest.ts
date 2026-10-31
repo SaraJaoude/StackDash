@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import type { ProviderId } from "@/lib/adapters/types";
+import { providerName } from "@/lib/providers";
 
 import type { EventRow, JobStore, SnapshotRow, SyncAccount, SyncConnection } from "./store";
 
@@ -142,7 +143,6 @@ function lastPerConflictKey(rows: readonly SnapshotRow[]): SnapshotRow[] {
 export type IngestInput = Readonly<{
   store: JobStore;
   provider: ProviderId;
-  providerName: string;
   connection: Pick<SyncConnection, "id" | "workspace_id">;
   account: SyncAccount;
   // Already validated with validateAdapterMetrics/validateAdapterEvents and checked to belong to
@@ -162,7 +162,7 @@ export async function ingestSyncResult(input: IngestInput): Promise<void> {
     previousResets,
     connection,
     account,
-    providerName: input.providerName,
+    providerName: providerName(provider),
   });
 
   // Events go first: if the snapshot upsert then fails, the retry still sees the old reset time

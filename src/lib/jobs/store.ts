@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { OAuthCredential } from "@/lib/adapters/types";
+import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
@@ -41,7 +42,7 @@ export type ConnectionPatch = Pick<
 
 export type ClaimedJob = Pick<
   Tables<"sync_jobs">,
-  "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at"
+  "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at" | "dedupe_key"
 >;
 
 export type SnapshotRow = TablesInsert<"usage_snapshots">;
@@ -50,6 +51,13 @@ export type EventRow = TablesInsert<"activity_events">;
 export type ManualSyncResult = "queued" | "already_queued" | "cooldown" | "not_found";
 
 export type JobFailure = Readonly<{ errorCode: string; errorReference: string | null }>;
+
+export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
+export type SummarySnapshot = SnapshotInput;
+
+// One workspace's connections, or one workspace's snapshots for one day. Far above any MVP
+// workspace (a few connections, tens of metrics each).
+const SUMMARY_ROW_LIMIT = 5000;
 
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
 
@@ -87,6 +95,12 @@ export interface JobStore {
   purgeSnapshots(beforeDate: string, limit: number): Promise<number>;
   purgeEvents(before: Date, limit: number): Promise<number>;
   purgeJobs(before: Date, limit: number): Promise<number>;
+
+  /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
+  enqueueDailySummaries(date: string): Promise<number>;
+  /** Connections that count for the summary (everything but revoked). */
+  listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
+  listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -142,7 +156,7 @@ export function createSupabaseJobStore(): JobStore {
     async claimJobs(limit, leaseSeconds) {
       const { data, error } = await db
         .rpc("claim_sync_jobs", { p_limit: limit, p_lease_seconds: leaseSeconds })
-        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at");
+        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key");
       if (error) throw failure("claim_sync_jobs", error);
       return data;
     },
@@ -305,6 +319,38 @@ export function createSupabaseJobStore(): JobStore {
     async purgeJobs(before, limit) {
       const { data, error } = await db.rpc("purge_sync_jobs", { p_before: before.toISOString(), p_limit: limit });
       if (error) throw failure("purge_sync_jobs", error);
+      return data;
+    },
+
+    async enqueueDailySummaries(date) {
+      const { data, error } = await db.rpc("enqueue_daily_summaries", { p_date: date });
+      if (error) throw failure("enqueue_daily_summaries", error);
+      return data;
+    },
+
+    async listSummaryConnections(workspaceId) {
+      const { data, error } = await db
+        .from("connections")
+        .select("id, provider")
+        .eq("workspace_id", workspaceId)
+        .neq("status", "revoked")
+        .order("id")
+        .limit(SUMMARY_ROW_LIMIT);
+      if (error) throw failure("summary connections read", error);
+      return data;
+    },
+
+    async listSnapshotsForDate(workspaceId, date) {
+      const { data, error } = await db
+        .from("usage_snapshots")
+        .select(
+          "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+        )
+        .eq("workspace_id", workspaceId)
+        .eq("snapshot_date", date)
+        .order("id")
+        .limit(SUMMARY_ROW_LIMIT);
+      if (error) throw failure("summary snapshots read", error);
       return data;
     },
   };
