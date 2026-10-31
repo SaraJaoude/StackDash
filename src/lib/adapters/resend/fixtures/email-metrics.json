@@ -1,0 +1,10 @@
+{
+  "object": "metrics",
+  "start_date": "2026-07-21T12:00:00.000Z",
+  "end_date": "2026-07-28T12:00:00.000Z",
+  "metrics": ["delivered", "bounced", "complained"],
+  "dimensions": [],
+  "granularity": "daily",
+  "totals": { "delivered": 1180, "bounced": 20, "complained": 1 },
+  "data": []
+}
