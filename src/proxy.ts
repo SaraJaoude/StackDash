@@ -57,12 +57,26 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   ].join("; ");
 }
 
+// Doc slugs are lowercase (isDocSlug in src/lib/docs.ts), so a /docs path with an uppercase letter
+// is never a doc. It is answered here, before Next looks the path up in its prerender cache: that
+// cache is files on disk, and on a case-insensitive file system (macOS) /docs/Providers/Vercel
+// would find the prerendered /docs/providers/vercel and serve it with a 200. The rewrite target is
+// a slug that can never exist (`_` is outside the slug alphabet), so the docs route renders its
+// not-found page with a 404 status.
+const MIS_CASED_DOC_PATH = /^\/docs\/.*[A-Z]/;
+const UNKNOWN_DOC_PATH = "/docs/_";
+
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, and sets
  * the CSP headers. This is not authorization: every page, Server Function, and route handler still
  * checks the user itself, because a matcher can drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
+  if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
+    // No session refresh and no app CSP: docs keep the static policy from next.config.ts.
+    return NextResponse.rewrite(new URL(UNKNOWN_DOC_PATH, request.url));
+  }
+
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = publicEnv();
 
   // Cookie writes are collected and applied to whichever response this request ends with.
@@ -122,10 +136,14 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// Only the signed-in app, the account page, and the auth pages. The landing page, the signed-out
-// /account/deleted page, API routes, and static assets stay out: they need no session refresh, and
-// a nonce would force the static landing page to render per request. next.config.ts applies the
-// static CSP to every path NOT listed here; keep them in sync.
+// The signed-in app, the account page, and the auth pages, plus /docs paths with an uppercase
+// letter (answered as not found above, before any session or CSP work). The landing page, the docs,
+// the signed-out /account/deleted page, API routes, and static assets stay out: they need no session
+// refresh, and a nonce would force static pages to render per request. next.config.ts applies the
+// static CSP to every path except the app paths listed here; keep them in sync.
+//
+// Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
+// paths that contain an uppercase letter and correctly cased docs never invoke the proxy.
 export const config = {
-  matcher: ["/app", "/app/:path*", "/w/:path*", "/account", "/sign-in", "/auth/:path*"],
+  matcher: ["/app", "/app/:path*", "/w/:path*", "/account", "/sign-in", "/auth/:path*", "/docs/:path(.*[A-Z].*)"],
 };
