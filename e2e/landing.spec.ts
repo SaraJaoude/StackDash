@@ -104,7 +104,9 @@ test.describe("landing page", () => {
       test(`the feed height never dips while an event arrives on ${layout.name}`, async ({ page }) => {
         await page.setViewportSize(layout.viewport);
         await page.goto("/");
-        // Freeze the page clock, so the only tick is the one this test runs.
+        // Jump the page clock a minute ahead and freeze it, so no real-time tick lands mid-measurement.
+        // pauseAt fires each due timer at most once, so a feed tick already due can fire during the
+        // jump; settleAnimations below absorbs it before the controlled 3-second tick.
         await page.clock.pauseAt(Date.now() + 60_000);
         const list = page.getByRole("list", { name: "Example live events" });
         const rows = list.getByRole("listitem");
