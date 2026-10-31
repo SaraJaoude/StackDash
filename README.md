@@ -256,6 +256,8 @@ rest of the app keeps working. Each provider callback URL is
 
 ## Operations
 
+Every Markdown file under `docs/` is also published on the website at `/docs`, rendered at build time.
+
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
@@ -302,6 +304,7 @@ src/
   app/
     page.tsx, layout.tsx       landing page and root layout
     sign-in/                   GitHub sign-in page
+    docs/                      the Markdown in docs/ published at /docs, one page per file
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
@@ -318,6 +321,7 @@ src/
     projects/                  project forms and rules
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
+    docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, fake) and registry
@@ -331,6 +335,7 @@ src/
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
+    docs.ts                    reads docs/ for /docs: the page list, titles, and link rewriting
   types/                       ambient type declarations
 supabase/
   config.toml                  local stack configuration (ports, GitHub auth, invite hook, seed)

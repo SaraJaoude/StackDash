@@ -27,6 +27,11 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  // src/lib/docs.ts reads docs/**/*.md with fs. A /docs slug that was not prerendered renders on
+  // demand (and answers 404), so the Markdown ships with that route's server output.
+  outputFileTracingIncludes: {
+    "/docs/**": ["./docs/**/*.md"],
+  },
   turbopack: {
     rules: {
       "*.css": {
