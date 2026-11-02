@@ -13,8 +13,8 @@ interface SiteNavProps {
 /**
  * Sticky top nav. A server component: on small screens the section links hide and the page
  * itself is the menu, so the landing page ships no client JavaScript for navigation. Sign in
- * stays visible at every width; on the narrowest phones the actions wrap below the wordmark
- * rather than overflow.
+ * stays visible at every width. Below sm the wordmark shrinks so a 390 px phone keeps it, Sign in,
+ * and GitHub on one row; narrower phones wrap the actions below the wordmark rather than overflow.
  */
 export function SiteNav({ anchorBase = "" }: SiteNavProps) {
   return (
@@ -24,7 +24,7 @@ export function SiteNav({ anchorBase = "" }: SiteNavProps) {
         className="mx-auto flex min-h-16 w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3"
       >
         <div className="flex items-center gap-2">
-          <a href={`${anchorBase}#top`} className="inline-flex shrink-0">
+          <a href={`${anchorBase}#top`} className="inline-flex min-h-6 shrink-0 items-center">
             <Wordmark size="site" />
           </a>
           <span className="hidden sm:inline">

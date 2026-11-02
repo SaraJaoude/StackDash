@@ -32,7 +32,7 @@ export default function WorkspaceLayout({ children, params }: LayoutProps<"/w/[w
       <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
         <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
           <div className="flex h-14 items-center gap-2 sm:gap-3">
-            <Link href="/app" className="shrink-0 font-mono text-sm font-semibold tracking-tight">
+            <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
               <Wordmark />
             </Link>
             <span aria-hidden="true" className="hidden text-line-strong sm:inline">

@@ -10,7 +10,6 @@
       <path d="M19.21601 73.12143 L43.20996 55.27977" />
   </g>
   <path d="M65.2 48 H78" stroke="#ff5d3b" stroke-width="6" stroke-linecap="butt" />
-  <!-- All five original node/ring dimensions are unchanged. -->
   <g stroke="#ededed" stroke-width="4.5">
     <circle cx="14" cy="19" r="6.5" />
     <circle cx="14" cy="48" r="6.5" />

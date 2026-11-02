@@ -38,7 +38,7 @@ export default function AccountPage() {
     <div className="flex flex-1 flex-col">
       <header className="border-b border-line">
         <div className="mx-auto flex h-14 w-full max-w-3xl items-center gap-3 px-4 sm:px-6">
-          <Link href="/app" className="shrink-0 font-mono text-sm font-semibold tracking-tight">
+          <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
             <Wordmark />
           </Link>
           <div className="ml-auto flex shrink-0 items-center gap-3">

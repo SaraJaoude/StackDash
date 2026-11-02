@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="423" height="96" viewBox="0 0 423 96" role="img" aria-label="DevMacro Stream Convergence simple dark wordmark">
+<svg xmlns="http://www.w3.org/2000/svg" width="363" height="76" viewBox="13 10 363 76" role="img" aria-label="DevMacro Stream Convergence simple dark wordmark">
 <title>DevMacro Stream Convergence simple dark wordmark</title>
 <g transform="translate(8 0)"><g fill="none" stroke-linejoin="round">
   <!-- All lines are covered at their endpoints by the ring strokes. -->
@@ -8,7 +8,6 @@
       <path d="M19.21601 73.12143 L43.20996 55.27977" />
   </g>
   <path d="M65.2 48 H78" stroke="#ff5d3b" stroke-width="6" stroke-linecap="butt" />
-  <!-- All five original node/ring dimensions are unchanged. -->
   <g stroke="#ededed" stroke-width="4.5">
     <circle cx="14" cy="19" r="6.5" />
     <circle cx="14" cy="48" r="6.5" />
