@@ -24,8 +24,8 @@ export function SiteNav({ anchorBase = "" }: SiteNavProps) {
         className="mx-auto flex min-h-16 w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3"
       >
         <div className="flex items-center gap-2">
-          <a href={`${anchorBase}#top`} className="font-mono text-sm font-semibold tracking-tight">
-            <Wordmark />
+          <a href={`${anchorBase}#top`} className="inline-flex shrink-0">
+            <Wordmark size="site" />
           </a>
           <span className="hidden sm:inline">
             <StatusBadge />

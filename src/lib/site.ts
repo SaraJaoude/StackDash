@@ -1,9 +1,6 @@
 /** Single source of truth for site-wide constants. Update links here, nowhere else. */
 export const site = {
   name: "DevMacro",
-  // The wordmark renders `nameLead` plain and `nameAccent` in the accent color.
-  nameLead: "Dev",
-  nameAccent: "Macro",
   tagline: "The big picture of your developer stack",
   description:
     "DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer services you build on. See what you have spent, how much allowance is left, and when it resets, and get alerted before a limit or budget becomes a problem.",

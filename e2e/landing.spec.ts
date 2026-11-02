@@ -28,10 +28,11 @@ test.describe("landing page", () => {
     }
   });
 
-  test("the header and footer lead to the docs and to sign in", async ({ page }) => {
+  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
+      await expect(region.getByRole("img", { name: "DevMacro", exact: true })).toBeVisible();
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
@@ -45,6 +46,7 @@ test.describe("landing page", () => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
 
+    await expect(page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true })).toBeVisible();
     await expect(page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true })).toBeVisible();
   });
 
