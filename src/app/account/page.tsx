@@ -42,9 +42,10 @@ export default function AccountPage() {
             <Wordmark />
           </Link>
           <div className="ml-auto flex shrink-0 items-center gap-3">
+            {/* The wordmark already opens the workspace, so phones drop this duplicate to keep the row fitting. */}
             <Link
               href="/app"
-              className="inline-flex min-h-9 items-center rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
+              className="hidden min-h-9 items-center rounded-md px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground sm:inline-flex"
             >
               Open your workspace
             </Link>
