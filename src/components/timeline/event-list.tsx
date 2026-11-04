@@ -1,3 +1,4 @@
+import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
 import type { TimelineEvent } from "@/lib/data/timeline";
@@ -6,7 +7,10 @@ import { severityBadge } from "@/lib/timeline/query";
 
 import { EventTime } from "./event-time";
 
-/** One page of events, newest first. Every row prints its provider and severity as words. */
+/**
+ * One page of events, newest first. Every row prints its provider and severity as words, and
+ * "Simulated" when its connection was made by the provider simulator.
+ */
 export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
   return (
     <ol aria-label="Events" className="mt-4 divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel">
@@ -42,7 +46,10 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
         </div>
         <div className="mt-1 flex items-start justify-between gap-3">
           <h2 className="min-w-0 break-words text-sm font-medium leading-6">{event.title}</h2>
-          <SeverityBadge severity={severityBadge(event.severity)} />
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {event.simulated ? <SimulatedBadge /> : null}
+            <SeverityBadge severity={severityBadge(event.severity)} />
+          </div>
         </div>
         {event.body === null ? null : (
           <p className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-muted">{event.body}</p>
