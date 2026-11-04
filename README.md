@@ -164,9 +164,9 @@ npm run jobs:tick
 
 This runs one scheduler tick directly with the settings in `.env.local`: it schedules due syncs,
 runs up to 10 queued jobs, and prints the counts as JSON. It needs no dev server and no
-`CRON_SECRET`. Refresh the dashboard and the timeline to see the synced usage and events. In
-production `pg_cron` calls `POST /api/jobs/tick` every minute instead, see
-[Jobs](docs/operations/jobs.md).
+`CRON_SECRET`. An open dashboard, timeline, alerts, or connections page updates by itself within a
+few seconds of the tick, with no reload. In production `pg_cron` calls `POST /api/jobs/tick` every
+minute instead, see [Jobs](docs/operations/jobs.md).
 
 ## Checks
 

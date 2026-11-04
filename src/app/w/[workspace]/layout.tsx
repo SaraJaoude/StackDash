@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { AppNav } from "@/components/app/app-nav";
+import { LiveRefresh } from "@/components/app/live-refresh";
 import { SignOutButton } from "@/components/app/sign-out-button";
 import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { Wordmark } from "@/components/wordmark";
@@ -74,6 +75,8 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
 
   return (
     <>
+      {/* Only for a member: the channel is scoped to a workspace the user can read. */}
+      {membership ? <LiveRefresh workspaceId={membership.workspace.id} /> : null}
       <WorkspaceSwitcher
         workspaces={workspaces.map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name }))}
         currentSlug={membership ? membership.workspace.slug : null}
