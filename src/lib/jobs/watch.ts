@@ -79,7 +79,7 @@ export type WatchDeps = Readonly<{
   tick: () => Promise<WatchTick>;
   /** Read every iteration: true while this process simulates providers. */
   simulationEnabled: () => boolean;
-  /** Makes the simulated connections due now; only called while simulation is enabled. */
+  /** Makes the simulated connections due now and returns how many there are; zero means none exist. */
   markSimulatedDue: () => Promise<number>;
   now: () => Date;
   /** Waits `ms`, or less when `signal` aborts. */
@@ -102,10 +102,18 @@ export async function runWatch(deps: WatchDeps, intervalSeconds: number): Promis
       ? `Watching: a tick every ${intervalSeconds} seconds, with simulated connections synced on every tick. Press Ctrl+C to stop.`
       : `Watching: a tick every ${intervalSeconds} seconds. Provider simulation is off, so connections sync only when they are due. Press Ctrl+C to stop.`,
   );
+  if (!simulating) deps.print(SIMULATION_OFF_HINT);
 
+  // Printed when the tick has nothing simulated to sync, and again only after that changes, so
+  // a watcher who has not connected a simulated provider yet is told why nothing arrives.
+  let warnedNoSimulated = false;
   while (!deps.signal.aborted) {
     try {
-      if (deps.simulationEnabled()) await deps.markSimulatedDue();
+      if (deps.simulationEnabled()) {
+        const due = await deps.markSimulatedDue();
+        if (due === 0 && !warnedNoSimulated) deps.print(NO_SIMULATED_CONNECTIONS_HINT);
+        warnedNoSimulated = due === 0;
+      }
       const tick = await deps.tick();
       deps.print(formatTickLine(deps.now(), tick));
     } catch (error) {
@@ -118,6 +126,12 @@ export async function runWatch(deps: WatchDeps, intervalSeconds: number): Promis
   }
   deps.print("Stopped.");
 }
+
+export const SIMULATION_OFF_HINT =
+  "No new data arrives until a connection is due (hourly), and the Example provider adds new events once a day. To stream data, add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local, then connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app.";
+
+export const NO_SIMULATED_CONNECTIONS_HINT =
+  "No simulated connections yet, so there is nothing to stream. Connect Vercel, GitHub, Resend, Stripe, or Supabase from Connections in the app (they show Simulated); the Example provider is not simulated and adds new events once a day.";
 
 /** setTimeout that resolves early, without throwing, when `signal` aborts. */
 export function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {

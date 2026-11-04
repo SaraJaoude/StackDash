@@ -68,7 +68,8 @@ export interface JobStore {
   /**
    * Makes every active connection the simulator made (`granted_scopes` holds SIMULATED_SCOPE) due
    * at `at`, so the next schedule queues it. Real connections are never touched, whatever their
-   * provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many moved.
+   * provider. Only `npm run jobs:tick -- --watch` calls it (#131). Returns how many active
+   * simulated connections are due after the call, so zero means there is nothing to stream.
    */
   markSimulatedSyncsDue(at: Date): Promise<number>;
   /** Queues one sync unless one is already open. False also when the connection is not in the workspace. */
@@ -135,13 +136,14 @@ export function createSupabaseJobStore(): JobStore {
 
     async markSimulatedSyncsDue(at) {
       const due = at.toISOString();
-      // Never-scheduled connections (next_sync_at null) are already due and stay untouched.
+      // Every active simulated connection, including ones already due or never scheduled: setting
+      // those to `at` changes nothing that matters, and the count then answers "is there anything
+      // to stream", which the watch loop reports when the answer is no.
       const { data, error } = await db
         .from("connections")
         .update({ next_sync_at: due })
         .contains("granted_scopes", [SIMULATED_SCOPE])
         .eq("status", "active")
-        .gt("next_sync_at", due)
         .select("id");
       if (error) throw failure("mark simulated syncs due", error);
       return data.length;
