@@ -1,9 +1,6 @@
 /** Single source of truth for site-wide constants. Update links here, nowhere else. */
 export const site = {
   name: "DevMacro",
-  // The wordmark renders `nameLead` plain and `nameAccent` in the accent color.
-  nameLead: "Dev",
-  nameAccent: "Macro",
   tagline: "The big picture of your developer stack",
   description:
     "DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer services you build on. See what you have spent, how much allowance is left, and when it resets, and get alerted before a limit or budget becomes a problem.",
@@ -13,6 +10,9 @@ export const site = {
     url: "https://github.com/eddiejaoude",
   },
 } as const;
+
+/** Every platform the landing page names, shared by the hero preview and the live feed. */
+export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase";
 
 export interface NavLink {
   label: string;
@@ -40,3 +40,7 @@ export const navLinks: readonly NavLink[] = sectionLinks.filter((link) => HEADER
 if (navLinks.length !== HEADER_LABELS.size) {
   throw new Error("HEADER_LABELS names a label missing from sectionLinks: update both together");
 }
+
+// Pages outside the landing page. Kept apart from sectionLinks, which are all in-page anchors.
+export const docsLink: NavLink = { label: "Docs", href: "/docs" };
+export const signInLink: NavLink = { label: "Sign in", href: "/sign-in" };

@@ -1,7 +1,7 @@
 import { expect, test, type Locator } from "@playwright/test";
 
 // textContent, not innerText: toHaveText compares textContent, and innerText applies CSS such as
-// uppercase badges and line breaks.
+// line breaks.
 async function newestEvent(rows: Locator): Promise<string> {
   const text = await rows.first().textContent();
   if (!text) throw new Error("The newest live event has no text");
@@ -26,6 +26,37 @@ test.describe("landing page", () => {
     for (const cta of await ctas.all()) {
       await expect(cta).toHaveAttribute("href", "https://github.com/eddiejaoude/DevMacro");
     }
+  });
+
+  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
+    await page.goto("/");
+
+    for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
+      await expect(region.getByRole("img", { name: "DevMacro", exact: true })).toBeVisible();
+      await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
+      await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
+    }
+
+    await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).click();
+    await expect(page).toHaveURL("/sign-in");
+    await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
+  });
+
+  test("the brand and sign in share one header row on a phone", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/");
+
+    const brand = page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true });
+    const signIn = page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true });
+    await expect(brand).toBeVisible();
+    await expect(signIn).toBeVisible();
+
+    // When the actions wrap below the brand, the two boxes stop overlapping vertically.
+    const brandBox = await brand.boundingBox();
+    const signInBox = await signIn.boundingBox();
+    if (!brandBox || !signInBox) throw new Error("The header brand or Sign in link has no layout box");
+    expect(signInBox.y).toBeLessThan(brandBox.y + brandBox.height);
+    expect(brandBox.y).toBeLessThan(signInBox.y + signInBox.height);
   });
 
   test("every in-page navigation link lands on a section that exists", async ({ page }) => {

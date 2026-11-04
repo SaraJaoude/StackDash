@@ -1,19 +1,31 @@
+import Link from "next/link";
+
 import { GitHubButton } from "@/components/github-button";
 import { StatusBadge } from "@/components/status-badge";
 import { Wordmark } from "@/components/wordmark";
-import { navLinks } from "@/lib/site";
+import { docsLink, navLinks, signInLink } from "@/lib/site";
+
+interface SiteNavProps {
+  /** "/" off the landing page, so the section anchors lead back to it. */
+  anchorBase?: "" | "/";
+}
 
 /**
  * Sticky top nav. A server component: on small screens the section links hide and the page
- * itself is the menu, so the landing page ships no client JavaScript for navigation.
+ * itself is the menu, so the landing page ships no client JavaScript for navigation. Sign in
+ * stays visible at every width. Below sm the wordmark shrinks so a 390 px phone keeps it, Sign in,
+ * and GitHub on one row; narrower phones wrap the actions below the wordmark rather than overflow.
  */
-export function SiteNav() {
+export function SiteNav({ anchorBase = "" }: SiteNavProps) {
   return (
     <header className="sticky top-0 z-50 border-b border-line bg-background/80 backdrop-blur-md">
-      <nav aria-label="Main" className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between gap-4 px-6">
+      <nav
+        aria-label="Main"
+        className="mx-auto flex min-h-16 w-full max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-6 py-3"
+      >
         <div className="flex items-center gap-2">
-          <a href="#top" className="font-mono text-sm font-semibold tracking-tight">
-            <Wordmark />
+          <a href={`${anchorBase}#top`} className="inline-flex min-h-6 shrink-0 items-center">
+            <Wordmark size="site" />
           </a>
           <span className="hidden sm:inline">
             <StatusBadge />
@@ -23,14 +35,34 @@ export function SiteNav() {
         <ul className="hidden items-center gap-8 lg:flex">
           {navLinks.map((link) => (
             <li key={link.href}>
-              <a href={link.href} className="text-sm text-muted transition-colors hover:text-foreground">
+              <a href={`${anchorBase}${link.href}`} className="text-sm text-muted transition-colors hover:text-foreground">
                 {link.label}
               </a>
             </li>
           ))}
         </ul>
 
-        <GitHubButton size="sm" />
+        <div className="flex items-center gap-4">
+          <ul className="flex items-center gap-4">
+            <li className="hidden sm:block">
+              <Link
+                href={docsLink.href}
+                className="inline-flex min-h-6 items-center text-sm text-muted transition-colors hover:text-foreground"
+              >
+                {docsLink.label}
+              </Link>
+            </li>
+            <li>
+              <Link
+                href={signInLink.href}
+                className="inline-flex min-h-6 items-center text-sm font-medium text-foreground transition-colors hover:text-accent"
+              >
+                {signInLink.label}
+              </Link>
+            </li>
+          </ul>
+          <GitHubButton size="sm" />
+        </div>
       </nav>
     </header>
   );

@@ -13,6 +13,8 @@
 # testing
 /coverage
 /e2e/.results/
+# Signed-in session cookies minted by e2e/global-setup.ts
+/e2e/.auth/
 /playwright-report/
 /pr-evidence/
 
@@ -43,3 +45,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase cli local state
+/supabase/.branches
+/supabase/.temp

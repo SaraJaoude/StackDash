@@ -1,0 +1,10 @@
+{
+  "object": "usage",
+  "emails": {
+    "daily": { "used": 10, "limit": 100, "sent": 8, "received": 2, "resets_at": "2026-07-29T00:00:00.000Z" },
+    "monthly": { "used": 100, "limit": 3000, "sent": 80, "received": 20, "resets_at": "2026-08-01T00:00:00.000Z" }
+  },
+  "contacts": { "used": 10, "limit": 3000 },
+  "domains": { "used": 3, "limit": 3 },
+  "rate_limit": { "limit": 1000, "duration": "1000ms" }
+}

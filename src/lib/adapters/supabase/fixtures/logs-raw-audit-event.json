@@ -1,0 +1,13 @@
+{
+  "result": [
+    {
+      "timestamp": "2026-10-31T11:30:00Z",
+      "user_id": "5f0c1a2b-0000-4000-8000-00000000abcd",
+      "action": "user_signedup",
+      "ip_address": "203.0.113.7",
+      "user_agent": "Mozilla/5.0 (synthetic)",
+      "actor_username": "synthetic.person@example.com",
+      "metadata": { "provider": "email" }
+    }
+  ]
+}

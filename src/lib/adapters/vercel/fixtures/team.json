@@ -1,0 +1,11 @@
+{
+  "id": "team_LLHUOMOoDlqOp8wPE4kFo9pE",
+  "slug": "my-team",
+  "name": "My Team",
+  "billing": {
+    "plan": "pro"
+  },
+  "membership": {
+    "role": "BILLING"
+  }
+}

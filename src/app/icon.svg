@@ -1,6 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="7" fill="#0a0a0a"/>
-  <rect x="7" y="17" width="4" height="8" rx="1" fill="#ededed"/>
-  <rect x="14" y="12" width="4" height="13" rx="1" fill="#ededed"/>
-  <rect x="21" y="7" width="4" height="18" rx="1" fill="#ff5d3b"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" role="img" aria-label="DevMacro Stream Convergence favicon">
+<title>DevMacro Stream Convergence favicon</title>
+<rect width="96" height="96" rx="22" fill="#0a0a0a"/>
+<rect x="2" y="2" width="92" height="92" rx="20" fill="none" stroke="#ededed" stroke-opacity="0.17" stroke-width="2"/>
+<g fill="none" stroke-linejoin="round">
+  <!-- All lines are covered at their endpoints by the ring strokes. -->
+  <g stroke="#ededed" stroke-width="5.4" stroke-linecap="butt">
+      <path d="M19.21601 22.87857 L43.20996 40.72023" />
+      <path d="M20.50000 48.00000 L40.80000 48.00000" />
+      <path d="M19.21601 73.12143 L43.20996 55.27977" />
+  </g>
+  <path d="M65.2 48 H78" stroke="#ff5d3b" stroke-width="6" stroke-linecap="butt" />
+  <g stroke="#ededed" stroke-width="4.5">
+    <circle cx="14" cy="19" r="6.5" />
+    <circle cx="14" cy="48" r="6.5" />
+    <circle cx="14" cy="77" r="6.5" />
+  </g>
+  <circle cx="53" cy="48" r="12.2" stroke="#ff5d3b" stroke-width="5.5" />
+  <circle cx="84" cy="48" r="6" stroke="#ff5d3b" stroke-width="3.6" />
+</g>
 </svg>

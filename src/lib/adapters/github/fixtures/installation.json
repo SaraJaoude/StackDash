@@ -1,0 +1,15 @@
+{
+  "id": 12345678,
+  "account": {
+    "login": "example-org",
+    "id": 9000001,
+    "type": "Organization"
+  },
+  "repository_selection": "selected",
+  "target_type": "Organization",
+  "permissions": {
+    "metadata": "read",
+    "organization_administration": "read"
+  },
+  "suspended_at": null
+}

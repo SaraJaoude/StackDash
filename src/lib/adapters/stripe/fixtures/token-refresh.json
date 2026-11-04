@@ -1,0 +1,9 @@
+{
+  "access_token": "stripe_access_token_fixture_2",
+  "livemode": false,
+  "refresh_token": "stripe_refresh_token_fixture_2",
+  "scope": "stripe_apps",
+  "stripe_publishable_key": "pk_test_fixture",
+  "stripe_user_id": "acct_fixture123",
+  "token_type": "bearer"
+}

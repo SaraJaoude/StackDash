@@ -1,0 +1,16 @@
+{
+  "entitlements": [
+    {
+      "feature": { "key": "security.audit_logs_days", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 0, "unlimited": false, "unit": "days" }
+    },
+    {
+      "feature": { "key": "log.retention_days", "type": "numeric" },
+      "hasAccess": true,
+      "type": "numeric",
+      "config": { "enabled": true, "value": 1, "unlimited": false, "unit": "days" }
+    }
+  ]
+}

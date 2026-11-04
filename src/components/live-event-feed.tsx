@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { PlatformLogo, type Platform } from "@/components/platform-logo";
+import { PlatformLogo } from "@/components/icons";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
+import type { Platform } from "@/lib/site";
 
 interface FeedEvent {
   platform: Platform;
@@ -159,7 +160,7 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-foreground">
+                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-white">
                     <PlatformLogo platform={event.platform} className="size-3.5" />
                   </span>
                   <div className="min-w-0 flex-1">

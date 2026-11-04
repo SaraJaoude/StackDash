@@ -1,0 +1,540 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  AuthRevokedError,
+  InvalidResponseError,
+  PermissionMissingError,
+  RateLimitedError,
+} from "@/lib/adapters/errors";
+import { validateAdapterEvents } from "@/lib/adapters/events";
+import { validateAdapterMetrics } from "@/lib/adapters/metrics";
+import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
+import { stripeAdapter } from "./index";
+// Fixtures are from documentation, not recorded: shaped after the sample responses and object
+// fields on docs/providers/stripe.md, trimmed, with synthetic ids, amounts, and personal data.
+import balanceTransactionsFixture from "./fixtures/balance-transactions.json";
+// From documentation, not recorded: event list with charge, customer, and subscription snapshots
+// full of synthetic personal data, to prove none of it survives the parse boundary.
+import eventsFixture from "./fixtures/events.json";
+// From documentation, not recorded: the documented token response for a refresh (test mode install).
+import refreshFixture from "./fixtures/token-refresh.json";
+// From documentation, not recorded: the documented token response for a code exchange (live mode).
+import tokenFixture from "./fixtures/token.json";
+
+const now = new Date("2026-11-10T12:00:00Z");
+const nowSeconds = 1794312000;
+const retentionStartSeconds = nowSeconds - 30 * 24 * 60 * 60;
+const monthStart = new Date("2026-11-01T00:00:00Z");
+const thirtyDaysAgo = new Date("2026-10-11T12:00:00Z");
+const accountId = "acct_fixture123";
+const liveKey = "sk_live_fixture_owner";
+const testKey = "sk_test_fixture_owner";
+
+type Call = { url: URL; init: RequestInit | undefined };
+type Route = (url: URL, init: RequestInit | undefined) => Response;
+
+function fakeFetch(routes: Record<string, Route>): { fetch: FetchLike; calls: Call[] } {
+  const calls: Call[] = [];
+  const fetch: FetchLike = async (input, init) => {
+    const url = new URL(String(input));
+    calls.push({ url, init });
+    const route = routes[url.pathname];
+    if (route === undefined) throw new Error(`unexpected request to ${url.pathname}`);
+    return route(url, init);
+  };
+  return { fetch, calls };
+}
+
+const ok = (body: unknown): Route => () => Response.json(body);
+const emptyList = ok({ object: "list", data: [], has_more: false });
+
+function context(fetch: FetchLike, extra: Record<string, Secret> = {}) {
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const ctx: OAuthContext = {
+    fetch,
+    now: () => now,
+    timeoutMs: 1000,
+    logger,
+    client: { clientId: "ca_fixture_client", clientSecret: new Secret(liveKey), extra },
+  };
+  return { ctx, logger };
+}
+
+function credential(livemode = true, metadata?: Record<string, string>): OAuthCredential {
+  return {
+    accessToken: new Secret("stripe_access_token_fixture_1"),
+    refreshToken: new Secret("stripe_refresh_token_fixture_1"),
+    expiresAt: new Date(now.getTime() + 60 * 60 * 1000),
+    scopes: ["stripe_apps"],
+    tokenType: "bearer",
+    metadata: metadata ?? { stripeUserId: accountId, livemode: String(livemode) },
+  };
+}
+
+function header(call: Call | undefined, name: string): string | null {
+  return new Headers(call?.init?.headers).get(name);
+}
+
+function formBody(call: Call | undefined): URLSearchParams {
+  return new URLSearchParams(String(call?.init?.body));
+}
+
+const basic = (key: string) => `Basic ${btoa(`${key}:`)}`;
+
+const syncRoutes = {
+  "/v1/balance_transactions": ok(balanceTransactionsFixture),
+  "/v1/events": ok(eventsFixture),
+};
+
+function amounts(metrics: readonly { metricKey: string; amountMinor?: number }[]) {
+  return Object.fromEntries(metrics.map((metric) => [metric.metricKey, metric.amountMinor]));
+}
+
+describe("stripeAdapter.buildAuthorizeUrl", () => {
+  it("builds the install link with client id, redirect, and state, and no PKCE or scopes", () => {
+    const url = stripeAdapter.buildAuthorizeUrl({
+      client: { clientId: "ca_fixture_client", clientSecret: new Secret(liveKey), extra: {} },
+      state: "state-123",
+      redirectUri: "https://devmacro.example.com/api/connections/stripe/callback",
+      codeChallenge: "ignored",
+    });
+    expect(`${url.origin}${url.pathname}`).toBe("https://marketplace.stripe.com/oauth/v2/authorize");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      client_id: "ca_fixture_client",
+      redirect_uri: "https://devmacro.example.com/api/connections/stripe/callback",
+      state: "state-123",
+    });
+    expect(stripeAdapter.oauth.pkce).toBe(false);
+  });
+});
+
+describe("stripeAdapter.exchangeCode", () => {
+  it("posts the code with the owner's secret key as Basic auth and returns a 1 hour credential with metadata", async () => {
+    const { fetch, calls } = fakeFetch({ "/v1/oauth/token": ok(tokenFixture) });
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.exchangeCode(
+      { code: "ac_fixture", redirectUri: "https://devmacro.example.com/cb", callbackParams: { code: "ac_fixture", state: "s" } },
+      ctx,
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init?.method).toBe("POST");
+    expect(header(calls[0], "authorization")).toBe(basic(liveKey));
+    expect(Object.fromEntries(formBody(calls[0]))).toEqual({ grant_type: "authorization_code", code: "ac_fixture" });
+    expect(result.accessToken.reveal()).toBe("stripe_access_token_fixture_1");
+    expect(result.refreshToken?.reveal()).toBe("stripe_refresh_token_fixture_1");
+    expect(result.expiresAt).toEqual(new Date(now.getTime() + 60 * 60 * 1000));
+    expect(result.scopes).toEqual(["stripe_apps"]);
+    expect(result.tokenType).toBe("bearer");
+    expect(result.metadata).toEqual({ stripeUserId: accountId, livemode: "true" });
+    expect(JSON.stringify(result)).not.toContain("pk_live_fixture");
+  });
+
+  it("retries with the test mode key when the live key is rejected (400) and a test key is configured", async () => {
+    const { fetch, calls } = fakeFetch({
+      "/v1/oauth/token": (_url, init) =>
+        new Headers(init?.headers).get("authorization") === basic(liveKey)
+          ? Response.json({ error: "invalid_grant" }, { status: 400 })
+          : Response.json(refreshFixture),
+    });
+    const { ctx } = context(fetch, { testSecretKey: new Secret(testKey) });
+
+    const result = await stripeAdapter.exchangeCode(
+      { code: "ac_fixture", redirectUri: "https://devmacro.example.com/cb", callbackParams: {} },
+      ctx,
+    );
+
+    expect(calls.map((call) => header(call, "authorization"))).toEqual([basic(liveKey), basic(testKey)]);
+    expect(result.metadata).toEqual({ stripeUserId: accountId, livemode: "false" });
+  });
+
+  it("does not retry a rejected code (400) when no test key is configured", async () => {
+    const { fetch, calls } = fakeFetch({
+      "/v1/oauth/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }),
+    });
+    const { ctx } = context(fetch);
+
+    await expect(
+      stripeAdapter.exchangeCode({ code: "ac_used", redirectUri: "https://x.example/cb", callbackParams: {} }, ctx),
+    ).rejects.toBeInstanceOf(InvalidResponseError);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("stripeAdapter.refreshTokens", () => {
+  it("rotates the refresh token using the test mode key for a test mode install", async () => {
+    const { fetch, calls } = fakeFetch({ "/v1/oauth/token": ok(refreshFixture) });
+    const { ctx } = context(fetch, { testSecretKey: new Secret(testKey) });
+
+    const result = await stripeAdapter.refreshTokens?.(credential(false), ctx);
+
+    expect(header(calls[0], "authorization")).toBe(basic(testKey));
+    expect(Object.fromEntries(formBody(calls[0]))).toEqual({
+      grant_type: "refresh_token",
+      refresh_token: "stripe_refresh_token_fixture_1",
+    });
+    expect(result?.refreshToken?.reveal()).toBe("stripe_refresh_token_fixture_2");
+    expect(result?.expiresAt).toEqual(new Date(now.getTime() + 60 * 60 * 1000));
+    expect(result?.metadata).toEqual({ stripeUserId: accountId, livemode: "false" });
+  });
+
+  it("maps a rejected refresh token (400 invalid_grant) to auth revoked", async () => {
+    const { fetch } = fakeFetch({
+      "/v1/oauth/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }),
+    });
+    const { ctx } = context(fetch);
+
+    await expect(stripeAdapter.refreshTokens?.(credential(true), ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+
+  it("rejects a refresh answered for a different account as invalid_response", async () => {
+    const { fetch } = fakeFetch({ "/v1/oauth/token": ok({ ...refreshFixture, stripe_user_id: "acct_other" }) });
+    const { ctx } = context(fetch);
+
+    await expect(stripeAdapter.refreshTokens?.(credential(false), ctx)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+});
+
+describe("stripeAdapter.listAccounts", () => {
+  it("returns the connected account from the grant metadata without an API call", async () => {
+    const { fetch, calls } = fakeFetch({});
+    const { ctx } = context(fetch);
+
+    await expect(stripeAdapter.listAccounts(credential(false), ctx)).resolves.toEqual([
+      { externalId: accountId, displayName: `Stripe account ${accountId} (test mode)`, kind: "account" },
+    ]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("asks for a reconnect when the credential has no account metadata", async () => {
+    const { fetch } = fakeFetch({});
+    const { ctx } = context(fetch);
+
+    await expect(stripeAdapter.listAccounts(credential(true, {}), ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+});
+
+describe("stripeAdapter.detectMissingPermissions", () => {
+  it.each([
+    { name: "app grant covers every manifest permission", scopes: ["stripe_apps"], missing: [] },
+    {
+      name: "empty grant misses everything",
+      scopes: [],
+      missing: [
+        "event_read",
+        "charge_read",
+        "customer_read",
+        "subscription_read",
+        "invoice_read",
+        "balance_read",
+        "payout_read",
+      ],
+    },
+    {
+      name: "partial permission list",
+      scopes: ["event_read", "charge_read", "customer_read", "subscription_read", "invoice_read"],
+      missing: ["balance_read", "payout_read"],
+    },
+  ])("$name", ({ scopes, missing }) => {
+    expect(stripeAdapter.detectMissingPermissions({ scopes })).toEqual(missing);
+  });
+});
+
+describe("stripeAdapter.sync", () => {
+  it("returns valid fee and revenue metrics per currency and timeline events on the happy path", async () => {
+    const { fetch, calls } = fakeFetch(syncRoutes);
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    const metrics = validateAdapterMetrics("stripe", result.metrics);
+    const events = validateAdapterEvents(stripeAdapter.eventTypes, result.events);
+    expect(metrics.ok).toBe(true);
+    expect(events.ok).toBe(true);
+
+    // application_fee and the transfer are excluded; the separate stripe_fee transaction and fee tax count.
+    expect(amounts(result.metrics)).toEqual({
+      "stripe.fees.month.eur": 122,
+      "stripe.fees.month.jpy": 54,
+      "stripe.fees.month.usd": 298,
+      "stripe.revenue.month.eur": 3000,
+      "stripe.revenue.month.jpy": 1500,
+      "stripe.revenue.month.usd": 1000,
+      "stripe.fees.last_30_days.eur": 122,
+      "stripe.fees.last_30_days.jpy": 54,
+      "stripe.fees.last_30_days.usd": 473,
+      "stripe.revenue.last_30_days.eur": 3000,
+      "stripe.revenue.last_30_days.jpy": 1500,
+      "stripe.revenue.last_30_days.usd": 6000,
+    });
+    const usdMonthFees = result.metrics.find((metric) => metric.metricKey === "stripe.fees.month.usd");
+    expect(usdMonthFees).toMatchObject({
+      kind: "verified_spend",
+      currency: "USD",
+      externalAccountId: accountId,
+      retrievedAt: now,
+      timeframe: { type: "period", start: monthStart, end: now },
+      provenance: { source: "provider_api", endpoint: "https://api.stripe.com/v1/balance_transactions" },
+    });
+    expect(result.metrics.find((metric) => metric.metricKey === "stripe.revenue.last_30_days.usd")).toMatchObject({
+      kind: "revenue",
+      timeframe: { type: "period", start: thirtyDaysAgo, end: now },
+    });
+
+    expect(result.events.map((event) => [event.typeId, event.title, event.dedupeKey])).toEqual([
+      ["stripe.charge.refunded", "Payment partially refunded", "evt_fixture_charge_refunded"],
+      ["stripe.charge.failed", "Payment failed", "evt_fixture_charge_failed"],
+      ["stripe.charge.succeeded", "Payment succeeded", "evt_fixture_charge_succeeded"],
+      ["stripe.customer.created", "New customer", "evt_fixture_customer_created"],
+      ["stripe.customer.subscription.created", "Subscription created", "evt_fixture_subscription_created"],
+      ["stripe.customer.subscription.deleted", "Subscription ended", "evt_fixture_subscription_deleted"],
+    ]);
+    expect(result.events[1]?.body).toBe("Failure code: card_declined");
+    expect(result.events[0]?.occurredAt).toEqual(new Date(1794308400 * 1000));
+    expect(result.cursor).toBe("1794308400");
+    expect(result.partialErrors).toBeUndefined();
+
+    const balanceCall = calls.find((call) => call.url.pathname === "/v1/balance_transactions");
+    expect(balanceCall?.url.searchParams.get("created[gte]")).toBe(String(thirtyDaysAgo.getTime() / 1000));
+    expect(balanceCall?.url.searchParams.get("limit")).toBe("100");
+    expect(header(balanceCall, "authorization")).toBe("Bearer stripe_access_token_fixture_1");
+    expect(header(balanceCall, "stripe-version")).toBe("2026-10-28.endive");
+    expect(header(balanceCall, "stripe-account")).toBeNull();
+    const eventsCall = calls.find((call) => call.url.pathname === "/v1/events");
+    expect(eventsCall?.url.searchParams.get("created[gte]")).toBe(String(retentionStartSeconds));
+    expect(eventsCall?.url.searchParams.getAll("types[]")).toEqual([
+      "charge.succeeded",
+      "charge.failed",
+      "charge.refunded",
+      "customer.created",
+      "customer.subscription.created",
+      "customer.subscription.deleted",
+    ]);
+  });
+
+  it("keeps currencies separate: one metric per currency, key suffix matching the currency", async () => {
+    const { fetch } = fakeFetch(syncRoutes);
+    const { ctx } = context(fetch);
+
+    const { metrics } = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    for (const metric of metrics) {
+      expect(metric.metricKey.endsWith(`.${"currency" in metric ? metric.currency.toLowerCase() : "?"}`)).toBe(true);
+    }
+    expect(new Set(metrics.map((metric) => metric.metricKey)).size).toBe(metrics.length);
+    expect(metrics.filter((metric) => "currency" in metric && metric.currency === "JPY")).toHaveLength(4);
+  });
+
+  it("sums integer minor amounts exactly with no rounding, including zero-decimal JPY", async () => {
+    const big = Number.MAX_SAFE_INTEGER - 1;
+    const { fetch } = fakeFetch({
+      "/v1/balance_transactions": ok({
+        object: "list",
+        has_more: false,
+        data: [
+          { id: "txn_a", amount: big - 1, created: nowSeconds - 60, currency: "jpy", fee_details: [], type: "charge" },
+          { id: "txn_b", amount: 1, created: nowSeconds - 120, currency: "jpy", fee_details: [], type: "charge" },
+        ],
+      }),
+      "/v1/events": emptyList,
+    });
+    const { ctx } = context(fetch);
+
+    const { metrics } = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    expect(amounts(metrics)["stripe.revenue.month.jpy"]).toBe(big);
+    expect(amounts(metrics)["stripe.fees.month.jpy"]).toBe(0);
+  });
+
+  it("emits no customer names, emails, addresses, phone numbers, card details, or free text (privacy)", async () => {
+    const { fetch } = fakeFetch(syncRoutes);
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+    const emitted = JSON.stringify([result.metrics, result.events]);
+
+    for (const personal of [
+      "jane.doe@example.com",
+      "Jane Doe",
+      "1 Main Street",
+      "Springfield",
+      "+15555550123",
+      "4242",
+      "visa",
+      "VIP",
+      "was declined",
+      "cus_fixture",
+    ]) {
+      expect(emitted).not.toContain(personal);
+    }
+    for (const field of ["email", "name", "phone", "address", "billing_details", "payment_method_details", "metadata", "description"]) {
+      expect(emitted).not.toContain(`"${field}"`);
+    }
+  });
+
+  it("produces identical metric keys and event dedupe keys across two syncs with overlap, using the cursor", async () => {
+    const { fetch, calls } = fakeFetch(syncRoutes);
+    const { ctx } = context(fetch);
+
+    const first = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+    const second = await stripeAdapter.sync(
+      { credential: credential(), externalAccountId: accountId, ...(first.cursor === undefined ? {} : { cursor: first.cursor }) },
+      ctx,
+    );
+
+    expect(second.metrics.map((metric) => metric.metricKey)).toEqual(first.metrics.map((metric) => metric.metricKey));
+    expect(second.events.map((event) => event.dedupeKey)).toEqual(first.events.map((event) => event.dedupeKey));
+    expect(second.cursor).toBe(first.cursor);
+    const eventCalls = calls.filter((call) => call.url.pathname === "/v1/events");
+    expect(eventCalls[1]?.url.searchParams.get("created[gte]")).toBe("1794308400");
+  });
+
+  it("clamps a cursor older than the 30 day event retention and logs the gap", async () => {
+    const { fetch, calls } = fakeFetch({ "/v1/balance_transactions": emptyList, "/v1/events": emptyList });
+    const { ctx, logger } = context(fetch);
+
+    await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId, cursor: "1000" }, ctx);
+
+    const eventsCall = calls.find((call) => call.url.pathname === "/v1/events");
+    expect(eventsCall?.url.searchParams.get("created[gte]")).toBe(String(retentionStartSeconds));
+    expect(logger.warn).toHaveBeenCalledWith("stripe.events.gap", expect.any(Object));
+  });
+
+  it("returns no metrics and no events for empty lists, with the cursor at the retention start", async () => {
+    const { fetch } = fakeFetch({ "/v1/balance_transactions": emptyList, "/v1/events": emptyList });
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    expect(result).toEqual({ metrics: [], events: [], cursor: String(retentionStartSeconds) });
+  });
+
+  it("stops at the pagination cap of 10 pages and reports no partial money totals", async () => {
+    let counter = 0;
+    const page: Route = (url) => {
+      counter += 1;
+      const isEvents = url.pathname === "/v1/events";
+      const item = isEvents
+        ? { id: `evt_page_${counter}`, type: "customer.created", created: nowSeconds - counter, data: { object: { id: `cus_${counter}` } } }
+        : { id: `txn_page_${counter}`, amount: 100, created: nowSeconds - counter, currency: "usd", fee_details: [], type: "charge" };
+      return Response.json({ object: "list", data: [item], has_more: true });
+    };
+    const { fetch, calls } = fakeFetch({ "/v1/balance_transactions": page, "/v1/events": page });
+    const { ctx, logger } = context(fetch);
+
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    const balanceCalls = calls.filter((call) => call.url.pathname === "/v1/balance_transactions");
+    const eventCalls = calls.filter((call) => call.url.pathname === "/v1/events");
+    expect(balanceCalls).toHaveLength(10);
+    expect(eventCalls).toHaveLength(10);
+    expect(balanceCalls[0]?.url.searchParams.has("starting_after")).toBe(false);
+    expect(balanceCalls[1]?.url.searchParams.get("starting_after")).toMatch(/^txn_page_/);
+    expect(result.metrics).toEqual([]);
+    expect(result.events).toHaveLength(10);
+    expect(logger.warn).toHaveBeenCalledWith("stripe.balance_transactions.truncated", expect.any(Object));
+    expect(logger.warn).toHaveBeenCalledWith("stripe.events.truncated", expect.any(Object));
+  });
+
+  it("throws auth revoked on 401", async () => {
+    const unauthorized: Route = () => Response.json({ error: { type: "invalid_request_error" } }, { status: 401 });
+    const { fetch } = fakeFetch({ "/v1/balance_transactions": unauthorized, "/v1/events": unauthorized });
+    const { ctx } = context(fetch);
+
+    await expect(
+      stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx),
+    ).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+
+  it("throws rate limited with the Retry-After delay on 429", async () => {
+    const limited: Route = () =>
+      Response.json({}, { status: 429, headers: { "Retry-After": "30", "Stripe-Rate-Limited-Reason": "global-rate" } });
+    const { fetch } = fakeFetch({ "/v1/balance_transactions": limited, "/v1/events": limited });
+    const { ctx } = context(fetch);
+
+    const error = await stripeAdapter
+      .sync({ credential: credential(), externalAccountId: accountId }, ctx)
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(RateLimitedError);
+    expect(error).toMatchObject({ retryAfterMs: 30_000 });
+  });
+
+  it("returns events and a partial error naming balance_read when balance transactions are refused (403)", async () => {
+    const { fetch } = fakeFetch({
+      "/v1/balance_transactions": () => Response.json({}, { status: 403 }),
+      "/v1/events": ok(eventsFixture),
+    });
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx);
+
+    expect(result.metrics).toEqual([]);
+    expect(result.events).toHaveLength(6);
+    expect(result.partialErrors).toHaveLength(1);
+    expect(result.partialErrors?.[0]).toBeInstanceOf(PermissionMissingError);
+    expect(result.partialErrors?.[0]?.missingScopes).toEqual(["balance_read"]);
+  });
+
+  it("keeps the previous cursor when events are refused (403)", async () => {
+    const { fetch } = fakeFetch({
+      "/v1/balance_transactions": emptyList,
+      "/v1/events": () => Response.json({}, { status: 403 }),
+    });
+    const { ctx } = context(fetch);
+
+    const result = await stripeAdapter.sync(
+      { credential: credential(), externalAccountId: accountId, cursor: "1794300000" },
+      ctx,
+    );
+
+    expect(result.cursor).toBe("1794300000");
+    expect(result.partialErrors?.[0]?.missingScopes).toEqual(["event_read"]);
+  });
+
+  it.each([
+    {
+      name: "balance transaction amount as a string",
+      routes: {
+        "/v1/balance_transactions": ok({
+          has_more: false,
+          data: [{ id: "txn_x", amount: "2000", created: nowSeconds, currency: "usd", fee_details: [], type: "charge" }],
+        }),
+        "/v1/events": emptyList,
+      },
+    },
+    {
+      name: "subscription event object without status",
+      routes: {
+        "/v1/balance_transactions": emptyList,
+        "/v1/events": ok({
+          has_more: false,
+          data: [{ id: "evt_x", type: "customer.subscription.created", created: nowSeconds, data: { object: { id: "sub_x" } } }],
+        }),
+      },
+    },
+  ])("throws invalid_response on a schema mismatch: $name", async ({ routes }) => {
+    const { fetch } = fakeFetch(routes);
+    const { ctx } = context(fetch);
+
+    await expect(
+      stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx),
+    ).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+});
+
+describe("stripeAdapter declarations", () => {
+  it("polls hourly and declares the six timeline event types", () => {
+    expect(stripeAdapter.pollIntervalSeconds).toBe(3600);
+    expect(stripeAdapter.eventTypes.map((eventType) => eventType.id)).toEqual([
+      "stripe.charge.succeeded",
+      "stripe.charge.failed",
+      "stripe.charge.refunded",
+      "stripe.customer.created",
+      "stripe.customer.subscription.created",
+      "stripe.customer.subscription.deleted",
+    ]);
+  });
+});

@@ -1,0 +1,19 @@
+# Gitleaks config for the CI `secrets` job. Gitleaks loads this file from the repository root.
+# The built-in rules stay on for everything else.
+
+[extend]
+useDefault = true
+
+# These pushed commits added sample values that look like credentials: vendor documentation
+# samples in docs/providers and the Vercel adapter fixtures, and fake keys in the log redaction
+# tests. None is a real secret, and the current tree replaces all of them with placeholders or
+# values built at runtime. The commits stay in history because the open pull request depends on
+# the branch, so rewriting it is not an option. Allowlist these exact commits only; never add a
+# path or value allowlist here, fix the file instead.
+[[allowlists]]
+description = "Pushed commits that added sample values, replaced in the current tree"
+commits = [
+  "f9b033c5377b29123d9964f041440587ad494d85", # Vercel adapter fixtures token-hobby.json, token-team.json
+  "93b4b78cdf14e9d194900c5522f1bef867eeb864", # docs/providers github.md, resend.md, vercel.md samples
+  "63918110cdf1be578c5de32971f7b0b52197e2c9", # src/lib/log/redact.test.ts fake keys
+]
