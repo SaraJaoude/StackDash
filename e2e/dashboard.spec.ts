@@ -4,6 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only.
 
@@ -157,8 +158,9 @@ ownerTest.describe("dashboard as the owner", () => {
       await expect(usd).not.toContainText("€");
       await expect(usd.getByText("Verified", { exact: true })).toBeVisible();
       await expect(usd.getByText("Estimated", { exact: true })).toBeVisible();
-      await expect(usd).toContainText("Pricing source: Fake price list 2026");
       await expect(usd).toContainText("Updated");
+      // The totals print amounts only; the price list behind an estimate is named on the provider card.
+      await expect(page.getByRole("region", { name: "By provider" })).toContainText("Pricing source: Fake price list 2026");
 
       const eur = totals.getByRole("region", { name: "Spend in EUR" });
       await expect(eur).toContainText("€67.89");
@@ -296,7 +298,12 @@ ownerTest.describe("dashboard filters", () => {
       const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(usd).toContainText("$173.45");
 
-      const filters = page.getByRole("region", { name: "Filters" });
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      // The result sentence sits in the closed bar, so it is read before the form is opened.
+      await expect(filters.getByRole("status")).toHaveText("Showing 2 connections");
+      // The bar starts closed, so the data leads the page.
+      await expect(filters.getByRole("button", { name: "Apply filters" })).toBeHidden();
+      await openFilters(page);
       await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "Example provider" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]provider=fake(&|$)/);
@@ -306,6 +313,7 @@ ownerTest.describe("dashboard filters", () => {
       await expect(page.getByRole("region", { name: "By provider" })).not.toContainText("GitHub e2e organization");
 
       // Keyboard only: tick the project and submit with Enter.
+      await openFilters(page);
       const checkout = filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" });
       await checkout.focus();
       await page.keyboard.press("Space");
@@ -322,6 +330,7 @@ ownerTest.describe("dashboard filters", () => {
       // The filtered view is bookmarkable: reloading the URL shows the same result.
       await page.reload();
       await expect(status).toHaveText("Showing 1 connection for provider Example provider, project Checkout");
+      await openFilters(page);
       await expect(checkout).toBeChecked();
 
       const scan = await new AxeBuilder({ page }).analyze();

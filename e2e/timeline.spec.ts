@@ -5,6 +5,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openFilters } from "./fixtures/filters";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 
@@ -75,8 +76,9 @@ async function seedTimeline(label: string): Promise<TestWorkspace> {
   return workspace;
 }
 
+/** Every event on the page, across all of its day groups. */
 function eventItems(page: Page) {
-  return page.getByRole("list", { name: "Events" }).getByRole("listitem");
+  return page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
 }
 
 function eventHeading(page: Page, index: number) {
@@ -140,6 +142,7 @@ ownerTest.describe("timeline as the owner", () => {
     const workspace = await seedTimeline("Timeline severity");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
+      await openFilters(page);
       await page.getByRole("checkbox", { name: "Critical" }).check();
       await page.getByRole("button", { name: "Apply filters" }).click();
 
@@ -147,6 +150,10 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
       for (const index of [0, 10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
       await expect(eventHeading(page, 1)).toHaveCount(0);
+      const severityLinks = page.getByRole("navigation", { name: "Severity" });
+      await expect(severityLinks.getByRole("link", { name: "Critical" })).toHaveAttribute("aria-current", "page");
+      await expect(severityLinks.getByRole("link", { name: "All" })).not.toHaveAttribute("aria-current", "page");
+      await openFilters(page);
       await expect(page.getByRole("checkbox", { name: "Critical" })).toBeChecked();
     } finally {
       await deleteTestWorkspace(workspace);
@@ -157,6 +164,7 @@ ownerTest.describe("timeline as the owner", () => {
     const workspace = await seedTimeline("Timeline dates");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
+      await openFilters(page);
       await page.getByLabel("From date", { exact: true }).fill("2026-06-15");
       await page.getByLabel("To date", { exact: true }).fill("2026-06-15");
       await page.getByRole("button", { name: "Apply filters" }).click();
@@ -167,6 +175,10 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(eventHeading(page, 1)).toBeVisible();
       await expect(eventHeading(page, 24)).toBeVisible();
       await expect(eventHeading(page, 25)).toHaveCount(0);
+      // The list is grouped by the same London days, so all 24 events sit under one day heading.
+      await expect(
+        page.getByRole("region", { name: "Events", exact: true }).getByRole("heading", { level: 2 }),
+      ).toHaveText(["Monday, 2026-06-15"]);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -182,6 +194,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.getByRole("link", { name: "Clear filters" }).first().click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
       await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await openFilters(page);
       await expect(page.getByRole("checkbox", { name: "Success" })).not.toBeChecked();
     } finally {
       await deleteTestWorkspace(workspace);
@@ -292,8 +305,11 @@ ownerTest.describe("timeline scope filters", () => {
       await page.goto(`/w/${workspace.slug}/timeline`);
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
       await expect(status).toHaveText("Showing 50 events");
-      const filters = page.getByRole("region", { name: "Filters" });
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      // The bar starts closed, so the events lead the page.
+      await expect(filters.getByRole("button", { name: "Apply filters" })).toBeHidden();
 
+      await openFilters(page);
       await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "GitHub" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
@@ -302,10 +318,12 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toBeVisible();
       await expect(eventHeading(page, 0)).toHaveCount(0);
 
+      await openFilters(page);
       await filters.getByRole("link", { name: "Clear filters" }).click();
       await expect(status).toHaveText("Showing 50 events");
 
-      // Keyboard only: tick the Unassigned project and submit with Enter.
+      // Keyboard only: open the filters, tick the Unassigned project, and submit with Enter.
+      await openFilters(page, "keyboard");
       const unassigned = filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Unassigned" });
       await unassigned.focus();
       await page.keyboard.press("Space");
@@ -321,6 +339,7 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(status).toHaveText("Showing 10 older events for project Unassigned");
 
       await page.goto(`/w/${workspace.slug}/timeline`);
+      await openFilters(page);
       await filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]project=[0-9a-f-]{36}(&|$)/);
