@@ -105,7 +105,7 @@ export default function SignInPage({ searchParams }: PageProps<"/sign-in">) {
   return (
     <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-8">
-        <Link href="/" className="inline-flex min-h-6 items-center font-mono text-sm font-semibold">
+        <Link href="/" className="inline-flex min-h-6 items-center">
           <Wordmark />
         </Link>
         <h1 className="mt-6 text-2xl font-semibold tracking-tight">Sign in</h1>

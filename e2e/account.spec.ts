@@ -176,6 +176,40 @@ async function userExists(admin: Admin, userId: string): Promise<boolean> {
   return error === null && data.user !== null;
 }
 
+test.describe("the account header", () => {
+  test("fits a phone without horizontal overflow, and offers the workspace link from sm up", async ({ browser }) => {
+    const user = await createSyntheticUser("header");
+    const context = await signedInContext(browser, user);
+    try {
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto("/account");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
+      // The streamed account content has landed, so the width below is measured on the full page.
+      const details = page.getByRole("region", { name: "Sign-in details" });
+      await expect(details.getByText(user.email, { exact: true })).toBeVisible();
+
+      const header = page.getByRole("banner");
+      const brand = header.getByRole("link", { name: "DevMacro", exact: true });
+      const workspace = header.getByRole("link", { name: "Open your workspace", exact: true });
+      await expect(brand).toBeVisible();
+      await expect(brand).toHaveAttribute("href", "/app");
+      await expect(header.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+      // The brand already opens the workspace, so the duplicate link gives way on a phone.
+      await expect(workspace).toBeHidden();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)).toBe(true);
+
+      // At the sm breakpoint the link returns, still leading to the workspace.
+      await page.setViewportSize({ width: 640, height: 844 });
+      await expect(workspace).toBeVisible();
+      await expect(workspace).toHaveAttribute("href", "/app");
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
 test.describe("deleting an account", () => {
   test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({ browser }) => {
     const admin = adminClient();

@@ -28,10 +28,11 @@ test.describe("landing page", () => {
     }
   });
 
-  test("the header and footer lead to the docs and to sign in", async ({ page }) => {
+  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
+      await expect(region.getByRole("img", { name: "DevMacro", exact: true })).toBeVisible();
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
@@ -41,11 +42,21 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   });
 
-  test("sign in stays in the header on a phone", async ({ page }) => {
+  test("the brand and sign in share one header row on a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
 
-    await expect(page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true })).toBeVisible();
+    const brand = page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true });
+    const signIn = page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true });
+    await expect(brand).toBeVisible();
+    await expect(signIn).toBeVisible();
+
+    // When the actions wrap below the brand, the two boxes stop overlapping vertically.
+    const brandBox = await brand.boundingBox();
+    const signInBox = await signIn.boundingBox();
+    if (!brandBox || !signInBox) throw new Error("The header brand or Sign in link has no layout box");
+    expect(signInBox.y).toBeLessThan(brandBox.y + brandBox.height);
+    expect(brandBox.y).toBeLessThan(signInBox.y + signInBox.height);
   });
 
   test("every in-page navigation link lands on a section that exists", async ({ page }) => {

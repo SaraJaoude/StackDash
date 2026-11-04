@@ -54,7 +54,7 @@ function OpeningWorkspace() {
 function NoWorkspace() {
   return (
     <div className="rounded-xl border border-line bg-panel px-6 py-10 sm:px-10">
-      <p className="font-mono text-sm font-semibold tracking-tight">
+      <p className="flex">
         <Wordmark />
       </p>
       <h1 className="mt-4 text-2xl font-semibold tracking-tight">You are not a member of any workspace</h1>
