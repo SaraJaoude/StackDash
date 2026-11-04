@@ -30,15 +30,16 @@ describe("createRefreshScheduler", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it("refreshes at most twice for 50 changes spread over 2 s", () => {
+  it("refreshes once for 50 changes 40 ms apart: the burst ends before the max wait", () => {
     const { refresh, scheduler } = setup();
+    // The last change lands at 1960 ms, so the debounce fires at 2710 ms, before the 3000 ms max
+    // wait, and the flush cancels that max wait.
     for (let change = 0; change < 50; change += 1) {
       scheduler.notify();
       vi.advanceTimersByTime(40);
     }
     vi.runAllTimers();
-    expect(refresh.mock.calls.length).toBeGreaterThanOrEqual(1);
-    expect(refresh.mock.calls.length).toBeLessThanOrEqual(2);
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("fires at the max wait while changes keep arriving faster than the debounce", () => {
@@ -127,16 +128,5 @@ describe("createRefreshScheduler", () => {
     page.hidden = false;
     scheduler.visibilityChanged();
     expect(refresh).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    { name: "a zero debounce", debounceMs: 0, maxWaitMs: 1_000 },
-    { name: "a negative debounce", debounceMs: -1, maxWaitMs: 1_000 },
-    { name: "a max wait shorter than the debounce", debounceMs: 1_000, maxWaitMs: 999 },
-    { name: "a NaN max wait", debounceMs: 1_000, maxWaitMs: Number.NaN },
-  ])("rejects $name", ({ debounceMs, maxWaitMs }) => {
-    expect(() => createRefreshScheduler({ refresh: () => {}, isHidden: () => false, debounceMs, maxWaitMs })).toThrow(
-      RangeError,
-    );
   });
 });

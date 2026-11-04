@@ -1,15 +1,17 @@
 "use client";
 
-import type { RealtimeChannel } from "@supabase/supabase-js";
+import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { redactFields } from "@/lib/log/redact";
 import { createRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
 
-// The tables the workspace screens read, and exactly the tables the realtime publication holds
-// (supabase/migrations/20261104090000_realtime_publication.sql).
+// The sync-written tables the workspace screens read, and exactly the tables the realtime
+// publication holds (supabase/migrations/20261104090000_realtime_publication.sql). The user-edited
+// tables the screens also read refresh through the Server Function that edits them.
 const LIVE_TABLES = [
   "activity_events",
   "usage_snapshots",
@@ -32,8 +34,8 @@ let mountCount = 0;
  * every change against the subscriber's select policy, so a member only hears about their own
  * workspace; the filter keeps a member of several workspaces from hearing about the others.
  *
- * Renders nothing and reports nothing: if the subscription fails, the page behaves as it did
- * before live updates and shows new data on the next navigation or reload.
+ * Renders nothing. If the subscription fails, the failure is logged at error level and the page
+ * behaves as it did before live updates: it shows new data on the next navigation or reload.
  */
 export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   // `refresh` is the app router's own method, stable across renders, unlike the object around it.
@@ -60,7 +62,21 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
           channel.on("postgres_changes", { event, schema: "public", table, filter }, scheduler.notify);
         }
       }
-      channel.subscribe();
+      channel.subscribe((status, error) => {
+        if (status !== REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR && status !== REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
+          return;
+        }
+        // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
+        // is server only), so it reads the same in devtools and in the Playwright console. The
+        // fields hold no token; redaction masks one if a future error carries it.
+        console.error(
+          JSON.stringify({
+            ...redactFields({ workspaceId, status, error }),
+            level: "error",
+            event: "realtime.subscribe_failed",
+          }),
+        );
+      });
     }
 
     // The join message carries whatever access token the realtime client holds at subscribe time.

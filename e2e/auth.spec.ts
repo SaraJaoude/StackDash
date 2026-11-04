@@ -62,8 +62,12 @@ test.describe("signed out", () => {
     // sign-in chain above) and report the nonce policy, until #125 moves it to enforcement.
     const headers = response?.headers() ?? {};
     expectAppPolicy(headers["content-security-policy"]);
-    expect(headers["content-security-policy-report-only"] ?? "").toMatch(
-      /script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/,
+    const reportOnly = headers["content-security-policy-report-only"] ?? "";
+    expect(reportOnly).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
+    // The nonce policy lets app pages open the Realtime socket on the Supabase host (#129).
+    const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
+    expect(directives(reportOnly).get("connect-src")).toContain(
+      `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`,
     );
   });
 

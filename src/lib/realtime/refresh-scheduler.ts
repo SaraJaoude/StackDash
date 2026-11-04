@@ -17,8 +17,6 @@ export type RefreshSchedulerOptions = {
   refresh: () => void;
   /** Whether the page is hidden right now (`document.visibilityState === "hidden"`). */
   isHidden: () => boolean;
-  debounceMs?: number;
-  maxWaitMs?: number;
 };
 
 export type RefreshScheduler = {
@@ -30,15 +28,7 @@ export type RefreshScheduler = {
   dispose: () => void;
 };
 
-export function createRefreshScheduler({
-  refresh,
-  isHidden,
-  debounceMs = REFRESH_DEBOUNCE_MS,
-  maxWaitMs = REFRESH_MAX_WAIT_MS,
-}: RefreshSchedulerOptions): RefreshScheduler {
-  if (!(debounceMs > 0)) throw new RangeError("debounceMs must be greater than 0");
-  if (!(maxWaitMs >= debounceMs)) throw new RangeError("maxWaitMs must be at least debounceMs");
-
+export function createRefreshScheduler({ refresh, isHidden }: RefreshSchedulerOptions): RefreshScheduler {
   let debounceTimer: ReturnType<typeof setTimeout> | undefined;
   // Started by the first change of a burst and left running while later changes reset the debounce.
   let maxWaitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -71,8 +61,8 @@ export function createRefreshScheduler({
         return;
       }
       clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(flush, debounceMs);
-      maxWaitTimer ??= setTimeout(flush, maxWaitMs);
+      debounceTimer = setTimeout(flush, REFRESH_DEBOUNCE_MS);
+      maxWaitTimer ??= setTimeout(flush, REFRESH_MAX_WAIT_MS);
     },
     visibilityChanged() {
       if (disposed || !deferred || isHidden()) return;

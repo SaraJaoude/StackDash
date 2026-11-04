@@ -1,4 +1,6 @@
--- Live updates (issue #129): publish the tables the workspace screens read to Supabase Realtime.
+-- Live updates (issue #129): publish the sync-written tables the workspace screens read to Supabase
+-- Realtime. The user-edited tables they also read (external_accounts, projects, budgets,
+-- alert_rules) stay unpublished: the Server Function that edits one refreshes the page itself.
 --
 -- The workspace layout mounts one client channel per workspace (src/components/app/live-refresh.tsx)
 -- that listens for inserts and updates filtered by workspace_id and refreshes the page, so the

@@ -140,7 +140,7 @@ Each row keeps the adapter metric model: kind, value and unit or integer minor u
 
 ## Realtime (#129)
 
-The `supabase_realtime` publication holds exactly the tables the workspace screens read, so an open page updates when a sync writes to them:
+The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
 
 | Table | Why it is published |
 |---|---|

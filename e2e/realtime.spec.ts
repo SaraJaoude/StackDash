@@ -1,9 +1,18 @@
 import { randomUUID } from "node:crypto";
 
 import type { Page } from "@playwright/test";
+import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { authEnv, expect, ownerTest, STORAGE_STATE } from "./fixtures/auth";
+import {
+  createSyntheticUser,
+  expect,
+  ownerTest,
+  removeSyntheticUser,
+  STORAGE_STATE,
+  syntheticUserClient,
+  type SyntheticUser,
+} from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
@@ -110,22 +119,60 @@ async function insertEvent(seeded: SeededConnection, title: string): Promise<voi
   if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
 }
 
+// The columns of a delivered activity event that the isolation test compares.
+const DeliveredEventSchema = z.object({ workspace_id: z.string(), title: z.string() });
+
+type OutsideSubscription = Readonly<{
+  /** "joining" until Realtime streams the changes, then "subscribed", or the failure status. */
+  state: () => string;
+  /** Every inserted row delivered, in order, unparsed. */
+  delivered: () => readonly unknown[];
+  close: () => Promise<void>;
+}>;
+
+/**
+ * Subscribes to activity event inserts as a signed-in user from outside the app, with a filter per
+ * workspace id the test picks: what a hostile client can send. One channel carries every binding,
+ * so Realtime delivers its changes in WAL order.
+ */
+async function subscribeOutsideApp(user: SyntheticUser, workspaceIds: readonly string[]): Promise<OutsideSubscription> {
+  const supabase = syntheticUserClient(user);
+  // Join with the user's access token, not the publishable key alone (see live-refresh.tsx).
+  await supabase.realtime.setAuth();
+  let state = "joining";
+  const delivered: unknown[] = [];
+  const channel = supabase.channel(`e2e-outside:${randomUUID()}`);
+  for (const workspaceId of workspaceIds) {
+    channel.on(
+      "postgres_changes",
+      { event: "INSERT", schema: "public", table: "activity_events", filter: `workspace_id=eq.${workspaceId}` },
+      ({ new: row }) => delivered.push(row),
+    );
+  }
+  channel.on("system", {}, (payload: unknown) => {
+    if (SubscribedSchema.safeParse(payload).success) state = "subscribed";
+  });
+  channel.subscribe((status) => {
+    if (status === REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR || status === REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
+      state = status;
+    }
+  });
+  return {
+    state: () => state,
+    delivered: () => delivered,
+    close: async () => {
+      await supabase.removeAllChannels();
+    },
+  };
+}
+
 ownerTest.describe("live updates", () => {
   ownerTest("shows a new timeline event without a reload and leaves the channel with the workspace", async ({ page }) => {
     const workspace = await createTestWorkspace("Live timeline");
     try {
       const seeded = await seedConnection(workspace);
       const live = watchLiveChannel(page, workspace.id);
-      const response = await page.goto(`/w/${workspace.slug}/timeline`);
-
-      // The app policy lets the page open the Realtime socket on the Supabase host.
-      const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
-      const socketOrigin = `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`;
-      const policy = response?.headers()["content-security-policy-report-only"] ?? "";
-      expect(policy.split("; ").find((directive) => directive.startsWith("connect-src "))?.split(" ")).toContain(
-        socketOrigin,
-      );
-
+      await page.goto(`/w/${workspace.slug}/timeline`);
       await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
       await expectSubscribed(live);
 
@@ -180,41 +227,75 @@ ownerTest.describe("live updates", () => {
     }
   });
 
-  ownerTest("does not reach a member of a different workspace", async ({ page, browser }) => {
-    const [ownersOnly, viewers] = await Promise.all([
+  ownerTest("keeps a workspace's changes from non-members, by the page filter and by row level security", async ({
+    page,
+    browser,
+  }) => {
+    const [ownersOnly, viewers, outsider] = await Promise.all([
       createTestWorkspace("Live owner only"),
       createTestWorkspace("Live viewer"),
+      createSyntheticUser("live-outsider"),
     ]);
     const viewerContext = await browser.newContext({ storageState: STORAGE_STATE.viewer });
+    let outside: OutsideSubscription | undefined;
     try {
-      // The viewer belongs to `viewers` only, so the event's workspace is not theirs.
-      const { error: removeError } = await adminClient()
-        .from("workspace_members")
-        .delete()
-        .eq("workspace_id", ownersOnly.id)
-        .eq("user_id", ownersOnly.viewerId);
+      // The viewer and the outsider belong to `viewers` only, so `ownersOnly` is not theirs.
+      const admin = adminClient();
+      const [{ error: removeError }, { error: addError }] = await Promise.all([
+        admin.from("workspace_members").delete().eq("workspace_id", ownersOnly.id).eq("user_id", ownersOnly.viewerId),
+        admin.from("workspace_members").insert({ workspace_id: viewers.id, user_id: outsider.id, role: "viewer" }),
+      ]);
       if (removeError) throw new Error(`Removing the viewer failed (code ${removeError.code}).`);
-      const [ownersOnlyConnection] = await Promise.all([seedConnection(ownersOnly), seedConnection(viewers)]);
+      if (addError) throw new Error(`Adding the outsider failed (code ${addError.code}).`);
+      const [ownersOnlyConnection, viewersConnection] = await Promise.all([
+        seedConnection(ownersOnly),
+        seedConnection(viewers),
+      ]);
 
       const viewerPage = await viewerContext.newPage();
       const ownerLive = watchLiveChannel(page, ownersOnly.id);
       const viewerLive = watchLiveChannel(viewerPage, viewers.id);
+      // The viewer's page filters on its own workspace, so it never asks for `ownersOnly`. The
+      // outsider asks for `ownersOnly` by id, which the app never does: only row level security
+      // stands between that subscription and the row.
+      const subscription = await subscribeOutsideApp(outsider, [ownersOnly.id, viewers.id]);
+      outside = subscription;
       await Promise.all([page.goto(`/w/${ownersOnly.slug}/timeline`), viewerPage.goto(`/w/${viewers.slug}/timeline`)]);
       await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
       await expect(viewerPage.getByRole("heading", { name: "No activity yet" })).toBeVisible();
-      await Promise.all([expectSubscribed(ownerLive), expectSubscribed(viewerLive)]);
+      await Promise.all([
+        expectSubscribed(ownerLive),
+        expectSubscribed(viewerLive),
+        expect.poll(subscription.state, { timeout: LIVE_TIMEOUT_MS }).toBe("subscribed"),
+      ]);
 
-      const title = `Owner only event ${randomUUID().slice(0, 8)}`;
-      await insertEvent(ownersOnlyConnection, title);
-      await expect(page.getByRole("heading", { name: title, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      const ownerOnlyTitle = `Owner only event ${randomUUID().slice(0, 8)}`;
+      await insertEvent(ownersOnlyConnection, ownerOnlyTitle);
+      // A member receives it, so Realtime has already decided who gets the row.
+      await expect(page.getByRole("heading", { name: ownerOnlyTitle, exact: true })).toBeVisible({
+        timeout: LIVE_TIMEOUT_MS,
+      });
 
-      await expect(viewerPage.getByRole("heading", { name: title })).toHaveCount(0);
-      await expect(viewerPage.getByRole("heading", { name: "No activity yet" })).toBeVisible();
-      // Nothing about the other workspace's row reached the viewer's tab at all.
-      expect(viewerLive.changesReceived()).toBe(0);
+      // Realtime delivers a channel's changes in WAL order, so once a row written after the owner
+      // only row arrives on a channel, the owner only row is not still on its way to that channel.
+      const sentinelTitle = `Viewer sentinel ${randomUUID().slice(0, 8)}`;
+      await insertEvent(viewersConnection, sentinelTitle);
+      await expect(viewerPage.getByRole("heading", { name: sentinelTitle, exact: true })).toBeVisible({
+        timeout: LIVE_TIMEOUT_MS,
+      });
+      await expect.poll(() => subscription.delivered().length, { timeout: LIVE_TIMEOUT_MS }).toBeGreaterThan(0);
+
+      // The page filter: the viewer's tab heard about the sentinel and nothing else.
+      expect(viewerLive.changesReceived()).toBe(1);
+      await expect(viewerPage.getByRole("heading", { name: ownerOnlyTitle })).toHaveCount(0);
+      // Row level security: the binding filtered on `ownersOnly` delivered nothing.
+      expect(z.array(DeliveredEventSchema).parse(subscription.delivered())).toEqual([
+        { workspace_id: viewers.id, title: sentinelTitle },
+      ]);
     } finally {
-      await viewerContext.close();
+      await Promise.all([viewerContext.close(), outside?.close()]);
       await Promise.all([deleteTestWorkspace(ownersOnly), deleteTestWorkspace(viewers)]);
+      await removeSyntheticUser(outsider);
     }
   });
 });

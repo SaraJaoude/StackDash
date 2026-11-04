@@ -180,6 +180,29 @@ export async function createSyntheticUser(label: string): Promise<SyntheticUser>
   return { id, email, userName, cookies: await signInCookies(env, email, password) };
 }
 
+/**
+ * A Supabase client signed in as a synthetic user through its cookies, for tests that act as that
+ * user outside the app, such as a Realtime subscription the app would never make.
+ */
+export function syntheticUserClient(user: SyntheticUser): SupabaseClient<Database> {
+  const env = authEnv();
+  const jar = new Map(user.cookies.map(({ name, value }) => [name, value]));
+  return createServerClient<Database>(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY, {
+    cookies: {
+      getAll() {
+        return [...jar].map(([name, value]) => ({ name, value }));
+      },
+      setAll(cookiesToSet) {
+        // A refresh rewrites the session cookies; an empty value is a deletion.
+        for (const { name, value } of cookiesToSet) {
+          if (value === "") jar.delete(name);
+          else jar.set(name, value);
+        }
+      },
+    },
+  });
+}
+
 /** Deletes a synthetic user if it still exists, and its invite. Never call with the shared users. */
 export async function removeSyntheticUser(user: SyntheticUser): Promise<void> {
   if (Object.values(E2E_USERS).some(({ email }) => email === user.email)) {
