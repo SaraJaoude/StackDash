@@ -64,7 +64,8 @@ test.describe("signed out", () => {
     expectAppPolicy(headers["content-security-policy"]);
     const reportOnly = headers["content-security-policy-report-only"] ?? "";
     expect(reportOnly).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
-    // The nonce policy lets app pages open the Realtime socket on the Supabase host (#129).
+    // Report-only today, so this enforces nothing yet: it pins connect-src so that enforcing the
+    // nonce policy (#125) cannot cut off the Realtime socket that live updates need (#129).
     const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
     expect(directives(reportOnly).get("connect-src")).toContain(
       `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`,
