@@ -62,8 +62,13 @@ test.describe("signed out", () => {
     // sign-in chain above) and report the nonce policy, until #125 moves it to enforcement.
     const headers = response?.headers() ?? {};
     expectAppPolicy(headers["content-security-policy"]);
-    expect(headers["content-security-policy-report-only"] ?? "").toMatch(
-      /script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/,
+    const reportOnly = headers["content-security-policy-report-only"] ?? "";
+    expect(reportOnly).toMatch(/script-src 'self' 'nonce-[A-Za-z0-9+/=]+'/);
+    // Report-only today, so this enforces nothing yet: it pins connect-src so that enforcing the
+    // nonce policy (#125) cannot cut off the Realtime socket that live updates need (#129).
+    const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
+    expect(directives(reportOnly).get("connect-src")).toContain(
+      `${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`,
     );
   });
 
