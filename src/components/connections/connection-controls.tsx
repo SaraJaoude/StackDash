@@ -20,6 +20,10 @@ const SECONDARY =
 const DANGER =
   "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-60";
 
+// The account forms sit side by side in the page's three-row grid (label, controls, status) from
+// `sm` up and take those rows as a subgrid, so their controls share a row.
+const ACCOUNT_FORM = "flex flex-col gap-2 sm:row-span-3 sm:grid sm:grid-rows-subgrid";
+
 /** Always mounted, so screen readers announce every change. */
 function ActionStatus({ state, pending }: { state: ConnectionActionResult | null; pending: boolean }) {
   return (
@@ -63,14 +67,19 @@ export function AccountProjectForm({
   const errorId = useId();
   const fieldError = state !== null && !state.ok ? state.fieldErrors?.projectId : undefined;
   return (
-    <form action={formAction} className="flex flex-col gap-2">
+    <form action={formAction} className={ACCOUNT_FORM}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="accountId" value={accountId} />
       <label htmlFor={selectId} className="text-xs font-medium text-muted">
         Project for {accountName}
       </label>
       <div className="flex flex-wrap items-center gap-2">
+        {/*
+         * React resets a form after its action and only reads a select's defaultValue on mount, so
+         * without the key the reset restores the project this select mounted with, not the one saved.
+         */}
         <select
+          key={projectId ?? ""}
           id={selectId}
           name="projectId"
           defaultValue={projectId ?? ""}
@@ -89,13 +98,15 @@ export function AccountProjectForm({
           {pending ? "Saving" : "Save project"}
         </button>
       </div>
-      {fieldError === undefined ? null : (
-        <p id={errorId} className="text-sm text-danger">
-          <span className="font-medium">Error: </span>
-          {fieldError}
-        </p>
-      )}
-      <ActionStatus state={fieldError === undefined ? state : null} pending={pending} />
+      <div className="flex flex-col gap-2">
+        {fieldError === undefined ? null : (
+          <p id={errorId} className="text-sm text-danger">
+            <span className="font-medium">Error: </span>
+            {fieldError}
+          </p>
+        )}
+        <ActionStatus state={fieldError === undefined ? state : null} pending={pending} />
+      </div>
     </form>
   );
 }
@@ -113,7 +124,7 @@ export function AccountIncludedForm({
 }) {
   const [state, formAction, pending] = useConnectionAction(setAccountIncluded);
   return (
-    <form action={formAction} className="flex flex-col gap-2">
+    <form action={formAction} className={ACCOUNT_FORM}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="accountId" value={accountId} />
       <input type="hidden" name="included" value={included ? "false" : "true"} />
@@ -121,11 +132,14 @@ export function AccountIncludedForm({
         type="submit"
         disabled={pending}
         aria-label={included ? `Exclude ${accountName}` : `Include ${accountName}`}
-        className={SECONDARY}
+        className={`${SECONDARY} self-start sm:row-start-2 sm:justify-self-start`}
       >
         {included ? "Exclude" : "Include"}
       </button>
-      <ActionStatus state={state} pending={pending} />
+      {/* Pinned: with the button placed in row 2, auto-placement would put this in row 1. */}
+      <div className="sm:row-start-3">
+        <ActionStatus state={state} pending={pending} />
+      </div>
     </form>
   );
 }
