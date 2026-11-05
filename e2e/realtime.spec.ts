@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
@@ -119,6 +120,41 @@ async function insertEvent(seeded: SeededConnection, title: string): Promise<voi
   if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
 }
 
+/** This month's verified USD spend for the seeded account, dated today; returns the row id. */
+async function insertSpendSnapshot(seeded: SeededConnection, amountMinor: number): Promise<string> {
+  const now = new Date();
+  const { data, error } = await adminClient()
+    .from("usage_snapshots")
+    .insert({
+      workspace_id: seeded.workspaceId,
+      connection_id: seeded.connectionId,
+      external_account_id: seeded.accountId,
+      metric_key: "fake.spend.month",
+      kind: "verified_spend",
+      label: "Spend this month",
+      snapshot_date: now.toISOString().slice(0, 10),
+      amount_minor: amountMinor,
+      currency: "USD",
+      period_start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+      period_end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
+      retrieved_at: now.toISOString(),
+      provenance_source: "provider_api",
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Inserting a live snapshot failed (code ${error.code}).`);
+  return data.id;
+}
+
+/** A later sync of the same day's snapshot: an UPDATE, the way a resync rewrites today's value. */
+async function updateSpendSnapshot(snapshotId: string, amountMinor: number): Promise<void> {
+  const { error } = await adminClient()
+    .from("usage_snapshots")
+    .update({ amount_minor: amountMinor, retrieved_at: new Date().toISOString() })
+    .eq("id", snapshotId);
+  if (error) throw new Error(`Updating a live snapshot failed (code ${error.code}).`);
+}
+
 // The columns of a delivered activity event that the isolation test compares.
 const DeliveredEventSchema = z.object({ workspace_id: z.string(), title: z.string() });
 
@@ -193,7 +229,7 @@ ownerTest.describe("live updates", () => {
   ownerTest("shows a new dashboard snapshot without a reload", async ({ page }) => {
     const workspace = await createTestWorkspace("Live dashboard");
     try {
-      const { connectionId, accountId } = await seedConnection(workspace);
+      const seeded = await seedConnection(workspace);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dashboard");
@@ -203,23 +239,7 @@ ownerTest.describe("live updates", () => {
       await expect(usd).toHaveCount(0);
       await expectSubscribed(live);
 
-      const now = new Date();
-      const { error } = await adminClient().from("usage_snapshots").insert({
-        workspace_id: workspace.id,
-        connection_id: connectionId,
-        external_account_id: accountId,
-        metric_key: "fake.spend.month",
-        kind: "verified_spend",
-        label: "Spend this month",
-        snapshot_date: now.toISOString().slice(0, 10),
-        amount_minor: 4_321,
-        currency: "USD",
-        period_start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
-        period_end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
-        retrieved_at: now.toISOString(),
-        provenance_source: "provider_api",
-      });
-      if (error) throw new Error(`Inserting a live snapshot failed (code ${error.code}).`);
+      await insertSpendSnapshot(seeded, 4_321);
 
       await expect(usd).toContainText("$43.21", { timeout: LIVE_TIMEOUT_MS });
     } finally {
@@ -296,6 +316,166 @@ ownerTest.describe("live updates", () => {
       await Promise.all([viewerContext.close(), outside?.close()]);
       await Promise.all([deleteTestWorkspace(ownersOnly), deleteTestWorkspace(viewers)]);
       await removeSyntheticUser(outsider);
+    }
+  });
+});
+
+// Arriving data (#171): the keyframes the workspace runs when a live refresh brings new data
+// (src/app/globals.css). The landing page runs some of them too, never a workspace page on load.
+const ARRIVAL_ANIMATIONS: readonly string[] = [
+  "feed-content-in",
+  "feed-flash",
+  "alert-glow",
+  "count-up",
+  "bar-fill",
+  "spark-ping",
+  "live-pulse",
+];
+
+// A highlight clears after ARRIVAL_HIGHLIGHT_MS (4 s, src/lib/realtime/arrivals.ts); this leaves
+// room for a slow first render.
+const HIGHLIGHT_CLEARED_MS = 10_000;
+
+/**
+ * Records the name of every arrival animation that starts on the page, from the first document
+ * on, so "nothing animated" is an observed fact rather than a check that happened to run late.
+ * Call before navigating.
+ */
+async function recordArrivalAnimations(page: Page): Promise<() => Promise<string[]>> {
+  await page.addInitScript(() => {
+    const started: string[] = [];
+    Reflect.set(window, "__startedAnimations", started);
+    document.addEventListener("animationstart", (event) => started.push(event.animationName), true);
+  });
+  return async () => {
+    const started = z.array(z.string()).parse(await page.evaluate(() => Reflect.get(window, "__startedAnimations")));
+    return started.filter((name) => ARRIVAL_ANIMATIONS.includes(name));
+  };
+}
+
+/** Records every sentence the polite arrival region says from now on. */
+async function recordAnnouncements(page: Page): Promise<() => Promise<string[]>> {
+  await page.getByTestId("arrival-announcement").evaluate((region) => {
+    const said: string[] = [];
+    Reflect.set(window, "__announcements", said);
+    new MutationObserver(() => {
+      const text = region.textContent ?? "";
+      if (text !== "") said.push(text);
+    }).observe(region, { childList: true, characterData: true, subtree: true });
+  });
+  return async () => z.array(z.string()).parse(await page.evaluate(() => Reflect.get(window, "__announcements")));
+}
+
+ownerTest.describe("arriving data", () => {
+  ownerTest("marks a new timeline event once, announces it, and animates nothing on load", async ({ page }) => {
+    const workspace = await createTestWorkspace("Arrival timeline");
+    try {
+      const seeded = await seedConnection(workspace);
+      await insertEvent(seeded, "Earlier event");
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(page.getByRole("heading", { name: "Earlier event", exact: true })).toBeVisible();
+      await expectSubscribed(live);
+      const announcements = await recordAnnouncements(page);
+      const indicator = page.getByRole("button", { name: "Live updates" });
+      await expect(indicator).toBeVisible();
+      await expect(page.getByTestId("live-pulse")).toHaveCount(0);
+      expect(await animations()).toEqual([]);
+
+      const title = `Arriving event ${randomUUID().slice(0, 8)}`;
+      await insertEvent(seeded, title);
+      const row = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+      const label = row.getByText(/^,?\s*New$/);
+      await expect(label).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(page.getByTestId("arrival-announcement")).toHaveText("1 new event.");
+      await expect.poll(animations).toEqual(expect.arrayContaining(["live-pulse", "feed-content-in", "feed-flash"]));
+      // The row that was already there is not marked.
+      const earlier = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: "Earlier event" }) });
+      await expect(earlier.getByText(/^,?\s*New$/)).toHaveCount(0);
+
+      // The highlight clears on its own, and the batch was announced exactly once.
+      await expect(label).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+      expect(await announcements()).toEqual(["1 new event."]);
+
+      // Focus shows when data last arrived; Escape hides it.
+      await indicator.focus();
+      await expect(page.getByRole("tooltip")).toContainText("Data last arrived");
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("tooltip")).toBeHidden();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("counts, pulses, and pings a changed dashboard value, and not after a period change", async ({ page }) => {
+    const workspace = await createTestWorkspace("Arrival dashboard");
+    try {
+      const seeded = await seedConnection(workspace);
+      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", {
+        name: "Spend in USD",
+      });
+      await expect(usd).toContainText("$43.21");
+      await expectSubscribed(live);
+      expect(await animations()).toEqual([]);
+
+      await updateSpendSnapshot(snapshotId, 5_000);
+      await expect(usd).toContainText("$50.00", { timeout: LIVE_TIMEOUT_MS });
+      await expect(usd.getByText("Updated", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
+      await expect
+        .poll(animations)
+        .toEqual(expect.arrayContaining(["live-pulse", "count-up", "alert-glow", "spark-ping"]));
+      await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Changing the trend period is navigation, not arrival: nothing new animates.
+      const before = (await animations()).length;
+      await page.getByRole("link", { name: /^Monthly/ }).click();
+      await expect(page).toHaveURL(/trend=monthly/);
+      await expect(page.getByRole("link", { name: /^Monthly/ })).toHaveAttribute("aria-current", "page");
+      expect(await animations()).toHaveLength(before);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("under reduced motion, marks a changed value with a static label and announces it once", async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const workspace = await createTestWorkspace("Arrival reduced motion");
+    try {
+      const seeded = await seedConnection(workspace);
+      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", {
+        name: "Spend in USD",
+      });
+      await expect(usd).toContainText("$43.21");
+      await expectSubscribed(live);
+      const announcements = await recordAnnouncements(page);
+      await expect(usd.getByText("Updated", { exact: true })).toHaveCount(0);
+
+      await updateSpendSnapshot(snapshotId, 5_000);
+      await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(usd).toContainText("$50.00");
+      await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
+      // The static highlight and its label, scanned while they show.
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      // The static label clears on its own; nothing moved, scaled, or counted on the way.
+      await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+      expect(await animations()).toEqual([]);
+      expect(await announcements()).toHaveLength(1);
+    } finally {
+      await deleteTestWorkspace(workspace);
     }
   });
 });
