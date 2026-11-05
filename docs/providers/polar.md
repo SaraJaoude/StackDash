@@ -39,11 +39,14 @@ The callback carries `code` and `state`, and `iss` when Polar sends it: the disc
 
 ### Code exchange
 
-`POST /v1/oauth2/token` with `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, `client_id`, `client_secret`, form encoded. The response has `token_type` (`Bearer`), `access_token`, `expires_in`, `refresh_token`, `scope`, and `id_token` (only with `openid`; never stored). A code Polar refuses is reported as a provider error and the user can try again.
+`POST /v1/oauth2/token` with `grant_type=authorization_code`, `code`, `redirect_uri`, `code_verifier`, `client_id`, `client_secret`, form encoded. The response has `token_type` (`Bearer`), `access_token`, `expires_in`, `refresh_token`, `scope`, and `id_token` (only with `openid`; never stored). Token errors are read by their RFC 6749 `error` code, the same way as on refresh (below). On the code exchange, `invalid_grant` also means the client's redirect URI does not match `redirect_uri`, so when every first connect fails with it, check the client registration ([OAuth apps](../operations/oauth-apps.md#polar-oauth-client)), not the user's grant.
 
 ### Refresh
 
-`POST /v1/oauth2/token` with `grant_type=refresh_token`, `refresh_token`, `client_id`, `client_secret`. The adapter stores the new refresh token when one is returned and keeps the current one otherwise. A `400` on refresh is treated as a revoked grant and asks the user to reconnect.
+`POST /v1/oauth2/token` with `grant_type=refresh_token`, `refresh_token`, `client_id`, `client_secret`. The adapter stores the new refresh token when one is returned and keeps the current one otherwise.
+
+- Only `invalid_grant` (RFC 6749 section 5.2: a code or refresh token that is used, expired, or revoked), as a `400` or a `401`, is reported as `auth_revoked`, so the connection asks to be reconnected instead of retrying a token that can never work again. Polar's exact answer for a spent refresh token is Unverified #2.
+- `invalid_client` (wrong client id or secret, as a `400` or a `401`), `invalid_request`, and `unsupported_grant_type` are this instance's OAuth client configuration, not the user's grant. They are reported as `invalid_response`: retried, and logged with the error reference, never a reconnect prompt. If every Polar connection fails this way, check `POLAR_CLIENT_ID` and `POLAR_CLIENT_SECRET`.
 
 ### Disconnect and revoke
 
@@ -303,7 +306,7 @@ All samples are from documentation, not recorded: shaped after the API reference
 Confirm with a real Polar organization before the adapter is used for real connections (#141). The code refers to these by number.
 
 1. Whether the user can deselect individual scopes on the consent screen, and what `scope` then returns. The adapter compares the returned `scope` with the six it asked for.
-2. Whether refresh tokens rotate on every use, how long they last, and the exact error for a used, expired, or revoked refresh token (a `400 invalid_grant` is assumed).
+2. Whether refresh tokens rotate on every use, how long they last, and the exact error for a used, expired, or revoked refresh token (a `400 invalid_grant` is assumed from RFC 6749 section 5.2; `invalid_grant` is treated as revoked with `400` or `401`, and every other code is not).
 3. That every currency value from `GET /v1/metrics/` is in USD cents for organizations selling in other presentment currencies.
 4. Whether `revenue` in the metrics endpoint deducts refunds, and whether `revenue` minus `net_revenue` is exactly the fees Polar keeps (platform fee plus payment processing, without payout fees).
 5. That daily periods with `timezone=UTC` are stamped at 00:00 UTC, include today up to the request time, and that a request with no `metrics` parameter returns every field used here.

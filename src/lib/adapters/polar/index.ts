@@ -11,6 +11,7 @@ import {
   Secret,
   type AdapterContext,
   type ExternalAccount,
+  type FetchLike,
   type OAuthContext,
   type OAuthCredential,
   type Permission,
@@ -23,6 +24,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   CustomerSchema,
   MetricsResponseSchema,
+  OAuthErrorSchema,
   OrderSchema,
   OrganizationSchema,
   RefundSchema,
@@ -176,22 +178,70 @@ const REFUND_REASONS: Readonly<Record<string, string>> = {
   vat_reverse_charge_correction: "VAT reverse charge correction",
 };
 
-function tokenRequest(ctx: OAuthContext, form: Readonly<Record<string, string>>): Promise<TokenResponse> {
-  return fetchJson(
-    ctx,
-    TOKEN_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      // client_secret_post, as in Polar's token request reference. Never logged.
-      body: new URLSearchParams({
-        ...form,
-        client_id: ctx.client.clientId,
-        client_secret: ctx.client.clientSecret.reveal(),
-      }).toString(),
-    },
-    TokenResponseSchema,
-  );
+// A local copy of the Resend and DigitalOcean helper until #200 shares it from `../errors`.
+async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  const parsed = OAuthErrorSchema.safeParse(body);
+  return parsed.success ? parsed.data.error : undefined;
+}
+
+/**
+ * Token endpoint call, for the code exchange and the refresh. Only `invalid_grant` (RFC 6749
+ * section 5.2: a code or refresh token that is used, expired, or revoked) means the grant is gone,
+ * so only it becomes auth revoked and asks the user to reconnect; the exact error Polar sends for a
+ * spent refresh token is Unverified #2. `invalid_client`, `invalid_request`, and
+ * `unsupported_grant_type` are this instance's configuration, not the user's grant: they stay
+ * invalid responses, retried and logged, even when `invalid_client` comes as a 401, which
+ * `fetchJson` alone would call auth revoked.
+ */
+async function tokenRequest(ctx: OAuthContext, form: Readonly<Record<string, string>>): Promise<TokenResponse> {
+  let oauthError: string | undefined;
+  const capturingFetch: FetchLike = async (input, init) => {
+    const response = await ctx.fetch(input, init);
+    if (response.status === 400 || response.status === 401) {
+      oauthError = await readOAuthErrorCode(response.clone());
+    }
+    return response;
+  };
+  try {
+    return await fetchJson(
+      { ...ctx, fetch: capturingFetch },
+      TOKEN_URL,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        // client_secret_post, as in Polar's token request reference. Never logged.
+        body: new URLSearchParams({
+          ...form,
+          client_id: ctx.client.clientId,
+          client_secret: ctx.client.clientSecret.reveal(),
+        }).toString(),
+      },
+      TokenResponseSchema,
+    );
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 400 && oauthError === "invalid_grant") {
+      throw new AuthRevokedError("Polar rejected the authorization grant (invalid_grant); reconnect Polar", {
+        cause: error,
+        status: 400,
+        endpoint: TOKEN_URL,
+      });
+    }
+    if (error instanceof AuthRevokedError && error.status === 401 && oauthError === "invalid_client") {
+      throw new InvalidResponseError("Polar rejected this instance's OAuth client credentials (invalid_client)", {
+        cause: error,
+        status: 401,
+        endpoint: TOKEN_URL,
+      });
+    }
+    throw error;
+  }
 }
 
 function toCredential(token: TokenResponse, issuedAt: Date, previousRefresh: Secret | undefined): OAuthCredential {
@@ -748,20 +798,9 @@ export const polarAdapter: ProviderAdapter = {
       throw new AuthRevokedError("Polar credential has no refresh token; reconnect Polar", { endpoint: TOKEN_URL });
     }
     const issuedAt = ctx.now();
-    let token: TokenResponse;
-    try {
-      token = await tokenRequest(ctx, { grant_type: "refresh_token", refresh_token: credential.refreshToken.reveal() });
-    } catch (error) {
-      // A used, expired, or revoked refresh token is most likely a 400 `invalid_grant` (Unverified #2).
-      if (error instanceof InvalidResponseError && error.status === 400) {
-        throw new AuthRevokedError("Polar rejected the refresh token; reconnect Polar", {
-          cause: error,
-          status: 400,
-          endpoint: TOKEN_URL,
-        });
-      }
-      throw error;
-    }
+    // A used, expired, or revoked refresh token is `invalid_grant`, which `tokenRequest` reports as
+    // auth revoked (Unverified #2).
+    const token = await tokenRequest(ctx, { grant_type: "refresh_token", refresh_token: credential.refreshToken.reveal() });
     return toCredential(token, issuedAt, credential.refreshToken);
   },
 

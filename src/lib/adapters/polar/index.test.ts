@@ -200,13 +200,14 @@ describe("polarAdapter.exchangeCode", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("reports a rejected code (400) as an invalid response, not a revoked grant", async () => {
-    const { fetch } = fakeFetch({ "/v1/oauth2/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }) });
-    const { ctx } = context(fetch);
+  it("maps a 400 invalid_grant code to auth revoked and a 400 invalid_client to an invalid response", async () => {
+    const grant = fakeFetch({ "/v1/oauth2/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }) });
+    const input = { code: "used", redirectUri: "https://x.example/cb", codeVerifier: verifier, callbackParams: {} };
 
-    await expect(
-      polarAdapter.exchangeCode({ code: "used", redirectUri: "https://x.example/cb", codeVerifier: verifier, callbackParams: {} }, ctx),
-    ).rejects.toBeInstanceOf(InvalidResponseError);
+    await expect(polarAdapter.exchangeCode(input, context(grant.fetch).ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+
+    const client = fakeFetch({ "/v1/oauth2/token": () => Response.json({ error: "invalid_client" }, { status: 400 }) });
+    await expect(polarAdapter.exchangeCode(input, context(client.fetch).ctx)).rejects.toMatchObject({ code: "invalid_response" });
   });
 });
 
@@ -237,11 +238,28 @@ describe("polarAdapter.refreshTokens", () => {
     expect(result?.refreshToken?.reveal()).toBe("polar_rt_fixture_refresh_1");
   });
 
-  it("maps a rejected refresh token (400) to auth revoked", async () => {
-    const { fetch } = fakeFetch({ "/v1/oauth2/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }) });
+  it.each([
+    ["400 invalid_grant (used, expired, or revoked refresh token)", 400, "invalid_grant"],
+    ["401 invalid_grant (revoked grant)", 401, "invalid_grant"],
+  ])("maps a %s to auth revoked, so the connection asks to reconnect", async (_title, status, error) => {
+    const { fetch } = fakeFetch({ "/v1/oauth2/token": () => Response.json({ error }, { status }) });
     const { ctx } = context(fetch);
 
     await expect(polarAdapter.refreshTokens?.(credential(), ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+
+  // RFC 6749 section 5.2 codes that are this instance's configuration, not the user's grant.
+  it.each([
+    ["400 invalid_client (wrong client id or secret)", 400, { error: "invalid_client" }],
+    ["401 invalid_client (wrong client id or secret)", 401, { error: "invalid_client" }],
+    ["400 invalid_request (malformed request)", 400, { error: "invalid_request" }],
+    ["400 unsupported_grant_type", 400, { error: "unsupported_grant_type" }],
+    ["400 without an OAuth error body", 400, { detail: "bad request" }],
+  ])("keeps a %s as an invalid response, not auth revoked", async (_title, status, body) => {
+    const { fetch } = fakeFetch({ "/v1/oauth2/token": () => Response.json(body, { status }) });
+    const { ctx } = context(fetch);
+
+    await expect(polarAdapter.refreshTokens?.(credential(), ctx)).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("asks for a reconnect when the credential has no refresh token", async () => {
