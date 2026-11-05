@@ -619,9 +619,10 @@ async function syncDeployments(
 /**
  * Billing for the workspace, or the reason it is unavailable. Whether a `workspace:viewer` token
  * can read the customer fields is unverified, and Railway's dashboard limits billing settings to
- * workspace admins, so a denial, a GraphQL error, or an unexpected shape leaves billing
- * unavailable while deployments still sync. Transient failures (timeout, rate limit, outage,
- * revoked token) still fail the sync so the runner retries it.
+ * workspace admins, so a "Not Authorized" denial leaves billing unavailable while deployments
+ * still sync, as Vercel and Supabase do. Anything else fails the sync so the runner retries it
+ * and records it: a timeout, rate limit, outage, or revoked token, and an invalid response, which
+ * is breakage (a schema change, an unknown plan) rather than a permission gap.
  */
 async function syncBilling(ctx: OAuthContext, input: SyncInput): Promise<AdapterMetric[] | PermissionMissingError> {
   try {
@@ -635,7 +636,7 @@ async function syncBilling(ctx: OAuthContext, input: SyncInput): Promise<Adapter
     );
     return billingMetrics(billing, input.externalAccountId, ctx.now());
   } catch (error) {
-    if (error instanceof PermissionMissingError || error instanceof InvalidResponseError) {
+    if (error instanceof PermissionMissingError) {
       ctx.logger.warn("railway.billing.unavailable", { code: error.code });
       return new PermissionMissingError(
         "Railway billing is unavailable with viewer access to this workspace; deployments still sync",

@@ -460,9 +460,7 @@ describe("railwayAdapter.sync", () => {
 
   it.each([
     ["Not Authorized", () => json(notAuthorizedFixture)],
-    ["a null customer", () => json({ data: { ...billingFixture.data, workspace: { plan: "HOBBY", customer: null } } })],
     ["an HTTP 403", () => json({}, 403)],
-    ["an unknown plan", () => json({ data: { ...billingFixture.data, workspace: { ...billingFixture.data.workspace, plan: "ENTERPRISE" } } })],
   ])("leaves billing unavailable on %s while deployments still sync", async (_title, billingRoute) => {
     const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
@@ -473,6 +471,18 @@ describe("railwayAdapter.sync", () => {
     expect(gap).toBeInstanceOf(PermissionMissingError);
     expect(gap?.missingScopes).toEqual(["workspace:viewer"]);
     expect(warnings).toContain("railway.billing.unavailable");
+  });
+
+  it.each([
+    ["a null customer", () => json({ data: { ...billingFixture.data, workspace: { plan: "HOBBY", customer: null } } })],
+    ["an unknown plan", () => json({ data: { ...billingFixture.data, workspace: { ...billingFixture.data.workspace, plan: "ENTERPRISE" } } })],
+    ["a GraphQL validation error", () => json({ data: null, errors: [{ message: "Cannot query field", extensions: { code: "GRAPHQL_VALIDATION_FAILED" } }] })],
+  ])("fails the sync as an invalid response on %s in billing, never as a missing permission", async (_title, billingRoute) => {
+    const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+    expect(warnings).not.toContain("railway.billing.unavailable");
   });
 
   it("fails the whole sync on a billing rate limit, so the runner retries instead of losing billing", async () => {

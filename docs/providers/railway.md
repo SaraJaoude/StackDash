@@ -4,7 +4,7 @@ Provider id: `railway`. Issues: #113 (adapter), #11 (research), #141 (registerin
 
 ## Go or no-go
 
-**Go, built against the documentation only.** "Login with Railway" is a standard OAuth 2.0 authorization code flow with PKCE and OpenID Connect, and the Public API is the same GraphQL API the Railway dashboard uses. A `workspace:viewer` grant lists the workspaces the user picks, their projects, and every deployment with its status, which covers the deployment events on the timeline. Billing is the open question: Railway's dashboard limits billing settings to workspace admins, and whether a viewer token can read the billing fields is not documented. The adapter therefore treats billing as optional: when Railway refuses it, deployments still sync and billing shows as unavailable.
+**Go, built against the documentation only.** "Login with Railway" is a standard OAuth 2.0 authorization code flow with PKCE and OpenID Connect, and the Public API is the same GraphQL API the Railway dashboard uses. A `workspace:viewer` grant lists the workspaces the user picks, their projects, and every deployment with its status, which covers the deployment events on the timeline. Billing is the open question: Railway's dashboard limits billing settings to workspace admins, and whether a viewer token can read the billing fields is not documented. The adapter therefore treats billing as optional: when Railway refuses it with `Not Authorized`, deployments still sync and billing shows as unavailable. Any other billing failure, such as an unexpected shape, fails the sync, so it is retried and recorded instead of being mistaken for a permission gap.
 
 No Railway account has been used yet. Every claim below comes from Railway's documentation or its public GraphQL schema, and everything a real account still has to confirm is listed under [Unverified](#unverified).
 
@@ -287,7 +287,7 @@ A denied query (from "Public API, Errors", with Railway's documented denial mess
 
 Confirm with a test account (#141) before relying on these:
 
-1. Whether a `workspace:viewer` token can read `workspace.customer`, `usage`, and `estimatedUsage`. The dashboard limits billing settings to admins; the adapter degrades to unavailable either way.
+1. Whether a `workspace:viewer` token can read `workspace.customer`, `usage`, and `estimatedUsage`. The dashboard limits billing settings to admins; a `Not Authorized` answer leaves billing unavailable.
 2. Whether `me { workspaces }` really needs `email` and `profile`, as documented, or also answers without them.
 3. Whether the token response's `scope` lists `workspace:viewer`. If it does not, the connection would show it as a missing permission although it was granted.
 4. The units of `currentUsage` and `creditBalance` (assumed US dollars) and of the `usage` and `estimatedUsage` measurements (assumed vCPU-minutes, GB-minutes, GB, and GB-minutes).
