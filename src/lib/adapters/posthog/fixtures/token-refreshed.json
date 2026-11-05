@@ -1,0 +1,6 @@
+{
+  "access_token": "fixture-access-token-2",
+  "token_type": "Bearer",
+  "expires_in": 36000,
+  "scope": "billing:read organization:read project:read query:read"
+}

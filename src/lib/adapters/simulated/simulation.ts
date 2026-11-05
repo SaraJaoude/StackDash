@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import type { AdapterContext, ExternalAccount, ProviderAdapter } from "@/lib/adapters/types";
+import { TREND_DAYS } from "@/lib/dashboard/trends";
 
 /*
  * Shared clock and randomness for the simulated providers (#131). Every value is a pure function
@@ -86,6 +87,23 @@ export function utcMonthStart(at: Date): Date {
 
 export function utcNextMonthStart(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
+}
+
+/** True on a UTC Saturday or Sunday, when the simulated teams work less (#166). */
+export function isWeekend(ms: number): boolean {
+  const weekday = new Date(ms).getUTCDay();
+  return weekday === 0 || weekday === 6;
+}
+
+/**
+ * True on the account's launch day: one UTC day in every TREND_DAYS, at a phase set by the account
+ * id, so any window of that many days, such as the dashboard's daily trend, holds exactly one
+ * (#166). A profile raises its usage and its activity together on that day, so the spend spike
+ * lines up with a burst of events.
+ */
+export function isLaunchDay(accountId: string, ms: number): boolean {
+  const day = Math.floor(ms / DAY_MS);
+  return (day + between(0, TREND_DAYS - 1, accountId, "launch-day")) % TREND_DAYS === 0;
 }
 
 /**

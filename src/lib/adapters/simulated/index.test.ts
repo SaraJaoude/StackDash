@@ -1,9 +1,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
+import { polarAdapter } from "@/lib/adapters/polar";
+import { postHogAdapter } from "@/lib/adapters/posthog";
 import { resendAdapter } from "@/lib/adapters/resend";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
@@ -17,6 +20,8 @@ import {
   type SyncResult,
 } from "@/lib/adapters/types";
 import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters/vercel";
+import { utcDate } from "@/lib/jobs/ingest";
+import { londonDayStart } from "@/lib/timeline/query";
 
 import {
   isProviderSimulationEnabled,
@@ -26,6 +31,7 @@ import {
   simulatedAdapters,
 } from "./index";
 import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
+import { DAY_MS, isLaunchDay, isWeekend } from "./simulation";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -33,6 +39,9 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  digitalocean: digitaloceanAdapter,
+  posthog: postHogAdapter,
+  polar: polarAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -353,7 +362,7 @@ describe("simulated sync boundaries", () => {
 });
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the five providers, and keep Stripe revenue moving", async () => {
+  it("bring new events on most ticks across the live providers, and keep Stripe revenue moving", async () => {
     const connections = await Promise.all(
       liveProviderIds.map(async (id) => {
         const adapter = simulatedAdapters[id];
@@ -466,6 +475,48 @@ describe("simulated numbers", () => {
     expect(amount(metric(metrics, "stripe.revenue.month.usd"))).toBeGreaterThan(0);
   });
 
+  it("keeps Polar revenue as revenue, fees as spend, and MRR and ARR as recurring revenue, in USD cents", async () => {
+    const [metrics] = await metricsAt(simulatedAdapters.polar, [new Date("2026-11-20T15:00:00Z")]);
+    if (metrics === undefined) throw new Error("expected metrics");
+    expect(Object.fromEntries(metrics.map((item) => [item.metricKey, item.kind]))).toEqual({
+      "polar.revenue.month.usd": "revenue",
+      "polar.fees.month.usd": "verified_spend",
+      "polar.orders.month": "usage",
+      "polar.subscriptions.new.month": "usage",
+      "polar.subscriptions.canceled.month": "usage",
+      "polar.mrr.usd": "recurring_revenue",
+      "polar.arr.usd": "recurring_revenue",
+      "polar.subscriptions.active": "usage",
+      "polar.customers.new.month": "usage",
+    });
+    for (const item of metrics) {
+      if ("amountMinor" in item) {
+        expect(Number.isInteger(item.amountMinor), item.metricKey).toBe(true);
+        expect(item.currency).toBe("USD");
+      }
+    }
+    const revenue = amount(metric(metrics, "polar.revenue.month.usd"));
+    const fees = amount(metric(metrics, "polar.fees.month.usd"));
+    expect(revenue).toBeGreaterThan(0);
+    expect(fees).toBeGreaterThan(0);
+    expect(fees).toBeLessThan(revenue);
+    // ARR is twelve months of MRR, each rounded once from Polar's fractional cents.
+    expect(Math.abs(amount(metric(metrics, "polar.arr.usd")) - 12 * amount(metric(metrics, "polar.mrr.usd")))).toBeLessThanOrEqual(12);
+  });
+
+  it("grows Polar month-to-date revenue within a month and starts again in the next", async () => {
+    const samples = await metricsAt(simulatedAdapters.polar, [
+      new Date("2026-11-20T15:00:00Z"),
+      new Date("2026-11-20T15:10:00Z"),
+      new Date("2026-11-30T23:00:00Z"),
+      new Date("2026-12-01T00:10:00Z"),
+    ]);
+    const revenue = samples.map((metrics) => amount(metric(metrics, "polar.revenue.month.usd")));
+    expect(revenue[0]).toBeLessThanOrEqual(revenue[1] ?? 0);
+    expect(revenue[1]).toBeLessThan(revenue[2] ?? 0);
+    expect(revenue[3]).toBeLessThan(revenue[2] ?? 0);
+  });
+
   it("reports GitHub stars per repository and in total, plus Actions minutes and spend", async () => {
     const [metrics] = await metricsAt(simulatedAdapters.github, [new Date("2026-11-20T15:00:00Z")]);
     if (metrics === undefined) throw new Error("expected metrics");
@@ -475,6 +526,46 @@ describe("simulated numbers", () => {
     expect(quantity(metric(metrics, "github.usage.actions.minutes"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions.actions_linux"))).toBe(amount(metric(metrics, "github.spend.actions")));
+  });
+
+  it("grows DigitalOcean usage through the month, splits yesterday by SKU, and resets on the 1st", async () => {
+    const samples = await metricsAt(simulatedAdapters.digitalocean, [
+      new Date("2026-11-20T09:00:00Z"),
+      new Date("2026-11-20T15:00:00Z"),
+      new Date("2026-12-01T00:10:00Z"),
+    ]);
+    const usage = samples.map((metrics) => amount(metric(metrics, "digitalocean.spend.month_to_date")));
+    expect(usage[0]).toBeLessThan(usage[1] ?? 0);
+    expect(usage[2]).toBeLessThan(usage[1] ?? 0);
+    const [morning] = samples;
+    if (morning === undefined) throw new Error("expected metrics");
+    const daily = morning.filter((item) => item.metricKey.startsWith("digitalocean.daily_spend.sku_"));
+    expect(daily).toHaveLength(5);
+    for (const item of daily) {
+      expect(item.kind).toBe("estimated_spend");
+      expect(item.timeframe).toEqual({ type: "period", start: new Date("2026-11-19T00:00:00Z"), end: new Date("2026-11-20T00:00:00Z") });
+      expect(item.provenance.endpoint).toMatch(/^simulated:digitalocean\//);
+    }
+    expect(metric(morning, "digitalocean.invoice.latest").timeframe).toEqual({
+      type: "period",
+      start: new Date("2026-10-01T00:00:00Z"),
+      end: new Date("2026-11-01T00:00:00Z"),
+    });
+    expect(amount(metric(morning, "digitalocean.credit.balance"))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("issues the DigitalOcean invoice for the month before at 00:00 UTC on the 1st, and only then", async () => {
+    const credential = await connect(simulatedAdapters.digitalocean);
+    const [account] = await simulatedAdapters.digitalocean.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected an account");
+    const sync = (now: string) =>
+      simulatedAdapters.digitalocean.sync({ credential, externalAccountId: account.externalId }, makeCtx(new Date(now)));
+    const invoices = (await sync("2026-12-01T00:00:15Z")).events.filter((event) => event.typeId === "digitalocean.invoice.issued");
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0]?.title).toMatch(/^Invoice for 2026-11 issued: \$\d+\.\d{2}$/);
+    expect(invoices[0]?.occurredAt).toEqual(new Date("2026-12-01T00:00:00Z"));
+    const before = (await sync("2026-11-30T23:59:50Z")).events.filter((event) => event.typeId === "digitalocean.invoice.issued");
+    expect(before).toEqual([]);
   });
 
   it("reports Supabase plan limits and yesterday's daily active users", async () => {
@@ -507,5 +598,80 @@ describe("simulated numbers", () => {
       const before = (await sync("2026-11-04T23:59:30Z")).events.filter((event) => event.typeId === typeId);
       expect(before).toEqual([]);
     }
+  });
+});
+
+describe("the simulated week (#166)", () => {
+  it.each([
+    ["Friday's last millisecond", "2026-11-06T23:59:59.999Z", false],
+    ["Saturday's first instant", "2026-11-07T00:00:00.000Z", true],
+    ["Sunday's last millisecond", "2026-11-08T23:59:59.999Z", true],
+    ["Monday's first instant", "2026-11-09T00:00:00.000Z", false],
+  ])("counts %s as weekend: %s", (_title, at, expected) => {
+    expect(isWeekend(Date.parse(at))).toBe(expected);
+  });
+
+  it.each(["team_sim5eed0a11", "sim5eed0a11", "acct_simffffffff"])("puts exactly one launch day in any 30 UTC days for %s", (accountId) => {
+    const first = Date.UTC(2026, 6, 1);
+    const launches = Array.from({ length: 120 }, (_, index) => first + index * DAY_MS).filter((day) => isLaunchDay(accountId, day));
+    expect(launches.length).toBe(4);
+    for (const [index, day] of launches.slice(1).entries()) expect(day - (launches[index] ?? 0)).toBe(30 * DAY_MS);
+    // The whole day is a launch day, up to its last millisecond.
+    const [launch] = launches;
+    if (launch === undefined) throw new Error("expected a launch day");
+    expect(isLaunchDay(accountId, launch + DAY_MS - 1)).toBe(true);
+    expect(isLaunchDay(accountId, launch - 1)).toBe(false);
+  });
+
+  it("lines a Vercel spend spike up with a burst of deploys on the launch day, and slows both at weekends", async () => {
+    const adapter = simulatedAdapters.vercel;
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected an account");
+    const accountId = account.externalId;
+    // Days after the 1st, so a day's spend is the difference of two readings in one month.
+    const days = Array.from({ length: 60 }, (_, index) => Date.UTC(2026, 8, 2) + index * DAY_MS).filter(
+      (day) => new Date(day).getUTCDate() > 1,
+    );
+    const pick = (predicate: (day: number) => boolean) => {
+      const day = days.find(predicate);
+      if (day === undefined) throw new Error("expected a matching day");
+      return day;
+    };
+    const launch = pick((day) => isLaunchDay(accountId, day));
+    const weekday = pick((day) => !isLaunchDay(accountId, day) && !isWeekend(day));
+    const weekend = pick((day) => !isLaunchDay(accountId, day) && isWeekend(day));
+
+    const usageAt = async (ms: number) =>
+      amount(metric((await adapter.sync({ credential, externalAccountId: accountId }, makeCtx(new Date(ms)))).metrics, "vercel.spend.usage"));
+    const dailyUsage = async (day: number) => (await usageAt(day + DAY_MS - SLOT_MS)) - (await usageAt(day - SLOT_MS));
+    // Chained syncs every 30 minutes across the day, as a live tick would read it.
+    const dailyDeploys = async (day: number) => {
+      let cursor = new Date(day - SLOT_MS).toISOString();
+      const deploys: ActivityEvent[] = [];
+      for (let step = 1; step <= 48; step += 1) {
+        const result = await adapter.sync({ credential, externalAccountId: accountId, cursor }, makeCtx(new Date(day + step * 30 * MINUTE_MS)));
+        deploys.push(...result.events);
+        cursor = result.cursor ?? cursor;
+      }
+      return deploys;
+    };
+    // The half hour before London midnight, which is all the demo seed's daily step reads: 22:30 to
+    // 23:00 UTC in summer, 23:30 to 00:00 UTC in winter.
+    const lastHalfHour = (deploys: ActivityEvent[], day: number) => {
+      const londonMidnight = londonDayStart(utcDate(new Date(day + DAY_MS))).getTime();
+      return deploys.filter((event) => {
+        const at = event.occurredAt.getTime();
+        return at >= londonMidnight - 30 * MINUTE_MS && at < londonMidnight;
+      }).length;
+    };
+
+    const [launchUsage, weekdayUsage, weekendUsage] = await Promise.all([launch, weekday, weekend].map(dailyUsage));
+    const [launchDeploys = [], weekdayDeploys = [], weekendDeploys = []] = await Promise.all([launch, weekday, weekend].map(dailyDeploys));
+    expect(launchUsage).toBeGreaterThan(3 * (weekdayUsage ?? 0));
+    expect(weekendUsage).toBeLessThan((weekdayUsage ?? 0) / 2);
+    expect(launchDeploys.length).toBeGreaterThan(3 * weekdayDeploys.length);
+    expect(weekendDeploys.length).toBeLessThan(weekdayDeploys.length / 2);
+    expect(lastHalfHour(launchDeploys, launch)).toBeGreaterThan(5 * Math.max(1, lastHalfHour(weekdayDeploys, weekday)));
   });
 });
