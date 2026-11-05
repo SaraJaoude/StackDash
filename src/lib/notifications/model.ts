@@ -175,6 +175,25 @@ export function digestSubjectKey(period: DigestPeriod): string {
   return `digest:${period.frequency}:${period.date}`;
 }
 
+/** A count a provider reports per day, such as PostHog's daily signups: one usage snapshot. */
+export type DailyCount = Readonly<{ accountId: string; periodStart: string; value: number; retrievedAt: string }>;
+
+/**
+ * The total of daily counts with each account's day counted once: a day that more than one
+ * snapshot reports (a later sync restating it) counts with its latest value.
+ */
+export function sumDailyCounts(counts: readonly DailyCount[]): number {
+  const latest = new Map<string, DailyCount>();
+  for (const count of counts) {
+    const key = `${count.accountId}|${count.periodStart}`;
+    const seen = latest.get(key);
+    if (seen === undefined || Date.parse(count.retrievedAt) > Date.parse(seen.retrievedAt)) latest.set(key, count);
+  }
+  let total = 0;
+  for (const count of latest.values()) total += count.value;
+  return total;
+}
+
 /** Members and channels that chose this digest and have not had it yet. */
 export function planDigestTargets(input: {
   period: DigestPeriod;

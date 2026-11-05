@@ -13,6 +13,7 @@ import {
   nextDestinationHealth,
   planAlertMessages,
   planDigestTargets,
+  sumDailyCounts,
   type DeliveryAlert,
   type DeliveryDestination,
   type Recipient,
@@ -172,6 +173,34 @@ describe("digest job keys", () => {
 
   it.each([null, "", "daily_summary:w1:2026-11-04", "digest:w1:2026-11", "digest:w1:2026-11-04:extra"])("reads no date from %j", (key) => {
     expect(digestJobDate(key)).toBeNull();
+  });
+});
+
+describe("sumDailyCounts", () => {
+  const day = (accountId: string, periodStart: string, value: number, retrievedAt: string) => ({ accountId, periodStart, value, retrievedAt });
+
+  it("adds every account's days", () => {
+    expect(
+      sumDailyCounts([
+        day("acct-1", "2026-11-03T00:00:00.000Z", 40, "2026-11-04T00:05:00.000Z"),
+        day("acct-1", "2026-11-04T00:00:00.000Z", 52, "2026-11-05T00:05:00.000Z"),
+        day("acct-2", "2026-11-04T00:00:00.000Z", 6, "2026-11-05T00:05:00.000Z"),
+      ]),
+    ).toBe(98);
+  });
+
+  it("counts a day reported twice once, with its latest value", () => {
+    expect(
+      sumDailyCounts([
+        day("acct-1", "2026-11-04T00:00:00.000Z", 50, "2026-11-05T00:05:00.000Z"),
+        day("acct-1", "2026-11-04T00:00:00.000Z", 52, "2026-11-06T00:05:00.000Z"),
+        day("acct-1", "2026-11-04T00:00:00.000Z", 49, "2026-11-05T00:01:00.000Z"),
+      ]),
+    ).toBe(52);
+  });
+
+  it("is 0 with no counts", () => {
+    expect(sumDailyCounts([])).toBe(0);
   });
 });
 

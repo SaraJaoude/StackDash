@@ -13,7 +13,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { TablesInsert } from "@/lib/supabase/database.types";
 
 import type { NotificationStore } from "./dispatch";
-import { deliveryKey, type DeliveryAlert } from "./model";
+import { deliveryKey, sumDailyCounts, type DeliveryAlert } from "./model";
 
 /*
  * Postgres implementation of the notification jobs' store (#152, #153). Service role, called only
@@ -32,6 +32,8 @@ const CONNECTIONS_LIMIT = 100;
 const ACCOUNTS_LIMIT = 1000;
 const PROJECTS_LIMIT = 500;
 const DELIVERIES_LIMIT = 5000;
+// A weekly digest reads 7 days per account, and a restated day adds a row or two.
+const DAILY_COUNTS_LIMIT = 1000;
 
 // Timeline highlights in the digest, by event type: what each provider calls a deployment, a
 // signup, a star, and a payment (src/lib/adapters/*/events). PostgREST `like` patterns, where `*`
@@ -40,8 +42,13 @@ const HIGHLIGHT_PATTERNS = {
   deploys: ["*.deploy.succeeded", "*.deployment.succeeded"],
   signups: ["*.signup"],
   stars: ["github.stars.*"],
-  payments: ["stripe.charge.succeeded"],
+  payments: ["stripe.charge.succeeded", "polar.order.paid"],
 } as const;
+
+// Signups some providers report as one count per day rather than one event per person
+// (src/lib/adapters/posthog: the `posthog.signups.daily` usage metric, which carries the count its
+// timeline event only shows in the title). Summed from the snapshots instead of counted as events.
+const DAILY_SIGNUP_METRICS = ["posthog.signups.daily"] as const;
 
 export function createSupabaseNotificationStore(): NotificationStore {
   const db = createAdminClient();
@@ -99,6 +106,33 @@ export function createSupabaseNotificationStore(): NotificationStore {
       .or(patterns.map((pattern) => `type_id.like.${pattern}`).join(","));
     if (error) throw failure("highlights count", error);
     return count ?? 0;
+  }
+
+  /**
+   * Daily signup counts whose day ended in [start, end): the moment the provider's timeline event
+   * for that day is dated (`occurred_at` is the end of the day), so the digest counts the same days
+   * the timeline shows in its period. Every snapshot is retrieved after its day ended, which lets
+   * `snapshot_date` narrow the scan to the workspace's recent rows.
+   */
+  async function sumDailySignups(workspaceId: string, start: string, end: string): Promise<number> {
+    const { data, error } = await db
+      .from("usage_snapshots")
+      .select("external_account_id, period_start, value, retrieved_at")
+      .eq("workspace_id", workspaceId)
+      .in("metric_key", DAILY_SIGNUP_METRICS)
+      .gte("snapshot_date", start.slice(0, 10))
+      .gte("period_end", start)
+      .lt("period_end", end)
+      .order("retrieved_at", { ascending: true })
+      .limit(DAILY_COUNTS_LIMIT);
+    if (error) throw failure("daily signups read", error);
+    return sumDailyCounts(
+      data.flatMap((row) =>
+        row.value === null || row.period_start === null
+          ? []
+          : [{ accountId: row.external_account_id, periodStart: row.period_start, value: row.value, retrievedAt: row.retrieved_at }],
+      ),
+    );
   }
 
   return {
@@ -230,13 +264,14 @@ export function createSupabaseNotificationStore(): NotificationStore {
     },
 
     async countHighlights(workspaceId, start, end) {
-      const [deploys, signups, stars, payments] = await Promise.all([
+      const [deploys, signups, dailySignups, stars, payments] = await Promise.all([
         countLike(workspaceId, HIGHLIGHT_PATTERNS.deploys, start, end),
         countLike(workspaceId, HIGHLIGHT_PATTERNS.signups, start, end),
+        sumDailySignups(workspaceId, start, end),
         countLike(workspaceId, HIGHLIGHT_PATTERNS.stars, start, end),
         countLike(workspaceId, HIGHLIGHT_PATTERNS.payments, start, end),
       ]);
-      return { deploys, signups, stars, payments };
+      return { deploys, signups: signups + dailySignups, stars, payments };
     },
   };
 }
