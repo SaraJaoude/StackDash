@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PublicMetricId } from "./definitions";
 import { computePublicMetrics, STALE_AFTER_MS, STREAK_EVENT_LIMIT, type MetricValue, type SnapshotPoint, type SourceAccount } from "./engine";
-import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
+import { MemoryMetricStore, type MemoryAccount, type MemoryEvent } from "./memory-store";
 
 const AS_OF = new Date("2026-11-05T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -45,7 +45,7 @@ function event(typeId: string, at: Date, accountId = "acct-1"): MemoryEvent {
 
 async function compute(
   metricId: PublicMetricId,
-  data: { accounts?: SourceAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] },
+  data: { accounts?: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] },
   asOf: Date = AS_OF,
 ): Promise<MetricValue> {
   const store = new MemoryMetricStore(data.accounts ?? [account()], data.points ?? [], data.events ?? []);
@@ -62,6 +62,23 @@ describe("computePublicMetrics: shared rules", () => {
       status: "unavailable",
       reason: "not_connected",
     });
+  });
+
+  it("leaves out a disconnected (revoked) connection's accounts and keeps the rest", async () => {
+    const result = await compute("github-stars", {
+      accounts: [account(), account({ accountId: "acct-2" }), { ...account({ accountId: "acct-3" }), connectionStatus: "revoked" }],
+      points: [point({ value: 5 }), point({ accountId: "acct-2", value: 7 }), point({ accountId: "acct-3", value: 100 })],
+    });
+    expect(valueOf(result)).toBe(12);
+  });
+
+  it("answers not connected when the only connection is revoked, and keeps one that needs attention", async () => {
+    const points = [point({ value: 5 })];
+    expect(await compute("github-stars", { accounts: [{ ...account(), connectionStatus: "revoked" }], points })).toEqual({
+      status: "unavailable",
+      reason: "not_connected",
+    });
+    expect(valueOf(await compute("github-stars", { accounts: [{ ...account(), connectionStatus: "needs_attention" }], points }))).toBe(5);
   });
 
   it("returns results in request order and nothing for no requests", async () => {

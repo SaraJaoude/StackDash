@@ -27,7 +27,7 @@ A metric that cannot be computed honestly says why instead of showing a number:
 
 | Reason | Shown as | When |
 |---|---|---|
-| `not_connected` | Not connected | The project has no included account of the metric's provider |
+| `not_connected` | Not connected | The project has no included account of the metric's provider, or every connection behind those accounts is disconnected. A disconnected connection keeps its stored rows, but they stop feeding public numbers the moment it is disconnected |
 | `no_data` | No data yet | Connected, but nothing is stored yet, or the provider does not report it for this account |
 | `not_enough_history` | Not enough history yet | Stored data does not cover the whole window, for example a 30 day count from 3 days of data |
 | `stale` | Not synced in the last 2 days | The newest data behind the value is more than 48 hours old, or an account has never synced |

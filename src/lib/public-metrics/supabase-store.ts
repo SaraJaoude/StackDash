@@ -41,10 +41,14 @@ export function createSupabaseMetricStore(
           .eq("included", true)
           .order("id")
           .limit(ACCOUNTS_LIMIT),
+        // A disconnected (revoked) connection keeps its rows, but the user asked DevMacro to stop
+        // using them, so its accounts drop out and the metric reads "not connected". The scheduler
+        // and the daily summary skip revoked connections the same way (src/lib/jobs/store.ts).
         db
           .from("connections")
           .select("id, provider, created_at, last_synced_at, granted_scopes")
           .eq("workspace_id", workspaceId)
+          .neq("status", "revoked")
           .order("id")
           .limit(CONNECTIONS_LIMIT),
       ]);

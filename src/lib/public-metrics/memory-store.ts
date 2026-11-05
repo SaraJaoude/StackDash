@@ -1,21 +1,25 @@
+import type { ConnectionStatus } from "@/lib/dashboard/aggregate";
+
 import type { PublicMetricStore, SnapshotPoint, SourceAccount, StoredEvent } from "./engine";
 
 /**
  * In-memory `PublicMetricStore` for unit tests, with the same filters as the Supabase store:
- * inclusive snapshot dates, `from <= occurred_at < to` for counts, `occurred_at <= before` for
- * recent events, newest first.
+ * accounts of revoked connections left out, inclusive snapshot dates, `from <= occurred_at < to`
+ * for counts, `occurred_at <= before` for recent events, newest first.
  */
 export type MemoryEvent = StoredEvent & Readonly<{ accountId: string }>;
+/** An account with its connection's status; active when not given. */
+export type MemoryAccount = SourceAccount & Readonly<{ connectionStatus?: ConnectionStatus }>;
 
 export class MemoryMetricStore implements PublicMetricStore {
   constructor(
-    private readonly sourceAccounts: readonly SourceAccount[],
+    private readonly sourceAccounts: readonly MemoryAccount[],
     private readonly points: readonly SnapshotPoint[],
     private readonly events: readonly MemoryEvent[],
   ) {}
 
   async accounts(): Promise<readonly SourceAccount[]> {
-    return this.sourceAccounts;
+    return this.sourceAccounts.flatMap(({ connectionStatus, ...account }) => (connectionStatus === "revoked" ? [] : [account]));
   }
 
   async snapshots({ accountIds, metricKeys, fromDate, toDate }: Parameters<PublicMetricStore["snapshots"]>[0]) {
