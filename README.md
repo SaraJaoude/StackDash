@@ -3,9 +3,10 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, and Resend over OAuth (never
-with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace and
-project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a problem.
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, and Sentry over OAuth
+(never with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace
+and project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a
+problem.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Webhooks come after the MVP.
@@ -170,7 +171,7 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, and Supabase
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, and Sentry
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -197,9 +198,9 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    simulated connection on each tick (up to 100 jobs per tick), and prints one line per tick with
    the time and the number of jobs synced, events written, and failures. Press Ctrl+C to stop it
    after the current tick.
-4. Open the dashboard and the timeline: deployments, payments, signups, and forks trickle in,
-   spend and usage grow through the billing period, and the Resend daily quota crosses 75 and
-   90 percent each evening, which triggers allowance alerts if you add them.
+4. Open the dashboard and the timeline: deployments, payments, signups, forks, and Sentry issues
+   and releases trickle in, spend and usage grow through the billing period, and the Resend daily
+   quota crosses 75 and 90 percent each evening, which triggers allowance alerts if you add them.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
 sync rather than mix made-up data with real data: their next sync sends nothing to the provider
@@ -306,6 +307,9 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `GITHUB_APP_PRIVATE_KEY` | GitHub App private key, PEM with `\n` newlines | Secret | Optional (enables GitHub) |
 | `RESEND_CLIENT_ID` | Resend OAuth client ID | Server only | Optional (enables Resend) |
 | `RESEND_CLIENT_SECRET` | Resend OAuth client secret | Secret | Optional (enables Resend) |
+| `SENTRY_CLIENT_ID` | Sentry integration client ID | Server only | Optional (enables Sentry) |
+| `SENTRY_CLIENT_SECRET` | Sentry integration client secret, also signs token refreshes | Secret | Optional (enables Sentry) |
+| `SENTRY_INTEGRATION_SLUG` | Sentry integration slug | Server only | Optional (enables Sentry) |
 | `STRIPE_APP_CLIENT_ID` | Stripe App client ID | Server only | Optional (enables Stripe) |
 | `STRIPE_APP_SECRET_KEY` | Live secret key of the Stripe App's account, used for the token exchange | Secret | Optional (enables Stripe) |
 | `STRIPE_APP_TEST_SECRET_KEY` | Test mode secret key for test mode installs | Secret | Optional |
@@ -391,7 +395,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, sentry, fake, simulated) and registry
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
