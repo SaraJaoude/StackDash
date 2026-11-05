@@ -4,7 +4,7 @@ import { z } from "zod";
  * Public project pages (#150): the address and the slug rules, shared by the settings form (limits
  * and hints), the Server Actions (validation), the proxy's rewrite, the page, and the sitemap.
  * Client-safe: no data access. The database checks the same format in project_pages_slug_format
- * (20261105034459_project_pages.sql).
+ * (20261105120300_project_pages.sql).
  */
 
 export const PAGE_SLUG_MAX = 40;
