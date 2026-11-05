@@ -1,20 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { connection } from "next/server";
 
 import { Wordmark } from "@/components/wordmark";
 
 export const metadata: Metadata = { title: "Page not found" };
 
-// Next.js answers every URL that matches no route with this page, including unmatched paths under
-// /app, /w, and /auth, where the proxy enforces the nonce CSP (src/proxy.ts). A prerendered page
-// carries no nonce and its scripts would be blocked, so this one renders per request like the app
-// entry segments: it awaits `connection()` before anything renders and allows an empty static
-// shell (#125, #197). The cost: every 404 on the site is a render instead of a cached file.
-export const instant = false;
-
-export default async function NotFound() {
-  await connection();
+// Next.js answers a URL that matches no route with this page, prerendered at build time. It also
+// replaces the built-in not-found page, whose inline style block carries no CSP nonce. Unmatched
+// paths under /app and /auth, where the proxy enforces the nonce policy (src/proxy.ts), never reach
+// the prerendered copy: catch-all segments there call notFound() in a per-request render, which
+// shows this page with the nonce (#197). It must stay static: Next.js renders it into every route
+// as the root not-found boundary, so request data here would fail the prerendered docs.
+export default function NotFound() {
   return (
     <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-xl rounded-xl border border-line bg-panel px-6 py-10 sm:px-10">

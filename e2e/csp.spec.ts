@@ -4,10 +4,11 @@ import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
-// render their HTML per request so Next.js can stamp the nonce on every script. So does the root
-// not-found page, which answers unmatched paths under the proxied prefixes (#197). The rest of the
-// site keeps a static policy (next.config.ts). CI runs these against the production build, where a
-// prerendered page would carry unnonced inline scripts and never hydrate.
+// render their HTML per request so Next.js can stamp the nonce on every script. Paths under /app,
+// /w/<slug>, and /auth that match no page reach a catch-all segment that renders the not-found page
+// per request too (#197). The rest of the site, the prerendered not-found page included, keeps a
+// static policy (next.config.ts). CI runs these against the production build, where a prerendered
+// page under the nonce policy would carry unnonced inline scripts and never hydrate.
 
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
@@ -82,8 +83,8 @@ async function expectHydrated(page: Page): Promise<void> {
 }
 
 /**
- * An unmatched path under a proxied prefix gets the enforced nonce policy and the root not-found
- * page, which must render per request to carry the nonce (#197).
+ * A path under a proxied prefix that matches no page gets the enforced nonce policy and a not-found
+ * page rendered per request, so it carries the nonce (#197).
  */
 async function expectNotFoundPage(page: Page, path: string): Promise<void> {
   const response = await page.goto(path);
@@ -147,6 +148,21 @@ test.describe("signed out", () => {
   test("an unmatched auth path answers 404 with a not-found page that hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
     await expectNotFoundPage(page, "/auth/no-such-page");
+    expect(violations).toEqual([]);
+  });
+
+  test("unmatched paths outside the proxy answer 404 under the static policy and hydrate", async ({ page }) => {
+    const violations = await watchViolations(page);
+    // /w and /auth have no page of their own and sit outside the proxy matcher (`:path+`).
+    for (const path of ["/no-such-page", "/w", "/auth"]) {
+      await test.step(path, async () => {
+        const response = await page.goto(path);
+        expect(response?.status()).toBe(404);
+        expect(response?.headers()["content-security-policy"]).toBe(BASELINE_CSP);
+        await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
+        await expectHydrated(page);
+      });
+    }
     expect(violations).toEqual([]);
   });
 });
