@@ -27,10 +27,15 @@ import { canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
 type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];
 
+// Allows this segment an empty static shell; the layout awaits `connection()` below (#125).
+export const instant = false;
+
 /**
- * Signed-in shell for one workspace. The layout itself never awaits: the wordmark and the
- * fallbacks prerender into the static shell, and everything that needs the session or the slug
- * streams in behind its own Suspense boundary.
+ * Signed-in shell for one workspace. Its HTML renders per request, never from a prerendered shell:
+ * the enforced CSP nonce (src/proxy.ts) can only be stamped on scripts rendered per request, and
+ * a build-time shell's inline scripts would be blocked, so the page would never hydrate (#125).
+ * Inside it, everything that needs the session or the slug still streams in behind its own
+ * Suspense boundary, and navigations between the pages of a workspace keep their skeletons.
  *
  * The layout does not call `notFound()`. A layout's own `not-found.tsx` cannot catch it, so the
  * pages under it call `requireWorkspace`, and the not-found page renders inside this shell.
@@ -38,7 +43,8 @@ type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];
  * ArrivalProvider spans the header and the page, so the live indicator, the components that mark
  * arriving data, and the one announcement per refresh share what arrived (#171).
  */
-export default function WorkspaceLayout({ children, params }: LayoutProps<"/w/[workspace]">) {
+export default async function WorkspaceLayout({ children, params }: LayoutProps<"/w/[workspace]">) {
+  await connection();
   return (
     <ArrivalProvider>
       <div className="flex flex-1 flex-col">
