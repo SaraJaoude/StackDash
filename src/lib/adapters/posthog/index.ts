@@ -9,7 +9,7 @@ import {
   ProviderUnavailableError,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
-import type { AdapterMetric, Timeframe } from "../metrics";
+import { UnitSchema, type AdapterMetric, type Timeframe } from "../metrics";
 import {
   Secret,
   type ExternalAccount,
@@ -80,8 +80,6 @@ export const NEAR_LIMIT_RATIO = 0.8;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PRODUCT_NAME_MAX = 60;
-// Same rule as the metric model's unit field.
-const UNIT_PATTERN = /^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/;
 const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 
 // Shown to the user as the estimate's pricing source, so it names what PostHog calls the figure and
@@ -316,7 +314,7 @@ function unitOf(product: BillingProduct): string {
   const unit = product.unit?.trim();
   if (unit === undefined) return "units";
   const plural = /^[a-z]+(?: [a-z]+)*$/.test(unit) && !unit.endsWith("s") ? `${unit}s` : unit;
-  return plural.length <= 32 && UNIT_PATTERN.test(plural) ? plural : "units";
+  return UnitSchema.safeParse(plural).success ? plural : "units";
 }
 
 /** Metered products with a key DevMacro can store: `usage_key` set and a lowercase type. */
