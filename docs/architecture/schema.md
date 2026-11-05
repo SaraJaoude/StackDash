@@ -18,8 +18,11 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
 | `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
 | `20261105023129_published_metrics.sql` | `public_metric_id`, `published_metric_rounding`, `published_metrics`, and the publish, unpublish, and public read functions |
+| `20261105120000_alert_delivery_job_kinds.sql` | `sync_job_kind` gains `alert_dispatch` and `digest` |
+| `20261105120100_alert_delivery.sql` | `notification_preferences`, `notification_destinations`, `notification_destination_secrets`, `alert_rule_destinations`, `notification_deliveries`, and the delivery fields on `triggered_alerts` |
 | `20261105120300_provider_sentry.sql` | `provider_id` gains `sentry` |
 | `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
+| `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -54,6 +57,7 @@ erDiagram
   connections |o--o{ alert_rules : "scope"
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
   projects ||--o{ published_metrics : "publishes"
+  projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
   workspace_members ||--o| notification_preferences : "email setting"
   workspaces ||--o{ notification_destinations : "channels"
@@ -117,7 +121,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
-| `published_metrics` | viewer | none (service role functions, after an owner or admin check) |
+| `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
@@ -183,6 +187,7 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
 | `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
+| `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 | `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
@@ -199,6 +204,16 @@ Nothing is aggregated in the MVP.
 - `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
 - `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.
 - Not published to Realtime: the page that changes a publication refreshes itself, and the timeline hears the audit event through `activity_events`.
+
+## Project pages (#150)
+
+`project_pages` holds a project's public page, one row per project, created the first time an owner or admin turns the page on. What the page shows is in [Public metrics](public-metrics.md#project-pages).
+
+- Nothing is public by default: a project has no row, and so no page, until someone turns it on. Turning it off sets `enabled = false` and keeps the row, so the slug stays reserved for that project.
+- The address is `/@<workspace slug>/<page slug>`. The workspace part is the immutable random slug, and `project_pages_workspace_slug_key` makes the page slug unique within the workspace, so no tenant can take another's old address. `project_pages_slug_format` allows 1 to 40 lowercase letters and numbers with single hyphens between words.
+- Members read it as viewers. Nobody writes through the Data API: `save_project_page` (turn on, or change the slug or the indexing choice) and `disable_project_page` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.project_page_enabled`, `devmacro.project_page_updated`, or `devmacro.project_page_disabled` timeline event in the same transaction.
+- `public_project_page(workspace_slug, page_slug)` returns the page an address answers with: on, and with at least one live row in `published_metrics`. An unknown address, a page that is off, and a page with nothing published all return nothing, so the route answers the same 404. `public_project_page_sitemap(limit)` lists the pages that pass the same rule and are `indexable`, newest change first. Both are service role only.
+- Workspace and project deletes cascade; `updated_by` is set to null when that user's account is deleted.
 
 ## Review against later plans
 

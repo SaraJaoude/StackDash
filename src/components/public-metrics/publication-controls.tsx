@@ -3,22 +3,26 @@
 import { createContext, use, useActionState, useId, useRef, useState, type ReactNode } from "react";
 
 import {
+  disableProjectPage,
   publishMetric,
   publishSelfReported,
+  saveProjectPage,
   unpublishEverything,
   unpublishMetric,
   type PublicMetricActionResult,
 } from "@/app/w/[workspace]/projects/[projectId]/public-metrics/actions";
 import { inputClass, primaryButtonClass, smallButtonClass } from "@/components/alerts/form-controls";
 import { GuardedButton } from "@/components/guarded-button";
+import { PAGE_SLUG_MAX } from "@/lib/public-metrics/project-page";
 
 import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField } from "./self-reported-rules";
 
 /*
- * Controls on the public metrics page (#148). A publish swaps its form for an Unpublish button and
- * the reverse, so success messages live in one polite live region above the list (it outlives the
- * control that triggered it) and focus moves to the section heading named by the caller rather
- * than being dropped. Failures stay beside the control, in an assertive region.
+ * Controls on the public metrics page (#148) and its project page settings (#150). A publish swaps
+ * its form for an Unpublish button and the reverse, so success messages live in one polite live
+ * region above the list (it outlives the control that triggered it) and focus moves to the section
+ * heading named by the caller rather than being dropped. Failures stay beside the control, in an
+ * assertive region.
  */
 
 type Announce = (message: string, focusId: string) => void;
@@ -364,6 +368,122 @@ export function SelfReportedForm({
         </button>
         <Failure state={state} />
       </div>
+    </form>
+  );
+}
+
+/**
+ * Turns the project page on with an address and an indexing choice, or saves new ones while it is
+ * on. Controlled, so a refused address stays in its field to be corrected.
+ */
+export function ProjectPageForm({
+  workspaceSlug,
+  projectId,
+  initialSlug,
+  initialIndexable,
+  enabled,
+  focusId,
+}: {
+  workspaceSlug: string;
+  projectId: string;
+  initialSlug: string;
+  initialIndexable: boolean;
+  enabled: boolean;
+  focusId: string;
+}) {
+  const announce = use(AnnounceContext);
+  if (announce === null) throw new Error("Publication controls must be rendered inside PublicationAnnouncer");
+  const baseId = useId();
+  const slugId = `${baseId}-slug`;
+  const indexableId = `${baseId}-indexable`;
+  const [slug, setSlug] = useState(initialSlug);
+  const [indexable, setIndexable] = useState(initialIndexable);
+  const [state, formAction, pending] = useActionState<PublicMetricActionResult | null, FormData>(async (previous, formData) => {
+    const result = await saveProjectPage(previous, formData);
+    if (result.ok) announce(result.message, focusId);
+    else if (result.fieldErrors?.slug !== undefined) document.getElementById(slugId)?.focus();
+    return result;
+  }, null);
+  const error = state !== null && !state.ok ? state.fieldErrors?.slug : undefined;
+  return (
+    <form action={formAction} noValidate className="space-y-4">
+      <input type="hidden" name="workspace" value={workspaceSlug} />
+      <input type="hidden" name="projectId" value={projectId} />
+      <div>
+        <label htmlFor={slugId} className="block text-sm font-medium">
+          Address
+        </label>
+        <p id={`${slugId}-hint`} className="mt-1 text-sm text-muted">
+          The page opens at <span className="font-mono">/@{workspaceSlug}/</span> followed by this. Lowercase letters,
+          numbers, and hyphens.
+        </p>
+        <input
+          id={slugId}
+          name="slug"
+          required
+          maxLength={PAGE_SLUG_MAX}
+          autoComplete="off"
+          spellCheck={false}
+          value={slug}
+          onChange={(event) => setSlug(event.target.value)}
+          aria-invalid={error === undefined ? undefined : true}
+          aria-describedby={error === undefined ? `${slugId}-hint` : `${slugId}-hint ${slugId}-error`}
+          className={`${inputClass} mt-2 w-full max-w-sm font-mono ${error === undefined ? "border-line-strong" : "border-danger"}`}
+        />
+        {error === undefined ? null : (
+          <p id={`${slugId}-error`} className="mt-2 text-sm text-danger">
+            <span className="font-medium">Error: </span>
+            {error}
+          </p>
+        )}
+      </div>
+      <div>
+        <label htmlFor={indexableId} className="flex min-h-6 cursor-pointer items-center gap-2 text-sm font-medium">
+          <input
+            id={indexableId}
+            type="checkbox"
+            name="indexable"
+            checked={indexable}
+            onChange={(event) => setIndexable(event.target.checked)}
+            aria-describedby={`${indexableId}-hint`}
+            className="size-4 shrink-0 accent-accent"
+          />
+          Let search engines index this page
+        </label>
+        <p id={`${indexableId}-hint`} className="mt-1 text-sm text-muted">
+          When this is off, the page asks search engines not to index it and stays out of the sitemap. Anyone with the
+          address can still open it.
+        </p>
+      </div>
+      <div>
+        <button type="submit" disabled={pending} className={primaryButtonClass}>
+          {pending ? "Saving" : enabled ? "Save page settings" : "Turn on the project page"}
+        </button>
+        <Failure state={state} />
+      </div>
+    </form>
+  );
+}
+
+/** Turns the project page off. Safe to undo, so it asks for no confirmation. */
+export function DisableProjectPageButton({
+  workspaceSlug,
+  projectId,
+  focusId,
+}: {
+  workspaceSlug: string;
+  projectId: string;
+  focusId: string;
+}) {
+  const [state, formAction, pending] = useAnnouncedAction(disableProjectPage, focusId);
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="workspace" value={workspaceSlug} />
+      <input type="hidden" name="projectId" value={projectId} />
+      <button type="submit" disabled={pending} className={smallButtonClass}>
+        {pending ? "Turning off the project page" : "Turn off the project page"}
+      </button>
+      <Failure state={state} />
     </form>
   );
 }
