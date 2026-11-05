@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
@@ -102,7 +103,10 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           />
         )
       ) : (
-        <EventList events={page.events} now={now} />
+        // The list's URL is its scope: new filters or another page reset what counts as arrived.
+        <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
+          <EventList events={page.events} now={now} />
+        </ArrivalScope>
       )}
 
       {page.nextCursor === null && !showNewestLink ? null : (

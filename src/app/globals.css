@@ -111,10 +111,11 @@ summary {
   animation: window-in 1.3s cubic-bezier(0.16, 1, 0.3, 1) 0.25s both;
 }
 
-/* Usage bars grow from empty to their value. */
+/* Usage bars grow to their value from empty, or in the app from --bar-from: the old width as a
+ * fraction of the new one (#171). */
 @keyframes bar-fill {
   from {
-    transform: scaleX(0);
+    transform: scaleX(var(--bar-from, 0));
   }
 }
 
@@ -126,7 +127,8 @@ summary {
 /*
  * Numbers that count up from zero. --count is registered as an integer so it interpolates, and
  * CSS counters print it. The element's real value sits in data-value and in screen-reader text,
- * so a browser without @property, round(), or mod() simply shows the final number.
+ * so a browser without @property, round(), or mod() simply shows the final number. In the app a
+ * changed value counts from its old value, --count-from (#171).
  */
 @property --count {
   syntax: "<integer>";
@@ -136,7 +138,7 @@ summary {
 
 @keyframes count-up {
   from {
-    --count: 0;
+    --count: var(--count-from, 0);
   }
 }
 
@@ -233,12 +235,13 @@ summary {
   }
 }
 
+/* Warning colored on the landing page; a changed card in the app glows in --glow (#171). */
 @keyframes alert-glow {
   from {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 45%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--glow, var(--warning)) 45%, transparent);
   }
   to {
-    box-shadow: 0 0 0 10px color-mix(in srgb, var(--warning) 0%, transparent);
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--glow, var(--warning)) 0%, transparent);
   }
 }
 
@@ -348,6 +351,59 @@ summary {
   animation: live-pulse 1.6s ease-out infinite;
 }
 
+/*
+ * Arriving data in the workspace (#171): the landing page's keyframes, shortened to a second or
+ * less and run once per arrival. Only transform, opacity, filter, box-shadow, background, and the
+ * --count property animate, so nothing changes layout. The components render each class only
+ * while the item is highlighted (ARRIVAL_HIGHLIGHT_MS in src/lib/realtime/arrivals.ts), and under
+ * reduced motion the same elements become a static highlight instead.
+ */
+.arrival-enter {
+  animation: feed-content-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* The severity-colored edge and wash of a new timeline event; the row sets --flash. */
+.arrival-flash {
+  animation: feed-flash 1s ease-out both;
+}
+
+/* One soft pulse around a card whose value changed. */
+.arrival-pulse {
+  --glow: var(--accent);
+  animation: alert-glow 1s ease-out both;
+}
+
+.arrival-count {
+  --count: var(--count-to);
+  animation: count-up 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.arrival-bar {
+  transform-origin: left;
+  animation: bar-fill 0.9s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Today's segment of a trend line draws in left to right: the clip over it grows like a usage bar,
+ * with the sparkline's easing. A dash-offset draw would fight the estimate dashes and the
+ * non-scaling stroke. */
+.arrival-draw {
+  transform-box: fill-box;
+  transform-origin: left;
+  animation: bar-fill 0.8s cubic-bezier(0.65, 0, 0.35, 1) both;
+}
+
+.arrival-ping {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+  animation: spark-ping 1s ease-out forwards;
+}
+
+/* Once per arriving batch, never looping: the dot is steady between arrivals. */
+.arrival-live-pulse {
+  animation: live-pulse 1s ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -363,8 +419,32 @@ summary {
   .feed-enter,
   .feed-exit,
   .feed-arrival,
-  .live-pulse {
+  .live-pulse,
+  .arrival-enter,
+  .arrival-count,
+  .arrival-bar,
+  .arrival-draw,
+  .arrival-live-pulse {
     animation: none;
+  }
+  .arrival-live-pulse {
+    display: none;
+  }
+  /* A static highlight in place of each arrival's motion; the component removes it on a timer. */
+  .arrival-flash {
+    animation: none;
+    background-color: var(--accent-soft);
+    box-shadow: inset 2px 0 0 var(--flash);
+  }
+  .arrival-pulse {
+    animation: none;
+    background-color: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .arrival-ping {
+    animation: none;
+    opacity: 1;
+    transform: scale(2);
   }
   /* The ping is decoration that only exists while it animates. */
   .spark-ping {
