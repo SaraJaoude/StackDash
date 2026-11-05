@@ -17,6 +17,8 @@ import {
   type SyncResult,
 } from "@/lib/adapters/types";
 import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters/vercel";
+import { utcDate } from "@/lib/jobs/ingest";
+import { londonDayStart } from "@/lib/timeline/query";
 
 import {
   isProviderSimulationEnabled,
@@ -566,9 +568,15 @@ describe("the simulated week (#166)", () => {
       }
       return deploys;
     };
-    // The half hour before midnight UTC, which is all the demo seed's daily step reads.
-    const lastHalfHour = (deploys: ActivityEvent[], day: number) =>
-      deploys.filter((event) => event.occurredAt.getTime() >= day + DAY_MS - 30 * MINUTE_MS).length;
+    // The half hour before London midnight, which is all the demo seed's daily step reads: 22:30 to
+    // 23:00 UTC in summer, 23:30 to 00:00 UTC in winter.
+    const lastHalfHour = (deploys: ActivityEvent[], day: number) => {
+      const londonMidnight = londonDayStart(utcDate(new Date(day + DAY_MS))).getTime();
+      return deploys.filter((event) => {
+        const at = event.occurredAt.getTime();
+        return at >= londonMidnight - 30 * MINUTE_MS && at < londonMidnight;
+      }).length;
+    };
 
     const [launchUsage, weekdayUsage, weekendUsage] = await Promise.all([launch, weekday, weekend].map(dailyUsage));
     const [launchDeploys = [], weekdayDeploys = [], weekendDeploys = []] = await Promise.all([launch, weekday, weekend].map(dailyDeploys));

@@ -23,10 +23,12 @@ import {
  * Simulated Vercel team: about 60 deployments finish on a weekday (mostly succeeded, some
  * failed), and month-to-date spend grows hour by hour. Weekends run at under a third of that, and
  * one launch day a month runs at five times it, deploys and usage together, so the spend spike
- * lines up with the burst of deploys (#166). The release itself fills the last two UTC hours of
- * the launch day with deploys at fifteen times the weekday pace, which is also the half hour the
- * demo seed's daily step reads. Deployments go through the real adapter's `deploymentEvent`, so
- * titles, severities, and dedupe keys match a real sync.
+ * lines up with the burst of deploys (#166). The release itself fills the launch day from 22:00
+ * UTC to midnight with deploys at fifteen times the weekday pace. It starts at 22:00 so that the
+ * half hour the demo seed's daily step reads, the one before London midnight (22:30 to 23:00 UTC
+ * in summer, 23:30 to 00:00 UTC in winter), lands inside it in both seasons. Deployments go
+ * through the real adapter's `deploymentEvent`, so titles, severities, and dedupe keys match a
+ * real sync.
  */
 
 const PROJECTS = ["web", "docs", "api"] as const;
