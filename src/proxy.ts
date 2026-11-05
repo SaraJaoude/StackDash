@@ -17,16 +17,12 @@ function formActionSources(supabaseOrigin: string): string {
   return `'self' ${supabaseOrigin} https://github.com`;
 }
 
-// Enforced on every proxied response: the directives that do not depend on scripts. The same as
-// the static landing policy in next.config.ts apart from form-action (e2e/auth.spec.ts asserts
-// both). frame-ancestors is ignored in report-only mode, so it must stay in the enforced header.
-function enforcedPolicy(supabaseOrigin: string): string {
-  return `frame-ancestors 'none'; base-uri 'self'; form-action ${formActionSources(supabaseOrigin)}; object-src 'none'`;
-}
-
 /**
- * Builds the per-request nonce policy. Next.js reads the nonce from the request's CSP header and
- * stamps it on the scripts it renders per request, so no page code has to handle it.
+ * Builds the per-request nonce policy, enforced on every proxied page. Next.js reads the nonce from
+ * the request's CSP header and stamps it on the scripts it renders per request, so no page code has
+ * to handle it. That only works for HTML rendered per request: a static shell prerendered at build
+ * time carries no nonce, so every app route renders its HTML per request (`instant = false` plus
+ * `connection()` at the top of each app entry segment; decision on issue #125).
  */
 function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   const isDev = process.env.NODE_ENV === "development";
@@ -120,13 +116,7 @@ export async function proxy(request: NextRequest) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("Content-Security-Policy", policy);
     response = NextResponse.next({ request: { headers: requestHeaders } });
-    // Report-only for now: with Cache Components the static shell is prerendered at build time,
-    // so its inline scripts carry no nonce, and enforcing the nonce policy stops app pages from
-    // hydrating (the Next.js CSP guide notes partial prerendering is incompatible with nonces).
-    // There is no reporting endpoint yet, so violations only show in the browser console; issue
-    // #125 tracks collecting reports and moving to enforcement.
-    response.headers.set("Content-Security-Policy-Report-Only", policy);
-    response.headers.set("Content-Security-Policy", enforcedPolicy(supabaseUrl.origin));
+    response.headers.set("Content-Security-Policy", policy);
   }
 
   for (const { name, value, options } of cookiesToApply) response.cookies.set(name, value, options);

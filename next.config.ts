@@ -10,10 +10,10 @@ const securityHeaders = [
 
 // Static CSP for routes outside the proxy (the landing page, API routes, assets). It covers
 // framing, base, form, and plugin policy only: a script-src policy needs per-request nonces, which
-// would make the static landing page dynamic. src/proxy.ts enforces the same policy on app routes
-// (its enforcedPolicy), except that form-action there also allows the no-JavaScript sign-in
-// redirect chain; e2e/auth.spec.ts asserts both. It adds the nonce policy as report-only, so this
-// header is kept off the proxied paths rather than sent twice.
+// would make the static landing page dynamic. src/proxy.ts enforces a full nonce policy on app
+// routes with the same four directives, except that form-action there also allows the
+// no-JavaScript sign-in redirect chain; e2e/csp.spec.ts asserts both. This header is kept off the
+// proxied paths, because a second policy would be enforced alongside the nonce policy.
 const staticCsp = {
   key: "Content-Security-Policy",
   value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",

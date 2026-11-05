@@ -23,6 +23,10 @@ import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/access";
 
 export const metadata: Metadata = { title: "Account" };
 
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
+
 const numberFormat = new Intl.NumberFormat("en-US");
 
 function count(value: number, one: string, many: string): string {
@@ -30,10 +34,11 @@ function count(value: number, one: string, many: string): string {
 }
 
 /**
- * The signed-in account page (#42). The shell prerenders; everything that needs the session
- * streams in behind Suspense, as Cache Components requires.
+ * The signed-in account page (#42). The header renders first; everything that needs the session
+ * streams in behind Suspense.
  */
-export default function AccountPage() {
+export default async function AccountPage() {
+  await connection();
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-line">
