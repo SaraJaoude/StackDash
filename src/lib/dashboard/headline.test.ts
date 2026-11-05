@@ -12,7 +12,6 @@ import {
   DEPLOY_EVENT_TYPES,
   headlineComparisonText,
   headlineWindows,
-  listNames,
   moneyFormatter,
   SIGNUP_EVENT_TYPES,
   windowDescription,
@@ -424,15 +423,6 @@ describe("headline copy", () => {
   it("describes the windows as UTC dates, a single day once", () => {
     expect(windowDescription(headlineWindows("week", NOW))).toBe("2026-11-02 to 2026-11-05 in UTC, compared with 2026-10-26 to 2026-10-29.");
     expect(windowDescription(headlineWindows("week", new Date("2026-11-02T08:00:00.000Z")))).toBe("2026-11-02 in UTC, compared with 2026-10-26.");
-  });
-
-  it.each([
-    [[], ""],
-    [["Vercel"], "Vercel"],
-    [["GitHub", "Vercel"], "GitHub and Vercel"],
-    [["GitHub", "Stripe", "Vercel"], "GitHub, Stripe, and Vercel"],
-  ])("lists %j as %j", (values, expected) => {
-    expect(listNames(values)).toBe(expected);
   });
 
   it("explains cost per signup with exactly the providers in it and the ones left out", () => {

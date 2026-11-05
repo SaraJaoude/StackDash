@@ -9,7 +9,6 @@ import {
   headlineChoiceLabel,
   headlineComparisonText,
   headlineTitle,
-  listNames,
   moneyFormatter,
   windowDescription,
   type ComparisonGap,
@@ -23,7 +22,7 @@ import {
   type MoneyFigure,
   type MoneyLine,
 } from "@/lib/dashboard/headline";
-import { formatQuantity } from "@/lib/format";
+import { formatList, formatQuantity } from "@/lib/format";
 
 import { InfoTooltip } from "./info-tooltip";
 import { ProvenanceBadge, Unavailable } from "./value-meta";
@@ -59,13 +58,13 @@ function UnavailableFigure({ reason }: { reason: string }) {
 function sourcesUnavailable(sources: FigureSources, noun: string): string {
   return sources.unavailable.length === 0
     ? `No provider in this view reports ${noun}.`
-    : `${listNames(sources.unavailable)} could not report ${noun} for this window.`;
+    : `${formatList(sources.unavailable)} could not report ${noun} for this window.`;
 }
 
 /** "From Vercel. Unavailable from Supabase, not counted." */
 function SourcesLine({ sources }: { sources: FigureSources }) {
-  const parts = [`From ${listNames(sources.included)}.`];
-  if (sources.unavailable.length > 0) parts.push(`Unavailable from ${listNames(sources.unavailable)}, not counted.`);
+  const parts = [`From ${formatList(sources.included)}.`];
+  if (sources.unavailable.length > 0) parts.push(`Unavailable from ${formatList(sources.unavailable)}, not counted.`);
   return <p className="text-xs leading-5 text-muted">{parts.join(" ")}</p>;
 }
 
@@ -169,7 +168,7 @@ const COST_PER_SIGNUP_MISSING = {
 /** "Leaves out spend from Supabase, unavailable for this window." for each side that left one out. */
 function LeftOut({ side, names }: { side: string; names: readonly string[] }) {
   if (names.length === 0) return null;
-  return <p className="text-xs leading-5 text-muted">{`Leaves out ${side} from ${listNames(names)}, unavailable for this window.`}</p>;
+  return <p className="text-xs leading-5 text-muted">{`Leaves out ${side} from ${formatList(names)}, unavailable for this window.`}</p>;
 }
 
 function DeploysExtra({ figure }: { figure: DeploysFigure }) {
@@ -252,7 +251,7 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
 
       {strip.otherBillingPeriods.length > 0 ? (
         <p className="mt-3 max-w-3xl text-xs leading-5 text-muted">
-          {`Worked out from daily readings for this window, not from billing periods. ${listNames(strip.otherBillingPeriods)} ${
+          {`Worked out from daily readings for this window, not from billing periods. ${formatList(strip.otherBillingPeriods)} ${
             strip.otherBillingPeriods.length === 1 ? "bills" : "bill"
           } over a different period, so these figures will not match an invoice.`}
         </p>

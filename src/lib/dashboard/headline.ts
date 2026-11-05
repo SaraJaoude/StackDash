@@ -23,7 +23,7 @@
  *   window as well, and the previous figure is taken over those same connections.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { formatMoney, formatQuantity } from "@/lib/format";
+import { formatList, formatMoney, formatQuantity } from "@/lib/format";
 import { divideMinorUnits } from "@/lib/money";
 import { providerName } from "@/lib/providers";
 
@@ -564,12 +564,6 @@ export function windowDescription(windows: HeadlineWindows): string {
   return `${rangeText(windows.current)} in UTC, compared with ${rangeText(windows.previous)}.`;
 }
 
-/** "A, B, and C". */
-export function listNames(values: readonly string[]): string {
-  if (values.length <= 2) return values.join(" and ");
-  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1) ?? ""}`;
-}
-
 /** Why there is no comparison, when the figure knows more than "unavailable". */
 export type ComparisonGap =
   | Readonly<{ reason: "providers"; names: readonly string[] }>
@@ -588,7 +582,7 @@ export function headlineComparisonText(
   const previous = WINDOW_WORDS[kind].previous;
   if (comparison.status === "unavailable") {
     if (gap?.reason === "providers" && gap.names.length > 0) {
-      return `No comparison: ${listNames(gap.names)} could not report ${previous}`;
+      return `No comparison: ${formatList(gap.names)} could not report ${previous}`;
     }
     if (gap?.reason === "no_signups") return `No comparison: there were no signups on ${previous}`;
     return `No comparison: ${previous} are unavailable`;
@@ -613,13 +607,13 @@ export function moneyFormatter(currency: string): (value: number) => string {
 export function costPerSignupExplanation(figure: CostPerSignupSources): string {
   const parts: string[] = [];
   if (figure.spendFrom.length > 0 && figure.signupsFrom.length > 0) {
-    parts.push(`Spend from ${listNames(figure.spendFrom)}, divided by signups from ${listNames(figure.signupsFrom)}.`);
+    parts.push(`Spend from ${formatList(figure.spendFrom)}, divided by signups from ${formatList(figure.signupsFrom)}.`);
   }
   if (figure.spendUnavailable.length > 0) {
-    parts.push(`Leaves out spend from ${listNames(figure.spendUnavailable)}, unavailable for this window.`);
+    parts.push(`Leaves out spend from ${formatList(figure.spendUnavailable)}, unavailable for this window.`);
   }
   if (figure.signupsUnavailable.length > 0) {
-    parts.push(`Leaves out signups from ${listNames(figure.signupsUnavailable)}, unavailable for this window.`);
+    parts.push(`Leaves out signups from ${formatList(figure.signupsUnavailable)}, unavailable for this window.`);
   }
   parts.push("Each currency on its own, verified and estimated spend apart, rounded once to the currency's smallest unit.");
   return parts.join(" ");
