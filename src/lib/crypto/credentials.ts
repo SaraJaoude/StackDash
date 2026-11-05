@@ -136,8 +136,9 @@ export function needsRotation(keyId: string): boolean {
 // HKDF info prefixes (RFC 5869, `crypto.hkdfSync`): one namespace per kind of derived key, each
 // versioned, so a key derived for one purpose never equals an encryption key or a key derived for
 // another purpose, and changing what a key is used for is a version bump, not a key rotation. The
-// two prefixes differ from their ninth byte, so no purpose string makes them collide. The signing
-// prefix is fixed: changing it would invalidate every signature already sent.
+// two prefixes differ in the first word after the shared `devmacro `, so no purpose string makes
+// them collide. The signing prefix is fixed: changing it would invalidate every signature already
+// sent.
 const SIGNING_INFO_PREFIX = "devmacro signing v1:";
 const DERIVED_INFO_PREFIX = "devmacro key v1:";
 
