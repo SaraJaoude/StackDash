@@ -108,6 +108,10 @@ export const timelineEvents = [
   },
 ] as const;
 
+// No `category` (#173): `customer.created` and `customer.subscription.created` are billing records,
+// made at checkout or by an invoice whether or not someone signed up to the product, and a free
+// signup makes neither. Counting them would mix payers into signups and count people twice
+// beside the product's own auth provider, so the headline's signups leave them out.
 const eventTypes: readonly EventType[] = timelineEvents.map((event) => ({
   id: `stripe.${event.stripeType}`,
   label: event.label,
