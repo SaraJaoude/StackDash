@@ -14,7 +14,7 @@ import {
   rememberWorkspace,
   type WorkspaceMembership,
 } from "@/lib/data/workspaces";
-import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 import { roleLabel } from "@/lib/workspaces/permissions";
 
 type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];

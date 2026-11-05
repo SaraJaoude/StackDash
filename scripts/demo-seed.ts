@@ -37,11 +37,7 @@ import { createJobDeps } from "@/lib/jobs/queue";
 import type { SyncDeps } from "@/lib/jobs/sync-connection";
 import { providerName } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-/** `workspacePath` from src/lib/workspaces/access.ts, which pulls in Next.js and cannot load in a script. */
-function workspaceUrl(origin: string, slug: string, section: "dashboard" | "timeline"): string {
-  return `${origin}/w/${slug}/${section}`;
-}
+import { workspacePath } from "@/lib/workspaces/paths";
 
 const USAGE = "Usage: npm run demo:seed -- [--member you@example.com] [--seed <text>]";
 const DEFAULT_SEED = "devmacro-demo";
@@ -132,8 +128,8 @@ async function main(): Promise<number> {
   );
   console.log("");
   console.log(`Demo workspace ready: ${DEMO_HISTORY_DAYS} days of simulated ${providers}.`);
-  console.log(`  Dashboard: ${workspaceUrl(origin, workspace.slug, "dashboard")}`);
-  console.log(`  Timeline:  ${workspaceUrl(origin, workspace.slug, "timeline")}`);
+  console.log(`  Dashboard: ${origin}${workspacePath(workspace.slug, "dashboard")}`);
+  console.log(`  Timeline:  ${origin}${workspacePath(workspace.slug, "timeline")}`);
   console.log(`  Owner:     ${DEMO_USER_EMAIL} (made by the demo seed, has no sign-in)`);
   if (members.length > 0) {
     console.log(`  Admins:    ${members.map((member) => member.email).join(", ")}`);
