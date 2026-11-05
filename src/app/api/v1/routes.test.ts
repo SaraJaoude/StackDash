@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
@@ -281,6 +282,16 @@ describe.each(ROUTES)("GET /api/v1/$name authentication", ({ get, endpoint }) =>
     const body = await expectError(response, 500, "internal");
     expect(body.error.message).not.toContain("secret_table");
     expect(logged).toContain("secret_table");
+  });
+
+  it("leaves a Next.js control-flow error to Next.js instead of answering 500", async () => {
+    // The same path as the prerender stop Next.js throws when a handler reads the request at build.
+    const { key } = generateApiKey();
+    rpc.mockImplementation(() => notFound());
+    await expect(get(request(endpoint.path, key))).rejects.toMatchObject({
+      digest: expect.stringContaining("NEXT_HTTP_ERROR_FALLBACK"),
+    });
+    expect(logged).not.toContain('"referenceId"');
   });
 
   it("refuses an unknown query parameter with 400", async () => {

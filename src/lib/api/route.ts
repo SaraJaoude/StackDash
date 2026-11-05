@@ -1,5 +1,6 @@
 import "server-only";
 
+import { unstable_rethrow } from "next/navigation";
 import type { z } from "zod";
 
 import { authenticateApiRequest, rateLimitHeaders, requireApiScope } from "@/lib/api/auth";
@@ -49,6 +50,9 @@ export function apiGet<Query extends z.ZodObject, Item extends z.ZodType>(endpoi
       const query = parseApiQuery(new URL(request.url), endpoint.query);
       return Response.json(await endpoint.load(principal.tokenHash, query), { headers });
     } catch (error) {
+      // Next.js stops prerendering at build by throwing when the handler reads the request; that
+      // signal (and notFound or redirect) belongs to Next.js, not to the API's error envelope.
+      unstable_rethrow(error);
       return apiErrorResponse(error, headers);
     }
   };
