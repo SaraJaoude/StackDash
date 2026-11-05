@@ -2,7 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
-import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
+import { ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
 import type { ProviderId } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -59,14 +59,17 @@ export const getAnomalyControls = cache(async (workspaceId: string): Promise<Ano
 });
 
 /**
- * Spend and usage metrics over a period in recent snapshots, the ones detection checks, sorted by
- * label. Point in time readings are left out because they are never checked.
+ * The metrics detection checks in recent snapshots, sorted by label: the rows `checkedRows` keeps,
+ * so a breakdown beside its total (a GitHub SKU) or a day inside a billing month
+ * (`github.daily_spend.<product>`) is not offered, because muting it would silence nothing.
  */
 export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<AnomalyMetric[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("usage_snapshots")
-    .select("metric_key, label, connections(provider)")
+    .select(
+      "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source, connections(provider)",
+    )
     .eq("workspace_id", workspaceId)
     .in("kind", [...ANOMALY_KINDS])
     .is("point_at", null)
@@ -74,8 +77,13 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
     .order("id", { ascending: true })
     .limit(SNAPSHOT_SCAN_LIMIT);
   if (error) throw new Error("Failed to list spend and usage metrics", { cause: error });
+  // The rules run per snapshot date, so a date the limit cut short could keep a row its total
+  // would have dropped: leave the oldest date out when the scan was full and holds more than one.
+  const oldest = data.at(-1)?.snapshot_date;
+  const full = data.length === SNAPSHOT_SCAN_LIMIT && data.some((row) => row.snapshot_date !== oldest);
+  const scanned = full ? data.filter((row) => row.snapshot_date !== oldest) : data;
   const byKey = new Map<string, AnomalyMetric>();
-  for (const row of data) {
+  for (const row of checkedRows(scanned)) {
     if (row.connections === null) continue;
     const key = `${row.connections.provider} ${row.metric_key}`;
     // Newest first, so the first label seen is the current one.
