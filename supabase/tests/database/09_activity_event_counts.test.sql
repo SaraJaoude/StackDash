@@ -1,4 +1,4 @@
--- Event markers (20261105002238_activity_event_counts.sql): activity_event_counts counts per UTC
+-- Event markers (20261105022232_activity_event_counts.sql): activity_event_counts counts per UTC
 -- day or UTC month whatever the session time zone, filters like the timeline query, and counts
 -- nothing for a caller who is not a member of the workspace.
 begin;
@@ -67,12 +67,13 @@ select is_empty(
         (case when not coalesce(p.proconfig && array['search_path=""', 'search_path='], false) then 'search_path not empty' end),
         (case when not coalesce(p.proconfig @> array['plan_cache_mode=force_custom_plan'], false) then 'generic plans allowed' end),
         (case when has_function_privilege('anon', p.oid, 'execute') then 'executable by anon' end),
+        (case when has_function_privilege('service_role', p.oid, 'execute') then 'executable by service_role' end),
         (case when not has_function_privilege('authenticated', p.oid, 'execute') then 'not executable by authenticated' end)
     ) as v(problem)
     where p.oid = 'public.activity_event_counts(uuid, date, text, text[], public.provider_id[], uuid[])'::regprocedure
       and v.problem is not null
   $$,
-  'activity_event_counts: security definer, empty search_path, custom plans, executable by authenticated and not anon');
+  'activity_event_counts: security definer, empty search_path, custom plans, executable by authenticated only');
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub": "a8000001-0000-4000-8000-000000000000", "role": "authenticated"}';

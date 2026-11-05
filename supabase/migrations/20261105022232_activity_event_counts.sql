@@ -56,7 +56,10 @@ begin
 end;
 $$;
 
+-- Supabase's default privileges grant execute on every new public function to anon,
+-- authenticated, and service_role, so all three are revoked before authenticated gets it back. The
+-- service key has no auth.uid() and would count nothing anyway; it has no reason to call this.
 revoke execute on function public.activity_event_counts(uuid, date, text, text[], public.provider_id[], uuid[])
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 grant execute on function public.activity_event_counts(uuid, date, text, text[], public.provider_id[], uuid[])
   to authenticated;
