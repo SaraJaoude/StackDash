@@ -3,9 +3,10 @@
 -- row. PostgREST has no GROUP BY without db aggregates, which this project leaves off.
 --
 -- Security invoker, so the activity_events select policy (has_workspace_role viewer) applies to
--- the caller exactly as it does to the timeline: a non-member counts nothing. The explicit
--- workspace filter and the occurred_at range keep the read on
--- activity_events_workspace_timeline_idx (workspace_id, occurred_at desc, id desc).
+-- the caller exactly as it does to the timeline: a non-member counts nothing. The occurred_at range
+-- keeps the read on an index range scan (activity_events_occurred_at_idx or
+-- activity_events_workspace_timeline_idx, as the planner prefers): 3 ms for a week out of 24,000
+-- events in a local explain analyze.
 --
 -- p_account_ids are the external accounts the dashboard's scope filter leaves in view (included
 -- accounts only), so events of excluded or out of scope accounts never count. The window is half
