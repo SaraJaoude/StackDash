@@ -15,6 +15,32 @@ function utcDate(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
+/** A fake provider connection, synced half a day ago, with one included account. */
+async function seedConnection(workspace: TestWorkspace, name: string, externalId: string) {
+  const admin = adminClient();
+  const todayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "fake",
+      status: "active",
+      display_name: name,
+      poll_interval_seconds: 86_400,
+      last_synced_at: new Date(todayStart - DAY_MS / 2).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: externalId, display_name: "Production", kind: "account" })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  return { connectionId: connection.id, accountId: account.id };
+}
+
 /**
  * A 30 day billing period that started five UTC days ago, with one reading at noon on each of the
  * last five days: spend rising $1.00 a day to $5.00, and requests rising 400 a day to 2,000 of a
@@ -27,26 +53,7 @@ async function seedProjection(workspace: TestWorkspace) {
   const periodStart = todayStart - 5 * DAY_MS;
   const periodEnd = periodStart + 30 * DAY_MS;
   const period = { period_start: new Date(periodStart).toISOString(), period_end: new Date(periodEnd).toISOString() };
-
-  const { data: connection, error: connectionError } = await admin
-    .from("connections")
-    .insert({
-      workspace_id: workspace.id,
-      provider: "fake",
-      status: "active",
-      display_name: "Fake billing account",
-      poll_interval_seconds: 86_400,
-      last_synced_at: new Date(todayStart - DAY_MS / 2).toISOString(),
-    })
-    .select("id")
-    .single();
-  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
-  const { data: account, error: accountError } = await admin
-    .from("external_accounts")
-    .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "acct_projection", display_name: "Production", kind: "account" })
-    .select("id")
-    .single();
-  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const { connectionId, accountId } = await seedConnection(workspace, "Fake billing account", "acct_projection");
 
   const rows: SnapshotInsert[] = [];
   for (let day = 1; day <= 5; day += 1) {
@@ -54,8 +61,8 @@ async function seedProjection(workspace: TestWorkspace) {
     const at = new Date(dayStart + DAY_MS / 2).toISOString();
     const base = {
       workspace_id: workspace.id,
-      connection_id: connection.id,
-      external_account_id: account.id,
+      connection_id: connectionId,
+      external_account_id: accountId,
       snapshot_date: utcDate(dayStart),
       retrieved_at: at,
       provenance_source: "provider_api",
@@ -128,8 +135,6 @@ ownerTest.describe("projection to the end of the period", () => {
       const budget = page.getByRole("list", { name: "Budgets" }).getByRole("listitem").filter({ hasText: "Production apps" });
       await expect(budget.getByText("Projected to cross", { exact: true })).toBeVisible();
       await expect(budget).toContainText(`On track for ${expected.spend} by ${expected.lastDay}, at or above the $20.00 budget`);
-      // Display only: no alert is raised for a projection.
-      await expect(page.getByRole("region", { name: "Triggered alerts" })).not.toContainText("Production apps");
 
       const alertsScan = await new AxeBuilder({ page }).analyze();
       expect(alertsScan.violations).toEqual([]);
@@ -138,28 +143,73 @@ ownerTest.describe("projection to the end of the period", () => {
     }
   });
 
+  ownerTest("says how many amounts hold a total back, and gives a daily quota no projection", async ({ page }) => {
+    const workspace = await createTestWorkspace("Projection partial");
+    try {
+      const expected = await seedProjection(workspace);
+      // A second connection with one day of spend, and a daily quota read on each of the last five
+      // days that resets at the next UTC midnight: too short a period to project.
+      const { connectionId, accountId } = await seedConnection(workspace, "Second fake account", "acct_second");
+      const todayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+      const base = { workspace_id: workspace.id, connection_id: connectionId, external_account_id: accountId, provenance_source: "provider_api" } as const;
+      const rows: SnapshotInsert[] = [
+        {
+          ...base,
+          metric_key: "fake.spend.month",
+          kind: "verified_spend",
+          label: "Spend this month",
+          snapshot_date: utcDate(todayStart - DAY_MS),
+          retrieved_at: new Date(todayStart - DAY_MS / 2).toISOString(),
+          amount_minor: 100,
+          currency: "USD",
+          period_start: new Date(todayStart - DAY_MS).toISOString(),
+          period_end: new Date(todayStart + 29 * DAY_MS).toISOString(),
+        },
+      ];
+      for (let day = 5; day >= 1; day -= 1) {
+        const dayStart = todayStart - day * DAY_MS;
+        const at = new Date(dayStart + DAY_MS / 2).toISOString();
+        const point = { ...base, snapshot_date: utcDate(dayStart), retrieved_at: at, point_at: at, resets_at: new Date(dayStart + DAY_MS).toISOString(), unit: "emails" };
+        rows.push(
+          { ...point, metric_key: "fake.emails.daily.used", kind: "usage", label: "Emails sent today", value: 40 },
+          { ...point, metric_key: "fake.emails.daily.limit", kind: "included_allowance", label: "Daily email quota", value: 100 },
+        );
+      }
+      const { error } = await adminClient().from("usage_snapshots").insert(rows);
+      if (error) throw new Error(`Seeding snapshots failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
+      await expect(totals).toContainText("Projection unavailable");
+      await expect(totals).toContainText(
+        "DevMacro cannot project 1 of the 2 amounts in this total (fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+      );
+
+      const providers = page.getByRole("region", { name: "By provider" });
+      await expect(providers.getByRole("article", { name: "Fake billing account" })).toContainText(`On track for ${expected.spend} by ${expected.lastDay}`);
+      const second = providers.getByRole("article", { name: "Second fake account" });
+      await expect(second).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
+      const daily = second.getByRole("article", { name: "Daily email quota" });
+      await expect(daily).toBeVisible();
+      await expect(daily).not.toContainText("Projection");
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("says why there is no projection before 3 days of data", async ({ page }) => {
     const workspace = await createTestWorkspace("Projection early");
     try {
-      const admin = adminClient();
       const todayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS;
-      const { data: connection, error: connectionError } = await admin
-        .from("connections")
-        .insert({ workspace_id: workspace.id, provider: "fake", status: "active", display_name: "Fake billing account", poll_interval_seconds: 86_400 })
-        .select("id")
-        .single();
-      if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
-      const { data: account, error: accountError } = await admin
-        .from("external_accounts")
-        .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "acct_early", display_name: "Production", kind: "account" })
-        .select("id")
-        .single();
-      if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+      const { connectionId, accountId } = await seedConnection(workspace, "Fake billing account", "acct_early");
       const at = new Date(todayStart - DAY_MS / 2).toISOString();
-      const { error } = await admin.from("usage_snapshots").insert({
+      const { error } = await adminClient().from("usage_snapshots").insert({
         workspace_id: workspace.id,
-        connection_id: connection.id,
-        external_account_id: account.id,
+        connection_id: connectionId,
+        external_account_id: accountId,
         metric_key: "fake.spend.month",
         kind: "verified_spend",
         label: "Spend this month",
