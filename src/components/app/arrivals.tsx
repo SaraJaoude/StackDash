@@ -294,6 +294,7 @@ export function LiveIndicator() {
           ) : null}
           {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word. */}
           <span
+            data-testid="live-dot"
             className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"}`}
           />
         </span>
@@ -307,7 +308,9 @@ export function LiveIndicator() {
         className={`absolute right-0 top-full z-50 mt-2 w-max max-w-64 rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-xs leading-5 text-foreground shadow-lg ${visibility}`}
       >
         {status === "offline" ? (
-          "Live updates stopped. Reload the page to see new data."
+          // The client rejoins on its own after a failure (phoenix's rejoinTimer) and the word turns
+          // back to Live when it does, so say so and keep the reload for when it sticks.
+          "Live updates stopped. Trying to reconnect; reload the page if this does not clear."
         ) : status === "connecting" ? (
           "Connecting to live updates."
         ) : lastArrivalAt === null ? (
