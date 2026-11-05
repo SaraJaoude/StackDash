@@ -97,9 +97,9 @@ export function HistoryChart({
 
       {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
       <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
-        <span>{first === undefined ? "" : utcDay(first.asOf)}</span>
-        <span>{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
-        <span>{last === undefined ? "" : utcDay(last.asOf)}</span>
+        <span className="shrink-0">{first === undefined ? "" : utcDay(first.asOf)}</span>
+        <span className="min-w-0 text-center">{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
+        <span className="shrink-0">{last === undefined ? "" : utcDay(last.asOf)}</span>
       </div>
 
       {hasGaps ? (
