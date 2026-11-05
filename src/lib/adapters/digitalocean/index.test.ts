@@ -540,15 +540,19 @@ describe("sync", () => {
       return fakeDigitalOcean(routes);
     }
     const cursor = JSON.stringify({ v: 1, invoice: "2026-04" });
-    const periods = (events: readonly ActivityEvent[]) =>
-      events.filter((event) => event.typeId === "digitalocean.invoice.issued").map((event) => event.title.slice(12, 19));
+    // An invoice event is dated the 1st of the month after its billing period.
+    const issuedAt = (events: readonly ActivityEvent[]) =>
+      events
+        .filter((event) => event.typeId === "digitalocean.invoice.issued")
+        .map((event) => event.occurredAt.toISOString());
+    const newestThree = ["2026-11-01T00:00:00.000Z", "2026-10-01T00:00:00.000Z", "2026-09-01T00:00:00.000Z"];
 
     it("announces the newest three, logs the older ones it skips, and moves the cursor past them", async () => {
       const api = monthlyInvoices(MAX_NEW_INVOICES + 2);
       const { ctx, logger } = makeCtx(api.fetch);
       const result = await digitaloceanAdapter.sync({ ...syncInput, cursor }, ctx);
       expectValid(result);
-      expect(periods(result.events)).toEqual(["2026-10", "2026-09", "2026-08"]);
+      expect(issuedAt(result.events)).toEqual(newestThree);
       expect(logger.warn).toHaveBeenCalledWith("digitalocean.invoices.new_cap_reached", {
         skipped: 2,
         maxNewInvoices: MAX_NEW_INVOICES,
@@ -561,7 +565,7 @@ describe("sync", () => {
       const { ctx, logger } = makeCtx(api.fetch);
       const result = await digitaloceanAdapter.sync({ ...syncInput, cursor }, ctx);
       expectValid(result);
-      expect(periods(result.events)).toEqual(["2026-10", "2026-09", "2026-08"]);
+      expect(issuedAt(result.events)).toEqual(newestThree);
       expect(logger.warn).not.toHaveBeenCalledWith("digitalocean.invoices.new_cap_reached", expect.anything());
     });
   });
