@@ -5,6 +5,7 @@ import { dailySummaryJobKey, runDailySummaryJob } from "@/lib/jobs/daily-summary
 import { utcDate } from "@/lib/jobs/ingest";
 import type { ClaimedJob } from "@/lib/jobs/store";
 import { runSyncJob, type JobOutcome, type SyncDeps } from "@/lib/jobs/sync-connection";
+import { londonDayStart } from "@/lib/timeline/query";
 
 /*
  * The 90 day history behind the demo workspace (#166). The simulated providers (#131) make up every
@@ -63,16 +64,20 @@ export type HistoryStep = Readonly<{
 }>;
 
 /**
- * The replay clock: the last 10 second slot of each of the `days` UTC days before today, oldest
- * first, then `now`. The last slot of a day reads that day's full totals into its snapshot, and
- * the step at `now` leaves every cursor where `npm run jobs:tick -- --watch` continues from.
+ * The replay clock: for each of the `days` UTC days before today, oldest first, the last 10 second
+ * slot before that day ends in London, then `now`. London runs on UTC or one hour ahead, so that
+ * instant is always late in the same UTC day: its snapshot carries the day's totals under the
+ * day's date, and the half hour of events a step reads lands on the same day on the timeline,
+ * which groups by London days. The step at `now` leaves every cursor where
+ * `npm run jobs:tick -- --watch` continues from.
  */
 export function historySteps(now: Date, days: number = DEMO_HISTORY_DAYS): HistoryStep[] {
   const today = utcDayStart(now.getTime());
   const steps: HistoryStep[] = [];
   for (let back = days; back >= 1; back -= 1) {
-    const at = new Date(today - (back - 1) * DAY_MS - SLOT_MS);
-    steps.push({ at, summaryDate: utcDate(at) });
+    const day = today - back * DAY_MS;
+    const at = new Date(londonDayStart(utcDate(new Date(day + DAY_MS))).getTime() - SLOT_MS);
+    steps.push({ at, summaryDate: utcDate(new Date(day)) });
   }
   steps.push({ at: now, summaryDate: null });
   return steps;

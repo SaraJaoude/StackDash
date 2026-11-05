@@ -228,9 +228,10 @@ npm run demo:seed -- --member you@example.com
 - It then replays the last 90 days one UTC day at a time: each day runs the real sync (with its
   validation and alert checks) and the daily summary job with the clock set to that day, so the
   history is exactly what a live tick would have stored. Each day keeps the last 30 minutes of
-  events, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day
-  in every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
-  limit, and the budget alert triggers late in each full month.
+  events before midnight in London (the timeline's time zone), as a sync after a pause does.
+  Weekdays are busier than weekends, one Vercel launch day in every 30 has a spend spike and a
+  burst of deploys, the Resend monthly quota gets close to its limit, and the budget alert
+  triggers late in each full month.
 - `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
   demo workspace; repeat it for more people. The demo account has no sign-in of its own, because
   sign-in is GitHub only. `--seed <text>` picks different simulated accounts; the same seed
