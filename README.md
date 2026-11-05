@@ -399,6 +399,8 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 - [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
+- [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to
+  a workspace with an API key, and the read-only tools it can call.
 
 ### Invite testers
 
@@ -456,6 +458,7 @@ src/
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
     api/v1/                    the read-only REST API, one GET route per resource, API key auth
+    api/mcp/                   the read-only MCP server (Streamable HTTP), on the same API keys
     api/notifications/unsubscribe/  RFC 8058 one-click unsubscribe for mail clients
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
@@ -475,6 +478,7 @@ src/
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, sentry, railway, fake, simulated) and registry
     api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
+    mcp/                       MCP server: the read-only tools and provider page resources, client setup snippets
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation

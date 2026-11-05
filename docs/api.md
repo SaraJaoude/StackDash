@@ -6,6 +6,8 @@ Issues: #162 (this API), #96 (rate limits per plan), #163 (read-only MCP server,
 
 The OpenAPI 3.1 document for every endpoint below is published at `/docs/api/openapi.json` on your DevMacro site. It is generated from the same schemas the endpoints validate requests with, so it always matches what the server accepts and returns.
 
+The same keys also connect an AI assistant to the workspace through the read-only [MCP server](mcp.md).
+
 ## Create a key
 
 1. Open the workspace, then **Settings**, then **API keys**. Only owners and admins see this section.
