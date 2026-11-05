@@ -9,12 +9,15 @@ import { PageHeader } from "@/components/app/page-header";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
 import {
+  DisableProjectPageButton,
+  ProjectPageForm,
   PublicationAnnouncer,
   PublishMetricForm,
   SelfReportedForm,
   UnpublishButton,
   UnpublishEverythingButton,
 } from "@/components/public-metrics/publication-controls";
+import { loadProjectPageSettings } from "@/lib/data/project-pages";
 import { countLivePublications, loadProjectPublications, type ProjectMetricStatus } from "@/lib/data/published-metrics";
 import { formatDateTime } from "@/lib/format";
 import {
@@ -25,6 +28,7 @@ import {
   ROUNDING_LABELS,
 } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
+import { projectPagePath, suggestPageSlug } from "@/lib/public-metrics/project-page";
 import type { PublishedValue } from "@/lib/public-metrics/published";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -34,6 +38,7 @@ export const metadata: Metadata = { title: "Public metrics" };
 
 const METRICS_HEADING_ID = "public-metrics-title";
 const SELF_REPORTED_HEADING_ID = "self-reported-title";
+const PROJECT_PAGE_HEADING_ID = "project-page-title";
 
 const DELAY_CHOICES = PUBLISHED_METRIC_DELAYS.map((days) => ({
   value: String(days),
@@ -70,9 +75,10 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   if (!z.guid().safeParse(projectId).success) notFound();
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
-  const [publications, liveCount] = await Promise.all([
+  const [publications, liveCount, pageSettings] = await Promise.all([
     loadProjectPublications(workspace.id, projectId, now),
     countLivePublications(workspace.id),
+    loadProjectPageSettings(workspace.id, projectId),
   ]);
   if (publications === null) notFound();
 
@@ -81,6 +87,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   const deniedReason = actionDeniedReason("publish_metrics");
   const publicDataPath = `/api/public/projects/${project.id}/metrics`;
   const anyPublished = metrics.some((metric) => metric.publication !== null) || selfReported.length > 0;
+  const pagePath = pageSettings === null ? null : projectPagePath(workspace.slug, pageSettings.slug);
 
   return (
     <>
@@ -115,7 +122,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               <a href={publicDataPath} className="break-all font-medium text-foreground underline underline-offset-4">
                 {publicDataPath}
               </a>
-              . Badges, cards, and the project page will read the same values.
+              . The project page reads the same values, and so will badges and cards.
             </p>
           ) : (
             <p className="mt-2 leading-6 text-muted">Nothing from this project is public.</p>
@@ -133,6 +140,54 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
                 Unpublish every metric and self-reported value of every project in this workspace at once.
               </p>
               <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCount={liveCount} focusId={METRICS_HEADING_ID} />
+            </div>
+          ) : null}
+        </section>
+
+        <section aria-labelledby={PROJECT_PAGE_HEADING_ID} className="mt-6 rounded-xl border border-line bg-panel px-6 py-5 text-sm">
+          <h2 id={PROJECT_PAGE_HEADING_ID} tabIndex={-1} className="font-semibold">
+            Project page
+          </h2>
+          <p className="mt-2 leading-6 text-muted">
+            {pageSettings === null || pagePath === null ? (
+              "Off. Nothing is public at a project page address until an owner or admin turns it on."
+            ) : !pageSettings.enabled ? (
+              <>
+                Off. Its address, <span className="break-all font-mono">{pagePath}</span>, answers page not found.
+              </>
+            ) : anyPublished ? (
+              <>
+                On. Anyone can open it at{" "}
+                <a href={pagePath} className="break-all font-mono font-medium text-foreground underline underline-offset-4">
+                  {pagePath}
+                </a>
+                .{" "}
+                {pageSettings.indexable ? "Search engines may index it." : "It asks search engines not to index it."}
+              </>
+            ) : (
+              <>
+                On, but <span className="break-all font-mono">{pagePath}</span> answers page not found until something below is
+                published.
+              </>
+            )}
+          </p>
+          <p className="mt-2 leading-6 text-muted">
+            The page shows the project name, the values published below with their 30 and 90 day history, the milestones
+            those values reveal, and the providers behind them as icons. Choose its metrics, rounding, and timing below.
+          </p>
+          {canPublish ? (
+            <div className="mt-4 space-y-4 border-t border-line pt-4">
+              <ProjectPageForm
+                workspaceSlug={workspace.slug}
+                projectId={project.id}
+                initialSlug={pageSettings?.slug ?? suggestPageSlug(project.name)}
+                initialIndexable={pageSettings?.indexable ?? false}
+                enabled={pageSettings?.enabled ?? false}
+                focusId={PROJECT_PAGE_HEADING_ID}
+              />
+              {pageSettings?.enabled ? (
+                <DisableProjectPageButton workspaceSlug={workspace.slug} projectId={project.id} focusId={PROJECT_PAGE_HEADING_ID} />
+              ) : null}
             </div>
           ) : null}
         </section>

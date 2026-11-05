@@ -2,13 +2,15 @@ import { test, type Page } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
 // render their HTML per request so Next.js can stamp the nonce on every script. So do the signed-out
-// unsubscribe page that alert emails link to (#152), and the global not-found page that answers
-// paths matching no route, which includes paths under the proxied prefixes (#197). The rest of the
-// site keeps a static policy (next.config.ts). CI runs these against the production build, where a
-// prerendered page under the nonce policy would carry unnonced inline scripts and never hydrate.
+// unsubscribe page that alert emails link to (#152), public project pages (#150), and the global
+// not-found page that answers paths matching no route, which includes paths under the proxied
+// prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
+// against the production build, where a prerendered page under the nonce policy would carry
+// unnonced inline scripts and never hydrate.
 
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
@@ -176,6 +178,41 @@ test.describe("signed out", () => {
     await expect(page).toHaveTitle("Page not found · DevMacro");
     await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
     await expectHydrated(page);
+    expect(violations).toEqual([]);
+  });
+
+  test("a public project page enforces the nonce policy, hydrates, and reports no violations, on and once off", async ({ page }) => {
+    const workspace = await createTestWorkspace("Content security policy project page");
+    try {
+      const projectId = await seedProjectWithHistory(workspace);
+      await publishStars(workspace, projectId);
+      await turnOnPage(workspace, projectId, "acme-web", false);
+      const address = `/@${workspace.slug}/acme-web`;
+      const violations = await watchViolations(page);
+      const response = await page.goto(address);
+
+      expect(response?.status()).toBe(200);
+      const headers = response?.headers() ?? {};
+      expectAppPolicy(headers["content-security-policy"]);
+      expect(headers["content-security-policy-report-only"]).toBeUndefined();
+      await expect(page.getByRole("heading", { level: 1, name: "Acme web" })).toBeVisible();
+      await expectHydrated(page);
+
+      // The same address once the page is off: a real 404 (the proxy checks before the page
+      // streams its 200 shell) under the nonce policy, with a not-found page that hydrates.
+      await turnOffPage(workspace, projectId);
+      await test.step("turned off", () => expectNotFoundPage(page, address));
+      expect(violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  test("unknown project page addresses answer 404 with a not-found page that hydrates", async ({ page }) => {
+    const violations = await watchViolations(page);
+    for (const path of ["/@nosuchwork/no-such-page", "/@nosuchwork", "/p/nosuchwork/no-such-page"]) {
+      await test.step(path, () => expectNotFoundPage(page, path));
+    }
     expect(violations).toEqual([]);
   });
 });
