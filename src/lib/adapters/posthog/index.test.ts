@@ -185,7 +185,8 @@ describe("exchangeCode", () => {
     expect(result.refreshToken?.reveal()).toBe("fixture-refresh-token");
     expect(result.expiresAt).toEqual(new Date(NOW.getTime() + 36_000_000));
     expect(result.scopes).toEqual([...SCOPES]);
-    expect(result.metadata).toEqual({ region: "us" });
+    // The organization picked on the consent screen, from `scoped_organizations`.
+    expect(result.metadata).toEqual({ region: "us", organizations: ORG_ID });
     expect(JSON.stringify(result)).not.toContain("fixture-access-token");
   });
 
@@ -196,7 +197,7 @@ describe("exchangeCode", () => {
       [`GET ${EU}/api/organizations/`]: () => json(organizationsFixture),
     });
     const result = await postHogAdapter.exchangeCode(input, ctx);
-    expect(result.metadata).toEqual({ region: "eu" });
+    expect(result.metadata).toMatchObject({ region: "eu" });
     expect(calls.map((call) => call.url.origin)).toEqual([OAUTH, US, EU]);
   });
 
@@ -204,6 +205,17 @@ describe("exchangeCode", () => {
     const { ctx } = harness({
       [`POST ${OAUTH}/oauth/token/`]: () => json(tokenFixture),
       [`GET ${US}/api/organizations/`]: () => json({ detail: "forbidden" }, 403),
+    });
+    expect((await postHogAdapter.exchangeCode(input, ctx)).metadata).toMatchObject({ region: "us" });
+  });
+
+  it.each([
+    ["empty", []],
+    ["null", null],
+  ])("stores no organization list when scoped_organizations is %s, so every organization is listed", async (_title, scoped) => {
+    const { ctx } = harness({
+      [`POST ${OAUTH}/oauth/token/`]: () => json({ ...tokenFixture, scoped_organizations: scoped }),
+      [`GET ${US}/api/organizations/`]: () => json(organizationsFixture),
     });
     expect((await postHogAdapter.exchangeCode(input, ctx)).metadata).toEqual({ region: "us" });
   });
@@ -275,6 +287,12 @@ describe("refreshTokens", () => {
     expect(refreshed?.metadata).toEqual({ region: "us" });
   });
 
+  it("keeps the granted organizations when the refresh response does not name them", async () => {
+    const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json(tokenRefreshedFixture) });
+    const scoped = { ...credential, metadata: { region: "eu", organizations: ORG_ID } };
+    expect((await postHogAdapter.refreshTokens?.(scoped, ctx))?.metadata).toEqual({ region: "eu", organizations: ORG_ID });
+  });
+
   it("uses a rotated refresh token when PostHog returns one", async () => {
     const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json(tokenFixture) });
     expect((await postHogAdapter.refreshTokens?.(credential, ctx))?.refreshToken?.reveal()).toBe("fixture-refresh-token");
@@ -328,6 +346,18 @@ describe("listAccounts", () => {
     const accounts = await postHogAdapter.listAccounts({ ...credential, metadata: { region: "eu" } }, ctx);
     expect(accounts).toEqual([{ externalId: ORG_ID, displayName: "Example organization", kind: "organization" }]);
     expect(calls[0]?.url.searchParams.get("limit")).toBe("100");
+  });
+
+  it("lists only the organizations the grant names when the user picked some", async () => {
+    const other = { ...organizationsFixture.results[0], id: "0191c2d4-5e6f-7a8b-9c0d-ffffffffffff", name: "Other organization" };
+    const { ctx } = harness({
+      [`GET ${US}/api/organizations/`]: () => json({ ...organizationsFixture, count: 2, results: [...organizationsFixture.results, other] }),
+    });
+    const scoped = await postHogAdapter.listAccounts({ ...credential, metadata: { region: "us", organizations: ORG_ID } }, ctx);
+    expect(scoped.map((account) => account.displayName)).toEqual(["Example organization"]);
+    // Without a list the grant covers every organization.
+    const all = await postHogAdapter.listAccounts(credential, ctx);
+    expect(all.map((account) => account.displayName)).toEqual(["Example organization", "Other organization"]);
   });
 
   it("warns when there are more organizations than one page", async () => {

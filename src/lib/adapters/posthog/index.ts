@@ -60,6 +60,9 @@ export type Region = keyof typeof REGION_ORIGINS;
 // Probe order when detecting a token's region; US Cloud first.
 const REGIONS: readonly Region[] = ["us", "eu"];
 const REGION_METADATA_KEY = "region";
+// The organizations the user picked on the consent screen (`scoped_organizations`), comma joined.
+// Absent when the grant covers every organization the user belongs to.
+const ORGANIZATIONS_METADATA_KEY = "organizations";
 
 // Read-only scopes, as #115 lists them. The metadata document declares the same list as the scope
 // ceiling, so a token can never carry more.
@@ -207,21 +210,35 @@ function parseScopes(scope: string | undefined, fallback: readonly string[]): re
   return scope.split(" ").filter((value) => value.length > 0);
 }
 
+/**
+ * The grant's organizations: the token response's `scoped_organizations` when it names any, else
+ * nothing (every organization). A refresh response without the field keeps the previous list.
+ */
+function grantedOrganizations(tokens: TokenResponse, previous: OAuthCredential | undefined): string | undefined {
+  const scoped = tokens.scoped_organizations;
+  if (scoped === undefined) return previous?.metadata?.[ORGANIZATIONS_METADATA_KEY];
+  return scoped === null || scoped.length === 0 ? undefined : scoped.join(",");
+}
+
 function toCredential(
   tokens: TokenResponse,
   ctx: OAuthContext,
   region: Region,
   fallbackScopes: readonly string[],
-  previousRefreshToken?: Secret,
+  previous?: OAuthCredential,
 ): OAuthCredential {
-  const refreshToken = tokens.refresh_token === undefined ? previousRefreshToken : new Secret(tokens.refresh_token);
+  const refreshToken = tokens.refresh_token === undefined ? previous?.refreshToken : new Secret(tokens.refresh_token);
+  const organizations = grantedOrganizations(tokens, previous);
   return {
     accessToken: new Secret(tokens.access_token),
     ...(refreshToken === undefined ? {} : { refreshToken }),
     expiresAt: new Date(ctx.now().getTime() + tokens.expires_in * 1000),
     scopes: parseScopes(tokens.scope, fallbackScopes),
     tokenType: tokens.token_type,
-    metadata: { [REGION_METADATA_KEY]: region },
+    metadata: {
+      [REGION_METADATA_KEY]: region,
+      ...(organizations === undefined ? {} : { [ORGANIZATIONS_METADATA_KEY]: organizations }),
+    },
   };
 }
 
@@ -649,7 +666,7 @@ export const postHogAdapter: ProviderAdapter = {
       refresh_token: credential.refreshToken.reveal(),
     });
     // Whether PostHog rotates refresh tokens is unverified: a returned one replaces the old one.
-    return toCredential(tokens, ctx, region, credential.scopes, credential.refreshToken);
+    return toCredential(tokens, ctx, region, credential.scopes, credential);
   },
 
   /** Revokes the grant through the refresh token (RFC 7009), signed like every token call. */
@@ -682,6 +699,11 @@ export const postHogAdapter: ProviderAdapter = {
     );
   },
 
+  /**
+   * The organizations the grant covers. Whether PostHog already narrows `/api/organizations/` to
+   * `scoped_organizations` is unverified, so the list is filtered here too: an organization outside
+   * the grant would only answer 403 on every read.
+   */
   async listAccounts(credential, ctx): Promise<ExternalAccount[]> {
     const origin = REGION_ORIGINS[regionOf(credential)];
     const listing = await apiGet(
@@ -695,11 +717,14 @@ export const postHogAdapter: ProviderAdapter = {
     if (listing.next != null) {
       ctx.logger.warn("posthog.organizations_truncated", { provider: "posthog", kept: ORGANIZATION_PAGE_LIMIT });
     }
-    return listing.results.map((organization) => ({
-      externalId: organization.id,
-      displayName: organization.name,
-      kind: "organization",
-    }));
+    const granted = credential.metadata?.[ORGANIZATIONS_METADATA_KEY]?.split(",");
+    return listing.results
+      .filter((organization) => granted === undefined || granted.includes(organization.id))
+      .map((organization) => ({
+        externalId: organization.id,
+        displayName: organization.name,
+        kind: "organization",
+      }));
   },
 
   detectMissingPermissions(grant) {

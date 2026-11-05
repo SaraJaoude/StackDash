@@ -75,7 +75,7 @@ All read-only. Each scope is the read half of a PostHog scope pair; the `:write`
 | `project:read` | Project names and ids, to know which projects to count signups for | `GET /api/organizations/{organization_id}/projects/` |
 | `query:read` | One HogQL count of new people per day per project | `POST /api/projects/{project_id}/query/` |
 
-PostHog lets the user narrow a grant to some organizations (`scoped_organizations`); the account list only shows what the grant allows.
+PostHog lets the user narrow a grant to some organizations, and the token response names them in `scoped_organizations`. DevMacro keeps those ids in the credential's metadata as `organizations` (comma separated; absent when the grant covers every organization) and lists only those organizations as accounts. A refresh response without the field keeps the list.
 
 ## Data
 
@@ -99,7 +99,7 @@ Only products with a `usage_key` (metered) and a lowercase `type` produce metric
 
 ### Organizations: `GET /api/organizations/?limit=100`
 
-Scope `organization:read`. One page of up to 100; more logs `posthog.organizations_truncated`. Only `id` and `name` are kept.
+Scope `organization:read`. One page of up to 100; more logs `posthog.organizations_truncated`. Only `id` and `name` are kept. When the grant names organizations, the list is filtered to them, in case PostHog does not filter it already (see Unverified).
 
 ### Projects: `GET /api/organizations/{organization_id}/projects/?limit=20`
 
@@ -271,6 +271,7 @@ Confirm with a real PostHog account (#141) before relying on the adapter:
 9. Token lifetimes and whether refresh tokens rotate.
 10. That the JWKS cache the provisioning guide documents (1 hour, an early re-fetch at most once a minute for a key id PostHog has not seen) applies to a consent-flow CIMD app as well. Permission risks and Limitations assume it does.
 11. That the revoke endpoint answers 200 with an empty body for a refresh token.
+12. Whether `GET /api/organizations/` is already narrowed to `scoped_organizations` for an organization-level grant, and whether `scoped_organizations` is empty or null for a grant that covers every organization. The adapter filters by the list when it names any organization.
 
 ## Sources
 
