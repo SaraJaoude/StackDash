@@ -212,7 +212,7 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
   });
 }
 
-const ACCUMULATING_KINDS: Partial<Record<SnapshotInput["kind"], true>> = { verified_spend: true, estimated_spend: true, revenue: true };
+const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
 
 /**
  * Drops money that another row of the same account, kind, and currency already covers for a
@@ -225,7 +225,7 @@ const ACCUMULATING_KINDS: Partial<Record<SnapshotInput["kind"], true>> = { verif
 export function dropSubWindows<T extends SnapshotInput>(rows: readonly T[]): T[] {
   type Span = Readonly<{ group: string; start: number; end: number }>;
   const spanOf = (row: T): Span | null =>
-    ACCUMULATING_KINDS[row.kind] !== true || row.currency === null || row.period_start === null || row.period_end === null
+    !ACCUMULATING_KINDS.has(row.kind) || row.currency === null || row.period_start === null || row.period_end === null
       ? null
       : {
           group: `${row.external_account_id} ${row.kind} ${row.currency}`,
@@ -250,8 +250,9 @@ export function dropSubWindows<T extends SnapshotInput>(rows: readonly T[]): T[]
 }
 
 /**
- * The rows every reading of current values starts from (dashboard, alerts): the latest row per
- * account and metric, with breakdowns and sub-windows dropped so each amount is counted once.
+ * The rows every reading of current values starts from (dashboard, alerts, daily summary): the
+ * latest row per account and metric, with breakdowns and sub-windows dropped so each amount is
+ * counted once.
  */
 export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[]): T[] {
   return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows)));
