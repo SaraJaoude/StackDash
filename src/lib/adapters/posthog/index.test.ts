@@ -369,7 +369,12 @@ describe("sync", () => {
     expect(byKey(result.metrics, "posthog.spend.projected")).toMatchObject({
       kind: "estimated_spend",
       amountMinor: 4104,
-      provenance: { source: "derived" },
+      // The user reads the pricing source; the endpoint stays in provenance only.
+      provenance: {
+        source: "derived",
+        endpoint: `${US}/api/billing/`,
+        pricingSource: "PostHog's own projection for the billing period, from its billing overview",
+      },
     });
     expect(byKey(result.metrics, "posthog.spend.current").timeframe).toEqual({
       type: "period",

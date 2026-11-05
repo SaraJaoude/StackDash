@@ -81,8 +81,10 @@ const PRODUCT_NAME_MAX = 60;
 const UNIT_PATTERN = /^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/;
 const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 
-export const PROJECTED_PRICING_SOURCE =
-  "PostHog's billing projection for the period (projected_total_amount_usd from GET /api/billing/)";
+// Shown to the user as the estimate's pricing source, so it names what PostHog calls the figure and
+// where they can see it; the endpoint stays in `provenance.endpoint`. No check date: the projection
+// is read live on every sync, not copied from a price list.
+export const PROJECTED_PRICING_SOURCE = "PostHog's own projection for the billing period, from its billing overview";
 const CURRENCY = "USD";
 
 // Exported, like `billingMetrics` and the event builders below, for the local simulator (#131).
