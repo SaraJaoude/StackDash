@@ -208,6 +208,14 @@ describe("exchangeCode", () => {
     expect((await postHogAdapter.exchangeCode(input, ctx)).metadata).toEqual({ region: "us" });
   });
 
+  it("connects whatever shape the token fields it does not read arrive in", async () => {
+    const { ctx } = harness({
+      [`POST ${OAUTH}/oauth/token/`]: () => json({ ...tokenFixture, scoped_teams: ["10001"], id_token: 5 }),
+      [`GET ${US}/api/organizations/`]: () => json(organizationsFixture),
+    });
+    expect((await postHogAdapter.exchangeCode(input, ctx)).accessToken.reveal()).toBe("fixture-access-token");
+  });
+
   it("reports auth revoked when neither region accepts the token", async () => {
     const { ctx } = harness({
       [`POST ${OAUTH}/oauth/token/`]: () => json(tokenFixture),
@@ -520,6 +528,18 @@ describe("billingMetrics", () => {
     const [spend] = metricsFor({ current_total_amount_usd: "0.00" });
     expect(spend).toMatchObject({ metricKey: "posthog.spend.current", amountMinor: 0, timeframe: { type: "point", at: NOW } });
     expect(spend).not.toHaveProperty("resetsAt");
+  });
+
+  it("reads a billing period whatever its interval says", () => {
+    const [spend] = metricsFor({
+      current_total_amount_usd: "1.00",
+      billing_period: { current_period_start: "2026-11-01T00:00:00Z", current_period_end: "2027-02-01T00:00:00Z", interval: "quarter" },
+    });
+    expect(spend?.timeframe).toEqual({
+      type: "period",
+      start: new Date("2026-11-01T00:00:00.000Z"),
+      end: new Date("2027-02-01T00:00:00.000Z"),
+    });
   });
 
   it("skips a product whose type cannot be part of a metric key", () => {

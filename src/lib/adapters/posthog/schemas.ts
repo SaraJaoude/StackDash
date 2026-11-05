@@ -14,6 +14,8 @@ const usdAmount = z.string().nullable().optional();
 
 // django-oauth-toolkit's token response plus PostHog's grant scoping (OAuth development guide,
 // "Response includes"). The refresh token is optional: a response without one keeps the old one.
+// Only fields the adapter reads are parsed, so an unread field (`scoped_teams`, `id_token`) can
+// never fail a code exchange.
 export const TokenResponseSchema = z.object({
   access_token: z.string().min(1),
   token_type: z.string().min(1),
@@ -21,7 +23,6 @@ export const TokenResponseSchema = z.object({
   refresh_token: z.string().min(1).optional(),
   scope: z.string().optional(),
   scoped_organizations: z.array(z.string()).nullable().optional(),
-  scoped_teams: z.array(z.int()).nullable().optional(),
 });
 
 // RFC 6749 section 5.2 error body from the token endpoint.
@@ -79,7 +80,6 @@ export const BillingResponseSchema = z.object({
     .object({
       current_period_start: isoDateTime,
       current_period_end: isoDateTime,
-      interval: z.enum(["month", "year"]).optional(),
     })
     .nullable()
     .optional(),

@@ -110,7 +110,7 @@ function billingAt(accountId: string, at: Date): BillingResponse {
   return {
     current_total_amount_usd: usdFromMicros(currentMicros),
     projected_total_amount_usd: usdFromMicros(projectedMicros),
-    billing_period: { current_period_start: start, current_period_end: end, interval: "month" },
+    billing_period: { current_period_start: start, current_period_end: end },
     products,
   };
 }
