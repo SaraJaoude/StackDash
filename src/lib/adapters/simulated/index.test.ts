@@ -333,11 +333,15 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     for (const [accountId, syncs] of accounts) expect(eventCount(syncs), accountId).toBeGreaterThan(0);
   });
 
-  it("writes under one event a tick on average as watch mode ticks every 10 seconds", () => {
-    // The flood check, bounded per provider like the silence check. Stripe, the busiest profile,
-    // writes about 0.7 a tick on the seed (497 over 720 ticks, all its event types together), so
-    // this ceiling is 1.45 times its whole stream: tuning any profile past that fails here.
-    expect(eventCount(ticks) / ticks.length).toBeLessThan(1);
+  it("writes under one event a tick on average on every account as watch mode ticks every 10 seconds", () => {
+    // The flood check, bounded per account like the silence check, because one account's
+    // `eventsInSlot` is what floods and a provider-wide mean would dilute it with quiet siblings.
+    // Stripe, the busiest profile, writes about 0.7 a tick on the seed (497 over 720 ticks, all its
+    // event types together), so this ceiling is 1.45 times its whole stream: tuning any profile past
+    // that fails here.
+    for (const [accountId, syncs] of byAccount(ticks)) {
+      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(1);
+    }
   });
 
   it("backfills the last 30 minutes on the first sync, never newer than the last whole slot", () => {
