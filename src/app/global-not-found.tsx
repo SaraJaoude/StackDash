@@ -1,9 +1,11 @@
 import type { Metadata, Viewport } from "next";
 import { connection } from "next/server";
 
+import { SkipLink } from "@/components/skip-link";
+
 import { documentClassName } from "./fonts";
-import NotFound from "./not-found";
 import { viewport as rootViewport } from "./layout";
+import NotFound from "./not-found";
 import "./globals.css";
 
 export const metadata: Metadata = { title: "Page not found" };
@@ -25,6 +27,7 @@ export default async function GlobalNotFound() {
   return (
     <html lang="en" className={documentClassName}>
       <body className="flex min-h-full flex-col">
+        <SkipLink />
         <NotFound />
       </body>
     </html>
