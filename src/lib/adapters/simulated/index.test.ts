@@ -81,7 +81,8 @@ type Chain = { start: Date; stepMs: number; steps: number };
 // Watch mode: one sync per 10 second slot for two hours.
 const WATCH_SPAN: Chain = { start: SPAN_START, stepMs: SLOT_MS, steps: SPAN_SLOTS };
 // One UTC day in steps of the backfill window, the longest step a chained sync covers without a gap.
-// Every simulator is a pure function of account and slot, so these 48 syncs write exactly the events
+// Every simulator is a pure function of account and slot, so the 48 syncs after the backfill (step 0
+// backfills the half hour before midnight and is filtered out as `backfill`) write exactly the events
 // 8,640 ticks of 10 seconds would, including the daily ones that land at UTC midnight.
 const DAY_CHAIN: Chain = {
   start: new Date("2026-11-05T00:00:00.000Z"),
