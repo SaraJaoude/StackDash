@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { Secret, type ProviderAdapter } from "@/lib/adapters/types";
 import type { Logger } from "@/lib/log/logger";
+import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { DAILY_SUMMARY_TYPE_ID, dailySummaryJobKey, runDailySummaryJob, summaryDate } from "./daily-summary";
 import { MemoryJobStore, type MemorySnapshot } from "./memory-store";
@@ -28,6 +29,7 @@ function setup(start = "2026-10-15T00:05:00.000Z") {
     logError: () => "REF-TEST0000",
     log: silent,
     evaluateAlerts: async () => ({ triggered: 0 }),
+    notifications: () => memoryNotificationDeps(),
   };
   return { store, deps, now };
 }

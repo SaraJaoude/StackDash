@@ -44,6 +44,16 @@ const STRING_RULES: readonly StringRule[] = [
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+@/gi,
     replace: (_match, prefix = "") => `${prefix}${REDACTED}@`,
   },
+  // Discord and Slack incoming webhook URLs (#153): the path is the credential, so everything
+  // after the fixed prefix goes.
+  {
+    pattern: /\b(https?:\/\/(?:[a-z]+\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/)[^\s"'<>]+/gi,
+    replace: (_match, prefix = "") => `${prefix}${REDACTED}`,
+  },
+  {
+    pattern: /\b(https?:\/\/hooks\.slack\.com\/)[^\s"'<>]+/gi,
+    replace: (_match, prefix = "") => `${prefix}${REDACTED}`,
+  },
   // Credential-bearing query string and form parameters.
   {
     pattern:

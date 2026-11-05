@@ -104,12 +104,19 @@ export interface JobStore {
   purgeJobs(before: Date, limit: number): Promise<number>;
   /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
   purgeOAuthStates(before: Date, limit: number): Promise<number>;
+  /** Deletes digest delivery records delivered before `before`; alert records go with their alert. */
+  purgeNotificationDeliveries(before: Date, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
   listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
+
+  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one queued per workspace (#152). */
+  enqueueAlertDispatches(): Promise<number>;
+  /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
+  enqueueDigests(date: string): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -351,6 +358,24 @@ export function createSupabaseJobStore(): JobStore {
     async purgeOAuthStates(before, limit) {
       const { data, error } = await db.rpc("purge_oauth_states", { p_before: before.toISOString(), p_limit: limit });
       if (error) throw failure("purge_oauth_states", error);
+      return data;
+    },
+
+    async purgeNotificationDeliveries(before, limit) {
+      const { data, error } = await db.rpc("purge_notification_deliveries", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_notification_deliveries", error);
+      return data;
+    },
+
+    async enqueueAlertDispatches() {
+      const { data, error } = await db.rpc("enqueue_alert_dispatches");
+      if (error) throw failure("enqueue_alert_dispatches", error);
+      return data;
+    },
+
+    async enqueueDigests(date) {
+      const { data, error } = await db.rpc("enqueue_digests", { p_date: date });
+      if (error) throw failure("enqueue_digests", error);
       return data;
     },
 
