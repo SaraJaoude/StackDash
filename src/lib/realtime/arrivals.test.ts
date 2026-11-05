@@ -14,6 +14,7 @@ import {
   formatCount,
   liveStatusText,
   newEventIds,
+  recurringValues,
 } from "./arrivals";
 
 const source = { connectionId: "c1", provider: "fake", connectionName: "Fake", simulated: false } as const;
@@ -126,6 +127,27 @@ describe("value keys", () => {
   it("keys credits apart from spend in the same currency", () => {
     expect(creditValues([money(300)])).toEqual({ "credit:USD:verified": 300 });
     expect(creditValues([])).toEqual({});
+  });
+
+  it("keys recurring revenue by metric, so monthly and annual rates in one currency stay apart", () => {
+    const rates = (mrr: number, arr: number) => [
+      { key: "polar.mrr USD verified", label: "Monthly recurring revenue (USD)", value: money(mrr) },
+      { key: "polar.arr USD verified", label: "Annual recurring revenue (USD)", value: money(arr) },
+    ];
+    expect(recurringValues(rates(1_000, 12_000))).toEqual({
+      "recurring:polar.mrr USD verified": 1_000,
+      "recurring:polar.arr USD verified": 12_000,
+    });
+    expect(changedValueKeys(recurringValues(rates(1_000, 12_000)), recurringValues(rates(1_000, 12_500)))).toEqual([
+      "recurring:polar.arr USD verified",
+    ]);
+  });
+
+  it("keys recurring revenue apart from revenue in the same currency, and lists nothing without rates", () => {
+    const rate = { key: "polar.mrr USD verified", label: "Monthly recurring revenue (USD)", value: money(1_000) };
+    const revenue = amountValues("revenue", [{ currency: "USD", verified: money(1_000), estimated: null }]);
+    expect(Object.keys({ ...revenue, ...recurringValues([rate]) })).toHaveLength(3);
+    expect(recurringValues([])).toEqual({});
   });
 });
 

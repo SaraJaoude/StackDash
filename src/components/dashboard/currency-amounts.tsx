@@ -13,13 +13,13 @@ import { Freshness, ProvenanceBadge, ProvenanceDetail, Unavailable } from "./val
  */
 export function MoneyValueBlock({
   value,
-  group,
+  valueKey,
   now,
   headline = false,
 }: {
   value: MoneyValue;
-  /** Which of the card's money lists holds the value, so it is compared with its own old value. */
-  group: AmountGroup;
+  /** The value's key in its card's value map (`src/lib/realtime/arrivals.ts`), so it is compared with its own old value. */
+  valueKey: string;
   now: Date;
   headline?: boolean;
 }) {
@@ -27,7 +27,7 @@ export function MoneyValueBlock({
     <div className="space-y-1">
       <p className="flex flex-wrap items-center gap-2">
         <ArrivalNumber
-          valueKey={amountKey(group, value.currency, value.provenance.status)}
+          valueKey={valueKey}
           value={value.amountMinor}
           text={formatMoney(value.amountMinor, value.currency)}
           format={{ type: "money", currency: value.currency }}
@@ -69,7 +69,12 @@ export function CurrencyAmountsList({
           {amounts.verified === null ? (
             <Unavailable />
           ) : (
-            <MoneyValueBlock value={amounts.verified} group={group} now={now} headline={headline} />
+            <MoneyValueBlock
+              value={amounts.verified}
+              valueKey={amountKey(group, amounts.currency, "verified")}
+              now={now}
+              headline={headline}
+            />
           )}
         </dd>
       </div>
@@ -77,7 +82,12 @@ export function CurrencyAmountsList({
         <div>
           <dt className="text-xs font-medium text-muted">{estimatedLabel}</dt>
           <dd className="mt-1">
-            <MoneyValueBlock value={amounts.estimated} group={group} now={now} headline={headline} />
+            <MoneyValueBlock
+              value={amounts.estimated}
+              valueKey={amountKey(group, amounts.currency, "estimated")}
+              now={now}
+              headline={headline}
+            />
           </dd>
         </div>
       )}

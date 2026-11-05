@@ -7,10 +7,11 @@
  * pure: the components own the state and the timers, and the tests cover the rules.
  *
  * Events are compared by id. Dashboard values are compared by a key that names the account and
- * metric (allowances) or the group, currency, and provenance (money), never by position, so a card
- * that moves in the list is not mistaken for a changed one.
+ * metric (allowances), the group, currency, and provenance (money), or the metric, currency, and
+ * provenance (recurring revenue), never by position, so a card that moves in the list is not
+ * mistaken for a changed one.
  */
-import type { Allowance, CurrencyAmounts, MoneyValue, Provenance } from "@/lib/dashboard/aggregate";
+import type { Allowance, CurrencyAmounts, MoneyValue, Provenance, RecurringRevenue } from "@/lib/dashboard/aggregate";
 import type { TrendMeasure } from "@/lib/dashboard/trends";
 import { formatMoney, formatPercent, formatQuantity } from "@/lib/format";
 
@@ -63,6 +64,18 @@ export function creditValues(credits: readonly MoneyValue[]): Record<string, num
   return Object.fromEntries(
     credits.map((credit) => [amountKey("credit", credit.currency, credit.provenance.status), credit.amountMinor]),
   );
+}
+
+/**
+ * `rate.key` names the metric, currency, and provenance, so monthly and annual recurring revenue in
+ * the same currency stay apart, which a currency and provenance key alone would merge.
+ */
+export function recurringKey(rate: Pick<RecurringRevenue, "key">): string {
+  return `recurring:${rate.key}`;
+}
+
+export function recurringValues(rates: readonly RecurringRevenue[]): Record<string, number | null> {
+  return Object.fromEntries(rates.map((rate) => [recurringKey(rate), rate.value.amountMinor]));
 }
 
 export type AllowancePart = "included" | "used" | "remaining" | "percent";

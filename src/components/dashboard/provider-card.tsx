@@ -4,7 +4,15 @@ import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
-import { allowanceKey, allowanceValues, amountValues, creditValues } from "@/lib/realtime/arrivals";
+import {
+  allowanceKey,
+  allowanceValues,
+  amountKey,
+  amountValues,
+  creditValues,
+  recurringKey,
+  recurringValues,
+} from "@/lib/realtime/arrivals";
 
 import { ArrivalBar, ArrivalCard, ArrivalNumber } from "./arrival-values";
 import { CurrencyAmountsList, MoneyValueBlock } from "./currency-amounts";
@@ -110,7 +118,7 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
   );
 }
 
-/** One connection: its spend, revenue, credit balance, billing period, and allowances. */
+/** One connection: its spend, revenue, recurring revenue, credit balance, billing period, and allowances. */
 export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: Date }) {
   const titleId = useId();
   const name = providerName(summary.provider);
@@ -119,6 +127,7 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
     ...amountValues("spend", summary.spend),
     ...amountValues("revenue", summary.revenue),
     ...creditValues(summary.credits),
+    ...recurringValues(summary.recurringRevenue),
   };
   return (
     <li>
@@ -194,7 +203,11 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
             <ul className="mt-2 space-y-3">
               {summary.credits.map((credit) => (
                 <li key={`${credit.currency}-${credit.provenance.status}`}>
-                  <MoneyValueBlock value={credit} group="credit" now={now} />
+                  <MoneyValueBlock
+                    value={credit}
+                    valueKey={amountKey("credit", credit.currency, credit.provenance.status)}
+                    now={now}
+                  />
                 </li>
               ))}
             </ul>
@@ -217,6 +230,23 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
                   </li>
                 ))}
               </ul>
+            </>
+          )}
+
+          {summary.recurringRevenue.length === 0 ? null : (
+            <>
+              {/* Run rates at the time they were read, never added into revenue or spend above. */}
+              <h4 className="mt-5 text-sm font-semibold">Recurring revenue</h4>
+              <dl className="mt-2 grid gap-4 sm:grid-cols-2">
+                {summary.recurringRevenue.map((rate) => (
+                  <div key={rate.key}>
+                    <dt className="text-xs font-medium text-muted">{rate.label}</dt>
+                    <dd className="mt-1">
+                      <MoneyValueBlock value={rate.value} valueKey={recurringKey(rate)} now={now} />
+                    </dd>
+                  </div>
+                ))}
+              </dl>
             </>
           )}
 

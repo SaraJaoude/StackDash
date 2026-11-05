@@ -1,0 +1,34 @@
+{
+  "periods": [
+    { "timestamp": "2026-11-01T00:00:00.000000Z", "revenue": 12000, "net_revenue": 11350, "orders": 3, "new_subscriptions": 1, "canceled_subscriptions": 0, "active_subscriptions": 79, "monthly_recurring_revenue": 150000, "annual_recurring_revenue": 1800000, "checkouts": 9, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-02T00:00:00.000000Z", "revenue": 0, "net_revenue": 0, "orders": 0, "new_subscriptions": 0, "canceled_subscriptions": 0, "active_subscriptions": 79, "monthly_recurring_revenue": 150000, "annual_recurring_revenue": 1800000, "checkouts": 2, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-03T00:00:00.000000Z", "revenue": 4900, "net_revenue": 4605, "orders": 1, "new_subscriptions": 0, "canceled_subscriptions": 1, "active_subscriptions": 78, "monthly_recurring_revenue": 148100, "annual_recurring_revenue": 1777200, "checkouts": 4, "churn_rate": 1.27, "costs": 0 },
+    { "timestamp": "2026-11-04T00:00:00.000000Z", "revenue": 9800, "net_revenue": 9210, "orders": 2, "new_subscriptions": 1, "canceled_subscriptions": 0, "active_subscriptions": 79, "monthly_recurring_revenue": 150000, "annual_recurring_revenue": 1800000, "checkouts": 5, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-05T00:00:00.000000Z", "revenue": 0, "net_revenue": 0, "orders": 0, "new_subscriptions": 0, "canceled_subscriptions": 0, "active_subscriptions": 79, "monthly_recurring_revenue": 150000, "annual_recurring_revenue": 1800000, "checkouts": 1, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-06T00:00:00.000000Z", "revenue": 2500, "net_revenue": 2325, "orders": 1, "new_subscriptions": 0, "canceled_subscriptions": 0, "active_subscriptions": 79, "monthly_recurring_revenue": 150000, "annual_recurring_revenue": 1800000, "checkouts": 3, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-07T00:00:00.000000Z", "revenue": 15000, "net_revenue": 14200, "orders": 4, "new_subscriptions": 2, "canceled_subscriptions": 0, "active_subscriptions": 81, "monthly_recurring_revenue": 153800, "annual_recurring_revenue": 1845600, "checkouts": 11, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-08T00:00:00.000000Z", "revenue": 7300, "net_revenue": 6885, "orders": 2, "new_subscriptions": 1, "canceled_subscriptions": 1, "active_subscriptions": 81, "monthly_recurring_revenue": 153800, "annual_recurring_revenue": 1845600, "checkouts": 6, "churn_rate": 1.23, "costs": 0 },
+    { "timestamp": "2026-11-09T00:00:00.000000Z", "revenue": 0, "net_revenue": 0, "orders": 0, "new_subscriptions": 0, "canceled_subscriptions": 0, "active_subscriptions": 81, "monthly_recurring_revenue": 153800, "annual_recurring_revenue": 1845600, "checkouts": 0, "churn_rate": 0, "costs": 0 },
+    { "timestamp": "2026-11-10T00:00:00.000000Z", "revenue": 3300.5, "net_revenue": 3085.25, "orders": 1, "new_subscriptions": 0, "canceled_subscriptions": 0, "active_subscriptions": 83, "monthly_recurring_revenue": 158333.3333, "annual_recurring_revenue": 1899999.9996, "checkouts": 2, "churn_rate": 0, "costs": 0 }
+  ],
+  "totals": {
+    "revenue": 54800.5,
+    "net_revenue": 51660.25,
+    "orders": 14,
+    "new_subscriptions": 5,
+    "canceled_subscriptions": 2,
+    "active_subscriptions": 83,
+    "monthly_recurring_revenue": 158333.3333,
+    "annual_recurring_revenue": 1899999.9996,
+    "checkouts": 43,
+    "churn_rate": 2.5,
+    "costs": 0
+  },
+  "metrics": {
+    "revenue": { "slug": "revenue", "display_name": "Revenue", "type": "currency" },
+    "net_revenue": { "slug": "net_revenue", "display_name": "Net Revenue", "type": "currency" },
+    "orders": { "slug": "orders", "display_name": "Orders", "type": "scalar" },
+    "monthly_recurring_revenue": { "slug": "monthly_recurring_revenue", "display_name": "Monthly Recurring Revenue", "type": "currency" },
+    "annual_recurring_revenue": { "slug": "annual_recurring_revenue", "display_name": "Annual Recurring Revenue", "type": "currency" }
+  }
+}
