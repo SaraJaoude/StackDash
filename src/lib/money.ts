@@ -98,3 +98,21 @@ export function toMinorUnits(value: Decimal, currency: string): number {
 export function decimalToMinorUnits(input: string | number, currency: string): number {
   return toMinorUnits(parseDecimal(input), currency);
 }
+
+/**
+ * An amount in minor units shared over `divisor` (a positive whole number, such as signups), rounded
+ * once to the minor unit, half to even, like every other rounding in the app.
+ */
+export function divideMinorUnits(amountMinor: number, divisor: number): number {
+  if (!Number.isSafeInteger(amountMinor)) throw new InvalidDecimalError("Amount must be a whole number of minor units.");
+  if (!Number.isSafeInteger(divisor) || divisor <= 0) throw new InvalidDecimalError("Divisor must be a positive whole number.");
+  const amount = BigInt(amountMinor);
+  const by = BigInt(divisor);
+  const quotient = amount / by;
+  const remainder = amount % by;
+  const absRemainderTimesTwo = (remainder < 0n ? -remainder : remainder) * 2n;
+  const direction = amount < 0n ? -1n : 1n;
+  if (absRemainderTimesTwo > by) return Number(quotient + direction);
+  if (absRemainderTimesTwo < by) return Number(quotient);
+  return Number(quotient % 2n === 0n ? quotient : quotient + direction);
+}

@@ -1,0 +1,447 @@
+import { describe, expect, it } from "vitest";
+
+import { fakeAdapter } from "@/lib/adapters/fake";
+import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { supabaseAdapter } from "@/lib/adapters/supabase";
+import { vercelAdapter } from "@/lib/adapters/vercel";
+
+import type { ConnectionInput, SnapshotInput } from "./aggregate";
+import {
+  buildHeadline,
+  costPerSignupExplanation,
+  DEPLOY_EVENT_TYPES,
+  headlineComparisonText,
+  headlineWindows,
+  listNames,
+  moneyFormatter,
+  SIGNUP_EVENT_TYPES,
+  windowDescription,
+  type EventCount,
+  type HeadlineInput,
+  type HeadlineWindowKind,
+  type MoneyLine,
+} from "./headline";
+
+// Thursday. This week is 2026-11-02 to 2026-11-05; the same days last week are 2026-10-26 to
+// 2026-10-29. This month is 2026-11-01 to 2026-11-05 against 2026-10-01 to 2026-10-05.
+const NOW = new Date("2026-11-05T12:00:00.000Z");
+const DAY_MS = 86_400_000;
+
+function connection(id: string, provider: ConnectionInput["provider"], overrides: Partial<ConnectionInput> = {}): ConnectionInput {
+  return {
+    id,
+    provider,
+    display_name: `${provider} connection`,
+    status: "active",
+    last_synced_at: "2026-11-05T11:00:00.000Z",
+    poll_interval_seconds: 3_600,
+    granted_scopes: [],
+    ...overrides,
+  };
+}
+
+const vercel = connection("c-vercel", "vercel");
+const stripe = connection("c-stripe", "stripe");
+const supabase = connection("c-supabase", "supabase");
+const github = connection("c-github", "github");
+const fake = connection("c-fake", "fake");
+
+function dates(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let time = Date.parse(`${from}T00:00:00Z`); time <= Date.parse(`${to}T00:00:00Z`); time += DAY_MS) {
+    out.push(new Date(time).toISOString().slice(0, 10));
+  }
+  return out;
+}
+
+function monthStart(date: string): string {
+  return `${date.slice(0, 7)}-01T00:00:00.000Z`;
+}
+
+function nextMonthStart(date: string): string {
+  const start = new Date(monthStart(date));
+  return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1)).toISOString();
+}
+
+type SeriesOptions = Readonly<{
+  connectionId: string;
+  metricKey: string;
+  kind?: SnapshotInput["kind"];
+  currency?: string;
+  /** Amount added on every day of the month; the reading on day N holds N times this. */
+  perDay: number;
+  from: string;
+  to: string;
+  skip?: readonly string[];
+  estimated?: boolean;
+}>;
+
+/** One reading per day of a month to date running total, as an adapter's hourly sync leaves it. */
+function runningTotal(options: SeriesOptions): SnapshotInput[] {
+  return dates(options.from, options.to)
+    .filter((date) => !(options.skip ?? []).includes(date))
+    .map((date) => ({
+      connection_id: options.connectionId,
+      external_account_id: `${options.connectionId}-account`,
+      metric_key: options.metricKey,
+      kind: options.kind ?? "verified_spend",
+      label: "Running total",
+      snapshot_date: date,
+      value: null,
+      unit: null,
+      amount_minor: options.perDay * Number(date.slice(8, 10)),
+      currency: options.currency ?? "USD",
+      period_start: monthStart(date),
+      period_end: `${date}T23:00:00.000Z`,
+      point_at: null,
+      resets_at: null,
+      retrieved_at: `${date}T23:00:00.000Z`,
+      provenance_source: options.estimated === true ? "derived" : "provider_api",
+      pricing_source: options.estimated === true ? "https://example.com/pricing" : null,
+    }));
+}
+
+/** A point in time reading, which says only that the connection was reporting that day. */
+function allowance(connectionId: string, date: string): SnapshotInput {
+  return {
+    connection_id: connectionId,
+    external_account_id: `${connectionId}-account`,
+    metric_key: `${connectionId}.plan.limit`,
+    kind: "included_allowance",
+    label: "Plan limit",
+    snapshot_date: date,
+    value: 100,
+    unit: "users",
+    amount_minor: null,
+    currency: null,
+    period_start: null,
+    period_end: null,
+    point_at: `${date}T09:00:00.000Z`,
+    resets_at: null,
+    retrieved_at: `${date}T09:00:00.000Z`,
+    provenance_source: "provider_api",
+    pricing_source: null,
+  };
+}
+
+const NO_EVENTS = { current: [], previous: [] } as const;
+
+function headline(overrides: Partial<HeadlineInput> & Pick<HeadlineInput, "snapshots" | "connections">) {
+  return buildHeadline({ events: NO_EVENTS, kind: "week", now: NOW, ...overrides });
+}
+
+function line(lines: readonly MoneyLine[] | null, currency: string): MoneyLine | undefined {
+  return lines?.find((entry) => entry.currency === currency);
+}
+
+describe("headlineWindows", () => {
+  it.each<[string, HeadlineWindowKind, string, [string, string], [string, string]]>([
+    ["a Thursday: Monday to today against the same days last week", "week", "2026-11-05T12:00:00.000Z", ["2026-11-02", "2026-11-05"], ["2026-10-26", "2026-10-29"]],
+    ["the first instant of a Monday (UTC): one day", "week", "2026-11-02T00:00:00.000Z", ["2026-11-02", "2026-11-02"], ["2026-10-26", "2026-10-26"]],
+    ["the last instant of a Sunday (UTC): the whole week", "week", "2026-11-01T23:59:59.999Z", ["2026-10-26", "2026-11-01"], ["2026-10-19", "2026-10-25"]],
+    ["a week across a new year", "week", "2027-01-01T08:00:00.000Z", ["2026-12-28", "2027-01-01"], ["2026-12-21", "2026-12-25"]],
+    ["the first instant of a month (UTC): one day", "month", "2026-11-01T00:00:00.000Z", ["2026-11-01", "2026-11-01"], ["2026-10-01", "2026-10-01"]],
+    ["the last instant of a month (UTC)", "month", "2026-10-31T23:59:59.999Z", ["2026-10-01", "2026-10-31"], ["2026-09-01", "2026-09-30"]],
+    ["a longer month than the one before: cut at its last day", "month", "2026-03-31T12:00:00.000Z", ["2026-03-01", "2026-03-31"], ["2026-02-01", "2026-02-28"]],
+    ["a month across a new year", "month", "2026-01-15T12:00:00.000Z", ["2026-01-01", "2026-01-15"], ["2025-12-01", "2025-12-15"]],
+  ])("%s", (_name, kind, now, current, previous) => {
+    const windows = headlineWindows(kind, new Date(now));
+    expect(windows.current).toEqual({ start: current[0], end: current[1] });
+    expect(windows.previous).toEqual({ start: previous[0], end: previous[1] });
+  });
+
+  it("uses the UTC day, not the server's local one, an hour either side of midnight", () => {
+    expect(headlineWindows("week", new Date("2026-11-01T23:00:00.000-01:00")).current.start).toBe("2026-11-02");
+    expect(headlineWindows("week", new Date("2026-11-02T00:30:00.000+01:00")).current.start).toBe("2026-10-26");
+  });
+});
+
+describe("buildHeadline money", () => {
+  const vercelSpend = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 100, from: "2026-10-01", to: "2026-11-05" });
+
+  it("counts the days in the window from daily readings of a running total", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [vercel] });
+    expect(line(strip.spend.lines, "USD")?.verified).toEqual({
+      value: 400,
+      comparison: { status: "change", direction: "same", percent: 0, previous: 400 },
+    });
+    expect(strip.spend.included).toEqual(["Vercel"]);
+    expect(strip.spend.unavailable).toEqual([]);
+  });
+
+  it("adds both months for a week across a month boundary, the new month counted from its first reading", () => {
+    const strip = headline({ snapshots: vercelSpend.filter((row) => row.snapshot_date <= "2026-11-01"), connections: [vercel], now: new Date("2026-11-01T23:30:00.000Z") });
+    // 2026-10-26 to 2026-10-31 is 6 days at 100, plus 100 for 2026-11-01.
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(700);
+  });
+
+  it("counts the month window from the first reading of the month, which covers everything since it began", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [vercel], kind: "month" });
+    expect(line(strip.spend.lines, "USD")?.verified).toEqual({
+      value: 500,
+      comparison: { status: "change", direction: "same", percent: 0, previous: 500 },
+    });
+  });
+
+  it("shows a window with no revenue as zero from a source that reported it, and no figure without a source", () => {
+    const flat = runningTotal({ connectionId: stripe.id, metricKey: "stripe.revenue.month.usd", kind: "revenue", perDay: 0, from: "2026-10-01", to: "2026-11-05" });
+    const withStripe = headline({ snapshots: [...flat, ...vercelSpend], connections: [stripe, vercel] });
+    expect(withStripe.revenue.lines).toEqual([
+      { currency: "USD", verified: { value: 0, comparison: { status: "change", direction: "same", percent: null, previous: 0 } }, estimated: null },
+    ]);
+    expect(line(withStripe.net.lines, "USD")?.verified?.value).toBe(-400);
+
+    const withoutRevenue = headline({ snapshots: vercelSpend, connections: [vercel] });
+    expect(withoutRevenue.revenue).toMatchObject({ lines: null, included: [], unavailable: [] });
+    expect(withoutRevenue.net.lines).toBeNull();
+  });
+
+  it("names a connected revenue provider with no readings as unavailable, not zero", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [stripe, vercel] });
+    expect(strip.revenue).toMatchObject({ lines: null, included: [], unavailable: ["Stripe"] });
+    expect(strip.net.lines).toBeNull();
+  });
+
+  it("keeps spend in two currencies on separate lines, never converted or added", () => {
+    const euro = runningTotal({ connectionId: fake.id, metricKey: "fake.spend.month", currency: "EUR", perDay: 70, from: "2026-10-01", to: "2026-11-05" });
+    const strip = headline({ snapshots: [...vercelSpend, ...euro], connections: [vercel, fake] });
+    expect(strip.spend.lines?.map((entry) => [entry.currency, entry.verified?.value])).toEqual([
+      ["EUR", 280],
+      ["USD", 400],
+    ]);
+    expect(strip.spend.included).toEqual(["Example provider", "Vercel"]);
+  });
+
+  it("names a provider that cannot report spend as unavailable and leaves it out of the sum", () => {
+    const strip = headline({ snapshots: [...vercelSpend, allowance(supabase.id, "2026-10-01")], connections: [vercel, supabase] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
+    expect(strip.spend.unavailable).toEqual(["Supabase"]);
+    expect(strip.spend.included).toEqual(["Vercel"]);
+  });
+
+  it("keeps verified and estimated amounts apart in spend, revenue minus spend, and cost per signup", () => {
+    const estimate = runningTotal({ connectionId: fake.id, metricKey: "fake.cost.estimate", kind: "estimated_spend", estimated: true, perDay: 30, from: "2026-10-01", to: "2026-11-05" });
+    const revenue = runningTotal({ connectionId: stripe.id, metricKey: "stripe.revenue.month.usd", kind: "revenue", perDay: 1_000, from: "2026-10-01", to: "2026-11-05" });
+    const signups: EventCount[] = [{ connection_id: fake.id, type_id: "fake.signup", events: 8 }];
+    const strip = headline({
+      snapshots: [...vercelSpend, ...estimate, ...revenue],
+      connections: [vercel, fake, stripe],
+      events: { current: signups, previous: signups },
+    });
+    expect(line(strip.spend.lines, "USD")).toMatchObject({ verified: { value: 400 }, estimated: { value: 120 } });
+    expect(line(strip.net.lines, "USD")).toMatchObject({ verified: { value: 3_600 }, estimated: { value: -120 } });
+    expect(line(strip.costPerSignup.lines, "USD")).toMatchObject({ verified: { value: 50 }, estimated: { value: 15 } });
+  });
+
+  it("makes a connection unavailable when its first reading spans the window start, and fine for the month", () => {
+    const late = vercelSpend.filter((row) => row.snapshot_date >= "2026-11-04");
+    const week = headline({ snapshots: late, connections: [vercel] });
+    expect(week.spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
+    const month = headline({ snapshots: late, connections: [vercel], kind: "month" });
+    expect(line(month.spend.lines, "USD")?.verified).toMatchObject({ value: 500, comparison: { status: "unavailable", missing: "previous" } });
+    expect(month.spend.previousUnavailable).toEqual(["Vercel"]);
+  });
+
+  it("counts a missed day inside the window from the next reading, but not a missing last required day", () => {
+    const gapInside = headline({ snapshots: vercelSpend.filter((row) => row.snapshot_date !== "2026-11-03"), connections: [vercel] });
+    expect(line(gapInside.spend.lines, "USD")?.verified?.value).toBe(400);
+    // Yesterday (2026-11-04) has no reading and nothing after it, so the week is incomplete.
+    const stopped = headline({ snapshots: vercelSpend.filter((row) => row.snapshot_date <= "2026-11-03"), connections: [vercel] });
+    expect(stopped.spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
+  });
+
+  it("does not need today's reading for the current window", () => {
+    const strip = headline({ snapshots: vercelSpend.filter((row) => row.snapshot_date <= "2026-11-04"), connections: [vercel] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(300);
+  });
+
+  it("gives no comparison when a reading spans the previous window's end", () => {
+    const strip = headline({ snapshots: vercelSpend.filter((row) => !["2026-10-29", "2026-10-30"].includes(row.snapshot_date)), connections: [vercel] });
+    expect(line(strip.spend.lines, "USD")?.verified).toEqual({ value: 400, comparison: { status: "unavailable", missing: "previous" } });
+    expect(strip.spend.previousUnavailable).toEqual(["Vercel"]);
+  });
+
+  it("counts GitHub's daily spend inside its month once, and skips rolling windows", () => {
+    // GitHub's month runs to the start of the next month, so its daily rows sit strictly inside it.
+    const month = runningTotal({ connectionId: github.id, metricKey: "github.spend.actions", perDay: 50, from: "2026-10-01", to: "2026-11-05" }).map(
+      (row) => ({ ...row, period_end: nextMonthStart(row.snapshot_date) }),
+    );
+    const daily = month.map((row) => ({
+      ...row,
+      metric_key: "github.daily_spend.actions",
+      amount_minor: 50,
+      period_start: `${row.snapshot_date}T00:00:00.000Z`,
+      period_end: new Date(Date.parse(`${row.snapshot_date}T00:00:00.000Z`) + DAY_MS).toISOString(),
+    }));
+    const rolling = month.map((row) => ({
+      ...row,
+      metric_key: "github.spend.last_30_days",
+      period_start: new Date(Date.parse(row.retrieved_at) - 30 * DAY_MS).toISOString(),
+    }));
+    const strip = headline({ snapshots: [...month, ...daily, ...rolling], connections: [github] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(200);
+  });
+
+  it("ignores rows of connections outside the scope", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [stripe] });
+    expect(strip.spend).toMatchObject({ lines: null, unavailable: ["Stripe"] });
+  });
+
+  it("names providers billed on another period than the window", () => {
+    const github15 = runningTotal({ connectionId: github.id, metricKey: "github.spend.actions", perDay: 10, from: "2026-10-01", to: "2026-11-05" }).map((row) => ({
+      ...row,
+      period_start: row.snapshot_date >= "2026-10-15" ? "2026-10-15T00:00:00.000Z" : "2026-09-15T00:00:00.000Z",
+    }));
+    expect(headline({ snapshots: [...vercelSpend, ...github15], connections: [vercel, github], kind: "week" }).otherBillingPeriods).toEqual(["GitHub", "Vercel"]);
+    expect(headline({ snapshots: [...vercelSpend, ...github15], connections: [vercel, github], kind: "month" }).otherBillingPeriods).toEqual(["GitHub"]);
+  });
+});
+
+describe("buildHeadline counts", () => {
+  const history = [allowance(supabase.id, "2026-10-01"), allowance(vercel.id, "2026-10-01")];
+  const spend = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 125, from: "2026-10-01", to: "2026-11-05" });
+
+  it("counts signups and deploys, with failed deploys named, against the same days last week", () => {
+    const strip = headline({
+      snapshots: [...history, ...spend],
+      connections: [vercel, supabase],
+      events: {
+        current: [
+          { connection_id: supabase.id, type_id: "supabase.auth.signup", events: 4 },
+          { connection_id: vercel.id, type_id: "vercel.deployment.succeeded", events: 9 },
+          { connection_id: vercel.id, type_id: "vercel.deployment.failed", events: 3 },
+        ],
+        previous: [
+          { connection_id: supabase.id, type_id: "supabase.auth.signup", events: 2 },
+          { connection_id: vercel.id, type_id: "vercel.deployment.succeeded", events: 12 },
+        ],
+      },
+    });
+    expect(strip.signups).toMatchObject({
+      value: { value: 4, comparison: { status: "change", direction: "up", percent: 100, previous: 2 } },
+      included: ["Supabase"],
+    });
+    expect(strip.deploys).toMatchObject({
+      value: { value: 12, comparison: { status: "change", direction: "same", previous: 12 } },
+      failed: 3,
+    });
+    // 500 cents over 4 signups now, against 500 over 2 before.
+    expect(line(strip.costPerSignup.lines, "USD")?.verified).toEqual({
+      value: 125,
+      comparison: { status: "change", direction: "down", percent: 50, previous: 250 },
+    });
+    // Supabase cannot report spend, so its spend is left out while its signups count.
+    expect(strip.costPerSignup).toMatchObject({
+      missing: null,
+      spendFrom: ["Vercel"],
+      signupsFrom: ["Supabase"],
+      spendUnavailable: ["Supabase"],
+      signupsUnavailable: [],
+    });
+  });
+
+  it("rounds cost per signup once, half to even", () => {
+    const events = (count: number) => ({ current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: count }], previous: [] });
+    // 500 over 8 is 62.5, rounded to the even 62; 500 over 3 is 166.67, rounded to 167.
+    expect(line(headline({ snapshots: [...history, ...spend], connections: [vercel, supabase], events: events(8) }).costPerSignup.lines, "USD")?.verified?.value).toBe(62);
+    expect(line(headline({ snapshots: [...history, ...spend], connections: [vercel, supabase], events: events(3) }).costPerSignup.lines, "USD")?.verified?.value).toBe(167);
+  });
+
+  it("shows no cost per signup with zero signups, without signups, or without spend", () => {
+    expect(headline({ snapshots: [...history, ...spend], connections: [vercel, supabase] }).costPerSignup).toMatchObject({ lines: null, missing: "no_signups" });
+    expect(headline({ snapshots: [...history, ...spend], connections: [vercel] }).costPerSignup).toMatchObject({ lines: null, missing: "signups" });
+    expect(headline({ snapshots: history, connections: [supabase] }).costPerSignup).toMatchObject({ lines: null, missing: "spend" });
+  });
+
+  it("makes a source unavailable when it was connected after the window began or has not synced since yesterday", () => {
+    const newcomer = headline({ snapshots: [allowance(supabase.id, "2026-11-03")], connections: [supabase] });
+    expect(newcomer.signups).toMatchObject({ value: null, unavailable: ["Supabase"] });
+    const silent = headline({ snapshots: history, connections: [connection(supabase.id, "supabase", { last_synced_at: "2026-11-03T23:59:00.000Z" })] });
+    expect(silent.signups).toMatchObject({ value: null, unavailable: ["Supabase"] });
+    const neverSynced = headline({ snapshots: history, connections: [connection(supabase.id, "supabase", { last_synced_at: null })] });
+    expect(neverSynced.signups).toMatchObject({ value: null, unavailable: ["Supabase"] });
+  });
+
+  it("compares only when the same sources reported the previous window", () => {
+    const strip = headline({ snapshots: [allowance(supabase.id, "2026-10-28")], connections: [supabase] });
+    expect(strip.signups).toMatchObject({
+      value: { value: 0, comparison: { status: "unavailable", missing: "previous" } },
+      previousUnavailable: ["Supabase"],
+    });
+  });
+
+  it("has no signup figure when no connected provider reports signups", () => {
+    expect(headline({ snapshots: spend, connections: [vercel] }).signups).toMatchObject({ value: null, included: [], unavailable: [] });
+  });
+
+  it("is simulated when a connection behind a figure was made by the provider simulator", () => {
+    const simulated = connection(vercel.id, "vercel", { granted_scopes: [SIMULATED_SCOPE] });
+    expect(headline({ snapshots: spend, connections: [simulated] }).simulated).toBe(true);
+    expect(headline({ snapshots: spend, connections: [vercel] }).simulated).toBe(false);
+  });
+});
+
+describe("headline copy", () => {
+  const usd = moneyFormatter("USD");
+
+  it.each([
+    ["up with a percent", { status: "change", direction: "up", percent: 12.4, previous: 1_000 } as const, "Up 12 percent from $10.00 on the same days last week"],
+    ["down by less than 1 percent", { status: "change", direction: "down", percent: 0.3, previous: 1_000 } as const, "Down less than 1 percent from $10.00 on the same days last week"],
+    ["up from zero, with no percent", { status: "change", direction: "up", percent: null, previous: 0 } as const, "Up from $0.00 on the same days last week"],
+    ["no change", { status: "change", direction: "same", percent: 0, previous: 1_000 } as const, "No change from $10.00 on the same days last week"],
+    ["no previous value", { status: "unavailable", missing: "previous" } as const, "No comparison: the same days last week are unavailable"],
+  ])("comparison text: %s", (_name, comparison, expected) => {
+    expect(headlineComparisonText(comparison, usd, "week")).toBe(expected);
+  });
+
+  it("names the providers that could not report the previous window", () => {
+    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "month", ["Stripe", "Vercel"])).toBe(
+      "No comparison: Stripe and Vercel could not report the same days last month",
+    );
+  });
+
+  it("describes the windows as UTC dates, a single day once", () => {
+    expect(windowDescription(headlineWindows("week", NOW))).toBe("2026-11-02 to 2026-11-05 in UTC, compared with 2026-10-26 to 2026-10-29.");
+    expect(windowDescription(headlineWindows("week", new Date("2026-11-02T08:00:00.000Z")))).toBe("2026-11-02 in UTC, compared with 2026-10-26.");
+  });
+
+  it.each([
+    [[], ""],
+    [["Vercel"], "Vercel"],
+    [["GitHub", "Vercel"], "GitHub and Vercel"],
+    [["GitHub", "Stripe", "Vercel"], "GitHub, Stripe, and Vercel"],
+  ])("lists %j as %j", (values, expected) => {
+    expect(listNames(values)).toBe(expected);
+  });
+
+  it("explains cost per signup with exactly the providers in it and the ones left out", () => {
+    expect(
+      costPerSignupExplanation({
+        lines: null,
+        missing: null,
+        spendFrom: ["GitHub", "Vercel"],
+        signupsFrom: ["Supabase"],
+        spendUnavailable: ["Resend", "Supabase"],
+        signupsUnavailable: ["Example provider"],
+      }),
+    ).toBe(
+      "Spend from GitHub and Vercel, divided by signups from Supabase. Leaves out spend from Resend and Supabase, unavailable for this window. Leaves out signups from Example provider, unavailable for this window. Each currency on its own, verified and estimated spend apart, rounded once to the currency's smallest unit.",
+    );
+  });
+
+  it("never prints a dash or an exclamation mark", () => {
+    const texts = [
+      headlineComparisonText({ status: "change", direction: "down", percent: 50, previous: -500 }, usd, "week"),
+      windowDescription(headlineWindows("month", NOW)),
+      costPerSignupExplanation({ lines: null, missing: null, spendFrom: ["Vercel"], signupsFrom: ["Supabase"], spendUnavailable: [], signupsUnavailable: [] }),
+    ];
+    for (const text of texts) expect(text).not.toMatch(/[\u2013\u2014!]/);
+  });
+});
+
+describe("headline event types", () => {
+  it("names only event types an adapter declares, so a renamed type cannot silently drop out", () => {
+    const declared = new Set([...fakeAdapter.eventTypes, ...supabaseAdapter.eventTypes, ...vercelAdapter.eventTypes].map((type) => type.id));
+    for (const typeId of [...SIGNUP_EVENT_TYPES, ...Object.keys(DEPLOY_EVENT_TYPES)]) expect(declared).toContain(typeId);
+  });
+});

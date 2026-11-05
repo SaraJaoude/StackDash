@@ -120,15 +120,18 @@ type SeriesBuilder = {
   simulated: boolean;
 };
 
-/** Last bucket against the one before it. */
-export function compareToPrevious(points: readonly TrendPoint[]): TrendComparison {
-  const current = points.at(-1)?.value ?? null;
-  const previous = points.at(-2)?.value ?? null;
+/** `current` against `previous`; a missing value on either side means no comparison. */
+export function compareValues(current: number | null, previous: number | null): TrendComparison {
   if (current === null) return { status: "unavailable", missing: "current" };
   if (previous === null) return { status: "unavailable", missing: "previous" };
   const direction = current > previous ? "up" : current < previous ? "down" : "same";
   const percent = previous === 0 ? null : (Math.abs(current - previous) / Math.abs(previous)) * 100;
   return { status: "change", direction, percent, previous };
+}
+
+/** Last bucket against the one before it. */
+export function compareToPrevious(points: readonly TrendPoint[]): TrendComparison {
+  return compareValues(points.at(-1)?.value ?? null, points.at(-2)?.value ?? null);
 }
 
 /**
