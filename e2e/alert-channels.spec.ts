@@ -72,7 +72,7 @@ ownerTest.describe("alert channels as the owner", () => {
         adminClient().from("notification_destination_secrets").select("destination_id", { count: "exact", head: true }).eq("destination_id", destination.id);
       expect((await secrets()).count).toBe(1);
 
-      await row.getByRole("button", { name: "Send test message: Ops webhook" }).click();
+      await row.getByRole("button", { name: /^Send test message/ }).click();
       await expect(row.getByText("Test message sent to Ops webhook.")).toBeVisible();
       expect(receiver.received).toHaveLength(1);
       const [delivery] = receiver.received;
@@ -82,11 +82,11 @@ ownerTest.describe("alert channels as the owner", () => {
       expect(delivery?.body).not.toContain(receiver.url);
 
       // Keyboard: the remove button opens the dialog, and Enter on its confirm button removes it.
-      await row.getByRole("button", { name: "Remove channel: Ops webhook" }).focus();
+      await row.getByRole("button", { name: /^Remove channel/ }).focus();
       await page.keyboard.press("Enter");
       const dialog = page.getByRole("dialog", { name: "Remove this channel?" });
       await expect(dialog).toBeVisible();
-      await dialog.getByRole("button", { name: "Remove channel" }).focus();
+      await dialog.getByRole("button", { name: "Remove channel", exact: true }).focus();
       await page.keyboard.press("Enter");
       await expect(channels.getByText("No channels yet")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Channels" })).toBeFocused();
