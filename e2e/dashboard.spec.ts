@@ -4,7 +4,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { openFilters } from "./fixtures/filters";
+import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only.
 
@@ -339,6 +339,40 @@ ownerTest.describe("dashboard filters", () => {
       await filters.getByRole("link", { name: "Clear filters" }).click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/dashboard$`));
       await expect(status).toHaveText("Showing 2 connections");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("opens the form below a status that wraps, on a wide screen and on a phone", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard filters wrap");
+    try {
+      await seedDashboard(workspace);
+      await seedSecondProvider(workspace);
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      const status = filters.getByRole("status");
+
+      // 1280 wide: every provider, project, and account ticked gives a status that wraps.
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await openFilters(page);
+      for (const group of ["Provider", "Project", "Account"]) await checkEvery(page, group);
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(status).toContainText("accounts ");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page);
+      await expectFormBelowWrappedStatus(page);
+
+      // A phone: one filter is enough.
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto(`/w/${workspace.slug}/dashboard?provider=fake`);
+      await expect(status).toHaveText("Showing 1 connection for provider Example provider");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page, "keyboard");
+      await expectFormBelowWrappedStatus(page);
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }
