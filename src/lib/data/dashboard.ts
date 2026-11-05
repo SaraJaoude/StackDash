@@ -44,17 +44,25 @@ export function snapshotWindowStart(now: Date): string {
 /**
  * The workspace's snapshots dated `sinceDate` or later, newest first, as one paged query on the
  * `(workspace_id, snapshot_date desc)` index. `purpose` names the caller in the truncation warning.
+ * `kinds`, when given, reads only rows of those kinds.
  */
-export async function loadSnapshots(workspaceId: string, sinceDate: string, purpose: string): Promise<SnapshotInput[]> {
+export async function loadSnapshots(
+  workspaceId: string,
+  sinceDate: string,
+  purpose: string,
+  kinds?: readonly SnapshotInput["kind"][],
+): Promise<SnapshotInput[]> {
   const supabase = await createClient();
   const rows: SnapshotInput[] = [];
   for (let page = 0; page < SNAPSHOT_MAX_PAGES; page += 1) {
     const from = page * SNAPSHOT_PAGE_SIZE;
-    const { data, error } = await supabase
+    let query = supabase
       .from("usage_snapshots")
       .select(SNAPSHOT_COLUMNS)
       .eq("workspace_id", workspaceId)
-      .gte("snapshot_date", sinceDate)
+      .gte("snapshot_date", sinceDate);
+    if (kinds !== undefined) query = query.in("kind", kinds);
+    const { data, error } = await query
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + SNAPSHOT_PAGE_SIZE - 1);
