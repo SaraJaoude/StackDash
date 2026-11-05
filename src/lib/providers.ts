@@ -15,6 +15,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   stripe: "Stripe",
   supabase: "Supabase",
   digitalocean: "DigitalOcean",
+  posthog: "PostHog",
   fake: "Example provider",
 };
 
@@ -26,6 +27,7 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   stripe: "Stripe",
   supabase: "Supabase",
   digitalocean: "DigitalOcean",
+  posthog: "PostHog",
   fake: null,
 };
 

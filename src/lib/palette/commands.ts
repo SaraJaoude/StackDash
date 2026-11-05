@@ -1,7 +1,7 @@
 import { appendScopeParams, EMPTY_SCOPE, type ScopeFilters, type ScopeOption, type ScopeOptions } from "@/lib/filters/scope";
 import { typeOwnerName } from "@/lib/providers";
 import { eventTypeLabel, timelineHref } from "@/lib/timeline/query";
-import { WORKSPACE_SECTIONS, workspacePath, type WorkspaceSection } from "@/lib/workspaces/access";
+import { WORKSPACE_SECTIONS, workspacePath, type WorkspaceSection } from "@/lib/workspaces/paths";
 
 import type { PaletteCommand } from "./search";
 

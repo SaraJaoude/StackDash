@@ -13,7 +13,8 @@ import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Timeline" };
