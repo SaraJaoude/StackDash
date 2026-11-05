@@ -26,13 +26,6 @@ export const TokenResponseSchema = z.object({
   expiresAt: isoDateTime,
 });
 
-/** `GET /api/0/organizations/{organization_id_or_slug}/` with `detailed=0`. */
-export const OrganizationSchema = z.object({
-  id: IdSchema,
-  slug: z.string().min(1),
-  name: z.string().nullish(),
-});
-
 const ProjectSchema = z.object({
   id: IdSchema,
   slug: z.string().min(1),
