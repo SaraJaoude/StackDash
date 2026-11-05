@@ -14,7 +14,8 @@ import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import { ProviderIdSchema } from "@/lib/adapters/types";
 import { connectErrorMessage, reconnectMismatch } from "@/lib/connections/oauth-state";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connect a provider" };

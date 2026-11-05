@@ -3,7 +3,7 @@ import Link from "next/link";
 import { AlertSeverityLabel, AlertTime, EstimatedBadge } from "@/components/alerts/triggered-alerts";
 import type { UnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
-import { workspacePath } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 
 const TITLE_ID = "alerts-summary-title";
 
