@@ -1,5 +1,3 @@
-import { billingMetricNames } from "@/lib/adapters/github/billing";
-import { starMetricNames } from "@/lib/adapters/github/repositories";
 import type { LiveProviderId } from "@/lib/adapters/types";
 import { Constants, type Database } from "@/lib/supabase/database.types";
 
@@ -13,6 +11,10 @@ import { Constants, type Database } from "@/lib/supabase/database.types";
  * `published_metrics` can only ever hold an id defined here. Spend, budgets, and alert thresholds
  * have no id and can never be published. Values come only from stored snapshots and events, never
  * from a provider call, and never include money, account names, or repository names.
+ *
+ * Client-safe: it imports no adapter code, data access, or Node module (adapter types only), so
+ * client components can use these definitions and `display.ts`. Metric keys are therefore
+ * literals; `definitions.test.ts` proves each one against what the adapters store.
  */
 
 export type PublicMetricId = Database["public"]["Enums"]["public_metric_id"];
@@ -99,8 +101,10 @@ export type PublicMetricDefinition = Readonly<{
   windowDays: number;
 }>;
 
-const STARS_TOTAL = starMetricNames.total.metricKey;
-const ACTIONS_MINUTES = billingMetricNames.usage("Actions", "Minutes").metricKey;
+// `starMetricNames.total` in src/lib/adapters/github/repositories.ts.
+const STARS_TOTAL = "github.stars.total";
+// `billingMetricNames.usage("Actions", "Minutes")` in src/lib/adapters/github/billing.ts.
+const ACTIONS_MINUTES = "github.usage.actions.minutes";
 const VERCEL_SUCCEEDED = "vercel.deployment.succeeded";
 const VERCEL_FAILED = "vercel.deployment.failed";
 const SUPABASE_SIGNUP = "supabase.auth.signup";

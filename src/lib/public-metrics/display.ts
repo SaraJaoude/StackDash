@@ -10,7 +10,8 @@ import {
 import type { UnavailableReason } from "./engine";
 
 /*
- * How a published value reads. Client-safe: no data access, so server pages, share surfaces, and
+ * How a published value reads. Client-safe: no data access and no adapter or Node module, here or
+ * in `definitions.ts` (`display.test.ts` walks the imports), so server pages, share surfaces, and
  * client components format the same way.
  */
 

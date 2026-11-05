@@ -1,6 +1,42 @@
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { applyRounding, formatMetricValue, publicationSummary, publishedDisplay } from "./display";
+
+const SRC = path.join(process.cwd(), "src");
+
+/** Every module `file` loads at run time, following `@/` and relative imports; type imports are erased. */
+function runtimeImports(file: string, seen = new Set<string>()): Set<string> {
+  const source = readFileSync(file, "utf8");
+  for (const match of source.matchAll(/^import\s+(?:(?!type\s)[^;]*?from\s+)?"([^"]+)";/gms)) {
+    const specifier = match[1];
+    if (seen.has(specifier)) continue;
+    seen.add(specifier);
+    const base = specifier.startsWith("@/")
+      ? path.join(SRC, specifier.slice(2))
+      : specifier.startsWith(".")
+        ? path.resolve(path.dirname(file), specifier)
+        : null;
+    const resolved = base === null ? undefined : [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")].find(existsSync);
+    if (resolved !== undefined) runtimeImports(resolved, seen);
+  }
+  return seen;
+}
+
+describe("client safety", () => {
+  // #149 and #150 import these from client components; a server module here fails their build.
+  it.each(["display.ts", "definitions.ts"])("%s loads no adapter, data access, or Node module", (file) => {
+    const imports = [...runtimeImports(path.join(SRC, "lib/public-metrics", file))];
+    expect(imports.filter((specifier) => /^node:|^server-only$|^@\/lib\/(adapters|supabase\/(server|admin)|data)\b/.test(specifier))).toEqual([]);
+  });
+
+  it("finds a server module when one is imported", () => {
+    // The engine's Supabase store is server-only, so the walk must report it.
+    expect([...runtimeImports(path.join(SRC, "lib/public-metrics/supabase-store.ts"))]).toContain("server-only");
+  });
+});
 
 describe("applyRounding", () => {
   it.each([

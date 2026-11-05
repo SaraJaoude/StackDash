@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { billingMetricNames } from "@/lib/adapters/github/billing";
+import { starMetricNames } from "@/lib/adapters/github/repositories";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { githubProfile } from "@/lib/adapters/simulated/github";
 import { resendProfile } from "@/lib/adapters/simulated/resend";
@@ -84,6 +86,14 @@ describe("public metric definitions", () => {
     expect(isPublicMetricId("budget")).toBe(false);
     expect(isPublicMetricId("github-stars")).toBe(true);
     expect(isPublicMetricId("")).toBe(false);
+  });
+
+  it("spells the GitHub keys as the adapter builds them", () => {
+    // definitions.ts writes these as literals so it stays client-safe (no adapter import).
+    expect(publicMetricDefinition("github-stars").source).toEqual({ type: "snapshot_total", metricKey: starMetricNames.total.metricKey });
+    expect(publicMetricDefinition("github-actions-minutes-month").source).toMatchObject({
+      metricKey: billingMetricNames.usage("Actions", "Minutes").metricKey,
+    });
   });
 
   it("states a window for every count and change, and none for current values and streaks", () => {
