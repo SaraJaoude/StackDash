@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { emailEnv } from "@/lib/env";
 
-import { EmailNotConfiguredError, EmailSendError, resendTransport, sendEmail, type EmailMessage } from "./send";
+import { EmailSendError, resendTransport, type EmailMessage } from "./send";
 
 const message: EmailMessage = {
   to: "owner@example.com",
@@ -53,12 +53,6 @@ describe("emailEnv: choosing the transport", () => {
     stubEmailEnv({ DEVMACRO_EMAIL_FROM: "a@example.com", DEVMACRO_SMTP_URL: "https://user:hunter2@mail.example.com" });
     expect(() => emailEnv()).toThrow(/DEVMACRO_SMTP_URL is invalid/);
     expect(() => emailEnv()).not.toThrow(/hunter2/);
-  });
-});
-
-describe("sendEmail", () => {
-  it("refuses to send when email is not set up", async () => {
-    await expect(sendEmail(message, null)).rejects.toBeInstanceOf(EmailNotConfiguredError);
   });
 });
 

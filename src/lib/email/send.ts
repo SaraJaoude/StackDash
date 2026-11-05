@@ -5,10 +5,10 @@ import { createTransport } from "nodemailer";
 import { emailEnv, type EmailEnv } from "@/lib/env";
 
 /*
- * Provider-neutral email (#152). Callers build an `EmailMessage` and call `sendEmail`; the
- * transport comes from the environment (`emailEnv`): SMTP through nodemailer for local and
- * self-hosted installs, or Resend's HTTP API for the hosted instance. Nothing outside this file
- * knows which one is in use.
+ * Provider-neutral email (#152). Callers get the transport with `emailTransportFromEnv()` (null
+ * when email is not set up) and send through `EmailTransport.send`: SMTP through nodemailer for
+ * local and self-hosted installs, or Resend's HTTP API for the hosted instance, chosen from the
+ * environment (`emailEnv`). Nothing outside this file knows which one is in use.
  *
  * Decision on #152 (nodemailer over a hand-written SMTP client):
  * https://github.com/eddiejaoude/DevMacro/issues/152#issuecomment-6646089035
@@ -155,18 +155,4 @@ export function emailTransportFromEnv(): EmailTransport | null {
   const env = emailEnv();
   if (env === null) return null;
   return env.transport === "smtp" ? smtpTransport(env.from, env.smtpUrl) : resendTransport(env.from, env.resendApiKey);
-}
-
-/** Thrown by `sendEmail` when neither DEVMACRO_SMTP_URL nor DEVMACRO_RESEND_API_KEY is set. */
-export class EmailNotConfiguredError extends Error {
-  override readonly name = "EmailNotConfiguredError";
-}
-
-/** Sends one message with the configured transport (or the one passed, in tests). */
-export async function sendEmail(
-  message: EmailMessage,
-  transport: EmailTransport | null = emailTransportFromEnv(),
-): Promise<SentEmail> {
-  if (transport === null) throw new EmailNotConfiguredError("Email is not set up on this instance.");
-  return transport.send(message);
 }
