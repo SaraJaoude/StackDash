@@ -27,7 +27,7 @@ function runtimeImports(file: string, specifiers = new Set<string>(), visited = 
 
 describe("client safety", () => {
   // #149 and #150 import these from client components; a server module here fails their build.
-  it.each(["display.ts", "definitions.ts"])("%s loads no adapter, data access, or Node module", (file) => {
+  it.each(["display.ts", "definitions.ts", "share.ts", "badge.ts"])("%s loads no adapter, data access, or Node module", (file) => {
     const imports = [...runtimeImports(path.join(SRC, "lib/public-metrics", file))];
     expect(imports.filter((specifier) => /^node:|^server-only$|^@\/lib\/(adapters|supabase\/(server|admin)|data)\b/.test(specifier))).toEqual([]);
   });

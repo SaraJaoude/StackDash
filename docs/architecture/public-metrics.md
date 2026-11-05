@@ -60,7 +60,7 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 
 ### Public route
 
-`GET /api/public/projects/<project id>/metrics` returns a project's live publications as JSON, for anyone. A project that does not exist and one with nothing published both answer `404`, so the route never reveals which projects exist. Responses are cached for 60 seconds (`Cache-Control: public, max-age=60, s-maxage=60`), so an unpublished value stops showing within a minute.
+`GET /api/public/projects/<project id>/metrics` returns a project's live publications as JSON, for anyone. A project that does not exist and one with nothing published both answer `404`, so the route never reveals which projects exist. Responses are cached for 60 seconds (`Cache-Control: public, max-age=60, s-maxage=60`), so an unpublished value stops showing within a minute. It shares the per IP [rate limit](#rate-limit) with badges and cards.
 
 The route is same-origin only: it sends no `Access-Control-Allow-Origin`, so a script on another site cannot `fetch` it in a browser. Badges and cards are rendered by DevMacro's own server, and anyone can still read the JSON from a server or with curl. `formulaUrl` is an absolute URL on this DevMacro (from `NEXT_PUBLIC_SITE_URL`, else the request's origin), so a reader off-site can follow it.
 
@@ -109,11 +109,55 @@ Server code that shows published values (badges and cards #149, project pages #1
 |---|---|
 | `loadPublishedProjectMetrics(projectId, now)` | Every live publication of the project, engine metrics in definition order then self-reported values, or `null` when nothing is published |
 | `loadPublishedMetric(projectId, metricId, now)` | One published engine metric, or `null`. It takes a `PublicMetricId`, so a self-reported value can never become a badge |
+| `loadPublishedMetricCard(projectId, metricId, now, trendDays)` | The same, with its trend: the published value at the same time of day on each of the last `trendDays` days, rounded as the publication is, so a rounded metric's trend never reveals exact numbers |
 | `loadPublishedProjectHistory(published)` | The daily history of each published engine metric in what `loadPublishedProjectMetrics` returned, over 90 days ending at the publication's own `asOf` and rounded the same way, plus the milestones those publications reveal. It takes that result, not a project id, so it can only describe what is published |
 
-The first two read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `definitions.ts` and `display.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
+The first three read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `share.ts` builds badge and card URLs (`badgePath`, `cardPath`), alt text, and share text, and `badge.ts` renders the SVG. `definitions.ts`, `display.ts`, `share.ts`, and `badge.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
 
-Private surfaces compute values that need not be published. The yearly card (#151) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, projectId)` and passes `from` on each request, for example 1 January, to count from there instead of the metric's own 7 or 30 days: "stars gained" and "deployments" then cover the year so far, and "Not enough history yet" means the data does not reach back to `from`. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. Publications always use the metric's own window.
+Private surfaces compute values that need not be published. The [yearly card](#yearly-card) (#151) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, null)` (every included account of the workspace) and passes `from` on each request to count from there instead of the metric's own 7 or 30 days. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. `historyStart(store, metricId)` says where a change or count metric's stored history starts, so a caller can start its window there instead of reporting "Not enough history yet". Publications always use the metric's own window.
+
+## Badges and cards
+
+Issue #149. Every published engine metric has a live badge and a card, keyed by project id like the public route (decision on issue #149):
+
+| Route | What it serves |
+|---|---|
+| `GET /badge/<project id>/<metric id>.svg` | A two part SVG badge: the metric's label, then its value and provenance ("1,200+ verified", "1,204 simulated"). Its `<title>` says it all in words, with the last sync time. A value with no number says why ("Not enough history yet") |
+| `GET /card/<project id>/<metric id>.png` | A 1200 by 630 PNG for posts and link previews: label, value, provenance, the trend over the last 30 days, and the last sync time. Rendered by Next.js `ImageResponse`, no external image service |
+
+Both follow the same rules:
+
+- Values come from the engine through `loadPublishedMetric` and `loadPublishedMetricCard`, so a badge shows exactly what the public route shows. A self-reported value has no badge or card. No spend, budget, alert, account, or repository data can appear, because the engine has no metric for them.
+- A project that does not exist, a metric that is not published or was unpublished, a malformed id, and a wrong extension all get the same neutral "Unpublished" badge or card with a `200`, so an embed never shows a broken image and never tells which projects exist.
+- Cached for 60 seconds like the public route, so a newly published value shows and an unpublished one disappears within a minute. Errors are `503` and rate limited requests `429`, both `no-store`.
+- A card's trend is 31 values (the 30 days before the value, and the value), each computed by the engine with the publication's rounding. `computeTrend` in `src/lib/public-metrics/trend.ts` reads the rows behind all of them once (the accounts, one snapshot or one event read covering every window, and for an event count the oldest stored event) and computes each day against them in memory, so a card costs the same few queries whatever its length. The event read is one request of 1,000 rows, newest first, because PostgREST returns no more than `max_rows` (1,000, `supabase/config.toml`) per request and cuts a longer read without an error. A full read counts as cut: a day whose window reaches past it shows no point rather than a smaller number, so a project with more than 1,000 events in a trend's 60 days (a 30 day count) or 37 days (a 7 day count) shows only its newest points.
+- Safe to embed anywhere: no session is read and no cookie is set, `Cross-Origin-Resource-Policy: cross-origin` lets other sites load them as images, and the SVG is text only, every string escaped. Opened directly, a badge can load and run nothing: `next.config.ts` sends `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; sandbox` for `/badge/*` in place of the static policy. It has to be set there, because Next applies the config's headers before a route handler runs and drops a handler header of the same name.
+
+The public metrics page (Projects, then Public metrics) has a Share button beside each published metric. Its dialog shows the badge and card, the badge Markdown for a README (linking to the metric's formula), the card URL, the card's alt text, and "Share to X", which opens X's prefilled post for the person to edit and send. Nothing is posted automatically.
+
+### Rate limit
+
+The badge, card, and JSON routes allow 120 requests per client IP per minute between them (`PUBLIC_REQUESTS_PER_MINUTE` in `src/lib/public-metrics/requests.ts`), then answer `429` with `Retry-After` until the next minute. The count lives in Postgres (`public_rate_limit_counters`), so every server instance shares it. The IP is hashed with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before it is stored, and the table accepts nothing but such a hash. Requests a cache answers never reach DevMacro and are not counted. Counters are deleted after a day.
+
+Where the IP comes from (`clientIpEnv` in `src/lib/env.ts`, `clientIp` in `requests.ts`):
+
+- On Vercel (`VERCEL=1`): `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel cannot overwrite ([Vercel request headers](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for), checked 2026-11-05). `x-real-ip` is never read: it adds nothing on Vercel and a client can send it anywhere else.
+- Self-hosted: `x-forwarded-for`, taking the entry `DEVMACRO_TRUSTED_PROXY_COUNT` places from the right (1 when unset). Each proxy appends the address it received the request from, so that entry is the one the outermost trusted proxy wrote, and whatever a client put to its left is ignored. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and gets a bucket per claimed address.
+- A request with no address shares one `unknown` bucket.
+
+### View counts
+
+Each time DevMacro serves a published metric's badge or card it counts one view for that project, metric, surface, and UTC day (`published_metric_views`), after the response has gone. The share dialog shows the last 7 days: "DevMacro served the badge 12 times and the card 3 times, including previews here." It counts what DevMacro served, not every reader: a cache in between (a CDN, GitHub's image proxy) serves copies for up to a minute that are not counted. Unpublishing stops the count. Counts are kept 13 months.
+
+## Yearly card
+
+Issue #151. `/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year's card.
+
+- The current year's card is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review" (decision on issue #151). Past years link from the page; a year that has not started is a `404`.
+- Each figure counts from 1 January, or from where its stored history starts when that is later (`historyStart`), and then says "since" that day. A figure whose provider was connected only after the year reads "No data in 2025".
+- Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not on the card (decision on issue #151). No money appears.
+- Private: the page and its image, `/w/<workspace>/year/<year>/card.png`, answer only members (`Cache-Control: private, no-store`, the same `404` for anyone else). Share opens the same dialog as milestone cards, with Download card in place of a public URL, the alt text, and "Share to X" with prefilled text. The card is public only once a member posts it.
+- A card that rests on simulated data says "Simulated data, not verified".
 
 History points are the engine's own values at each moment, computed by `computeMetricHistories` in `history.ts` with the same formulas as the current value. To avoid reading the database once per day and metric, it computes against `preloadHistoryStore`, a read-through cache that loads the window's snapshots (one read per metric key) and events (up to five pages of 1,000, newest first) once, answers every query it fully covers from memory, and passes anything older to the real store. A read that comes back full may be cut short, so its oldest day is treated as not loaded. Every answer is therefore the real store's answer.
 

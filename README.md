@@ -349,6 +349,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `DEVMACRO_SMTP_URL` | SMTP server for alert email on local and self-hosted installs: `smtp://host:port` (STARTTLS when offered) or `smtps://user:password@host:port`. Locally `smtp://127.0.0.1:55425`, the Supabase mail catcher | Secret | Optional (one email transport, never with `DEVMACRO_RESEND_API_KEY`) |
 | `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access, for alert email on the hosted instance | Secret | Optional (one email transport, never with `DEVMACRO_SMTP_URL`) |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
+| `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -451,7 +452,7 @@ src/
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
-    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
+    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings, year in review
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
@@ -459,6 +460,7 @@ src/
     api/notifications/unsubscribe/  RFC 8058 one-click unsubscribe for mail clients
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
+    badge/, card/              a published metric's live SVG badge and PNG card, for anyone
     p/[workspace]/[slug]/      public project page, answered at /@<workspace>/<slug>
   components/
     sections/                  landing page sections
@@ -467,7 +469,7 @@ src/
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules
-    public-metrics/            publish, unpublish, self-reported value, and project page controls; history charts
+    public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
@@ -481,7 +483,7 @@ src/
     notifications/             alert email and channel messages: dispatch, digests, Discord, Slack, webhooks
     email/                     email transport: SMTP or Resend
     dashboard/, timeline/      dashboard aggregation and timeline queries
-    public-metrics/            public metric definitions, engine, history, and the published read API
+    public-metrics/            public metric definitions, engine, history, published read API, badges, cards, yearly card
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids

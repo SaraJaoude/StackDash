@@ -24,6 +24,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120320_api_keys.sql` | `api_keys`, `api_key_request_windows`, `authenticate_api_key`, `api_key_workspace`, and one `api_*` read function per REST endpoint (#162) |
 | `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
 | `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
+| `20261105150000_public_share_surfaces.sql` | `share_surface`, `public_rate_limit_counters` and `bump_public_rate_limit`, `published_metric_views` and `record_published_metric_view`, and their retention purges |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -58,6 +59,7 @@ erDiagram
   connections |o--o{ alert_rules : "scope"
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
   projects ||--o{ published_metrics : "publishes"
+  projects ||--o{ published_metric_views : "counts serves"
   projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
   workspace_members ||--o| notification_preferences : "email setting"
@@ -123,6 +125,8 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
 | `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
+| `published_metric_views` | viewer | none (service role function) |
+| `public_rate_limit_counters` | none | none (service role function) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
@@ -216,6 +220,8 @@ const page = await loadUsageSnapshots(principal.tokenHash, { limit: 50 });
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 | `api_keys` | while the workspace exists; revoked keys stay listed in settings | not applicable |
 | `api_key_request_windows` | the current minute plus five, pruned by `authenticate_api_key` on each request | primary key `(key_id, window_start)` |
+| `public_rate_limit_counters` | 1 day by `window_start` (`purge_public_rate_limit_counters`) | `public_rate_limit_counters_window_start_idx` |
+| `published_metric_views` | 13 months by `view_date` (`purge_published_metric_views`), and with the project | `published_metric_views_view_date_idx` |
 | `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 
@@ -231,6 +237,13 @@ Nothing is aggregated in the MVP.
 - `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
 - `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.
 - Not published to Realtime: the page that changes a publication refreshes itself, and the timeline hears the audit event through `activity_events`.
+
+## Share surfaces (#149)
+
+Badges and cards read published values through the engine and add two tables. How they are served is in [Public metrics](public-metrics.md#badges-and-cards).
+
+- `public_rate_limit_counters` holds one row per hashed client IP per minute for the per IP rate limit of the public routes (badges, cards, and the public JSON route). `bump_public_rate_limit(ip_hash)` counts a request in the current minute (database clock) in one statement and returns the count. The server hashes the IP with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before calling it, and a check constraint accepts only a 64 character lowercase hex digest, so no IP address is ever stored. No role but the service role can read or write it.
+- `published_metric_views` counts, per project, metric, surface (`badge` or `card`), and UTC day, how many times DevMacro served a published metric's image. `record_published_metric_view(project_id, metric_id, surface)` counts only while the metric is live in that project, so an unknown project or an unpublished metric writes nothing. Members read the counts as viewers (the share dialog's "served this week"); nobody writes through the Data API. Counted per metric rather than per publication row, so republishing with new options keeps the count. Project and workspace deletes cascade.
 
 ## Project pages (#150)
 

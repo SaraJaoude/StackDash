@@ -34,8 +34,8 @@ export const HISTORY_PAGE_ROWS = 1000;
 /** Pages of events loaded at most. Older windows fall back to the real store. */
 export const HISTORY_EVENT_PAGES = 5;
 
-/** A stored event with what the cache needs to filter and deduplicate it. */
-export type HistoryEvent = StoredEvent & Readonly<{ id: string; accountId: string }>;
+/** A stored event with the id the cache deduplicates it by. */
+export type HistoryEvent = StoredEvent & Readonly<{ id: string }>;
 
 /** A metric store that can also page through events, newest first, for the history cache. */
 export interface HistoryStore extends PublicMetricStore {
@@ -163,6 +163,10 @@ export async function preloadHistoryStore(
       ).length;
     },
 
+    // Only the yearly card (#151) asks for the oldest snapshot day, never a history, so it passes
+    // straight through.
+    earliestSnapshotDate: (query) => base.earliestSnapshotDate(query),
+
     // Not windowed, so it is read from the real store once per account set and type set.
     earliestEvent(query) {
       const key = JSON.stringify([[...query.accountIds].sort(), [...query.typeIds].sort()]);
@@ -176,10 +180,13 @@ export async function preloadHistoryStore(
 
     async recentEvents(query) {
       if (!typesLoaded(query.typeIds) || query.before.getTime() > to.getTime()) return base.recentEvents(query);
-      const recent = matching(query.accountIds, query.typeIds).filter((event) => event.occurredAt.getTime() <= query.before.getTime());
-      // Enough loaded events before `before`, or every event there is: the real store's answer.
-      if (recent.length >= query.limit || eventsFrom === null) {
-        return recent.slice(0, query.limit).map(({ typeId, occurredAt }) => ({ typeId, occurredAt }));
+      const { since } = query;
+      const recent = matching(query.accountIds, query.typeIds).filter(
+        (event) => event.occurredAt.getTime() <= query.before.getTime() && (since === undefined || event.occurredAt.getTime() >= since.getTime()),
+      );
+      // Enough loaded events before `before`, or every event there is (since `since`): the real store's answer.
+      if (recent.length >= query.limit || eventsFrom === null || (since !== undefined && since.getTime() >= eventsFrom)) {
+        return recent.slice(0, query.limit).map(({ accountId, typeId, occurredAt }) => ({ accountId, typeId, occurredAt }));
       }
       return base.recentEvents(query);
     },
