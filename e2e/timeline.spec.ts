@@ -5,7 +5,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { openFilters } from "./fixtures/filters";
+import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 
@@ -349,6 +349,39 @@ ownerTest.describe("timeline scope filters", () => {
       // The filtered view is bookmarkable: reloading the URL shows the same result.
       await page.reload();
       await expect(status).toHaveText("Showing 3 events for project Checkout");
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("opens the form below a status that wraps, on a wide screen and on a phone", async ({ page }) => {
+    const workspace = await seedTimeline("Timeline filters wrap");
+    try {
+      await seedGitHubProject(workspace);
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      const status = filters.getByRole("status");
+
+      // 1280 wide: every provider, project, and account ticked gives a status that wraps.
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openFilters(page);
+      for (const group of ["Provider", "Project", "Account"]) await checkEvery(page, group);
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(status).toContainText("accounts ");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page);
+      await expectFormBelowWrappedStatus(page);
+
+      // A phone: one filter is enough.
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
+      await expect(status).toHaveText("Showing 50 events for provider Vercel");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page, "keyboard");
+      await expectFormBelowWrappedStatus(page);
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);

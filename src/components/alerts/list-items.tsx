@@ -8,6 +8,7 @@ import {
   setAlertRulePausedAction,
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { BudgetForm } from "./budget-form";
 import { ConfirmDelete } from "./confirm-delete";
@@ -141,10 +142,10 @@ function PauseButton({
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="ruleId" value={ruleId} />
       <input type="hidden" name="paused" value={paused ? "false" : "true"} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
         {paused ? "Resume rule" : "Pause rule"}
         <span className="sr-only">: {summary}</span>
-      </button>
+      </GuardedButton>
       <span role="status" aria-live="polite" className="basis-full text-sm">
         {pending || state === null ? null : failure === null ? (
           <span className="text-success">{paused ? "Alert rule paused." : "Alert rule resumed."}</span>

@@ -10,15 +10,16 @@ import {
   syncNow,
   type ConnectionActionResult,
 } from "@/app/w/[workspace]/connections/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
 
 const PRIMARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
+  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 const SECONDARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm transition-colors hover:border-foreground disabled:opacity-60";
+  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm transition-colors hover:border-foreground aria-disabled:opacity-60";
 const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 disabled:opacity-60";
+  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 aria-disabled:opacity-60";
 
 // The account forms sit side by side in the page's three-row grid (label, controls, status) from
 // `sm` up and take those rows as a subgrid, so their controls share a row.
@@ -94,9 +95,9 @@ export function AccountProjectForm({
             </option>
           ))}
         </select>
-        <button type="submit" disabled={pending} className={SECONDARY}>
+        <GuardedButton type="submit" unavailable={pending} className={SECONDARY}>
           {pending ? "Saving" : "Save project"}
-        </button>
+        </GuardedButton>
       </div>
       <div className="flex flex-col gap-2">
         {fieldError === undefined ? null : (
@@ -128,14 +129,14 @@ export function AccountIncludedForm({
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="accountId" value={accountId} />
       <input type="hidden" name="included" value={included ? "false" : "true"} />
-      <button
+      <GuardedButton
         type="submit"
-        disabled={pending}
+        unavailable={pending}
         aria-label={included ? `Exclude ${accountName}` : `Include ${accountName}`}
         className={`${SECONDARY} self-start sm:row-start-2 sm:justify-self-start`}
       >
         {included ? "Exclude" : "Include"}
-      </button>
+      </GuardedButton>
       {/* Pinned: with the button placed in row 2, auto-placement would put this in row 1. */}
       <div className="sm:row-start-3">
         <ActionStatus state={state} pending={pending} />
@@ -160,14 +161,16 @@ export function SyncNowForm({
     <form action={formAction} className="flex flex-col gap-2">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="connectionId" value={connectionId} />
-      <button
+      {/* Unavailable rather than disabled during the cooldown too: a sync that starts one leaves
+          focus on the button instead of dropping it to the page (#161). */}
+      <GuardedButton
         type="submit"
-        disabled={pending || cooldownNotice !== null}
+        unavailable={pending || cooldownNotice !== null}
         aria-describedby={cooldownNotice === null ? undefined : hintId}
         className={PRIMARY}
       >
         {pending ? "Queueing sync" : "Sync now"}
-      </button>
+      </GuardedButton>
       {cooldownNotice === null ? null : (
         <p id={hintId} className="text-sm text-muted">
           {cooldownNotice}
@@ -234,9 +237,9 @@ function ConfirmDialog({
           <button type="button" className={SECONDARY} onClick={() => dialogRef.current?.close()}>
             Cancel
           </button>
-          <button type="submit" disabled={pending} className={DANGER}>
+          <GuardedButton type="submit" unavailable={pending} className={DANGER}>
             {pending ? "Working" : confirmLabel}
-          </button>
+          </GuardedButton>
         </form>
       </dialog>
     </div>
