@@ -21,7 +21,7 @@ import {
 import { buildScopeOptions, EMPTY_SCOPE, type ScopeOptions } from "@/lib/filters/scope";
 import { logError } from "@/lib/log/logger";
 import { buildPaletteCommands } from "@/lib/palette/commands";
-import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 import { canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
 type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];

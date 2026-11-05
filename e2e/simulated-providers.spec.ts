@@ -5,6 +5,7 @@ import type { Page } from "@playwright/test";
 import { z } from "zod";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 /*
@@ -20,34 +21,12 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
  * real-connection-while-simulating.spec.ts).
  */
 
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
 const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
 
 function cronSecret(): string {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
   return z.string().min(32).parse(process.env.CRON_SECRET);
-}
-
-/** Connects a simulated provider from the catalog with the keyboard and lands on the connection. */
-async function connectFromCatalog(page: Page, slug: string, provider: "Vercel" | "Stripe"): Promise<void> {
-  await page.goto(`/w/${slug}/connections`);
-  const card = page
-    .getByRole("list", { name: "Providers" })
-    .getByRole("listitem")
-    .filter({ has: page.getByRole("heading", { name: provider, exact: true }) });
-  await expect(card.getByText("Simulated", { exact: true })).toBeVisible();
-  await card.getByRole("link", { name: `Connect ${provider}` }).click();
-
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Connect ${provider}`);
-  const permissions = page.getByRole("region", { name: `Permissions ${provider} will ask you to grant` });
-  await expect(permissions.getByText("Simulated", { exact: true })).toBeVisible();
-  await expect(permissions.getByText(/^Simulated\. DevMacro makes up example/)).toBeVisible();
-  await page.getByRole("button", { name: `Continue to ${provider}` }).focus();
-  await page.keyboard.press("Enter");
-
-  await expect(page).toHaveURL(CONNECTION_URL);
-  await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
 }
 
 /** Ticks until both simulated connections have synced; other specs' jobs may share a tick. */
@@ -71,8 +50,8 @@ ownerTest.describe("simulated providers", () => {
     ownerTest.slow();
     const workspace = await createTestWorkspace("Simulated providers");
     try {
-      await connectFromCatalog(page, workspace.slug, "Vercel");
-      await connectFromCatalog(page, workspace.slug, "Stripe");
+      await connectSimulated(page, workspace.slug, "Vercel");
+      await connectSimulated(page, workspace.slug, "Stripe");
 
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");

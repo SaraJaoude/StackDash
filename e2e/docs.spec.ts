@@ -11,7 +11,7 @@ test.describe("docs", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
     const providers = page.getByRole("region", { name: "Providers" });
-    for (const name of ["DigitalOcean", "GitHub", "Resend", "Stripe", "Supabase", "Vercel"]) {
+    for (const name of ["DigitalOcean", "GitHub", "PostHog", "Resend", "Stripe", "Supabase", "Vercel"]) {
       await expect(providers.getByRole("link", { name, exact: true })).toBeVisible();
     }
     const operations = page.getByRole("region", { name: "Operations" });

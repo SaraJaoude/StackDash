@@ -1,0 +1,12 @@
+{
+  "columns": ["day", "signups"],
+  "types": [["day", "Date"], ["signups", "UInt64"]],
+  "results": [
+    ["2026-11-03", 14],
+    ["2026-11-04", 9]
+  ],
+  "hogql": "SELECT toDate(toTimeZone(created_at, 'UTC')) AS day, count() AS signups FROM persons ...",
+  "is_cached": false,
+  "last_refresh": "2026-11-05T09:00:02.115Z",
+  "timings": []
+}

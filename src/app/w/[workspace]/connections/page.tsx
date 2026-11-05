@@ -18,7 +18,8 @@ import { listConnections, type ConnectionSummary } from "@/lib/data/connections"
 import { decodeCursor } from "@/lib/data/cursor";
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connections" };
