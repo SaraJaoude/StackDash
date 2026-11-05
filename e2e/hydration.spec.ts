@@ -10,8 +10,8 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
  * boundary. React reveals in batches (one frame, then at most every 300 ms), and the header's
  * boundaries can hydrate before the page's is revealed. If a client update reaches the page's
  * boundary in that window, React client-renders the page instead of hydrating it, and the server
- * copy stays in the document until `$RV` runs: Playwright's strict mode then finds every label and
- * text twice, and the user sees the page rendered twice.
+ * copy stays in a hidden segment until `$RV` runs: Playwright's strict mode then finds every label
+ * and text twice, and the page's server HTML is thrown away and rendered again on the client.
  *
  * In CI the window is a few hundred milliseconds wide and the failure was random. These tests make
  * it deterministic: they hold the page's reveal until the live connection in the header is up
@@ -25,16 +25,23 @@ type HeldReveals = Readonly<{
   clientRendered: number;
 }>;
 
-declare global {
-  interface Window {
-    releaseHeldReveals?: () => HeldReveals;
-  }
-}
+/** The test-only functions the init script adds to `window`, typed here and not project-wide. */
+type RevealWindow = Window &
+  Partial<
+    Readonly<{
+      /** What the hold has seen so far, without revealing anything. */
+      heldReveals: () => HeldReveals;
+      /** Reveals the held boundaries and reports what was held. */
+      releaseHeldReveals: () => HeldReveals;
+    }>
+  >;
 
 /**
  * Wraps React's reveal function so the boundaries inside #main wait for `releaseHeldReveals()`.
  * The inline script assigns `$RV` as a global, which the setter captures; `$RC` reads it back
  * through the getter. Boundaries outside #main (the header) reveal as React schedules them.
+ * `$RC` only schedules the reveal (next frame, or up to 300 ms after the last one), so a test
+ * waits for `heldReveals()` to report the page's boundary before it releases it.
  */
 async function holdPageReveals(page: Page): Promise<void> {
   await page.addInitScript(() => {
@@ -64,16 +71,27 @@ async function holdPageReveals(page: Page): Promise<void> {
         reveal = value;
       },
     });
-    window.releaseHeldReveals = () => {
-      const pairs = held.splice(0);
+    // React deletes a boundary's server markup when it client-renders it, so a held boundary that
+    // is no longer in the document was replaced by a client render while it waited.
+    const report = (pairs: readonly Element[]): HeldReveals => {
+      let disconnected = 0;
       for (let index = 0; index < pairs.length; index += 2) {
-        if (pairs[index]?.isConnected === false) clientRendered += 1;
+        if (pairs[index]?.isConnected === false) disconnected += 1;
       }
-      // Counted first: React's reveal empties the array it is given.
-      const reveals = { held: pairs.length / 2, clientRendered };
-      if (pairs.length > 0) reveal?.(pairs);
-      return reveals;
+      return { held: pairs.length / 2, clientRendered: clientRendered + disconnected };
     };
+    const target: RevealWindow = window;
+    Object.assign(target, {
+      heldReveals: () => report(held),
+      releaseHeldReveals: () => {
+        const pairs = held.splice(0);
+        // Counted first: React's reveal empties the array it is given.
+        const reveals = report(pairs);
+        clientRendered = reveals.clientRendered;
+        if (pairs.length > 0) reveal?.(pairs);
+        return reveals;
+      },
+    });
   });
 }
 
@@ -114,11 +132,23 @@ ownerTest.describe("streamed workspace pages hydrate once (#211)", () => {
         await expect(page.getByRole("button", { name: "Live updates", exact: true })).toBeVisible();
         await expect(page.getByRole("heading", { level: 1, includeHidden: true })).toHaveCount(1);
 
+        await expect
+          .poll(
+            () =>
+              page.evaluate(() => {
+                const target: RevealWindow = window;
+                if (target.heldReveals === undefined) throw new Error("The reveal hold was not installed.");
+                return target.heldReveals().held;
+              }),
+            { message: "the page's content streamed in a boundary that reached the hold" },
+          )
+          .toBeGreaterThan(0);
+
         const reveals = await page.evaluate(() => {
-          if (window.releaseHeldReveals === undefined) throw new Error("The reveal hold was not installed.");
-          return window.releaseHeldReveals();
+          const target: RevealWindow = window;
+          if (target.releaseHeldReveals === undefined) throw new Error("The reveal hold was not installed.");
+          return target.releaseHeldReveals();
         });
-        expect(reveals.held, "the page's content streamed in a boundary that was held").toBeGreaterThan(0);
         expect(reveals.clientRendered, "boundaries React client-rendered instead of hydrating").toBe(0);
 
         await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
