@@ -27,7 +27,7 @@ import { formatMoney, formatQuantity } from "@/lib/format";
 import { divideMinorUnits } from "@/lib/money";
 import { providerName } from "@/lib/providers";
 
-import { dropSupersededBreakdowns, isEstimated, type ConnectionInput, type SnapshotInput } from "./aggregate";
+import { dropSubWindows, dropSupersededBreakdowns, isEstimated, type ConnectionInput, type SnapshotInput } from "./aggregate";
 import { compareValues, type TrendComparison } from "./trends";
 
 export const HEADLINE_WINDOW_KINDS = ["week", "month"] as const;
@@ -131,36 +131,6 @@ function isRunningTotal(row: SnapshotInput): boolean {
   return Date.parse(row.period_start) % DAY_MS === 0;
 }
 
-function periodContains(outer: SnapshotInput, inner: SnapshotInput): boolean {
-  const outerStart = Date.parse(outer.period_start ?? "");
-  const outerEnd = Date.parse(outer.period_end ?? "");
-  const innerStart = Date.parse(inner.period_start ?? "");
-  const innerEnd = Date.parse(inner.period_end ?? "");
-  if (outerStart === innerStart && outerEnd === innerEnd) return false;
-  return outerStart <= innerStart && innerEnd <= outerEnd;
-}
-
-/**
- * One day's readings with each amount once: breakdowns of a total go (`dropSupersededBreakdowns`),
- * and so does a row whose period sits strictly inside another row's period for the same account,
- * kind, and currency, such as GitHub's daily spend inside its month (the rule #137 applies to the
- * dashboard's current values).
- */
-function countedOnDay(rows: readonly SnapshotInput[]): SnapshotInput[] {
-  const kept = dropSupersededBreakdowns(rows);
-  return kept.filter(
-    (row) =>
-      !kept.some(
-        (outer) =>
-          outer !== row &&
-          outer.external_account_id === row.external_account_id &&
-          outer.kind === row.kind &&
-          outer.currency === row.currency &&
-          periodContains(outer, row),
-      ),
-  );
-}
-
 /** Money that accrued over the UTC days `from` to `to`, both inclusive. */
 type Increment = Readonly<{ from: string; to: string; amountMinor: number }>;
 
@@ -187,7 +157,10 @@ function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string
 
 function buildMoneySeries(rows: readonly SnapshotInput[]): MoneySeries[] {
   const byDay = groupBy(rows.filter(isRunningTotal), (row) => row.snapshot_date);
-  const counted = [...byDay.values()].flatMap(countedOnDay);
+  // Each day's amounts once, by the rules of the dashboard's current values (`countedSnapshots`):
+  // a total supersedes its breakdowns, and a longer window supersedes a day inside it, such as
+  // GitHub's daily spend inside its month.
+  const counted = [...byDay.values()].flatMap((day) => dropSubWindows(dropSupersededBreakdowns(day)));
   const bySeries = groupBy(
     counted,
     (row) => `${row.connection_id} ${row.external_account_id} ${row.kind} ${row.metric_key} ${row.currency ?? ""}`,
