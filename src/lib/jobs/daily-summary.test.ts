@@ -160,7 +160,7 @@ describe("daily summary (#64)", () => {
     );
 
     await runTick(deps);
-    expect(summaries(store)[0]?.body.split("\n")).toEqual(["GitHub: Spending $51.75 (verified)", "GitHub: Usage unavailable"]);
+    expect(summaries(store)[0]?.body?.split("\n")).toEqual(["GitHub: Spending $51.75 (verified)", "GitHub: Usage unavailable"]);
   });
 
   it("still counts a GitHub day when another account reports the month (#137)", async () => {
