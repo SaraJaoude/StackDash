@@ -418,14 +418,26 @@ describe("sync", () => {
     expect(metric(result, metricKeys.minutesUsed)).toBeDefined();
   });
 
-  it("logs GraphQL errors by count only and treats the refused fields as unavailable", async () => {
+  it("fails the sync on a request-level GraphQL error and logs it by count only", async () => {
     const { ctx, warnings } = harness({
       "POST /api/graphql": () =>
         json({ data: null, errors: [{ message: "The resource that you are attempting to access does not exist" }] }),
     });
-    const result = await gitlabAdapter.sync({ credential, externalAccountId: NAMESPACE_ID }, ctx);
+    await expect(gitlabAdapter.sync({ credential, externalAccountId: NAMESPACE_ID }, ctx)).rejects.toBeInstanceOf(
+      InvalidResponseError,
+    );
     expect(warnings).toContain("gitlab.usage.graphql_errors");
-    expect(result.partialErrors).toHaveLength(1);
+  });
+
+  it("fails the sync when one field errors beside data instead of reporting a missing scope", async () => {
+    const { ctx, warnings } = harness({
+      "POST /api/graphql": () =>
+        json({ data: { ...usage.data, ciMinutesUsage: null }, errors: [{ message: "Internal server error" }] }),
+    });
+    await expect(gitlabAdapter.sync({ credential, externalAccountId: NAMESPACE_ID }, ctx)).rejects.toBeInstanceOf(
+      InvalidResponseError,
+    );
+    expect(warnings).toContain("gitlab.usage.graphql_errors");
   });
 
   it("counts a month with no usage row yet as zero minutes used", async () => {

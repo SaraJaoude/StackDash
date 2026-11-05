@@ -459,8 +459,12 @@ async function readUsage(ctx: OAuthContext, credential: OAuthCredential, namespa
     UsageResponseSchema,
   );
   if (response.errors !== undefined && response.errors.length > 0) {
-    // The messages are GitLab's own and may echo the query; only the count is logged.
+    // GitLab answers a refused query field with `null` and no error (GraphQL API, "Authorization"),
+    // so an `errors` entry is a parse, validation, complexity, or resolver failure, not a missing
+    // role. Fail the read so the sync retries instead of reporting a scope gap. The messages are
+    // GitLab's own and may echo the query; only the count is logged.
     ctx.logger.warn("gitlab.usage.graphql_errors", { namespaceId: namespace.id, errors: response.errors.length });
+    throw new InvalidResponseError(`${GRAPHQL_URL} answered the usage query with errors`, { endpoint: GRAPHQL_URL });
   }
 
   const data = response.data;
