@@ -2,20 +2,20 @@ import type { ConnectionStatus } from "@/lib/dashboard/aggregate";
 
 import type { PublicMetricStore, SnapshotPoint, SourceAccount, StoredEvent } from "./engine";
 
-/**
- * In-memory `PublicMetricStore` for unit tests, with the same filters as the Supabase store:
- * accounts of revoked connections left out, inclusive snapshot dates, `from <= occurred_at < to`
- * for counts, `occurred_at <= before` for recent events, newest first.
- */
-export type MemoryEvent = StoredEvent & Readonly<{ accountId: string }>;
 /** An account with its connection's status; active when not given. */
 export type MemoryAccount = SourceAccount & Readonly<{ connectionStatus?: ConnectionStatus }>;
 
+/**
+ * In-memory `PublicMetricStore`, with the same filters as the Supabase store: accounts of revoked
+ * connections left out, inclusive snapshot dates, `from <= occurred_at < to` for counts,
+ * `since <= occurred_at <= before` for recent events, newest first. Unit tests use it, and a card's
+ * trend computes its points against one built from rows read once (trend.ts).
+ */
 export class MemoryMetricStore implements PublicMetricStore {
   constructor(
     private readonly sourceAccounts: readonly MemoryAccount[],
     private readonly points: readonly SnapshotPoint[],
-    private readonly events: readonly MemoryEvent[],
+    private readonly events: readonly StoredEvent[],
   ) {}
 
   async accounts(): Promise<readonly SourceAccount[]> {
@@ -41,7 +41,7 @@ export class MemoryMetricStore implements PublicMetricStore {
     return earliest;
   }
 
-  private matching(accountIds: readonly string[], typeIds: readonly string[]): MemoryEvent[] {
+  private matching(accountIds: readonly string[], typeIds: readonly string[]): StoredEvent[] {
     return this.events.filter((event) => accountIds.includes(event.accountId) && typeIds.includes(event.typeId));
   }
 
@@ -59,9 +59,9 @@ export class MemoryMetricStore implements PublicMetricStore {
     return earliest;
   }
 
-  async recentEvents({ accountIds, typeIds, before, limit }: Parameters<PublicMetricStore["recentEvents"]>[0]) {
+  async recentEvents({ accountIds, typeIds, since, before, limit }: Parameters<PublicMetricStore["recentEvents"]>[0]) {
     return this.matching(accountIds, typeIds)
-      .filter((event) => event.occurredAt.getTime() <= before.getTime())
+      .filter((event) => event.occurredAt.getTime() <= before.getTime() && (since === undefined || event.occurredAt.getTime() >= since.getTime()))
       .sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime())
       .slice(0, limit);
   }

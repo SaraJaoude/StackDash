@@ -48,7 +48,8 @@ export type SnapshotPoint = Readonly<{
   retrievedAt: Date;
 }>;
 
-export type StoredEvent = Readonly<{ typeId: string; occurredAt: Date }>;
+/** One row of `activity_events`, with the external account it belongs to. */
+export type StoredEvent = Readonly<{ accountId: string; typeId: string; occurredAt: Date }>;
 
 /**
  * Reads for one project, or for every included account of a workspace (the yearly card #151).
@@ -64,8 +65,13 @@ export interface PublicMetricStore {
   countEvents(query: Readonly<{ accountIds: readonly string[]; typeIds: readonly string[]; from: Date; to: Date }>): Promise<number>;
   /** The oldest stored event of `typeIds`, or null. */
   earliestEvent(query: Readonly<{ accountIds: readonly string[]; typeIds: readonly string[] }>): Promise<Date | null>;
-  /** Up to `limit` events of `typeIds` with `occurred_at <= before`, newest first. */
-  recentEvents(query: Readonly<{ accountIds: readonly string[]; typeIds: readonly string[]; before: Date; limit: number }>): Promise<readonly StoredEvent[]>;
+  /**
+   * Up to `limit` events of `typeIds` with `since <= occurred_at <= before` (no lower bound without
+   * `since`), newest first.
+   */
+  recentEvents(
+    query: Readonly<{ accountIds: readonly string[]; typeIds: readonly string[]; since?: Date; before: Date; limit: number }>,
+  ): Promise<readonly StoredEvent[]>;
 }
 
 /**

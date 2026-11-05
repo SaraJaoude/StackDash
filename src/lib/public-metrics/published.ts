@@ -19,6 +19,7 @@ import {
 import { publishedDisplay, UNAVAILABLE_LABELS } from "./display";
 import { computePublicMetrics, type ComputedMetric, type PublicMetricStore, type UnavailableReason } from "./engine";
 import { createSupabaseMetricStore } from "./supabase-store";
+import { computeTrend } from "./trend";
 
 /*
  * The public read API of the metric engine (#148). Badges and cards (#149), public project pages
@@ -255,17 +256,17 @@ export type TrendPoint = Readonly<{ at: Date; value: number | null }>;
  * The published value at the same moment on each of the `days` days before `metric.asOf`, oldest
  * first, ending with the value itself. Each point is computed by the engine as a value published
  * that day would have been, with the publication's rounding, so a rounded metric's trend never
- * reveals the exact numbers and a delayed one never reaches past its own `asOf`.
+ * reveals the exact numbers and a delayed one never reaches past its own `asOf`. The rows behind
+ * every point are read once (`computeTrend` in trend.ts), so a card costs the same few queries
+ * whatever `days` is.
  */
 export async function publishedTrend(store: PublicMetricStore, metric: PublishedEngineMetric, days: number): Promise<TrendPoint[]> {
   const moments = Array.from({ length: days + 1 }, (_, index) => new Date(metric.asOf.getTime() - (days - index) * DAY_MS));
-  const computed = await computePublicMetrics(
-    store,
-    moments.map((asOf) => ({ metricId: metric.metricId, asOf })),
-  );
-  return computed.map((point) => {
-    const value = publishedValue(point, metric.unit, metric.rounding);
-    return { at: point.asOf, value: value.status === "available" ? value.value : null };
+  const computed = await computeTrend(store, metric.metricId, moments);
+  return moments.map((at, index) => {
+    const point = computed[index];
+    const value = point === null || point === undefined ? null : publishedValue(point, metric.unit, metric.rounding);
+    return { at, value: value?.status === "available" ? value.value : null };
   });
 }
 

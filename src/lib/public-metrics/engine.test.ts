@@ -9,8 +9,9 @@ import {
   type MetricValue,
   type SnapshotPoint,
   type SourceAccount,
+  type StoredEvent,
 } from "./engine";
-import { MemoryMetricStore, type MemoryAccount, type MemoryEvent } from "./memory-store";
+import { MemoryMetricStore, type MemoryAccount } from "./memory-store";
 
 const AS_OF = new Date("2026-11-05T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -47,13 +48,13 @@ function dayPoint(daysAgo: number, value: number, overrides: Partial<SnapshotPoi
   return point({ value, retrievedAt: day, snapshotDate: day.toISOString().slice(0, 10), ...overrides });
 }
 
-function event(typeId: string, at: Date, accountId = "acct-1"): MemoryEvent {
+function event(typeId: string, at: Date, accountId = "acct-1"): StoredEvent {
   return { typeId, occurredAt: at, accountId };
 }
 
 async function compute(
   metricId: PublicMetricId,
-  data: { accounts?: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] },
+  data: { accounts?: MemoryAccount[]; points?: SnapshotPoint[]; events?: StoredEvent[] },
   asOf: Date = AS_OF,
 ): Promise<MetricValue> {
   const store = new MemoryMetricStore(data.accounts ?? [account()], data.points ?? [], data.events ?? []);
@@ -321,7 +322,7 @@ describe("computePublicMetrics: a request's own window start (the yearly card)",
   const vercel = account({ provider: "vercel", connectionCreatedAt: new Date("2025-12-01T00:00:00Z") });
   const yearStart = new Date("2026-01-01T00:00:00Z");
 
-  async function computeFrom(metricId: PublicMetricId, data: { accounts: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] }, from: Date) {
+  async function computeFrom(metricId: PublicMetricId, data: { accounts: MemoryAccount[]; points?: SnapshotPoint[]; events?: StoredEvent[] }, from: Date) {
     const store = new MemoryMetricStore(data.accounts, data.points ?? [], data.events ?? []);
     const [result] = await computePublicMetrics(store, [{ metricId, asOf: AS_OF, from }]);
     if (result === undefined) throw new Error("no result");

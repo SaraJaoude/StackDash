@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { SnapshotPoint, SourceAccount } from "./engine";
-import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
+import type { SnapshotPoint, SourceAccount, StoredEvent } from "./engine";
+import { MemoryMetricStore } from "./memory-store";
 import {
   computeYearSummary,
   hasYearStarted,
@@ -41,7 +41,7 @@ function stars(retrievedAt: string, value: number): SnapshotPoint {
   };
 }
 
-const deploy = (at: string): MemoryEvent => ({ typeId: "vercel.deployment.succeeded", occurredAt: new Date(at), accountId: "vercel-acct" });
+const deploy = (at: string): StoredEvent => ({ typeId: "vercel.deployment.succeeded", occurredAt: new Date(at), accountId: "vercel-acct" });
 
 describe("computeYearSummary", () => {
   it("counts a past year from where its history starts, says since when, and ignores the next year", async () => {

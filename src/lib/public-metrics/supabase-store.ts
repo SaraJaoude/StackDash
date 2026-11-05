@@ -149,20 +149,24 @@ export function createSupabaseMetricStore(
       return first === undefined ? null : new Date(first.occurred_at);
     },
 
-    async recentEvents({ accountIds, typeIds, before, limit }) {
+    async recentEvents({ accountIds, typeIds, since, before, limit }) {
       if (accountIds.length === 0 || typeIds.length === 0) return [];
-      const { data, error } = await db
+      let query = db
         .from("activity_events")
-        .select("type_id, occurred_at")
+        .select("external_account_id, type_id, occurred_at")
         .eq("workspace_id", workspaceId)
         .in("external_account_id", accountIds)
         .in("type_id", typeIds)
-        .lte("occurred_at", before.toISOString())
+        .lte("occurred_at", before.toISOString());
+      if (since !== undefined) query = query.gte("occurred_at", since.toISOString());
+      const { data, error } = await query
         .order("occurred_at", { ascending: false })
         .order("id", { ascending: false })
         .limit(limit);
       if (error) throw new Error("Failed to load recent events for public metrics", { cause: error });
-      return data.map((row) => ({ typeId: row.type_id, occurredAt: new Date(row.occurred_at) }));
+      return data.flatMap((row) =>
+        row.external_account_id === null ? [] : [{ accountId: row.external_account_id, typeId: row.type_id, occurredAt: new Date(row.occurred_at) }],
+      );
     },
   };
 }
