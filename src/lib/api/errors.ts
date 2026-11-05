@@ -63,21 +63,22 @@ export const INTERNAL_ERROR_MESSAGE =
   "The request could not be completed. Try again in a moment, and quote the reference id if it keeps failing.";
 
 /**
- * The response for anything a handler threw. An ApiError keeps its code, message, and headers and
- * is logged as a warning (it was handled); anything else is a defect, logged with its stack as an
- * error, and answered with a generic 500.
+ * Logs anything an API or MCP handler threw and returns what the caller may see. An ApiError keeps
+ * its code, message, and headers and is logged as a warning (it was handled); anything else is a
+ * defect, logged with its stack as an error, and replaced by a generic internal error.
  */
-export function apiErrorResponse(error: unknown, headers: Readonly<Record<string, string>>): Response {
-  let referenceId: string;
-  let apiError: ApiError;
+export function reportApiError(error: unknown): { apiError: ApiError; referenceId: string } {
   if (error instanceof ApiError) {
-    apiError = error;
-    referenceId = newReferenceId();
+    const referenceId = newReferenceId();
     log.warn(`api.${error.code}`, { ...error.logFields, referenceId });
-  } else {
-    apiError = new ApiError("internal", INTERNAL_ERROR_MESSAGE);
-    referenceId = logError("api.internal_error", error);
+    return { apiError: error, referenceId };
   }
+  return { apiError: new ApiError("internal", INTERNAL_ERROR_MESSAGE), referenceId: logError("api.internal_error", error) };
+}
+
+/** The error envelope for anything a handler threw, with the status its code maps to. */
+export function apiErrorResponse(error: unknown, headers: Readonly<Record<string, string>>): Response {
+  const { apiError, referenceId } = reportApiError(error);
   const body: ErrorResponse = {
     error: { code: apiError.code, message: apiError.message, reference_id: referenceId },
   };

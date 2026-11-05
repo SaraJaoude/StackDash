@@ -5,6 +5,7 @@ import { SIMULATED_SCOPE, simulatedCredentialMetadata } from "@/lib/adapters/sim
 import { DAY_MS, isLaunchDay, SLOT_MS, slotOf } from "@/lib/adapters/simulated/simulation";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import { TOTAL_METRIC_KEY } from "@/lib/adapters/vercel";
+import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import { buildTrends, TREND_DAYS, type TrendConnection, type TrendRow } from "@/lib/dashboard/trends";
 import { DAILY_SUMMARY_TYPE_ID } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
@@ -286,6 +287,22 @@ describe("replayHistory with every simulated provider in the registry", () => {
       expect(deploys.get(launch) ?? 0, launch).toBeGreaterThan(2 * busiestOrdinary);
       if (!launch.endsWith("-01")) expect(rise(launch), launch).toBeGreaterThan(2 * highestOrdinaryRise);
     }
+  });
+
+  it("flags each Vercel launch day as exactly one unusual spend event, and nothing else (#169)", () => {
+    const vercel = store.connections.find((connection) => connection.provider === "vercel");
+    const account = store.accounts.find((row) => row.connection_id === vercel?.id);
+    if (account === undefined) throw new Error("expected a Vercel account");
+    const pastDays = historySteps(NOW).flatMap((step) => (step.summaryDate === null ? [] : [step.summaryDate]));
+    // Detection needs 7 days of history and never checks the first day of a billing month.
+    const launches = pastDays
+      .slice(8)
+      .filter((date) => isLaunchDay(account.external_id, Date.parse(`${date}T12:00:00Z`)) && !date.endsWith("-01"));
+    expect(launches.length).toBeGreaterThanOrEqual(2);
+    const anomalies = store.events.filter((event) => event.type_id === ANOMALY_TYPE_ID);
+    expect(anomalies.map((event) => event.dedupe_key)).toEqual(
+      launches.map((date) => `anomaly:${date}:vercel:${TOTAL_METRIC_KEY}:money:USD:verified`),
+    );
   });
 
   it("writes one daily summary for each of the 90 days before today", () => {

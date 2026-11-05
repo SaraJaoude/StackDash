@@ -115,6 +115,26 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"anomaly_mutes": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"id": string,"metric_key": string,"provider": Database["public"]['Enums']["provider_id"],"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"metric_key": string,"provider": Database["public"]['Enums']["provider_id"],"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"metric_key"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "anomaly_mutes_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"api_key_request_windows": {
                   Row: {
                     "key_id": string,"request_count": number,"window_start": string
@@ -633,14 +653,14 @@ isOneToOne: false
                   ]
                 },"workspaces": {
                   Row: {
-                    "created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
+                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -721,7 +741,8 @@ isOneToOne: false
                            },
 "create_workspace":
 { Args: { "p_is_personal": boolean,"p_name": string,"p_user_id": string }; Returns: {
-              "created_at": string,
+              "anomaly_detection_enabled": boolean,
+"created_at": string,
 "created_by": string | null,
 "id": string,
 "is_personal": boolean,
