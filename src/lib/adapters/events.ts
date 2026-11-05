@@ -9,7 +9,9 @@ import {
 /**
  * What an event stands for across providers, for figures that count one kind of event (the
  * dashboard headline's signups and deploys, #173). Declared by the adapter, so a new provider's
- * events are counted without a second list to keep in step.
+ * events are counted without a second list to keep in step. Only for one event per signup or
+ * deploy: the figures count events, so a daily summary (`supabase.auth.daily_summary`,
+ * `posthog.signups.daily`) has no category.
  */
 export const EventCategorySchema = z.enum(["signup", "deploy_succeeded", "deploy_failed"]);
 

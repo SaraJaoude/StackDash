@@ -544,5 +544,8 @@ describe("headlineEventTypes", () => {
     );
     expect(EVENT_TYPES.failedDeploys).toEqual(expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed"]));
     expect(EVENT_TYPES.deploys).not.toContain("digitalocean.deployment.started");
+    // Daily summaries are one event a day, not one per signup, so they are not counted as signups.
+    expect(EVENT_TYPES.signups).not.toContain("supabase.auth.daily_summary");
+    expect(EVENT_TYPES.signups).not.toContain("posthog.signups.daily");
   });
 });
