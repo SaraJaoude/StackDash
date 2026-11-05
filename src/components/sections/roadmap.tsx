@@ -9,18 +9,21 @@ interface Phase {
 const phases: readonly Phase[] = [
   {
     name: "First release",
-    summary: "One timeline and one alert across your stack, with stats you choose to share and an API to read it all.",
+    summary:
+      "One timeline and one alert across your stack, with stats you choose to share and an API and MCP server to read it all.",
     items: [
       "Provider connections through OAuth, no pasted keys",
       "Timeline of deploys, stars, signups, logins, payments, and errors",
       "Alerts by email, Slack, Discord, and webhook",
       "Daily and weekly digests on the same channels",
       "Percentage and dollar thresholds",
+      "Unusual daily spend and usage flagged with no setup, and a mute per metric",
       "Publish chosen metrics, one at a time",
       "Opt-in public project pages",
       "README badges and shareable milestone cards",
       "A card of your year so far",
       "Read-only REST API with scoped keys",
+      "Read-only MCP server for AI assistants, on the same keys",
       "Allowances, remaining quota, and reset dates",
       "Spend where the provider allows it",
       "Usage history",
@@ -28,12 +31,10 @@ const phases: readonly Phase[] = [
   },
   {
     name: "Straight after",
-    summary: "See what is coming, ask about it from your own tools, and run it yourself.",
+    summary: "See what is coming, connect more of your stack, and run it yourself.",
     items: [
       "Spend forecasts",
-      "Anomaly detection",
       "More integrations, starting with GitLab",
-      "Read-only MCP server for AI assistants",
       "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
@@ -52,7 +53,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, a read-only API, and badges, cards, and a public page for the stats you choose. Forecasts, anomaly detection, an MCP server, and self-hosting follow."
+      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. Forecasts, more integrations, and self-hosting follow."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

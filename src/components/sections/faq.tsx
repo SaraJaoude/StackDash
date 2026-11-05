@@ -41,7 +41,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Is there an API or MCP server?",
-    answer: `The first release includes a read-only REST API with scoped keys, so your own scripts and dashboards can read usage, spend, timeline events, alerts, and connection status. The API guide is in the docs. A read-only MCP server comes next, so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials.`,
+    answer: `The first release includes a read-only REST API with scoped keys, so your own scripts and dashboards can read usage, spend, timeline events, alerts, and connection status. A read-only MCP server on the same keys lets AI assistants such as Claude Code, Claude Desktop, or Cursor answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials. The API and MCP guides are in the docs.`,
   },
 ];
 
