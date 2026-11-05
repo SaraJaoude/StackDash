@@ -14,6 +14,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
 | `20261105002354_digitalocean_provider.sql` | Adds `digitalocean` to `provider_id` (#116) |
+| `20261105002809_provider_posthog.sql` | Adds `posthog` to `provider_id` (#115) |
 | `20261105003406_provider_sentry.sql` | Adds `sentry` to `provider_id` (#117) |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.

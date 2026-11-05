@@ -38,6 +38,7 @@ An external account is the thing a provider actually bills or measures. In the a
 | Supabase | `project` | One Supabase project in any organization the grant can see (branches are skipped) |
 | Resend | `team` | The Resend team the grant covers |
 | DigitalOcean | `team` | The DigitalOcean team the grant covers ([DigitalOcean](../providers/digitalocean.md)) |
+| PostHog | `organization` | One PostHog organization the grant covers; signups are counted across its projects |
 | Sentry | `project` | One Sentry project in the organization the integration is installed on |
 
 Usage belongs to the external account: `usage_snapshots` holds one row per external account, metric, and UTC day. Activity events can name the external account they are about.
