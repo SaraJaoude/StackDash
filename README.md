@@ -397,6 +397,8 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
   eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
+- [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
+  examples, and the OpenAPI document at `/docs/api/openapi.json`.
 
 ### Invite testers
 
@@ -453,6 +455,7 @@ src/
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
+    api/v1/                    the read-only REST API, one GET route per resource, API key auth
     api/notifications/unsubscribe/  RFC 8058 one-click unsubscribe for mail clients
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
@@ -471,6 +474,7 @@ src/
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, sentry, railway, fake, simulated) and registry
+    api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
@@ -496,6 +500,7 @@ supabase/
 scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   architecture/public-metrics.md  publishable metrics: rules, formulas, and the read API

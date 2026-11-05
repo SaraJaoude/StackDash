@@ -22,6 +22,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120100_alert_delivery.sql` | `notification_preferences`, `notification_destinations`, `notification_destination_secrets`, `alert_rule_destinations`, `notification_deliveries`, and the delivery fields on `triggered_alerts` |
 | `20261105120300_provider_sentry.sql` | `provider_id` gains `sentry` |
 | `20261105120310_anomaly_detection.sql` | `workspaces.anomaly_detection_enabled` (on by default) and `anomaly_mutes`, the metrics a workspace muted for anomaly detection |
+| `20261105120320_api_keys.sql` | `api_keys`, `api_key_request_windows`, `authenticate_api_key`, `api_key_workspace`, and one `api_*` read function per REST endpoint (#162) |
 | `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
 | `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
 
@@ -130,6 +131,8 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
 | `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries` | none | none (service role; the auth hook reads invites) |
+| `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
+| `api_key_request_windows` | none | none (service role) |
 
 Defense in depth, following BackTalk's hardening:
 
@@ -181,6 +184,28 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 
 `connection_credentials`, `oauth_states`, `access_invites`, and `profiles` are never published: `supabase/tests/database/07_realtime_publication.test.sql` pins the exact table list and fails if any of them is added. Replica identity stays the default, because inserts and updates carry the whole new row; only deletes would need `replica identity full`, and the screens do not listen for deletes.
 
+## Public REST API (#162)
+
+The read-only API under `/api/v1` is documented for users in [REST API](../api.md). How it sits on the schema:
+
+- `api_keys` holds one row per key: workspace, name, scopes (`public.api_key_scope`), the SHA-256 hex of the key (`token_hash`, unique), an 8 character display prefix, `created_by`, `last_used_at`, and `revoked_at`/`revoked_by`. The key itself is never stored. Owners and admins manage keys through the Data API; `token_hash` has no select grant, and the `api_keys_guard_revoke` trigger stamps a revoke with the database clock and refuses to undo it. The `api_keys_enforce_limit` trigger refuses a 21st key that is not revoked in a workspace with `program_limit_exceeded` (54000), locking the workspace row so concurrent creates cannot both pass. It skips the count for a signed-in caller who is not an admin of the workspace, so row level security answers them with `insufficient_privilege` (42501) whether or not the workspace is full; the service role is always counted. This follows BackTalk's `api_keys` (its migration 0034).
+- `authenticate_api_key(token_hash)` is the one key check: it returns nothing for an unknown hash, `revoked` or `creator_left` for a key that must not work, and otherwise `valid` with the workspace, scopes, and this minute's request count. It counts the request in `api_key_request_windows`, prunes that key's old windows, and refreshes `last_used_at` at most once a minute.
+- Each endpoint reads through its own function (`api_workspaces`, `api_projects`, `api_connections`, `api_usage_snapshots`, `api_activity_events`, `api_triggered_alerts`). Every one takes the key hash, not a workspace id, and filters on `api_key_workspace(token_hash, scope)`, so the database itself decides which workspace a key reads and whether its scope allows it. `supabase/tests/database/13_api_keys.test.sql` proves for each function that a key of workspace A reads nothing of workspace B.
+- All of these functions are granted to `service_role` only. The route handlers call them with the admin client.
+
+**Reusing the key check (the MCP server, #163).** Do not look keys up again. In a route handler:
+
+```ts
+import { authenticateApiRequest, requireApiScope } from "@/lib/api/auth";
+import { loadUsageSnapshots } from "@/lib/api/resources";
+
+const { principal } = await authenticateApiRequest(request); // throws ApiError: 401 or 429
+requireApiScope(principal, "usage:read"); // throws ApiError: 403
+const page = await loadUsageSnapshots(principal.tokenHash, { limit: 50 });
+```
+
+`authenticateApiRequest` (`src/lib/api/auth.ts`) reads the bearer key, hashes it, calls `authenticate_api_key`, and enforces the per key rate limit; `apiErrorResponse` in `src/lib/api/errors.ts` turns its `ApiError` into the error envelope with a reference id. The endpoint list with scopes and Zod schemas is `API_ENDPOINTS` in `src/lib/api/endpoints.ts`.
+
 ## Retention defaults (#37)
 
 | Data | Kept | Index used by the retention job |
@@ -193,6 +218,8 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 | `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
 | `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
+| `api_keys` | while the workspace exists; revoked keys stay listed in settings | not applicable |
+| `api_key_request_windows` | the current minute plus five, pruned by `authenticate_api_key` on each request | primary key `(key_id, window_start)` |
 | `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 
@@ -224,6 +251,6 @@ Nothing is aggregated in the MVP.
 No planned feature needs a breaking migration:
 
 - **Teams (#105).** The workspace is already the tenant, `workspace_members` already carries `owner`, `admin`, and `viewer`, and every policy already enforces the role matrix, tested for all three roles. Creating more workspaces calls the existing `create_workspace`. Inviting members, changing roles, removing members, and leaving add rows or policies; the last-owner rule already protects ownership transfer. Member lists need a policy that lets co-members read each other's `profiles` row, which is an additive policy. Workspace invites are a new table, separate from the test allow list in `access_invites`.
-- **Public REST API.** Every tenant row carries `workspace_id`, uses a UUID primary key, and has `created_at`; timelines already page by `(occurred_at, id)` with a matching index, so cursors are stable. API keys will be a new workspace-scoped table resolved server-side to a workspace and role, then queried with the same filters; nothing existing changes shape. Money is already integer minor units with currency, the format an API should return.
-- **Read-only MCP server.** It reads the same tables as the dashboard with viewer rights, which the role matrix already defines. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
+- **Public REST API.** Built in #162; see [Public REST API](#public-rest-api-162) above. Nothing existing changed shape: the API added its own tables and functions, plus `(workspace_id, created_at, id)` indexes on `projects` and `connections` for its keyset pages.
+- **Read-only MCP server (#163).** It reuses the API's keys, scopes, and read functions through `authenticateApiRequest` (see above), so it needs no new tables. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
 - **Billing per workspace (#80, #82).** Plan and entitlement columns attach to `workspaces` or a new table keyed by `workspace_id`; nothing is keyed on the user.
