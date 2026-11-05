@@ -6,6 +6,7 @@ import type { ClaimedJob } from "@/lib/jobs/store";
 import type { PostOutcome } from "./channels";
 import {
   CHANNEL_NEEDS_ATTENTION_TYPE_ID,
+  DELIVERY_CONCURRENCY,
   digestFigures,
   NOTIFICATION_FAILED_TYPE_ID,
   runAlertDispatchJob,
@@ -157,6 +158,49 @@ describe("runAlertDispatchJob: once per alert per cycle", () => {
     store.alerts.push(alert("10-next-cycle"));
     await runAlertDispatchJob(job({ id: "job-2" }), deps);
     expect(email.sent.map((message) => message.subject)).toEqual(["Alert in Acme: Spend passed $10", "Alert in Acme: Spend passed $10-next-cycle"]);
+  });
+});
+
+describe("runAlertDispatchJob: sending", () => {
+  it(`sends the targets of one job ${DELIVERY_CONCURRENCY} at a time, not one after another`, async () => {
+    const { store, deps } = setup({ recipients: [] });
+    const flight = { now: 0, most: 0 };
+    // Every post waits until DELIVERY_CONCURRENCY of them are in flight: one at a time would never
+    // open the gate, and an unbounded send would show more than the limit in flight.
+    const gate = Promise.withResolvers<void>();
+    const slowPost = async () => {
+      flight.now += 1;
+      flight.most = Math.max(flight.most, flight.now);
+      if (flight.now === DELIVERY_CONCURRENCY) gate.resolve();
+      await gate.promise;
+      flight.now -= 1;
+      return { ok: true as const, attempts: 1 };
+    };
+    for (const id of ["a", "b", "c", "d", "e", "f"]) store.destinations.push(channel(id));
+    store.alerts.push(alert("10"));
+
+    expect(await runAlertDispatchJob(job(), { ...deps, post: slowPost })).toEqual({ status: "succeeded" });
+
+    expect(flight.most).toBe(DELIVERY_CONCURRENCY);
+    expect(store.deliveries).toHaveLength(6);
+    expect(store.destinations.every((destination) => destination.lastDeliveredAt === NOW.toISOString())).toBe(true);
+  });
+
+  it("gives each alert set its own idempotency key, the same on every retry and never longer than Resend allows", async () => {
+    const ids = (last: string) => ["alert-0001", "alert-0002", "alert-0003", "alert-0004", "alert-0005", "alert-0006", last];
+    const keyFor = async (alertIds: string[]) => {
+      const { store, email, deps } = setup({ recipients: [owner] });
+      store.alerts.push(...alertIds.map((id) => alert(id)));
+      await runAlertDispatchJob(job(), deps);
+      return email.sent[0]?.idempotencyKey;
+    };
+
+    const first = await keyFor(ids("alert-0007"));
+    expect(first).toMatch(/^[^:]+:u-owner:[0-9a-f]{64}$/);
+    expect(first?.length).toBeLessThanOrEqual(256);
+    expect(await keyFor(ids("alert-0007"))).toBe(first);
+    // Same first six alerts, a different seventh: a different message, so a different key.
+    expect(await keyFor(ids("alert-0008"))).not.toBe(first);
   });
 });
 
@@ -321,6 +365,14 @@ describe("runDigestJob", () => {
       ["owner@example.com", "Daily digest for Acme: 2026-11-08"],
       ["admin@example.com", "Weekly digest for Acme: 2026-11-02 to 2026-11-08"],
     ]);
+  });
+
+  it("posts a daily channel and a weekly channel once each on a Monday, each with its own failure count", async () => {
+    const { store, posts, deps } = setup({ recipients: [], post: () => ({ ok: false, attempts: 3, retryable: true, code: "http_503" }) });
+    store.destinations.push(channel("daily", { digest: "daily" }), channel("weekly", { digest: "weekly" }));
+    await runDigestJob(job({ kind: "digest", dedupe_key: digestJobKey(WORKSPACE.id, "2026-11-08") }), deps);
+    expect(posts.map((post) => post.url)).toEqual(["https://hooks.slack.com/services/T1/B1/daily", "https://hooks.slack.com/services/T1/B1/weekly"]);
+    expect(store.destinations.map((destination) => destination.consecutiveFailures)).toEqual([1, 1]);
   });
 
   it("sends a digest once, however often its job runs", async () => {

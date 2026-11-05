@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { aggregateDashboard, type DashboardInput } from "@/lib/dashboard/aggregate";
 import type { EmailMessage, EmailTransport } from "@/lib/email/send";
 import { EmailSendError } from "@/lib/email/send";
@@ -54,6 +56,10 @@ export const CHANNEL_NEEDS_ATTENTION_TYPE_ID = "devmacro.channel_needs_attention
 
 // Bounds for one dispatch. Alerts beyond the first batch go out with the next tick's dispatch.
 export const DISPATCH_ALERT_LIMIT = 100;
+// Messages of one job sent at the same time. Each goes to a different recipient or webhook, so
+// per-webhook rate limits (Slack: about one post per second) are unaffected; the bound keeps an
+// instance with many owners from opening that many SMTP connections at once.
+export const DELIVERY_CONCURRENCY = 4;
 
 export type WorkspaceInfo = Readonly<{ id: string; slug: string; name: string }>;
 
@@ -250,21 +256,34 @@ function failureEvent(input: {
   };
 }
 
+type PlannedMessage = Readonly<{ target: DeliveryTarget; notice: Notice; subjectKeys: readonly string[]; alertIds: readonly (string | null)[] }>;
+
+/**
+ * Same message, same key, for Resend's 24 hour idempotency window: the target and every subject,
+ * hashed so a message to many alerts keeps a key unique to its whole alert set (Resend allows 256
+ * characters, which a list of alert ids outgrows).
+ */
+function idempotencyKey(message: PlannedMessage): string {
+  return `${message.target.key}:${createHash("sha256").update(message.subjectKeys.join(",")).digest("hex")}`;
+}
+
+/**
+ * Sends the messages of one job, DELIVERY_CONCURRENCY at a time, so a job takes about as long as
+ * its slowest target rather than the sum of them and stays inside the job lease. Each message has
+ * its own target, so health updates and events never race on the same row.
+ */
 async function deliverAll(input: {
   deps: NotificationDeps;
   job: ClaimedJob;
   workspace: WorkspaceInfo;
   what: "alerts" | "digest";
-  messages: ReadonlyArray<{ target: DeliveryTarget; notice: Notice; subjectKeys: readonly string[]; alertIds: readonly (string | null)[] }>;
+  messages: readonly PlannedMessage[];
 }): Promise<{ retryable: number; failed: number; delivered: number }> {
   const { deps, job, workspace } = input;
   const lastAttempt = job.attempts >= job.max_attempts;
-  let retryable = 0;
-  let failed = 0;
-  let delivered = 0;
-  for (const message of input.messages) {
-    const idempotencyKey = `${message.target.key}:${message.subjectKeys.join(",")}`.slice(0, 256);
-    const result = await sendToTarget(deps, workspace, message.target, message.notice, idempotencyKey);
+  const counts = { retryable: 0, failed: 0, delivered: 0 };
+  const deliver = async (message: PlannedMessage) => {
+    const result = await sendToTarget(deps, workspace, message.target, message.notice, idempotencyKey(message));
     if (result.ok) {
       await deps.store.recordDeliveries(
         message.subjectKeys.map((subjectKey, index) => ({
@@ -274,17 +293,22 @@ async function deliverAll(input: {
           triggeredAlertId: message.alertIds[index] ?? null,
         })),
       );
-      delivered += 1;
-      continue;
+      counts.delivered += 1;
+      return;
     }
     const willRetry = result.retryable && !lastAttempt;
-    if (willRetry) retryable += 1;
-    else failed += 1;
+    if (willRetry) counts.retryable += 1;
+    else counts.failed += 1;
     await deps.store.insertEvents([
       failureEvent({ workspace, job, target: message.target, what: input.what, result, willRetry, now: deps.now() }),
     ]);
-  }
-  return { retryable, failed, delivered };
+  };
+  let next = 0;
+  const worker = async () => {
+    for (let message = input.messages[next++]; message !== undefined; message = input.messages[next++]) await deliver(message);
+  };
+  await Promise.all(Array.from({ length: Math.min(DELIVERY_CONCURRENCY, input.messages.length) }, worker));
+  return counts;
 }
 
 export async function runAlertDispatchJob(job: ClaimedJob, deps: NotificationDeps): Promise<JobOutcome> {
@@ -391,6 +415,9 @@ export async function runDigestJob(job: ClaimedJob, deps: NotificationDeps): Pro
   const workspace = await deps.store.getWorkspace(job.workspace_id);
   if (workspace === null) return { status: "succeeded" };
   const periods = digestPeriods(date);
+  // Read once for both periods: a channel has one digest frequency (planDigestTargets keeps only
+  // destinations whose `digest` is the period's), so on a Monday no channel is posted twice and the
+  // health a daily post writes is never read back for a weekly one.
   const [recipients, destinations, delivered] = await Promise.all([
     deps.store.listRecipients(workspace.id),
     deps.store.listDestinations(workspace.id),
