@@ -107,6 +107,8 @@ Granularity: per day, product, SKU, and repository where the product has one. `n
 
 Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. Use it for the month-to-date total per product; use `/usage` for the daily chart.
 
+DevMacro stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`, #137).
+
 ### AI credits, organization: `GET /organizations/{org}/settings/billing/ai_credit/usage`
 
 Copilot usage since 2026-06-01. Filters: `year`, `month`, `day`, `user`, `model`, `product`. Response: `timePeriod`, `organization`, and `usageItems[]` with `product`, `sku`, `model`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Included credits are pooled across the organization; `discountAmount` is the part covered by the pool, `netAmount` the billed overage. Last 24 months only. No per-item date: for a daily series, query with `day`.
