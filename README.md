@@ -225,17 +225,18 @@ npm run demo:seed -- --member you@example.com
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
   by it, connects every simulated provider through the same code as the connect flow, spreads their
   accounts over three projects, and adds a Vercel budget alert and a Resend monthly quota alert.
-- It then replays the last 90 days one UTC day at a time: each day runs the real sync (with its
-  validation and alert checks) and the daily summary job with the clock set to that day, so the
-  history is exactly what a live tick would have stored. Each day keeps the last 30 minutes of
-  events before midnight in London (the timeline's time zone), as a sync after a pause does.
-  Weekdays are busier than weekends, one Vercel launch day in every 30 has a spend spike and a
-  burst of deploys, the Resend monthly quota gets close to its limit, and the budget alert
-  triggers late in each full month.
+- It then replays the 90 days before today one at a time, counting days in London (the timeline's
+  time zone), then today up to now: each day runs the real sync (with its validation and alert
+  checks) and the daily summary job with the clock set to that day, so the history is exactly what
+  a live tick would have stored. Each day keeps the last 30 minutes of events before midnight in
+  London, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day in
+  every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
+  limit, and the budget alert triggers in the third week of each full month.
 - `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
-  demo workspace; repeat it for more people. The demo account has no sign-in of its own, because
-  sign-in is GitHub only. `--seed <text>` picks different simulated accounts; the same seed
-  rehearses the same demo (default `devmacro-demo`).
+  demo workspace; repeat it for more people (an email given twice counts once, and
+  `demo@example.com` is refused because it already owns the workspace). The demo account has no
+  sign-in of its own, because sign-in is GitHub only. `--seed <text>` picks different simulated
+  accounts; the same seed rehearses the same demo (default `devmacro-demo`).
 - Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
   changes nothing outside the demo account's workspaces.
 - It refuses to run unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL`

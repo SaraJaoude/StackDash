@@ -89,8 +89,8 @@ async function main(): Promise<number> {
   }
 
   const admin = createAdminClient();
-  const userId = await ensureDemoUser(admin);
   const members = await resolveMembers(admin, emails.flatMap((email) => (email.success ? [email.data] : [])));
+  const userId = await ensureDemoUser(admin);
   const steps = historySteps(new Date());
   const [first] = steps;
   if (first === undefined) throw new Error("The demo history has no steps.");

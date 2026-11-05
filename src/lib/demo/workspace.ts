@@ -78,10 +78,23 @@ export async function ensureDemoUser(admin: Admin): Promise<string> {
   return data.user.id;
 }
 
+/**
+ * The `--member` emails to look up, each once and in the order given. The demo account is refused:
+ * it already owns the workspace, and a second membership row for it would fail only after the
+ * previous demo workspace was deleted.
+ */
+export function memberEmails(emails: readonly string[]): string[] {
+  const unique = [...new Set(emails)];
+  if (unique.includes(DEMO_USER_EMAIL)) {
+    throw new Error(`${DEMO_USER_EMAIL} is the demo account, which already owns the demo workspace. Give --member the email you sign in to DevMacro with.`);
+  }
+  return unique;
+}
+
 /** Ids of existing accounts to add to the demo workspace, checked before anything is written. */
 export async function resolveMembers(admin: Admin, emails: readonly string[]): Promise<Array<{ email: string; userId: string }>> {
   const members: Array<{ email: string; userId: string }> = [];
-  for (const email of emails) {
+  for (const email of memberEmails(emails)) {
     const user = await findUserByEmail(admin, email);
     if (user === null) {
       throw new Error(`No account uses ${email}. Sign in to DevMacro with GitHub once, then run the demo seed again.`);
@@ -204,8 +217,9 @@ export async function assignDemoProjects(
   );
 }
 
-// A month of simulated Vercel spend runs to about $760 (src/lib/adapters/simulated/vercel.ts), so
-// this budget's 90 percent threshold is crossed late in each full month of the history.
+// A month of simulated Vercel spend runs to about $760 with its launch day
+// (src/lib/adapters/simulated/vercel.ts), so this budget's 90 percent threshold ($540) is crossed
+// in the third week of each full month of the history.
 const VERCEL_BUDGET = { name: "Vercel monthly", amount: "600", currency: "USD" } as const;
 // The simulated Resend team sends about 97 percent of its 3,000 emails a month
 // (src/lib/adapters/simulated/resend.ts), so this quota alert fires in the last days of a month.
