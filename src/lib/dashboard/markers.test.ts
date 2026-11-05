@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { githubAdapter } from "@/lib/adapters/github";
 import { resendAdapter } from "@/lib/adapters/resend";
@@ -100,8 +101,22 @@ describe("bucketEventCounts in daily buckets", () => {
     expect(counts).toEqual([{ provider: "stripe", category: "signups", bucket: "2026-01-10", count: 6 }]);
   });
 
+  it("counts a finished DigitalOcean deployment, failed or not, on the DigitalOcean chart", () => {
+    const counts = bucketEventCounts(
+      [
+        row("2026-01-10", "digitalocean.deployment.succeeded", 4, "digitalocean"),
+        row("2026-01-10", "digitalocean.deployment.failed", 1, "digitalocean"),
+      ],
+      "daily",
+      NOW,
+    );
+    expect(counts).toEqual([{ provider: "digitalocean", category: "deployments", bucket: "2026-01-10", count: 5 }]);
+  });
+
   it.each([
     { name: "a type in no category", input: row("2026-01-10", "stripe.charge.refunded", 3, "stripe") },
+    { name: "a started deployment", input: row("2026-01-10", "digitalocean.deployment.started", 2, "digitalocean") },
+    { name: "an issued invoice", input: row("2026-01-10", "digitalocean.invoice.issued", 1, "digitalocean") },
     { name: "a zero count", input: row("2026-01-10", "vercel.deployment.succeeded", 0) },
   ])("drops $name", ({ input }) => {
     expect(bucketEventCounts([input], "daily", NOW)).toEqual([]);
@@ -220,9 +235,15 @@ describe("hidden categories in the URL", () => {
 describe("category type ids", () => {
   it("names only event types an adapter declares, or DevMacro's alert event", () => {
     const declared = new Set(
-      [fakeAdapter, githubAdapter, resendAdapter, stripeAdapter, supabaseAdapter, vercelAdapter].flatMap((adapter) =>
-        adapter.eventTypes.map((eventType) => eventType.id),
-      ),
+      [
+        digitaloceanAdapter,
+        fakeAdapter,
+        githubAdapter,
+        resendAdapter,
+        stripeAdapter,
+        supabaseAdapter,
+        vercelAdapter,
+      ].flatMap((adapter) => adapter.eventTypes.map((eventType) => eventType.id)),
     );
     declared.add(ALERT_TRIGGERED_TYPE_ID);
     expect(markerTypeIds(MARKER_CATEGORIES).filter((typeId) => !declared.has(typeId))).toEqual([]);

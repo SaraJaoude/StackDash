@@ -38,14 +38,22 @@ type CategoryInfo = Readonly<{
 }>;
 
 const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
+  // Finished deployments only: a started deployment has not shipped anything yet.
   deployments: {
     label: "Deployments",
     one: "deployment",
     many: "deployments",
-    typeIds: ["fake.deploy.succeeded", "vercel.deployment.failed", "vercel.deployment.succeeded"],
+    typeIds: [
+      "digitalocean.deployment.failed",
+      "digitalocean.deployment.succeeded",
+      "fake.deploy.succeeded",
+      "vercel.deployment.failed",
+      "vercel.deployment.succeeded",
+    ],
     owner: "provider",
   },
-  // Successful charges only: a failed or refunded charge is not money that came in that day.
+  // Successful charges only: a failed or refunded charge, or an invoice issued, is not money that
+  // came in that day.
   payments: { label: "Payments", one: "payment", many: "payments", typeIds: ["stripe.charge.succeeded"], owner: "provider" },
   // A new Stripe customer counts as a signup: it is the only signup signal a Stripe-only workspace has.
   signups: {
