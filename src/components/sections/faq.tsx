@@ -40,8 +40,8 @@ const faq: readonly FaqItem[] = [
     answer: "Not yet. Both share usage and cost only with an organization admin API key, not through OAuth. Once those adapters exist, they will connect with an admin key, restricted where the provider allows it, and be labeled Elevated access required, because an admin key is not read-only.",
   },
   {
-    question: "Will there be an API or MCP server?",
-    answer: `Yes, soon after the first release: a public REST API with scoped keys, and a read-only MCP server so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials.`,
+    question: "Is there an API or MCP server?",
+    answer: `The first release includes a read-only REST API with scoped keys, so your own scripts and dashboards can read usage, spend, timeline events, alerts, and connection status. The API guide is in the docs. A read-only MCP server comes next, so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials.`,
   },
 ];
 
