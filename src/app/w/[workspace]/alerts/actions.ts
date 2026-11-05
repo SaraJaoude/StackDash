@@ -24,6 +24,12 @@ import {
   setAlertRulePaused,
   updateAlertRule,
 } from "@/lib/data/alert-rules";
+import {
+  listAnomalyMetrics,
+  muteAnomalyMetric,
+  setAnomalyDetectionEnabled,
+  unmuteAnomalyMetric,
+} from "@/lib/data/anomalies";
 import { deleteBudget as deleteBudgetRow, insertBudget, updateBudget } from "@/lib/data/budgets";
 import {
   createDestination,
@@ -53,9 +59,10 @@ import { requireWorkspaceAction } from "@/lib/workspaces/access";
 import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions";
 
 /**
- * Alert rules and budgets. Every action validates its input, then authorizes with the role matrix
- * (`manage_budgets`: owners and admins), then re-reads any id from the browser against the
- * workspace before writing. Row level security repeats the role check on every write.
+ * Alert rules, budgets, and anomaly detection settings. Every action validates its input, then
+ * authorizes with the role matrix (`manage_budgets`: owners and admins), then re-reads any id or
+ * metric from the browser against the workspace before writing. Row level security repeats the
+ * role check on every write.
  */
 
 export type AlertActionResult =
@@ -267,6 +274,82 @@ export async function acknowledgeAlert(
     const { workspace, user } = await requireWorkspaceAction(slug, "acknowledge_alert");
     const found = await acknowledgeTriggeredAlert(workspace.id, alertId, user.id);
     return found ? { ok: true } : { ok: false, message: ALERT_GONE };
+  });
+}
+
+// ── Anomaly detection (#169) ────────────────────────────────────────────────────────────────────
+
+const anomalyToggleSchema = z.object({ workspace: workspaceField, enabled: z.enum(["true", "false"]) }).strict();
+// The metric picker posts `<provider> <metric key>`; both halves are checked against what the
+// workspace reports before anything is written.
+const anomalyMuteSchema = z
+  .object({
+    workspace: workspaceField,
+    metric: z
+      .string()
+      .max(140)
+      .regex(/^[a-z]+ [a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+$/),
+  })
+  .strict();
+const anomalyUnmuteSchema = z.object({ workspace: workspaceField, muteId: z.guid() }).strict();
+const METRIC_GONE = "That metric is no longer reported. Reload the page and choose another.";
+const MUTE_GONE = "This metric is no longer muted. Reload the page to see the current list.";
+
+/** Turns anomaly detection on (`enabled=true`) or off for the whole workspace. */
+export async function setAnomalyDetection(
+  _previous: AlertActionResult | null,
+  formData: FormData,
+): Promise<AlertActionResult> {
+  const parsed = anomalyToggleSchema.safeParse(pickFormFields(formData, ["workspace", "enabled"]));
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+  const { workspace: slug, enabled } = parsed.data;
+
+  return guarded("alerts.anomaly_toggle_failed", "Anomaly detection could not be changed. Try again in a moment.", async () => {
+    const { workspace } = await requireWorkspaceAction(slug, "manage_budgets");
+    if (!(await setAnomalyDetectionEnabled(workspace.id, enabled === "true"))) {
+      throw new ForbiddenError("admin", actionDeniedReason("manage_budgets"));
+    }
+    return { ok: true };
+  });
+}
+
+/** Stops new anomaly events for one metric the workspace reports. */
+export async function muteAnomaly(
+  _previous: AlertActionResult | null,
+  formData: FormData,
+): Promise<AlertActionResult> {
+  const parsed = anomalyMuteSchema.safeParse(pickFormFields(formData, ["workspace", "metric"]));
+  if (!parsed.success) {
+    const metricMissing = formData.get("metric") === "";
+    return metricMissing
+      ? { ok: false, fieldErrors: { metric: "Choose a metric to mute." }, message: "Nothing was muted. Choose a metric to mute." }
+      : { ok: false, message: OUT_OF_DATE };
+  }
+  const [provider = "", metricKey = ""] = parsed.data.metric.split(" ");
+
+  return guarded("alerts.anomaly_mute_failed", "The metric could not be muted. Try again in a moment.", async () => {
+    const { workspace } = await requireWorkspaceAction(parsed.data.workspace, "manage_budgets");
+    const metric = (await listAnomalyMetrics(workspace.id)).find(
+      (candidate) => candidate.provider === provider && candidate.metricKey === metricKey,
+    );
+    if (metric === undefined) return { ok: false, fieldErrors: { metric: METRIC_GONE }, message: METRIC_GONE };
+    await muteAnomalyMetric(workspace.id, metric.provider, metric.metricKey);
+    return { ok: true };
+  });
+}
+
+export async function unmuteAnomaly(
+  _previous: AlertActionResult | null,
+  formData: FormData,
+): Promise<AlertActionResult> {
+  const parsed = anomalyUnmuteSchema.safeParse(pickFormFields(formData, ["workspace", "muteId"]));
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+  const { workspace: slug, muteId } = parsed.data;
+
+  return guarded("alerts.anomaly_unmute_failed", "The metric could not be unmuted. Try again in a moment.", async () => {
+    const { workspace } = await requireWorkspaceAction(slug, "manage_budgets");
+    const found = await unmuteAnomalyMetric(workspace.id, muteId);
+    return found ? { ok: true } : { ok: false, message: MUTE_GONE };
   });
 }
 

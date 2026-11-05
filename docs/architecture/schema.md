@@ -21,6 +21,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120000_alert_delivery_job_kinds.sql` | `sync_job_kind` gains `alert_dispatch` and `digest` |
 | `20261105120100_alert_delivery.sql` | `notification_preferences`, `notification_destinations`, `notification_destination_secrets`, `alert_rule_destinations`, `notification_deliveries`, and the delivery fields on `triggered_alerts` |
 | `20261105120300_provider_sentry.sql` | `provider_id` gains `sentry` |
+| `20261105120310_anomaly_detection.sql` | `workspaces.anomaly_detection_enabled` (on by default) and `anomaly_mutes`, the metrics a workspace muted for anomaly detection |
 | `20261105120320_api_keys.sql` | `api_keys`, `api_key_request_windows`, `authenticate_api_key`, `api_key_workspace`, and one `api_*` read function per REST endpoint (#162) |
 | `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
 | `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
@@ -42,6 +43,7 @@ erDiagram
   workspaces ||--o{ oauth_states : "owns"
   workspaces ||--o{ budgets : "owns"
   workspaces ||--o{ alert_rules : "owns"
+  workspaces ||--o{ anomaly_mutes : "owns"
   workspaces ||--o{ activity_events : "owns"
   workspaces ||--o{ sync_jobs : "owns (null for instance jobs)"
   profiles }o--o| workspaces : "last_workspace_id"
@@ -120,9 +122,10 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 
 | Table | Read | Write through the Data API |
 |---|---|---|
-| `workspaces` | viewer | rename: admin; delete: owner; create: only `create_workspace` (service role) |
+| `workspaces` | viewer | rename and turn anomaly detection on or off: admin; delete: owner; create: only `create_workspace` (service role) |
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
+| `anomaly_mutes` | viewer | admin adds and removes; never updated |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
 | `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
 | `published_metric_views` | viewer | none (service role function) |
@@ -170,7 +173,7 @@ Each row keeps the adapter metric model: kind, value and unit or integer minor u
 
 ## Realtime (#129)
 
-The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
+The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`, `anomaly_mutes`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
 
 | Table | Why it is published |
 |---|---|
@@ -217,6 +220,7 @@ The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticate
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
+| `anomaly_mutes` | until a person unmutes the metric (cascade on workspace delete) | not applicable |
 | `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
 | `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |

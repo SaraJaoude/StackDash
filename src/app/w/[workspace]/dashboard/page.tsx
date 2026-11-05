@@ -14,6 +14,7 @@ import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
+import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getTrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
@@ -98,13 +99,15 @@ async function DashboardContent({
   await connection();
   const now = new Date();
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const [workspaceScope, data, trendData, alertsSummary] = await Promise.all([
+  const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
+  const [workspaceScope, data, trendData, alertsSummary, recentAnomalies] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
     getUnacknowledgedSummary(workspace.id),
+    getRecentAnomalies(workspace.id, anomaliesSince),
   ]);
-  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");

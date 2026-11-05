@@ -34,7 +34,7 @@ select results_eq(
       and c.relkind in ('r', 'p')
       and c.relrowsecurity
       and c.relname = any (array[
-        'access_invites', 'activity_events', 'alert_rules', 'budgets',
+        'access_invites', 'activity_events', 'alert_rules', 'anomaly_mutes', 'budgets',
         'connection_credentials', 'connections', 'external_accounts',
         'oauth_states', 'profiles', 'projects', 'sync_jobs',
         'triggered_alerts', 'usage_snapshots', 'workspace_members', 'workspaces'
@@ -43,7 +43,7 @@ select results_eq(
   $$,
   $$
     values
-      ('access_invites'), ('activity_events'), ('alert_rules'), ('budgets'),
+      ('access_invites'), ('activity_events'), ('alert_rules'), ('anomaly_mutes'), ('budgets'),
       ('connection_credentials'), ('connections'), ('external_accounts'),
       ('oauth_states'), ('profiles'), ('projects'), ('sync_jobs'),
       ('triggered_alerts'), ('usage_snapshots'), ('workspace_members'), ('workspaces')
