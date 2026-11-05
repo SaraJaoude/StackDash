@@ -37,6 +37,7 @@ An external account is the thing a provider actually bills or measures. In the a
 | Stripe | `account` | One Stripe account in one mode, live or test |
 | Supabase | `project` | One Supabase project in any organization the grant can see (branches are skipped) |
 | Resend | `team` | The Resend team the grant covers |
+| Polar | `organization` | One Polar organization the grant can read; a token the user limited to some organizations lists only those |
 
 Usage belongs to the external account: `usage_snapshots` holds one row per external account, metric, and UTC day. Activity events can name the external account they are about.
 

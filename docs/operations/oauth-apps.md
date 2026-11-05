@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs six registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
+Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -25,6 +25,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
+| Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -108,6 +109,19 @@ Settings that must match the code:
 - `token_endpoint_auth_method`: `client_secret_basic`. `grant_types`: `authorization_code`, `refresh_token`. `scope`: `full_access`, the only scope that can read usage. It is **not** read-only; the connect flow tells users so before redirecting.
 
 Variables: `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET`. The secret is shown once in the registration response. Clients cannot be updated, so a new callback URL or a lost secret means registering a new client.
+
+## Polar OAuth client
+
+Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted DevMacro (#141); the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
+
+Settings that must match the code:
+
+- Polar, **Account Settings**, **Developer** ([link](https://polar.sh/dashboard/account/developer)), create an OAuth 2.0 client of the confidential type, not a public client.
+- **Redirect URIs**: `<SITE_URL>/api/connections/polar/callback`. Polar requires HTTPS except on `localhost`.
+- **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`. Nothing else, and no `:write` scope. Webhooks would need `webhooks:write`, so the timeline is polled instead.
+- Register in production (`polar.sh`), not the sandbox: the adapter calls `https://api.polar.sh` only.
+
+Variables: `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`.
 
 ## After registering
 
