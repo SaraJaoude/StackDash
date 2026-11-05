@@ -301,11 +301,17 @@ export function CommandPalette({
                   aria-selected={selected}
                   onClick={() => choose(command)}
                   onPointerMove={() => setActive(index)}
-                  className={`flex min-h-9 cursor-pointer items-center rounded-md px-3 py-1.5 text-sm ${
-                    selected ? "bg-panel-raised text-foreground" : "text-muted"
+                  className={`flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm ${
+                    selected ? "border-line-strong bg-panel-raised text-foreground" : "border-transparent text-muted"
                   }`}
                 >
                   <span className="min-w-0 break-words">{command.label}</span>
+                  {/* Shape as well as color marks the selection; the name stays the label alone. */}
+                  {selected ? (
+                    <kbd aria-hidden="true" className={`shrink-0 ${KBD}`}>
+                      Enter
+                    </kbd>
+                  ) : null}
                 </li>
               );
             })}

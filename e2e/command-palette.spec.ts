@@ -142,12 +142,14 @@ ownerTest.describe("command palette as the owner", () => {
       await combobox(page).fill("show dashboard for");
       const options = palette(page).getByRole("option");
       // Provider, then the projects (Checkout, Unassigned), then the account.
-      await expect(options).toHaveText([
+      const names = [
         "Show dashboard for provider Vercel",
         "Show dashboard for project Checkout",
         "Show dashboard for project Unassigned",
         "Show dashboard for account Palette production (Vercel palette team)",
-      ]);
+      ];
+      await expect(options).toHaveCount(names.length);
+      for (const [index, name] of names.entries()) await expect(options.nth(index)).toHaveAccessibleName(name);
       const provider = options.nth(0);
       const project = options.nth(1);
       const account = options.nth(3);
@@ -210,6 +212,9 @@ ownerTest.describe("command palette as the owner", () => {
       await openWith(palette(page), () => pressPaletteShortcut(page));
       await page.keyboard.press("Escape");
       await expect(palette(page)).toBeHidden();
+      // The dialog's close event, which returns focus, fires a task after it hides; wait for it so
+      // it cannot pull focus out of the field mid-typing.
+      await expect(trigger(page)).toBeFocused();
 
       const name = page.getByRole("textbox", { name: "Workspace name" });
       await name.fill("");
