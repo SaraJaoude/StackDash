@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import AxeBuilder from "@axe-core/playwright";
 import { test, type Browser, type BrowserContext } from "@playwright/test";
 import { z } from "zod";
 
@@ -247,6 +248,8 @@ test.describe("deleting an account", () => {
       const confirmation = page.getByRole("textbox", { name: "Type your email address or GitHub username to confirm" });
       const button = page.getByRole("button", { name: "Delete my account" });
       await expect(button).toBeDisabled();
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
       await confirmation.fill("someone-else@example.com");
       await expect(button).toBeDisabled();
       await confirmation.fill(user.email.toUpperCase());

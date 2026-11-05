@@ -1,3 +1,5 @@
+import AxeBuilder from "@axe-core/playwright";
+
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
@@ -87,6 +89,8 @@ ownerTest.describe("renaming a workspace as the owner", () => {
       await expect(save).toBeFocused();
       await page.waitForLoadState("networkidle");
       expect(saves).toBe(1);
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }
