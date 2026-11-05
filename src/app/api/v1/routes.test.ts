@@ -21,7 +21,7 @@ import { GET as getWorkspaces } from "./workspaces/route";
  * Scope enforcement and the error contract for every /api/v1 route (#162), through the real route
  * handlers with the database calls replaced: `authenticate_api_key` answers as the key setup asks,
  * and each `api_*` read function returns sample rows. Isolation between workspaces is proven in
- * the database itself, by supabase/tests/database/09_api_keys.test.sql.
+ * the database itself, by supabase/tests/database/13_api_keys.test.sql.
  */
 
 const { rpc } = vi.hoisted(() => ({ rpc: vi.fn() }));

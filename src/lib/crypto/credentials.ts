@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { z } from "zod";
 
@@ -131,6 +131,40 @@ export function currentKeyId(): string {
 /** True when a record sealed with `keyId` should be re-encrypted under the current key. */
 export function needsRotation(keyId: string): boolean {
   return keyId !== loadKeyring().currentKeyId;
+}
+
+// HKDF info prefix, so a signing key derived here can never equal an encryption key or a key
+// derived for another purpose.
+const SIGNING_INFO_PREFIX = "devmacro signing v1:";
+
+function signingKey(key: Buffer, purpose: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), `${SIGNING_INFO_PREFIX}${purpose}`, KEY_BYTES));
+}
+
+/**
+ * Signs `message` for `purpose` (such as "unsubscribe") with HMAC-SHA256 under a key derived from
+ * the current encryption key. Returns `<keyId>.<base64url signature>`, so a signature made before a
+ * rotation still verifies while the old key is in DEVMACRO_ENCRYPTION_KEYS_PREVIOUS.
+ */
+export function signMessage(purpose: string, message: string): string {
+  const { currentKeyId: keyId, keys } = loadKeyring();
+  const key = keys.get(keyId);
+  if (key === undefined) throw new UnknownEncryptionKeyError(keyId);
+  const signature = createHmac("sha256", signingKey(key, purpose)).update(message, "utf8").digest("base64url");
+  return `${keyId}.${signature}`;
+}
+
+/** True when `signed` is a `signMessage` result for `purpose` and `message` under a configured key. */
+export function verifyMessage(purpose: string, message: string, signed: string): boolean {
+  const separator = signed.indexOf(".");
+  if (separator <= 0) return false;
+  const key = loadKeyring().keys.get(signed.slice(0, separator));
+  if (key === undefined) return false;
+  // Compared as text, not decoded bytes: base64url decoding ignores the spare bits of the last
+  // character, so several spellings decode alike, and only the canonical one is accepted.
+  const given = Buffer.from(signed.slice(separator + 1), "utf8");
+  const expected = Buffer.from(createHmac("sha256", signingKey(key, purpose)).update(message, "utf8").digest("base64url"), "utf8");
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 /** Associated data for a stored connection credential; binds the ciphertext to its row. */

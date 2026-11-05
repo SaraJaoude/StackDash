@@ -27,7 +27,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
  * Data access for the public API (#162), one loader per endpoint. Each calls the matching
  * `public.api_*` function with the hash of the presented key; the function resolves the workspace
  * and checks the scope from that hash inside the database, so no loader takes a workspace id and
- * none can read another workspace (supabase/tests/database/09_api_keys.test.sql). Lists are keyset
+ * none can read another workspace (supabase/tests/database/13_api_keys.test.sql). Lists are keyset
  * paginated with the opaque cursor from src/lib/data/cursor.ts.
  */
 

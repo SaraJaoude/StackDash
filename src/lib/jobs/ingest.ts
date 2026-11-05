@@ -33,7 +33,8 @@ export function toSnapshotRow(
     metric.kind === "verified_spend" ||
     metric.kind === "estimated_spend" ||
     metric.kind === "credit_balance" ||
-    metric.kind === "revenue";
+    metric.kind === "revenue" ||
+    metric.kind === "recurring_revenue";
   const timeframe = metric.timeframe;
   return {
     workspace_id: connection.workspace_id,

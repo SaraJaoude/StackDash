@@ -6,6 +6,7 @@ import { providerName, providerPlatform } from "@/lib/providers";
 import { groupEventsByDay } from "@/lib/timeline/days";
 import { severityBadge, type EventSeverity } from "@/lib/timeline/query";
 
+import { ArrivalEventRow, ArrivalEvents, ArrivalNewLabel } from "./arrival-events";
 import { EventTime } from "./event-time";
 
 // A quick visual scan only: the badge on every row still prints the severity as a word.
@@ -16,33 +17,44 @@ const SEVERITY_EDGE: Record<EventSeverity, string> = {
   critical: "border-l-danger",
 };
 
+// The edge an arriving event flashes, in the same colors (#171).
+const SEVERITY_FLASH: Record<EventSeverity, string> = {
+  info: "var(--accent)",
+  success: "var(--success)",
+  warning: "var(--warning)",
+  critical: "var(--danger)",
+};
+
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
  * list per day, labelled by that day's heading, so a screen reader can jump between days by
  * heading and still hear how many events each day holds. Every row prints "Simulated" when its
- * connection was made by the provider simulator.
+ * connection was made by the provider simulator. Events that arrive while the page is open are
+ * marked (#171).
  */
 export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
   return (
     <section aria-label="Events" className="mt-6 grid gap-6">
-      {groupEventsByDay(events, now).map((day) => {
-        const headingId = `timeline-day-${day.date}`;
-        return (
-          <section key={day.date} className="grid gap-2">
-            <h2 id={headingId} className="text-sm font-semibold text-foreground">
-              {day.label}
-            </h2>
-            <ol
-              aria-labelledby={headingId}
-              className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel"
-            >
-              {day.events.map((event) => (
-                <EventItem key={event.id} event={event} now={now} />
-              ))}
-            </ol>
-          </section>
-        );
-      })}
+      <ArrivalEvents eventIds={events.map((event) => event.id)}>
+        {groupEventsByDay(events, now).map((day) => {
+          const headingId = `timeline-day-${day.date}`;
+          return (
+            <section key={day.date} className="grid gap-2">
+              <h2 id={headingId} className="text-sm font-semibold text-foreground">
+                {day.label}
+              </h2>
+              <ol
+                aria-labelledby={headingId}
+                className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel"
+              >
+                {day.events.map((event) => (
+                  <EventItem key={event.id} event={event} now={now} />
+                ))}
+              </ol>
+            </section>
+          );
+        })}
+      </ArrivalEvents>
     </section>
   );
 }
@@ -52,7 +64,11 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
   // The account says which team or repository; the connection name is the fallback.
   const source = event.accountName ?? event.connectionName;
   return (
-    <li className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[event.severity]}`}>
+    <ArrivalEventRow
+      eventId={event.id}
+      flash={SEVERITY_FLASH[event.severity]}
+      className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[event.severity]}`}
+    >
       <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-foreground">
         {platform === null ? null : <PlatformLogo platform={platform} className="size-4" />}
       </span>
@@ -72,6 +88,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
               <span aria-hidden="true"> · </span>
               <span className="sr-only">, </span>
               <EventTime occurredAt={event.occurred_at} now={now} />
+              <ArrivalNewLabel eventId={event.id} />
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -94,6 +111,6 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
           </a>
         )}
       </article>
-    </li>
+    </ArrivalEventRow>
   );
 }

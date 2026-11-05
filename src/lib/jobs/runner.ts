@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
+import { runAlertDispatchJob, runDigestJob } from "@/lib/notifications/dispatch";
+
 import { backoffDelayMs } from "./backoff";
 import { runDailySummaryJob } from "./daily-summary";
 import { runRetention } from "./retention";
@@ -49,6 +51,8 @@ export type TickResult = ScheduleResult & {
 async function runJob(job: ClaimedJob, deps: SyncDeps, hasTime: () => boolean): Promise<JobOutcome> {
   if (job.kind === "sync") return runSyncJob(job, deps);
   if (job.kind === "daily_summary") return runDailySummaryJob(job, deps);
+  if (job.kind === "alert_dispatch") return runAlertDispatchJob(job, deps.notifications());
+  if (job.kind === "digest") return runDigestJob(job, deps.notifications());
   if (job.kind === "retention") {
     const result = await runRetention(deps.store, deps.now(), hasTime);
     deps.log.info("retention.finished", { jobId: job.id, ...result });

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
@@ -10,6 +11,10 @@ export const metadata: Metadata = {
   title: "Sign-in problem",
   robots: { index: false },
 };
+
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
 
 const reasonSchema = z.enum(["sign_out_failed"]);
 
@@ -46,7 +51,8 @@ async function ErrorDetails({ searchParams }: { searchParams: PageProps<"/auth/e
 }
 
 /** Where auth routes land when something unexpected fails outside the sign-in page itself. */
-export default function AuthErrorPage({ searchParams }: PageProps<"/auth/error">) {
+export default async function AuthErrorPage({ searchParams }: PageProps<"/auth/error">) {
+  await connection();
   return (
     <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-8">
