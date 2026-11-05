@@ -1,6 +1,6 @@
 import "server-only";
 
-import { HEADLINE_EVENT_TYPES, type DateRange, type EventCount, type HeadlineWindows } from "@/lib/dashboard/headline";
+import type { DateRange, EventCount, HeadlineEventTypes, HeadlineWindows } from "@/lib/dashboard/headline";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { createClient } from "@/lib/supabase/server";
 
@@ -16,10 +16,11 @@ const DAY_MS = 86_400_000;
  * together; each returns at most one row per connection and type. Call only after
  * `requireWorkspace` has confirmed membership.
  */
-export async function getHeadlineEventCounts(
+export async function getHeadlineEvents(
   workspaceId: string,
   scope: ScopeFilters,
   windows: HeadlineWindows,
+  eventTypes: HeadlineEventTypes,
 ): Promise<HeadlineEventCounts> {
   const { accounts } = applyScope({ ...(await getWorkspaceScope(workspaceId)), snapshots: [] }, scope);
   if (accounts.length === 0) return { current: [], previous: [] };
@@ -29,7 +30,7 @@ export async function getHeadlineEventCounts(
     const { data, error } = await supabase.rpc("count_activity_events", {
       p_workspace_id: workspaceId,
       p_account_ids: accountIds,
-      p_type_ids: [...HEADLINE_EVENT_TYPES],
+      p_type_ids: [...eventTypes.signups, ...eventTypes.deploys],
       p_from: `${range.start}T00:00:00.000Z`,
       // Window dates are inclusive; the query's end is the next day's first instant, exclusive.
       p_until: new Date(Date.parse(`${range.end}T00:00:00.000Z`) + DAY_MS).toISOString(),

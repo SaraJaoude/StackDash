@@ -1,19 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { fakeAdapter } from "@/lib/adapters/fake";
+import type { EventType } from "@/lib/adapters/events";
+import { declaredEventTypes } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
-import { supabaseAdapter } from "@/lib/adapters/supabase";
-import { vercelAdapter } from "@/lib/adapters/vercel";
 
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
 import {
   buildHeadline,
   costPerSignupExplanation,
-  DEPLOY_EVENT_TYPES,
   headlineComparisonText,
+  headlineEventTypes,
   headlineWindows,
   moneyFormatter,
-  SIGNUP_EVENT_TYPES,
   windowDescription,
   type EventCount,
   type HeadlineInput,
@@ -44,6 +42,7 @@ const stripe = connection("c-stripe", "stripe");
 const supabase = connection("c-supabase", "supabase");
 const github = connection("c-github", "github");
 const fake = connection("c-fake", "fake");
+const digitalocean = connection("c-digitalocean", "digitalocean");
 
 function dates(from: string, to: string): string[] {
   const out: string[] = [];
@@ -124,9 +123,10 @@ function allowance(connectionId: string, date: string): SnapshotInput {
 }
 
 const NO_EVENTS = { current: [], previous: [] } as const;
+const EVENT_TYPES = headlineEventTypes(declaredEventTypes);
 
 function headline(overrides: Partial<HeadlineInput> & Pick<HeadlineInput, "snapshots" | "connections">) {
-  return buildHeadline({ events: NO_EVENTS, kind: "week", now: NOW, ...overrides });
+  return buildHeadline({ events: NO_EVENTS, eventTypes: EVENT_TYPES, kind: "week", now: NOW, ...overrides });
 }
 
 function line(lines: readonly MoneyLine[] | null, currency: string): MoneyLine | undefined {
@@ -396,6 +396,25 @@ describe("buildHeadline counts", () => {
     expect(headline({ snapshots: spend, connections: [simulated] }).simulated).toBe(true);
     expect(headline({ snapshots: spend, connections: [vercel] }).simulated).toBe(false);
   });
+
+  it("counts DigitalOcean's deploys and names its failed ones", () => {
+    const strip = headline({
+      snapshots: [allowance(digitalocean.id, "2026-10-01")],
+      connections: [digitalocean],
+      events: {
+        current: [
+          { connection_id: digitalocean.id, type_id: "digitalocean.deployment.succeeded", events: 4 },
+          { connection_id: digitalocean.id, type_id: "digitalocean.deployment.failed", events: 1 },
+        ],
+        previous: [{ connection_id: digitalocean.id, type_id: "digitalocean.deployment.succeeded", events: 5 }],
+      },
+    });
+    expect(strip.deploys).toMatchObject({
+      value: { value: 5, comparison: { status: "change", direction: "same", previous: 5 } },
+      failed: 1,
+      included: ["DigitalOcean"],
+    });
+  });
 });
 
 describe("headline copy", () => {
@@ -448,9 +467,49 @@ describe("headline copy", () => {
   });
 });
 
-describe("headline event types", () => {
-  it("names only event types an adapter declares, so a renamed type cannot silently drop out", () => {
-    const declared = new Set([...fakeAdapter.eventTypes, ...supabaseAdapter.eventTypes, ...vercelAdapter.eventTypes].map((type) => type.id));
-    for (const typeId of [...SIGNUP_EVENT_TYPES, ...Object.keys(DEPLOY_EVENT_TYPES)]) expect(declared).toContain(typeId);
+describe("headlineEventTypes", () => {
+  const declaration = (id: string, category?: EventType["category"]): EventType => ({
+    id,
+    label: "Event",
+    description: "An event.",
+    shownByDefault: true,
+    ...(category === undefined ? {} : { category }),
+  });
+
+  it("counts what adapters declare, so a new provider's signups and deploys need no list here", () => {
+    expect(
+      headlineEventTypes([
+        declaration("acme.user.created", "signup"),
+        declaration("acme.release.done", "deploy_succeeded"),
+        declaration("acme.release.broke", "deploy_failed"),
+      ]),
+    ).toEqual({
+      signups: ["acme.user.created"],
+      deploys: ["acme.release.done", "acme.release.broke"],
+      failedDeploys: ["acme.release.broke"],
+    });
+  });
+
+  it("leaves out event types declared with no category", () => {
+    expect(headlineEventTypes([declaration("acme.domain.verified"), declaration("acme.invoice.issued")])).toEqual({
+      signups: [],
+      deploys: [],
+      failedDeploys: [],
+    });
+  });
+
+  it("counts the registered adapters' signups and deploys, DigitalOcean's included", () => {
+    expect(EVENT_TYPES.signups).toEqual(expect.arrayContaining(["fake.signup", "supabase.auth.signup"]));
+    expect(EVENT_TYPES.deploys).toEqual(
+      expect.arrayContaining([
+        "fake.deploy.succeeded",
+        "vercel.deployment.succeeded",
+        "vercel.deployment.failed",
+        "digitalocean.deployment.succeeded",
+        "digitalocean.deployment.failed",
+      ]),
+    );
+    expect(EVENT_TYPES.failedDeploys).toEqual(expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed"]));
+    expect(EVENT_TYPES.deploys).not.toContain("digitalocean.deployment.started");
   });
 });

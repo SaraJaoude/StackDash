@@ -10,11 +10,18 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
+import { declaredEventTypes } from "@/lib/adapters/registry";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
-import { buildHeadline, HEADLINE_WINDOW_KINDS, headlineWindows, type HeadlineWindowKind } from "@/lib/dashboard/headline";
+import {
+  buildHeadline,
+  HEADLINE_WINDOW_KINDS,
+  headlineEventTypes,
+  headlineWindows,
+  type HeadlineWindowKind,
+} from "@/lib/dashboard/headline";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
-import { getHeadlineEventCounts } from "@/lib/data/headline";
+import { getHeadlineEvents } from "@/lib/data/headline";
 import { getTrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
@@ -96,13 +103,14 @@ async function DashboardContent({
   await connection();
   const now = new Date();
   const windows = headlineWindows(view.window, now);
+  const eventTypes = headlineEventTypes(declaredEventTypes);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const [workspaceScope, data, trendData, alertsSummary, headlineEvents] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
     getUnacknowledgedSummary(workspace.id),
-    getHeadlineEventCounts(workspace.id, scope, windows),
+    getHeadlineEvents(workspace.id, scope, windows, eventTypes),
   ]);
   const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
 
@@ -140,6 +148,7 @@ async function DashboardContent({
             snapshots: trendData.snapshots,
             connections: trendData.connections,
             events: headlineEvents,
+            eventTypes,
             kind: view.window,
             now,
           })}

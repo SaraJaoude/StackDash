@@ -3,6 +3,7 @@ import "server-only";
 import { log } from "@/lib/log/logger";
 
 import { digitaloceanAdapter } from "./digitalocean";
+import type { EventType } from "./events";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { resendAdapter } from "./resend";
@@ -70,6 +71,14 @@ export function availableProviders(): ProviderAdapter[] {
   const adapters = liveProviderIds.map((id) => getAdapter(id));
   return isFakeProviderEnabled() ? [...adapters, fakeAdapter] : adapters;
 }
+
+/**
+ * Every event type an adapter declares. The fake provider's are included whatever the flag says,
+ * because its stored events outlive the flag; simulated twins declare the live adapters' own.
+ */
+export const declaredEventTypes: readonly EventType[] = [...Object.values(liveAdapters), fakeAdapter].flatMap(
+  (adapter) => adapter.eventTypes,
+);
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];

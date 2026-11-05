@@ -140,6 +140,8 @@ The dashboard's headline strip (#173) reads the same daily rows as running total
 
 Signups and deploys in that strip come from `public.count_activity_events(workspace_id, account_ids, type_ids, from, until)`: counts per connection and event type in a half open window, for the accounts the scope filter leaves in view. It is `security invoker`, so the `activity_events` select policy applies to the caller as it does on the timeline, and the `occurred_at` range keeps it on an index range scan.
 
+Which event types count is declared by each adapter, not listed in the strip: an event type whose declaration sets `category` to `signup`, `deploy_succeeded`, or `deploy_failed` (`EventTypeSchema` in `src/lib/adapters/events.ts`) counts as a signup or a deploy. A new adapter sets it on its own signup and deploy event types and needs nothing else.
+
 ## Jobs
 
 `sync_jobs` is a queue claimed by `claim_sync_jobs(limit, lease_seconds)` with `for update skip locked`, so overlapping ticks never run a job twice. A running job whose lease expired is claimable again until it uses `max_attempts`. `pg_cron` and `pg_net` are installed by migration; the per-minute call to `POST /api/jobs/tick` carries the deployment URL and `CRON_SECRET`, so it is registered per environment, not in a migration.

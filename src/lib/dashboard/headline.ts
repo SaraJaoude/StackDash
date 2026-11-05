@@ -17,11 +17,13 @@
  *   today is still running). Otherwise it is named unavailable and none of its amounts count.
  * - Money is grouped by currency and never converted. Verified and estimated amounts stay apart,
  *   in revenue minus spend and in cost per signup too.
- * - Signups and deploys are counts of synced events. A connection counts in a window when it had
- *   reported by the window's first day and has synced since the start of the last required day.
+ * - Signups and deploys are counts of synced events of the types adapters declare in that
+ *   category. A connection counts in a window when it had reported by the window's first day and
+ *   has synced since the start of the last required day.
  * - A comparison needs every connection behind the current figure to be available in the previous
  *   window as well, and the previous figure is taken over those same connections.
  */
+import type { EventCategory, EventType } from "@/lib/adapters/events";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatList, formatMoney, formatQuantity } from "@/lib/format";
 import { divideMinorUnits } from "@/lib/money";
@@ -48,17 +50,25 @@ export type HeadlineWindows = Readonly<{
 type WindowSpec = DateRange & Readonly<{ requiredEnd: string }>;
 
 /**
- * Event types counted as signups and as deploys, each with its outcome. The provider is the type
- * id's prefix. A provider that adds a signup or deploy event type lists it here.
+ * The event type ids the strip counts, as the adapters declare them (`EventType.category`), so a
+ * new provider's signups and deploys count without a list here. The provider is the type id's
+ * prefix. `deploys` holds every outcome; `failedDeploys` the failed ones among them.
  */
-export const SIGNUP_EVENT_TYPES: readonly string[] = ["fake.signup", "supabase.auth.signup"];
-export const DEPLOY_EVENT_TYPES: Readonly<Record<string, "succeeded" | "failed">> = {
-  "fake.deploy.succeeded": "succeeded",
-  "vercel.deployment.succeeded": "succeeded",
-  "vercel.deployment.failed": "failed",
-};
-/** Every event type the strip counts, for the count query. */
-export const HEADLINE_EVENT_TYPES: readonly string[] = [...SIGNUP_EVENT_TYPES, ...Object.keys(DEPLOY_EVENT_TYPES)];
+export type HeadlineEventTypes = Readonly<{
+  signups: readonly string[];
+  deploys: readonly string[];
+  failedDeploys: readonly string[];
+}>;
+
+export function headlineEventTypes(declared: readonly EventType[]): HeadlineEventTypes {
+  const ofCategory = (...categories: readonly EventCategory[]) =>
+    declared.filter((type) => type.category !== undefined && categories.includes(type.category)).map((type) => type.id);
+  return {
+    signups: ofCategory("signup"),
+    deploys: ofCategory("deploy_succeeded", "deploy_failed"),
+    failedDeploys: ofCategory("deploy_failed"),
+  };
+}
 
 /** Providers whose connections can report revenue even before their first revenue reading. */
 const REVENUE_PROVIDERS: readonly string[] = ["stripe"];
@@ -327,6 +337,8 @@ export type HeadlineInput = Readonly<{
   connections: readonly ConnectionInput[];
   /** Event counts per connection and type, for the included accounts in scope, per window. */
   events: Readonly<{ current: readonly EventCount[]; previous: readonly EventCount[] }>;
+  /** The event types counted, from the adapters' declarations (`headlineEventTypes`). */
+  eventTypes: HeadlineEventTypes;
   kind: HeadlineWindowKind;
   now: Date;
 }>;
@@ -457,9 +469,8 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   };
   const ownsAny = (typeIds: readonly string[]) => (connection: ConnectionInput) =>
     typeIds.some((typeId) => typeId.split(".")[0] === connection.provider);
-  const deployTypes = Object.keys(DEPLOY_EVENT_TYPES);
-  const failedTypes = deployTypes.filter((typeId) => DEPLOY_EVENT_TYPES[typeId] === "failed");
-  const signups = assemble(connections.filter(ownsAny(SIGNUP_EVENT_TYPES)), eventsOf(SIGNUP_EVENT_TYPES), specs);
+  const { signups: signupTypes, deploys: deployTypes, failedDeploys: failedTypes } = input.eventTypes;
+  const signups = assemble(connections.filter(ownsAny(signupTypes)), eventsOf(signupTypes), specs);
   const deploys = assemble(connections.filter(ownsAny(deployTypes)), eventsOf(deployTypes), specs);
   const signupsFigure = countFigure(signups);
   const deploysFigure = countFigure(deploys);

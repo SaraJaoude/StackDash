@@ -113,12 +113,14 @@ export const eventTypes = [
     label: "App deployment succeeded",
     description: "An App Platform deployment finished and went live.",
     shownByDefault: true,
+    category: "deploy_succeeded",
   },
   {
     id: "digitalocean.deployment.failed",
     label: "App deployment failed",
     description: "An App Platform deployment failed to build or deploy.",
     shownByDefault: true,
+    category: "deploy_failed",
   },
   {
     id: "digitalocean.droplet.created",
