@@ -8,21 +8,21 @@ import { applyRounding, formatMetricValue, publicationSummary, publishedDisplay 
 const SRC = path.join(process.cwd(), "src");
 
 /** Every module `file` loads at run time, following `@/` and relative imports; type imports are erased. */
-function runtimeImports(file: string, seen = new Set<string>()): Set<string> {
+function runtimeImports(file: string, specifiers = new Set<string>(), visited = new Set<string>()): Set<string> {
+  visited.add(file);
   const source = readFileSync(file, "utf8");
-  for (const match of source.matchAll(/^import\s+(?:(?!type\s)[^;]*?from\s+)?"([^"]+)";/gms)) {
-    const specifier = match[1];
-    if (seen.has(specifier)) continue;
-    seen.add(specifier);
+  for (const [, specifier] of source.matchAll(/^import\s+(?:(?!type\s)[^;]*?from\s+)?"([^"]+)";/gms)) {
+    if (specifier === undefined) continue;
+    specifiers.add(specifier);
     const base = specifier.startsWith("@/")
       ? path.join(SRC, specifier.slice(2))
       : specifier.startsWith(".")
         ? path.resolve(path.dirname(file), specifier)
         : null;
     const resolved = base === null ? undefined : [`${base}.ts`, `${base}.tsx`, path.join(base, "index.ts")].find(existsSync);
-    if (resolved !== undefined) runtimeImports(resolved, seen);
+    if (resolved !== undefined && !visited.has(resolved)) runtimeImports(resolved, specifiers, visited);
   }
-  return seen;
+  return specifiers;
 }
 
 describe("client safety", () => {
