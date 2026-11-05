@@ -195,6 +195,8 @@ ownerTest.describe("signed in", () => {
         `/w/${workspace.slug}/connections/new/fake`,
         `/w/${workspace.slug}/alerts`,
         `/w/${workspace.slug}/settings`,
+        // The yearly card (#151): its image loads from this origin under img-src 'self'.
+        `/w/${workspace.slug}/year/${new Date().getUTCFullYear()}`,
       ];
 
       for (const path of paths) {
