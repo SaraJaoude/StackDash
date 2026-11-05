@@ -15,7 +15,8 @@ import type { UnavailableReason } from "./engine";
  * client components format the same way.
  */
 
-const ROUNDING_STEP: Record<PublishedMetricRounding, number> = {
+/** The step each rounding rounds down to. */
+export const ROUNDING_STEP: Record<PublishedMetricRounding, number> = {
   exact: 1,
   tens: 10,
   hundreds: 100,

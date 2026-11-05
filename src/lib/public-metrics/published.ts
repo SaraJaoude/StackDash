@@ -16,8 +16,9 @@ import {
   type PublishedMetricDelay,
   type PublishedMetricRounding,
 } from "./definitions";
-import { publishedDisplay, UNAVAILABLE_LABELS } from "./display";
+import { publishedDisplay, ROUNDING_STEP, UNAVAILABLE_LABELS } from "./display";
 import { computePublicMetrics, type ComputedMetric, type PublicMetricStore, type UnavailableReason } from "./engine";
+import { computeMetricHistories, firstEventMilestones, starMilestones, type Milestone } from "./history";
 import { createSupabaseMetricStore } from "./supabase-store";
 import { computeTrend } from "./trend";
 
@@ -29,11 +30,17 @@ import { computeTrend } from "./trend";
  * - `loadPublishedMetric(projectId, metricId)`: one engine metric, for a badge. Takes a
  *   `PublicMetricId`, so a self-reported value can never become a badge.
  * - `loadPublishedMetricCard(projectId, metricId)`: the same, with its trend, for a card.
+ * - `loadPublishedProjectHistory(published)`: the 90 day history of what
+ *   `loadPublishedProjectMetrics` returned, and the milestones it reveals, for the project page.
  *
- * All read `public_published_metrics()` (live rows only) with the service role and compute each
- * value from stored snapshots and events. Nothing here calls a provider, and nothing returned
- * names an account, a repository, or an amount of money. Each returns null for a project that
- * does not exist and for one with nothing published, so a caller cannot tell the two apart.
+ * The first three read `public_published_metrics()` (live rows only) with the service role and
+ * compute each value from stored snapshots and events. Nothing here calls a provider, and nothing
+ * returned names an account, a repository, or an amount of money. Each of the three returns null
+ * for a project that does not exist and for one with nothing published, so a caller cannot tell
+ * the two apart. `loadPublishedProjectHistory` takes what `loadPublishedProjectMetrics` returned
+ * instead of a project id, so it can only describe what is published. `publishedTrend` (a card's
+ * trend) and `computePublishedEngineMetrics` (the in-app settings page) compute against a store
+ * their caller built.
  *
  * The yearly card (#151) is private until shared and asks for its own window, so it calls
  * `computePublicMetrics` in engine.ts with `createSupabaseMetricStore` and a `from` instead.
@@ -285,4 +292,53 @@ export async function loadPublishedMetricCard(
   const [metric] = await computePublishedEngineMetrics(store, [engineRow(row)], now);
   if (metric === undefined) return null;
   return { metric, trend: await publishedTrend(store, metric, trendDays) };
+}
+
+export type PublishedHistoryPoint = Readonly<{ asOf: Date; value: PublishedValue }>;
+
+export type PublishedMetricHistory = Readonly<{
+  publicationId: string;
+  metricId: PublicMetricId;
+  label: string;
+  /** One point per day, oldest first, ending at the publication's `asOf` with its rounding. */
+  points: readonly PublishedHistoryPoint[];
+}>;
+
+export type PublishedProjectHistory = Readonly<{
+  /** One per published engine metric, in the order of `metrics`. */
+  histories: readonly PublishedMetricHistory[];
+  /** Oldest first. */
+  milestones: readonly Milestone[];
+}>;
+
+/**
+ * The daily history of each published engine metric in `published`, each ending at its own
+ * `asOf` (so a delayed publication stays delayed) and rounded the same way, plus the milestones
+ * those publications reveal. It takes what `loadPublishedProjectMetrics` returned rather than a
+ * project id, so it can only ever describe what is published. Self-reported values have no history.
+ */
+export async function loadPublishedProjectHistory(published: PublishedProjectMetrics): Promise<PublishedProjectHistory> {
+  const engine = published.metrics.filter((metric): metric is PublishedEngineMetric => metric.kind === "engine");
+  if (engine.length === 0) return { histories: [], milestones: [] };
+  const store = createSupabaseMetricStore(createAdminClient(), published.workspaceId, published.projectId);
+  const requests = engine.map((metric) => ({ metricId: metric.metricId, asOf: metric.asOf, roundingStep: ROUNDING_STEP[metric.rounding] }));
+  const [computed, firsts] = await Promise.all([computeMetricHistories(store, requests), firstEventMilestones(store, requests)]);
+
+  const histories = engine.map((metric, index): PublishedMetricHistory => ({
+    publicationId: metric.publicationId,
+    metricId: metric.metricId,
+    label: metric.label,
+    points: (computed[index] ?? []).map((point) => ({ asOf: point.asOf, value: publishedValue(point, metric.unit, metric.rounding) })),
+  }));
+  const stars = engine.flatMap((metric, index) => {
+    const history = histories[index];
+    if (metric.metricId !== "github-stars" || history === undefined) return [];
+    const values = history.points.map((point) => ({
+      asOf: point.asOf,
+      value: point.value.status === "available" ? point.value.value : null,
+    }));
+    return starMilestones(values, ROUNDING_STEP[metric.rounding]);
+  });
+  const milestones = [...firsts, ...stars].sort((a, b) => a.at.getTime() - b.at.getTime());
+  return { histories, milestones };
 }

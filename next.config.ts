@@ -19,10 +19,11 @@ const staticCsp = {
   value: "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'",
 };
 
-// Every path except the app paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w/*,
-// /account, /sign-in, /auth/*, /unsubscribe). Keep the two lists in sync. The proxy also matches
-// mis-cased /docs paths but sets no CSP there, so they stay covered here.
-const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$).*)";
+// Every path except the paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w/*, /account,
+// /sign-in, /auth/*, /unsubscribe, and the public project pages at /@* and /p/*). Keep the two
+// lists in sync. The proxy also matches mis-cased /docs paths but sets no CSP there, so they stay
+// covered here.
+const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$|@|p$|p/).*)";
 
 // Badges (#149) are SVG documents another site embeds and anyone can open directly: opened as a
 // page, they may load and run nothing. Next applies these headers before a route handler runs and

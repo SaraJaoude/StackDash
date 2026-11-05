@@ -3,6 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
+import { parseProjectPagePath } from "@/lib/public-metrics/project-page";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -64,15 +66,68 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
 const MIS_CASED_DOC_PATH = /^\/docs\/.*[A-Z]/;
 const UNKNOWN_DOC_PATH = "/docs/_";
 
+// Public project pages (#150) are addressed as /@<workspace slug>/<page slug>. A route folder that
+// starts with @ is a parallel route slot, so the address is rewritten to the page route under /p.
+// That route is never answered under its own path: anything else under /@ or /p is rewritten to a
+// path no route matches, so a page has one address and every other path there is the global 404.
+// parseProjectPagePath applies the page's own slug rules, length limits included, so a path the
+// page would refuse never reaches the database.
+const UNKNOWN_PROJECT_PAGE = "/p/_";
+
 /**
- * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, and sets
- * the CSP headers. This is not authorization: every page, Server Function, and route handler still
- * checks the user itself, because a matcher can drift and silently stop covering a path.
+ * Whether an address answers a public page right now, by public_project_page(), the same rule the
+ * page reads (20261105120500_project_pages.sql). It runs here because with Cache Components the
+ * page streams its shell with a 200 before its own notFound() can run, so only a check before the
+ * render can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own
+ * check for a page turned off between the two reads.
+ */
+async function isPublicProjectPage(workspaceSlug: string, pageSlug: string): Promise<boolean> {
+  const { data, error } = await createAdminClient()
+    .rpc("public_project_page", { p_workspace_slug: workspaceSlug, p_page_slug: pageSlug })
+    .maybeSingle();
+  if (error) throw new Error("Failed to check the project page", { cause: error });
+  return data !== null;
+}
+
+/** Puts a fresh nonce policy on the request (Next.js stamps its scripts with it) and the response. */
+function withNoncePolicy(
+  request: NextRequest,
+  supabaseUrl: string,
+  respond: (init: { request: { headers: Headers } }) => NextResponse,
+): NextResponse {
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const policy = contentSecurityPolicy(nonce, new URL(supabaseUrl));
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("Content-Security-Policy", policy);
+  const response = respond({ request: { headers: requestHeaders } });
+  response.headers.set("Content-Security-Policy", policy);
+  return response;
+}
+
+/**
+ * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
+ * CSP headers, and rewrites public project page addresses. This is not authorization: every page,
+ * Server Function, and route handler still checks the user itself, because a matcher can drift and
+ * silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
   if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
     // No session refresh and no app CSP: docs keep the static policy from next.config.ts.
     return NextResponse.rewrite(new URL(UNKNOWN_DOC_PATH, request.url));
+  }
+
+  const { pathname, search } = request.nextUrl;
+  if (pathname.startsWith("/@") || pathname === "/p" || pathname.startsWith("/p/")) {
+    // No session refresh: nothing on a public page depends on who is signed in. The nonce policy
+    // still applies, because the page renders its scripts per request.
+    const address = parseProjectPagePath(pathname);
+    const target =
+      address !== null && (await isPublicProjectPage(address.workspaceSlug, address.pageSlug))
+        ? `/p/${address.workspaceSlug}/${address.pageSlug}`
+        : UNKNOWN_PROJECT_PAGE;
+    return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
+      NextResponse.rewrite(new URL(target, request.url), init),
+    );
   }
 
   const { NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY } = publicEnv();
@@ -105,20 +160,13 @@ export async function proxy(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const signedIn = data !== null;
 
-  const { pathname, search } = request.nextUrl;
   let response: NextResponse;
   if (!signedIn && isAppPath(pathname)) {
     const signIn = new URL("/sign-in", request.url);
     signIn.searchParams.set("next", safeNextPath(`${pathname}${search}`));
     response = NextResponse.redirect(signIn);
   } else {
-    const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-    const supabaseUrl = new URL(NEXT_PUBLIC_SUPABASE_URL);
-    const policy = contentSecurityPolicy(nonce, supabaseUrl);
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set("Content-Security-Policy", policy);
-    response = NextResponse.next({ request: { headers: requestHeaders } });
-    response.headers.set("Content-Security-Policy", policy);
+    response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.next(init));
   }
 
   for (const { name, value, options } of cookiesToApply) response.cookies.set(name, value, options);
@@ -128,15 +176,17 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// The signed-in app, the account page, the auth pages, and the signed-out /unsubscribe page (it
-// reads its link per request and posts a form, so it gets the full policy), plus /docs paths with an
-// uppercase letter (answered as not found above, before any session or CSP work). The landing page,
-// the docs, the signed-out /account/deleted page, API routes, and static assets stay out: they need
-// no session refresh, and a nonce would force static pages to render per request. next.config.ts
-// applies the static CSP to every path except the app paths listed here; keep them in sync.
+// The signed-in app, the account page, the auth pages, the signed-out /unsubscribe page (it reads
+// its link per request and posts a form, so it gets the full policy), and public project pages (/@
+// addresses and the /p route they are rewritten to), plus /docs paths with an uppercase letter
+// (answered as not found above, before any session or CSP work). The landing page, the docs, the
+// signed-out /account/deleted page, API routes, and static assets stay out: they need no session
+// refresh, and a nonce would force static pages to render per request. next.config.ts applies the
+// static CSP to every path except the paths listed here; keep them in sync.
 //
 // Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
-// paths that contain an uppercase letter and correctly cased docs never invoke the proxy.
+// paths that contain an uppercase letter and correctly cased docs never invoke the proxy. "/@" is
+// followed by a pattern rather than `:path*`, which repeats only after a slash.
 export const config = {
   matcher: [
     "/app",
@@ -147,5 +197,7 @@ export const config = {
     "/auth/:path*",
     "/unsubscribe",
     "/docs/:path(.*[A-Z].*)",
+    "/@:path(.*)",
+    "/p/:path*",
   ],
 };

@@ -338,7 +338,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs, provider callback URLs, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (including a project page's canonical address and preview image), provider callback URLs, the sitemap, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
@@ -436,10 +436,11 @@ URL (the alerts page marks them as needing attention after their next message).
 
 ```text
 src/
-  proxy.ts                     content security policy and Supabase session refresh
+  proxy.ts                     content security policy, Supabase session refresh, project page addresses
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
+    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
@@ -457,6 +458,7 @@ src/
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
     badge/, card/              a published metric's live SVG badge and PNG card, for anyone
+    p/[workspace]/[slug]/      public project page, answered at /@<workspace>/<slug>
   components/
     sections/                  landing page sections
     app/                       app shell: navigation, workspace switcher, command palette, page states
@@ -464,7 +466,7 @@ src/
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules
-    public-metrics/            publish, unpublish, self-reported value controls, and the share dialog
+    public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
@@ -477,7 +479,7 @@ src/
     notifications/             alert email and channel messages: dispatch, digests, Discord, Slack, webhooks
     email/                     email transport: SMTP or Resend
     dashboard/, timeline/      dashboard aggregation and timeline queries
-    public-metrics/            public metric definitions, engine, published read API, badges, cards, yearly card
+    public-metrics/            public metric definitions, engine, history, published read API, badges, cards, yearly card
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
