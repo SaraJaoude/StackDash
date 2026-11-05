@@ -1,0 +1,66 @@
+{
+  "start": "2026-11-04T12:00:00Z",
+  "end": "2026-11-05T12:00:00Z",
+  "intervals": [
+    "2026-11-04T12:00:00Z",
+    "2026-11-04T13:00:00Z"
+  ],
+  "groups": [
+    {
+      "by": {
+        "outcome": "accepted"
+      },
+      "totals": {
+        "sum(quantity)": 1520
+      },
+      "series": {
+        "sum(quantity)": [
+          800,
+          720
+        ]
+      }
+    },
+    {
+      "by": {
+        "outcome": "filtered"
+      },
+      "totals": {
+        "sum(quantity)": 87
+      },
+      "series": {
+        "sum(quantity)": [
+          40,
+          47
+        ]
+      }
+    },
+    {
+      "by": {
+        "outcome": "invalid"
+      },
+      "totals": {
+        "sum(quantity)": 12
+      },
+      "series": {
+        "sum(quantity)": [
+          6,
+          6
+        ]
+      }
+    },
+    {
+      "by": {
+        "outcome": "client_discard"
+      },
+      "totals": {
+        "sum(quantity)": 5
+      },
+      "series": {
+        "sum(quantity)": [
+          5,
+          0
+        ]
+      }
+    }
+  ]
+}
