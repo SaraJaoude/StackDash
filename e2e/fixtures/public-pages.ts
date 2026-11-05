@@ -126,3 +126,14 @@ export async function turnOnPage(workspace: TestWorkspace, projectId: string, sl
   if (error) throw new Error(`Turning the page on failed (code ${error.code}).`);
   if (data !== "enabled" && data !== "updated") throw new Error(`Turning the page on answered ${data}.`);
 }
+
+/** Turns the project's page off as the workspace owner. */
+export async function turnOffPage(workspace: TestWorkspace, projectId: string): Promise<void> {
+  const { data, error } = await adminClient().rpc("disable_project_page", {
+    p_workspace_id: workspace.id,
+    p_project_id: projectId,
+    p_actor_id: workspace.ownerId,
+  });
+  if (error) throw new Error(`Turning the page off failed (code ${error.code}).`);
+  if (data !== "disabled") throw new Error(`Turning the page off answered ${data}.`);
+}

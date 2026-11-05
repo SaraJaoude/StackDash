@@ -2,7 +2,7 @@ import { test, type Page } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
-import { publishStars, seedProjectWithHistory, turnOnPage } from "./fixtures/public-pages";
+import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
 // render their HTML per request so Next.js can stamp the nonce on every script. So do the signed-out
@@ -181,14 +181,15 @@ test.describe("signed out", () => {
     expect(violations).toEqual([]);
   });
 
-  test("a public project page enforces the nonce policy, hydrates, and reports no violations", async ({ page }) => {
+  test("a public project page enforces the nonce policy, hydrates, and reports no violations, on and once off", async ({ page }) => {
     const workspace = await createTestWorkspace("Content security policy project page");
     try {
       const projectId = await seedProjectWithHistory(workspace);
       await publishStars(workspace, projectId);
       await turnOnPage(workspace, projectId, "acme-web", false);
+      const address = `/@${workspace.slug}/acme-web`;
       const violations = await watchViolations(page);
-      const response = await page.goto(`/@${workspace.slug}/acme-web`);
+      const response = await page.goto(address);
 
       expect(response?.status()).toBe(200);
       const headers = response?.headers() ?? {};
@@ -196,6 +197,12 @@ test.describe("signed out", () => {
       expect(headers["content-security-policy-report-only"]).toBeUndefined();
       await expect(page.getByRole("heading", { level: 1, name: "Acme web" })).toBeVisible();
       await expectHydrated(page);
+
+      // A page that is off reaches the page route and throws notFound() from its dynamic render, so
+      // it answers src/app/not-found.tsx inside the root layout rather than the global not-found
+      // page an unknown address gets. That page must carry the nonce too.
+      await turnOffPage(workspace, projectId);
+      await test.step("turned off", () => expectNotFoundPage(page, address));
       expect(violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
