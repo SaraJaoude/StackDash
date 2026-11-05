@@ -1,7 +1,8 @@
 /**
  * The command palette's client-side half (#170): what a command is, how a query narrows the list,
- * and which key presses open the palette or the shortcut list. Pure and client-safe, so every rule
- * is unit tested and the palette searches in memory: typing never reaches the server.
+ * which key presses open the palette or the shortcut list or move through the results. Pure
+ * and client-safe, so every rule is unit tested and the palette searches in memory: typing never
+ * reaches the server.
  */
 
 export type PaletteAction = Readonly<{ kind: "navigate"; href: string }> | Readonly<{ kind: "shortcuts" }>;
@@ -63,7 +64,21 @@ export function searchCommands(
 
 export type PaletteShortcut = "palette" | "shortcuts";
 
-export type ShortcutKeyEvent = Readonly<Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "isComposing">>;
+export type CompositionKeyEvent = Readonly<Pick<KeyboardEvent, "isComposing" | "keyCode">>;
+
+/**
+ * True when a key press belongs to an IME composition (Japanese, Chinese, Korean input): its Enter
+ * commits the composed text and its arrow keys move through the candidates, so the palette must
+ * leave them alone. `isComposing` is false on the press that opens or closes a composition in some
+ * browsers, which still report `keyCode` 229 for it, so both are checked, as MDN advises:
+ * https://developer.mozilla.org/en-US/docs/Web/API/Element/keydown_event#keydown_events_with_ime
+ */
+export function isComposingKey(event: CompositionKeyEvent): boolean {
+  return event.isComposing || event.keyCode === 229;
+}
+
+export type ShortcutKeyEvent = Readonly<Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey">> &
+  CompositionKeyEvent;
 
 /**
  * The shortcut a key press asks for: Cmd+K on Apple platforms and Ctrl+K elsewhere open the
@@ -71,13 +86,28 @@ export type ShortcutKeyEvent = Readonly<Pick<KeyboardEvent, "key" | "metaKey" | 
  * else's shortcut and is left alone, and so is a key pressed mid-composition (an IME).
  */
 export function matchShortcut(event: ShortcutKeyEvent, apple: boolean): PaletteShortcut | null {
-  if (event.isComposing || event.altKey) return null;
+  if (isComposingKey(event) || event.altKey) return null;
   if (event.key.toLowerCase() === "k" && !event.shiftKey) {
     const primary = apple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
     return primary ? "palette" : null;
   }
   // `?` needs Shift on most layouts, so Shift is allowed here and only the command keys are not.
   if (event.key === "?" && !event.metaKey && !event.ctrlKey) return "shortcuts";
+  return null;
+}
+
+export type PaletteKey = "next" | "previous" | "choose";
+
+/**
+ * What a key press in the palette's search field does: Down and Up move the selection, Enter
+ * opens the selected result. Every other key, and any key that is part of an IME composition,
+ * is typing and is left to the field.
+ */
+export function matchPaletteKey(event: Readonly<Pick<KeyboardEvent, "key">> & CompositionKeyEvent): PaletteKey | null {
+  if (isComposingKey(event)) return null;
+  if (event.key === "ArrowDown") return "next";
+  if (event.key === "ArrowUp") return "previous";
+  if (event.key === "Enter") return "choose";
   return null;
 }
 

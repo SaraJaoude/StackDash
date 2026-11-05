@@ -173,6 +173,39 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
+  ownerTest("leaves Enter and the arrow keys to an IME while it composes", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette IME");
+    try {
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("go to");
+      const timeline = palette(page).getByRole("option", { name: "Go to timeline" });
+      await expect(timeline).toHaveAttribute("aria-selected", "true");
+
+      // While an IME composes, the browser marks its keys with isComposing: Enter commits the
+      // composed text and the arrow keys move through the candidates, so the palette ignores them.
+      for (const key of ["ArrowDown", "ArrowDown", "ArrowUp", "Enter"]) {
+        await combobox(page).dispatchEvent("keydown", { key, isComposing: true });
+      }
+      await expect(timeline).toHaveAttribute("aria-selected", "true");
+      await expect(palette(page)).toBeVisible();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/dashboard`);
+
+      // Once the composition ends, the same keys move and choose again.
+      await page.keyboard.press("ArrowDown");
+      await page.keyboard.press("ArrowDown");
+      await expect(palette(page).getByRole("option", { name: "Go to connections" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+      await page.keyboard.press("Enter");
+      await expect(palette(page)).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("opens with the shortcut, keeps focus inside, and Escape returns focus", async ({ page }) => {
     const workspace = await seedPaletteWorkspace("Palette shortcut");
     try {

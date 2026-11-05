@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import {
   isApplePlatform,
+  isComposingKey,
   isTypingTarget,
+  matchPaletteKey,
   matchShortcut,
   MAX_PALETTE_RESULTS,
   MAX_QUERY_LENGTH,
   paletteShortcut,
   searchCommands,
   type PaletteCommand,
+  type PaletteKey,
   type PaletteShortcut,
   type ShortcutKeyEvent,
 } from "./search";
@@ -87,7 +90,30 @@ describe("searchCommands", () => {
   });
 });
 
-const KEY: ShortcutKeyEvent = { key: "k", metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, isComposing: false };
+// keyCode 75 is K; 229 is what a browser reports for a key the IME processed.
+const KEY: ShortcutKeyEvent = {
+  key: "k",
+  metaKey: false,
+  ctrlKey: false,
+  altKey: false,
+  shiftKey: false,
+  isComposing: false,
+  keyCode: 75,
+};
+
+describe("isComposingKey", () => {
+  it("is false for a key outside a composition", () => {
+    expect(isComposingKey({ isComposing: false, keyCode: 13 })).toBe(false);
+  });
+
+  it("is true mid-composition", () => {
+    expect(isComposingKey({ isComposing: true, keyCode: 13 })).toBe(true);
+  });
+
+  it("is true for the press that ends a composition, which some browsers send with isComposing false", () => {
+    expect(isComposingKey({ isComposing: false, keyCode: 229 })).toBe(true);
+  });
+});
 
 describe("matchShortcut", () => {
   it.each<[string, Partial<ShortcutKeyEvent>, boolean, PaletteShortcut]>([
@@ -108,12 +134,36 @@ describe("matchShortcut", () => {
     ["Ctrl+Alt+K", { ctrlKey: true, altKey: true }, false],
     ["K alone", {}, true],
     ["Cmd+K mid-composition", { metaKey: true, isComposing: true }, true],
+    ["Cmd+K ending a composition (keyCode 229)", { metaKey: true, keyCode: 229 }, true],
+    ["? ending a composition (keyCode 229)", { key: "?", shiftKey: true, keyCode: 229 }, true],
     ["Cmd+?", { key: "?", metaKey: true }, true],
     ["Ctrl+?", { key: "?", ctrlKey: true }, false],
     ["Alt+?", { key: "?", altKey: true }, false],
     ["/", { key: "/" }, false],
   ])("ignores %s", (_name, overrides, apple) => {
     expect(matchShortcut({ ...KEY, ...overrides }, apple)).toBeNull();
+  });
+});
+
+describe("matchPaletteKey", () => {
+  it.each<[string, number, PaletteKey]>([
+    ["ArrowDown", 40, "next"],
+    ["ArrowUp", 38, "previous"],
+    ["Enter", 13, "choose"],
+  ])("maps %s", (key, keyCode, expected) => {
+    expect(matchPaletteKey({ key, keyCode, isComposing: false })).toBe(expected);
+  });
+
+  it.each([
+    ["Enter committing an IME composition", { key: "Enter", keyCode: 13, isComposing: true }],
+    ["ArrowDown moving through IME candidates", { key: "ArrowDown", keyCode: 40, isComposing: true }],
+    ["ArrowUp moving through IME candidates", { key: "ArrowUp", keyCode: 38, isComposing: true }],
+    ["Enter ending a composition (keyCode 229)", { key: "Enter", keyCode: 229, isComposing: false }],
+    ["a letter", { key: "a", keyCode: 65, isComposing: false }],
+    ["Escape, which the dialog handles", { key: "Escape", keyCode: 27, isComposing: false }],
+    ["Tab, which the dialog handles", { key: "Tab", keyCode: 9, isComposing: false }],
+  ])("leaves %s to the field", (_name, event) => {
+    expect(matchPaletteKey(event)).toBeNull();
   });
 });
 

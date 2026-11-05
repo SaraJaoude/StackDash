@@ -17,6 +17,7 @@ import { SearchIcon } from "@/components/icons";
 import {
   isApplePlatform,
   isTypingTarget,
+  matchPaletteKey,
   matchShortcut,
   MAX_QUERY_LENGTH,
   paletteShortcut,
@@ -173,12 +174,14 @@ export function CommandPalette({
   }
 
   function onInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    // `nativeEvent` carries `isComposing`; mid-composition keys belong to the IME, not the palette.
+    const key = matchPaletteKey(event.nativeEvent);
+    if (key === "next" || key === "previous") {
       event.preventDefault();
       if (!hasResults) return;
-      const step = event.key === "ArrowDown" ? 1 : -1;
+      const step = key === "next" ? 1 : -1;
       setActive((activeIndex + step + results.length) % results.length);
-    } else if (event.key === "Enter") {
+    } else if (key === "choose") {
       const command = results[activeIndex];
       if (command === undefined) return;
       event.preventDefault();
