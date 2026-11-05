@@ -18,6 +18,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   posthog: "PostHog",
   polar: "Polar",
   sentry: "Sentry",
+  railway: "Railway",
   fake: "Example provider",
 };
 
@@ -32,6 +33,7 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   posthog: "PostHog",
   polar: "Polar",
   sentry: "Sentry",
+  railway: "Railway",
   fake: null,
 };
 
