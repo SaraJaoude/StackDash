@@ -174,7 +174,8 @@ grant select, delete on table public.connections to authenticated;
 grant insert (workspace_id, provider, display_name, poll_interval_seconds) on table public.connections to authenticated;
 grant update (display_name, last_sync_requested_at) on table public.connections to authenticated;
 
--- external_accounts: discovered by sync; admins choose which are included and map them to projects.
+-- external_accounts: written by the server when a connection is made or reconnected, never by
+-- sync; admins choose which are included and map them to projects.
 grant select on table public.external_accounts to authenticated;
 grant update (included, project_id) on table public.external_accounts to authenticated;
 
