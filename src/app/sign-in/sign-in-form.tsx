@@ -2,6 +2,7 @@
 
 import { useFormStatus } from "react-dom";
 
+import { GuardedButton } from "@/components/guarded-button";
 import { GitHubIcon } from "@/components/icons";
 
 function ContinueButton() {
@@ -9,15 +10,15 @@ function ContinueButton() {
   const { pending } = useFormStatus();
   return (
     <>
-      <button
+      <GuardedButton
         type="submit"
-        disabled={pending}
+        unavailable={pending}
         aria-describedby="sign-in-status"
-        className="inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:cursor-wait disabled:opacity-60"
+        className="inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:cursor-wait aria-disabled:opacity-60"
       >
         <GitHubIcon />
         Continue with GitHub
-      </button>
+      </GuardedButton>
       <p id="sign-in-status" role="status" aria-live="polite" className="mt-3 min-h-5 text-center text-xs text-muted">
         {pending ? "Opening GitHub sign-in" : ""}
       </p>

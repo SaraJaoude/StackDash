@@ -244,8 +244,8 @@ ownerTest.describe("connecting a provider as the owner", () => {
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
-      // Back to no project, from the keyboard: the empty value survives the reset too. Focus order
-      // is checked before the save, since the pending button drops focus (#161).
+      // Back to no project, from the keyboard: the empty value survives the reset too, and focus
+      // stays on the button through the save instead of dropping to the page (#161).
       await select.selectOption({ label: "No project" });
       await select.focus();
       await page.keyboard.press("Tab");
@@ -257,6 +257,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.keyboard.press("Enter");
       await expect(row.getByRole("status").filter({ hasText: "Project removed." })).toBeVisible();
       await expect(select).toHaveValue("");
+      await expect(save).toBeFocused();
 
       // Exclude's message sits below it, in the status row, not above it beside the label.
       await exclude.click();

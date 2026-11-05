@@ -18,11 +18,11 @@ import { SCOPE_LABELS, type AlertFormOptions, type Option } from "./labels";
 export const inputClass =
   "block min-h-10 w-full rounded-md border bg-panel-raised px-3 py-2 text-sm text-foreground";
 export const primaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
+  "inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 export const secondaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent disabled:opacity-60";
+  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent aria-disabled:opacity-60";
 export const smallButtonClass =
-  "inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-3 py-1 text-sm font-medium text-foreground transition-colors hover:border-accent disabled:opacity-60";
+  "inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-3 py-1 text-sm font-medium text-foreground transition-colors hover:border-accent aria-disabled:opacity-60";
 
 /** The failure part of an action result, or null. */
 export function failureOf(state: AlertActionResult | null): Extract<AlertActionResult, { ok: false }> | null {

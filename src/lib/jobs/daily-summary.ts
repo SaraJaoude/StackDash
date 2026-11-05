@@ -1,6 +1,6 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
-import { dropSupersededBreakdowns, type ProviderId } from "@/lib/dashboard/aggregate";
+import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
@@ -14,7 +14,9 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *
  * - Each value is labeled verified (reported by the provider), estimated (calculated by DevMacro),
  *   or unavailable (no snapshot that day), never shown as 0 when missing.
- * - Money is summed per provider and currency only, never across currencies.
+ * - Money is summed per provider and currency only, never across currencies, and each amount
+ *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
+ *   is not added to its product's month again.
  * - The event's dedupe key names the day, so a job that runs twice writes one event.
  * - Anomaly detection (#169) runs in the same job, right after the summary is built, over the same
  *   day: one `devmacro.anomaly_detected` event per unusual metric, unless the workspace turned it
@@ -95,7 +97,7 @@ export function buildDailySummary(input: {
   const providerOf = new Map(input.connections.map((connection) => [connection.id, connection.provider]));
   const byProvider = new Map<ProviderId, SummarySnapshot[]>();
   for (const connection of input.connections) byProvider.set(connection.provider, []);
-  for (const row of dropSupersededBreakdowns(input.snapshots)) {
+  for (const row of countedSnapshots(input.snapshots)) {
     const provider = providerOf.get(row.connection_id);
     if (provider !== undefined) byProvider.get(provider)?.push(row);
   }
