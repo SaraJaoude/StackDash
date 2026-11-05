@@ -10,7 +10,7 @@ import { validateAdapterEvents, type ActivityEvent } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { billingMetrics, deploymentEvents, GRAPHQL_URL, MAX_PROJECTS, PRICING_SOURCE, railwayAdapter } from "./index";
-import { BillingDataSchema, DeploymentSchema, type BillingData, type Deployment } from "./schemas";
+import { BillingDataSchema, DeploymentSchema, RAILWAY_ISSUER, type BillingData, type Deployment } from "./schemas";
 // Every fixture below is from documentation, not recorded: no Railway account exists yet (#141).
 // Checked 2026-11-05, values synthetic.
 // - token.json, token-refreshed.json: POST /oauth/token responses from "Login & Tokens"
@@ -221,7 +221,7 @@ describe("railwayAdapter.exchangeCode", () => {
     const { scope: _omitted, ...withoutScope } = tokenFixture;
     const { ctx } = harness({ token: () => json(withoutScope) });
     const result = await railwayAdapter.exchangeCode(
-      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} },
+      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: RAILWAY_ISSUER } },
       ctx,
     );
     expect(railwayAdapter.detectMissingPermissions(result)).toEqual([]);
@@ -230,19 +230,20 @@ describe("railwayAdapter.exchangeCode", () => {
   it("reports a grant without workspace:viewer or offline_access as missing permissions", async () => {
     const { ctx } = harness({ token: () => json({ ...tokenFixture, scope: "openid email profile" }) });
     const result = await railwayAdapter.exchangeCode(
-      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} },
+      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: RAILWAY_ISSUER } },
       ctx,
     );
     expect(railwayAdapter.detectMissingPermissions(result)).toEqual(["offline_access", "workspace:viewer"]);
   });
 
-  it("refuses a callback from another issuer before calling the token endpoint", async () => {
+  it.each([
+    ["another issuer", { iss: "https://evil.example" }],
+    ["no issuer", {}],
+    ["an empty issuer", { iss: "" }],
+  ])("refuses a callback with %s before calling the token endpoint", async (_title, callbackParams) => {
     const { ctx, calls } = harness({ token: () => json(tokenFixture) });
     await expect(
-      railwayAdapter.exchangeCode(
-        { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: "https://evil.example" } },
-        ctx,
-      ),
+      railwayAdapter.exchangeCode({ code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams }, ctx),
     ).rejects.toBeInstanceOf(InvalidResponseError);
     expect(calls).toHaveLength(0);
   });
@@ -255,7 +256,12 @@ describe("railwayAdapter.exchangeCode", () => {
     const { ctx } = harness({ token: () => json(tokenFixture) });
     await expect(
       railwayAdapter.exchangeCode(
-        { code: "c", redirectUri: REDIRECT_URI, callbackParams: {}, ...(codeVerifier === undefined ? {} : { codeVerifier }) },
+        {
+          code: "c",
+          redirectUri: REDIRECT_URI,
+          callbackParams: { iss: RAILWAY_ISSUER },
+          ...(codeVerifier === undefined ? {} : { codeVerifier }),
+        },
         ctx,
       ),
     ).rejects.toBeInstanceOf(TypeError);
@@ -270,12 +276,15 @@ describe("railwayAdapter.exchangeCode", () => {
   ])("rejects a token response %s as invalid_response", async (_title, body) => {
     const { ctx } = harness({ token: () => json(body) });
     await expect(
-      railwayAdapter.exchangeCode({ code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} }, ctx),
+      railwayAdapter.exchangeCode(
+        { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: RAILWAY_ISSUER } },
+        ctx,
+      ),
     ).rejects.toMatchObject({ code: "invalid_response" });
   });
 
   it("reports invalid_grant as auth revoked and other 400 errors as invalid_response", async () => {
-    const input = { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} };
+    const input = { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: RAILWAY_ISSUER } };
     await expect(
       railwayAdapter.exchangeCode(input, harness({ token: () => json({ error: "invalid_grant" }, 400) }).ctx),
     ).rejects.toBeInstanceOf(AuthRevokedError);

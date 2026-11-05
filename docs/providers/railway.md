@@ -34,7 +34,7 @@ Query parameters: `response_type=code`, `client_id`, `redirect_uri` (exact match
 
 On the consent screen the user picks **which workspaces** the app can see. One DevMacro connection covers the workspaces picked; each one becomes an account on the connection.
 
-The discovery document advertises `authorization_response_iss_parameter_supported: true`, and the documented callback carries `iss=https://backboard.railway.com`. DevMacro rejects a callback whose `iss` is anything else. A denied request comes back with an `error` parameter instead of a code.
+The discovery document advertises `authorization_response_iss_parameter_supported: true`, and the documented callback carries `iss=https://backboard.railway.com`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), DevMacro rejects a callback whose `iss` is missing or anything else, before calling the token endpoint. A denied request comes back with an `error` parameter instead of a code.
 
 ### Token exchange
 

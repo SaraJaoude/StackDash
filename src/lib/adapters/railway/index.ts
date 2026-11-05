@@ -729,10 +729,11 @@ export const railwayAdapter: ProviderAdapter = {
   },
 
   async exchangeCode({ code, redirectUri, codeVerifier, callbackParams }, ctx) {
-    // RFC 9207: Railway sends `iss` on the callback; a different issuer is a mix-up attack.
-    const iss = callbackParams["iss"];
-    if (iss !== undefined && iss !== RAILWAY_ISSUER) {
-      throw new InvalidResponseError("Railway callback carried an unexpected issuer");
+    // RFC 9207 section 2.4: Railway's discovery document sets
+    // `authorization_response_iss_parameter_supported`, so a callback without `iss`, or with
+    // another issuer, is refused as a possible mix-up attack.
+    if (callbackParams["iss"] !== RAILWAY_ISSUER) {
+      throw new InvalidResponseError("Railway callback did not carry Railway as its issuer");
     }
     if (codeVerifier === undefined || !CODE_VERIFIER.test(codeVerifier)) {
       throw new TypeError("Railway requires a PKCE code verifier of 43 to 128 unreserved characters");
