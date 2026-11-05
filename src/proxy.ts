@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -72,6 +73,21 @@ const UNKNOWN_DOC_PATH = "/docs/_";
 const PROJECT_PAGE_ADDRESS = /^\/@([a-z0-9]{1,64})\/([a-z0-9]+(?:-[a-z0-9]+)*)$/;
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
+/**
+ * Whether an address answers a public page right now, by public_project_page(), the same rule the
+ * page reads (20261105120300_project_pages.sql). It runs here because with Cache Components the
+ * page streams its shell with a 200 before its own notFound() can run, so only a check before the
+ * render can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own
+ * check for a page turned off between the two reads.
+ */
+async function isPublicProjectPage(workspaceSlug: string, pageSlug: string): Promise<boolean> {
+  const { data, error } = await createAdminClient()
+    .rpc("public_project_page", { p_workspace_slug: workspaceSlug, p_page_slug: pageSlug })
+    .maybeSingle();
+  if (error) throw new Error("Failed to check the project page", { cause: error });
+  return data !== null;
+}
+
 /** Puts a fresh nonce policy on the request (Next.js stamps its scripts with it) and the response. */
 function withNoncePolicy(
   request: NextRequest,
@@ -103,8 +119,9 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/@") || pathname === "/p" || pathname.startsWith("/p/")) {
     // No session refresh: nothing on a public page depends on who is signed in. The nonce policy
     // still applies, because the page renders its scripts per request.
-    const address = PROJECT_PAGE_ADDRESS.exec(pathname);
-    const target = address === null ? UNKNOWN_PROJECT_PAGE : `/p/${address[1]}/${address[2]}`;
+    const [, workspaceSlug, pageSlug] = PROJECT_PAGE_ADDRESS.exec(pathname) ?? [];
+    const isPublic = workspaceSlug !== undefined && pageSlug !== undefined && (await isPublicProjectPage(workspaceSlug, pageSlug));
+    const target = isPublic ? `/p/${workspaceSlug}/${pageSlug}` : UNKNOWN_PROJECT_PAGE;
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(target, request.url), init),
     );

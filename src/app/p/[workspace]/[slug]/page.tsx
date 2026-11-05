@@ -28,10 +28,12 @@ import { site } from "@/lib/site";
  * those values reveal, and the providers behind them as icons. No account names, no amounts.
  *
  * The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so it awaits
- * `connection()` before anything renders and allows an empty static shell (#125). The data is
- * awaited outside any Suspense boundary, so notFound() runs before the first byte and an unknown
- * address, a page that is off, and a page with nothing published all answer the same 404. Nothing
- * is cached: turning a page off answers 404 on the very next request.
+ * `connection()` before anything renders and allows an empty static shell (#125). That shell is
+ * sent with a 200 before the data loads, so the proxy answers an unknown address, a page that is
+ * off, and a page with nothing published with the same 404 before this page renders. The
+ * notFound() calls here cover a page turned off between the proxy's read and this one: the
+ * not-found page streams in with noindex. Nothing is cached: turning a page off answers 404 on the
+ * very next request.
  */
 export const instant = false;
 

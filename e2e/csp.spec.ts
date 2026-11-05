@@ -198,9 +198,8 @@ test.describe("signed out", () => {
       await expect(page.getByRole("heading", { level: 1, name: "Acme web" })).toBeVisible();
       await expectHydrated(page);
 
-      // A page that is off reaches the page route and throws notFound() from its dynamic render, so
-      // it answers src/app/not-found.tsx inside the root layout rather than the global not-found
-      // page an unknown address gets. That page must carry the nonce too.
+      // The same address once the page is off: a real 404 (the proxy checks before the page
+      // streams its 200 shell) under the nonce policy, with a not-found page that hydrates.
       await turnOffPage(workspace, projectId);
       await test.step("turned off", () => expectNotFoundPage(page, address));
       expect(violations).toEqual([]);
