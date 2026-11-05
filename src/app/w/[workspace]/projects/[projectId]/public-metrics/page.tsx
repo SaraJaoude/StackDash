@@ -248,7 +248,7 @@ function MetricRow({
         </p>
         <p className="mt-1">
           <Link href={metric.formulaPath} className="text-muted underline underline-offset-4 hover:text-foreground">
-            How it is counted<span className="sr-only">: {metric.label}</span>
+            How it is counted<span className="sr-only"> for {metric.label}</span>
           </Link>
         </p>
       </div>

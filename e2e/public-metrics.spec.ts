@@ -204,7 +204,7 @@ ownerTest.describe("public metrics as the owner", () => {
 
       // The first stop after the heading is the row's formula link, then its Unpublish button.
       await page.keyboard.press("Tab");
-      await expect(stars.getByRole("link", { name: "How it is counted: GitHub stars" })).toBeFocused();
+      await expect(stars.getByRole("link", { name: "How it is counted for GitHub stars" })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(stars.getByRole("button", { name: "Unpublish GitHub stars" })).toBeFocused();
       await page.keyboard.press("Enter");
