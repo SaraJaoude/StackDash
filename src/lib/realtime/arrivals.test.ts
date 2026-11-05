@@ -12,6 +12,7 @@ import {
   creditValues,
   describeArrivals,
   formatCount,
+  liveStatusText,
   newEventIds,
 } from "./arrivals";
 
@@ -159,6 +160,23 @@ describe("describeArrivals", () => {
     expect(describeArrivals(labels.slice(0, ANNOUNCED_LABELS_MAX))).toBe("A updated. B updated. C updated.");
     expect(describeArrivals(labels.slice(0, ANNOUNCED_LABELS_MAX + 1))).toBe("A updated. B updated. C updated. 1 other value updated.");
     expect(describeArrivals(labels)).toBe("A updated. B updated. C updated. 2 other values updated.");
+  });
+});
+
+describe("liveStatusText", () => {
+  it("says Live, named Live updates, while subscribed", () => {
+    expect(liveStatusText("live")).toEqual({ word: "Live", name: "Live updates" });
+  });
+
+  it("never says live before the channel subscribes or after it fails", () => {
+    expect(liveStatusText("connecting")).toEqual({ word: "Connecting", name: "Live updates, connecting" });
+    expect(liveStatusText("offline")).toEqual({ word: "Offline", name: "Live updates, offline" });
+  });
+
+  it.each(["connecting", "live", "offline"] as const)("keeps the visible word in the name when %s", (status) => {
+    const { word, name } = liveStatusText(status);
+    expect(name.startsWith("Live updates")).toBe(true);
+    expect(name.toLowerCase()).toContain(word.toLowerCase());
   });
 });
 

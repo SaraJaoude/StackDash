@@ -12,7 +12,13 @@ import {
 } from "react";
 
 import { formatLondonTime } from "@/lib/format";
-import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, type ArrivalReport } from "@/lib/realtime/arrivals";
+import {
+  ARRIVAL_HIGHLIGHT_MS,
+  describeArrivals,
+  liveStatusText,
+  type ArrivalReport,
+  type LiveStatus,
+} from "@/lib/realtime/arrivals";
 
 /**
  * Arriving data, made visible (#171). The provider sits in the workspace layout around the header
@@ -20,8 +26,6 @@ import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, type ArrivalReport } from "@/li
  * what changed, and it says so once per batch in one polite live region. The live indicator in
  * the header reads its state.
  */
-
-export type LiveStatus = "connecting" | "live" | "offline";
 
 type LiveState = Readonly<{
   status: LiveStatus;
@@ -191,6 +195,7 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  */
 export function LiveIndicator() {
   const { status, arrivals, lastArrivalAt } = useContext(LiveStateContext);
+  const text = liveStatusText(status);
   const tooltipId = useId();
   const [pinned, setPinned] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -223,13 +228,14 @@ export function LiveIndicator() {
           {arrivals > 0 ? (
             <span key={arrivals} data-testid="live-pulse" className="arrival-live-pulse absolute inset-0 rounded-full bg-success" />
           ) : null}
-          {/* Filled when live, hollow otherwise: the shape says it as well as the color. */}
+          {/* Filled when live, hollow otherwise: the shape says it as well as the color and the word. */}
           <span
             className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"}`}
           />
         </span>
-        {status === "offline" ? "Offline" : "Live"}
-        <span className="sr-only"> updates</span>
+        {/* The whole name, and the visible word for sight; the tooltip describes the state. */}
+        <span className="sr-only">{text.name}</span>
+        <span aria-hidden="true">{text.word}</span>
       </button>
       <span
         role="tooltip"

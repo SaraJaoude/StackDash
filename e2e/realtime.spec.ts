@@ -380,6 +380,9 @@ ownerTest.describe("arriving data", () => {
       const announcements = await recordAnnouncements(page);
       const indicator = page.getByRole("button", { name: "Live updates" });
       await expect(indicator).toBeVisible();
+      // Subscribed: the name is exactly "Live updates" and the visible word says Live.
+      await expect(indicator).toHaveAccessibleName("Live updates");
+      await expect(indicator.getByText("Live", { exact: true })).toBeVisible();
       await expect(page.getByTestId("live-pulse")).toHaveCount(0);
       expect(await animations()).toEqual([]);
 

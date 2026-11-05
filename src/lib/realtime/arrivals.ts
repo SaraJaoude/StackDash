@@ -103,6 +103,25 @@ export function describeArrivals(reports: readonly ArrivalReport[]): string | nu
   return sentences.length === 0 ? null : sentences.join(" ");
 }
 
+/** The workspace's live channel: subscribing, subscribed, or failed. */
+export type LiveStatus = "connecting" | "live" | "offline";
+
+/**
+ * The live indicator's visible word and its accessible name. The name always starts "Live updates",
+ * so the button keeps one name to find it by, and it contains the word, so the name never says
+ * live when the word does not and a spoken "Offline" still reaches it (WCAG 2.5.3, label in name).
+ */
+export function liveStatusText(status: LiveStatus): Readonly<{ word: string; name: string }> {
+  switch (status) {
+    case "connecting":
+      return { word: "Connecting", name: "Live updates, connecting" };
+    case "live":
+      return { word: "Live", name: "Live updates" };
+    case "offline":
+      return { word: "Offline", name: "Live updates, offline" };
+  }
+}
+
 /** How a counted number prints: a trend measure, or a percentage on a 0 to 100 scale. */
 export type CountFormat = TrendMeasure | Readonly<{ type: "percent" }>;
 
