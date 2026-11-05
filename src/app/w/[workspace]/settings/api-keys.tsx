@@ -21,6 +21,21 @@ export type ApiKeyItem = {
   created: string;
   lastUsed: string | null;
   revoked: string | null;
+  /** Not revoked, but the API refuses it because the member who created it left the workspace. */
+  creatorLeft: boolean;
+};
+
+type KeyState = "active" | "creator_left" | "revoked";
+
+function keyStateOf(apiKey: ApiKeyItem): KeyState {
+  if (apiKey.revoked !== null) return "revoked";
+  return apiKey.creatorLeft ? "creator_left" : "active";
+}
+
+const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> = {
+  active: { label: "Active", className: "border-success/50 text-success" },
+  creator_left: { label: "Not working", className: "border-warning/50 text-warning" },
+  revoked: { label: "Revoked", className: "border-dashed border-line-strong text-muted" },
 };
 
 const BUTTON_PRIMARY =
@@ -318,19 +333,20 @@ function ApiKeyRow({
   apiKey: ApiKeyItem;
   onRevoked: (name: string) => void;
 }) {
+  const state = keyStateOf(apiKey);
+  const badge = KEY_STATE_BADGES[state];
   return (
     <li className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0 text-sm">
         <p className="flex flex-wrap items-center gap-2">
           <span className="break-words font-medium">{apiKey.name}</span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
-              apiKey.revoked === null ? "border-success/50 text-success" : "border-dashed border-line-strong text-muted"
-            }`}
-          >
-            {apiKey.revoked === null ? "Active" : "Revoked"}
-          </span>
+          <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${badge.className}`}>{badge.label}</span>
         </p>
+        {state === "creator_left" ? (
+          <p className="mt-1 text-warning">
+            Its creator left the workspace, so requests with it fail. Revoke it and create a new key.
+          </p>
+        ) : null}
         <p className="mt-1 font-mono text-xs text-muted">{apiKey.tokenPrefix}…</p>
         <p className="mt-1 text-muted">
           Reads: {apiKey.scopes.map((scope) => API_KEY_SCOPE_LABELS[scope].label).join(", ")}
@@ -340,9 +356,9 @@ function ApiKeyRow({
           {apiKey.revoked === null ? null : ` Revoked ${apiKey.revoked}.`}
         </p>
       </div>
-      {apiKey.revoked === null ? (
+      {state === "revoked" ? null : (
         <RevokeApiKeyDialog workspaceSlug={workspaceSlug} apiKey={apiKey} onRevoked={onRevoked} />
-      ) : null}
+      )}
     </li>
   );
 }

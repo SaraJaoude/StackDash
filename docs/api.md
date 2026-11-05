@@ -12,7 +12,7 @@ The OpenAPI 3.1 document for every endpoint below is published at `/docs/api/ope
 2. Name the key after the script or tool that will use it, choose what it may read, and select **Create key**.
 3. Copy the key. DevMacro shows it once and stores only a hash of it, so it cannot show it again. If you lose it, revoke it and create another.
 
-A key belongs to one workspace. It stops working when you revoke it, and when the member who created it leaves the workspace. A workspace can hold 20 working keys.
+A key belongs to one workspace. It stops working when you revoke it, and when the member who created it leaves the workspace. Settings marks such a key **Not working**; revoke it and create a new one. A workspace can hold 20 keys that are not revoked, so revoke keys you no longer use to make room.
 
 Keep the key out of your shell history and out of your code. Read it into an environment variable instead:
 

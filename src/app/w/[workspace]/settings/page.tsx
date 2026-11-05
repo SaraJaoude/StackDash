@@ -42,6 +42,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
       created: formatDateTime(key.created_at),
       lastUsed: key.last_used_at === null ? null : formatDateTime(key.last_used_at),
       revoked: key.revoked_at === null ? null : formatDateTime(key.revoked_at),
+      creatorLeft: key.creator_left,
     })) ?? [];
 
   return (

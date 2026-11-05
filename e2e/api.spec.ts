@@ -1,3 +1,5 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import AxeBuilder from "@axe-core/playwright";
 import type { APIRequestContext, Page } from "@playwright/test";
 
@@ -115,6 +117,15 @@ async function getJson(request: APIRequestContext, path: string, key: string | n
   return { status: response.status(), headers: response.headers(), body: (await response.json()) as unknown };
 }
 
+/**
+ * A key made the way src/lib/api/keys.ts makes one (that module is server-only), for rows the
+ * service role inserts directly.
+ */
+function seededKey(): { key: string; token_hash: string; token_prefix: string } {
+  const key = `dmk_${randomBytes(32).toString("base64url")}`;
+  return { key, token_hash: createHash("sha256").update(key, "utf8").digest("hex"), token_prefix: key.slice(0, 12) };
+}
+
 ownerTest.describe("API keys as the owner", () => {
   ownerTest("creates a key, reads the workspace through every endpoint, then revokes it", async ({ page, request }) => {
     const workspace = await createTestWorkspace("API keys");
@@ -213,6 +224,115 @@ ownerTest.describe("API keys as the owner", () => {
       await expect(section.getByText("Choose at least one thing the key may read.")).toBeVisible();
       await expect(section.getByLabel("Key name")).toHaveAttribute("aria-invalid", "true");
       await expect(section.getByText("No API keys yet.")).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("marks a key whose creator left as not working, and the API refuses it", async ({ page, request }) => {
+    const workspace = await createTestWorkspace("API key creator left");
+    const admin = adminClient();
+    try {
+      // The viewer becomes an admin, creates a key, then leaves the workspace.
+      const { error: promoteError } = await admin
+        .from("workspace_members")
+        .update({ role: "admin" })
+        .eq("workspace_id", workspace.id)
+        .eq("user_id", workspace.viewerId);
+      if (promoteError) throw new Error(`Promoting the viewer failed (code ${promoteError.code}).`);
+      const { key, token_hash, token_prefix } = seededKey();
+      const { error: keyError } = await admin.from("api_keys").insert({
+        workspace_id: workspace.id,
+        name: "Departed admin script",
+        token_hash,
+        token_prefix,
+        scopes: ["usage:read"],
+        created_by: workspace.viewerId,
+      });
+      if (keyError) throw new Error(`Seeding a key failed (code ${keyError.code}).`);
+      expect((await getJson(request, "/api/v1/workspaces", key)).status).toBe(200);
+
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = keysSection(page);
+      const row = section.getByRole("listitem").filter({ hasText: "Departed admin script" });
+      await expect(row).toContainText("Active");
+
+      const { error: leaveError } = await admin
+        .from("workspace_members")
+        .delete()
+        .eq("workspace_id", workspace.id)
+        .eq("user_id", workspace.viewerId);
+      if (leaveError) throw new Error(`Removing the admin failed (code ${leaveError.code}).`);
+
+      const refused = await getJson(request, "/api/v1/workspaces", key);
+      expect(refused.status).toBe(401);
+      expect(refused.body).toMatchObject({
+        error: { code: "unauthorized", reference_id: expect.stringMatching(REFERENCE_PATTERN) },
+      });
+
+      // Settings is where the owner learns why: the API's 401 deliberately does not say.
+      await page.reload();
+      await expect(row).toContainText("Not working");
+      await expect(row).not.toContainText("Active");
+      await expect(row).toContainText(
+        "Its creator left the workspace, so requests with it fail. Revoke it and create a new key.",
+      );
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      // Revoke stays available, with the keyboard only.
+      await row.getByRole("button", { name: "Revoke Departed admin script" }).focus();
+      await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog", { name: "Revoke Departed admin script?" });
+      await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(dialog.getByRole("button", { name: "Revoke key" })).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("status").filter({ hasText: "Revoked the key Departed admin script." })).toBeVisible();
+      await expect(row).toContainText("Revoked");
+      await expect(row).not.toContainText("Not working");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("refuses a key past the limit of 20 that are not revoked, and says how to make room", async ({ page }) => {
+    const workspace = await createTestWorkspace("API key limit");
+    try {
+      const { error } = await adminClient()
+        .from("api_keys")
+        .insert(
+          Array.from({ length: 20 }, (_, index) => {
+            const { token_hash, token_prefix } = seededKey();
+            return {
+              workspace_id: workspace.id,
+              name: `Seeded key ${index + 1}`,
+              token_hash,
+              token_prefix,
+              scopes: ["usage:read" as const],
+              created_by: workspace.ownerId,
+            };
+          }),
+        );
+      if (error) throw new Error(`Seeding keys failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = keysSection(page);
+      await section.getByLabel("Key name").fill("One too many");
+      await section.getByRole("checkbox", { name: /usage:read/ }).check();
+      await section.getByRole("button", { name: "Create key" }).click();
+
+      // The error summary takes focus so keyboard and screen reader users land on it.
+      await expect(page.locator(":focus")).toContainText(
+        "This workspace already has 20 keys that are not revoked. Revoke one you no longer use, then create the new one.",
+      );
+      await expect(section.getByRole("listitem").filter({ hasText: "One too many" })).toHaveCount(0);
+      const { count, error: countError } = await adminClient()
+        .from("api_keys")
+        .select("id", { count: "exact", head: true })
+        .eq("workspace_id", workspace.id);
+      if (countError) throw new Error(`Counting keys failed (code ${countError.code}).`);
+      expect(count).toBe(20);
     } finally {
       await deleteTestWorkspace(workspace);
     }
