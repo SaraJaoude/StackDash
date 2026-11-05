@@ -9,7 +9,7 @@ Provider id: `gitlab`. Issues: #112 (adapter), #11 (research), #141 (registering
 **Go, GitLab.com only, with one estimate.** An OAuth application with the read-only `read_api` and `read_user` scopes reads compute minutes per namespace and per project, namespace storage and its limit, the plan, and the activity Eddie asked for on 2026-11-05: pipelines, deployments per environment, releases, and merged merge requests. Two limits shape it:
 
 - GitLab returns no dollar cost through these scopes, and the monthly compute quota (`shared_runners_minutes_limit`) is only returned to GitLab.com administrators. The quota is therefore derived from the plan and the pricing page, and labeled estimated.
-- Compute minutes and storage are only shown to the namespace's Owner (see [Unverified](#unverified)). A member who is not an Owner still gets activity, and the connection lists the usage as unavailable.
+- Compute minutes and storage are only shown to the namespace's Owner (see [Unverified](#unverified)). DevMacro lists only namespaces the user owns (`owned_only=true`), so a member who is not an Owner gets no GitLab account at all. If GitLab still refuses the usage of a listed namespace, the connection lists it as unavailable and activity keeps arriving.
 
 Self-managed GitLab instances are out of scope: each would need its own OAuth app and API origin.
 
@@ -140,7 +140,7 @@ Disclose these on the connect screen before redirecting:
 
 - GitLab.com only. Self-managed and Dedicated instances need their own OAuth app and origin.
 - No dollar cost and no real compute quota (see [Verified, estimated, unavailable](#verified-estimated-unavailable)).
-- Usage needs the Owner role; other members see activity only.
+- Usage needs the Owner role. Every listed namespace is one the user owns; the missing permission notice is the fallback if GitLab still refuses usage for one of them.
 - Activity covers the 10 most recently active projects per namespace and one page per endpoint and project per sync.
 - Pipeline and deployment times are `updated_at`, which can be later than the finish time if the record changes afterwards.
 - Groups with SAML SSO may need `root_namespace_id` on the authorize URL; DevMacro does not send it yet.
@@ -275,6 +275,7 @@ Confirm with a real GitLab.com account and a test group once the application is 
 - That `owned_only=true` lists every top-level group where the user has the Owner role, and not only groups the user created.
 - Who may read `ciMinutesUsage`, `ciMinutesProjectMonthlyUsage`, and `rootStorageStatistics` (Owner is assumed, from the Usage Quotas page), and whether a refused field is `null` (assumed) or an error.
 - That `rootStorageStatistics` is `null` for a namespace whose statistics GitLab has not built yet, and not only when the role is missing (assumed from the field being nullable).
+- That the token request may send `client_secret` and `code_verifier` together. The OAuth guide shows PKCE for public clients without the secret, and the confidential flow without PKCE. Doorkeeper, which GitLab uses, is expected to accept both for a confidential application, but the guide does not show the combination.
 - That a month without usage returns an empty `ciMinutesUsage` list rather than a row with `0`.
 - What `actualSizeLimit` holds for a Free namespace under project limit enforcement (per project or per namespace) and on paid plans.
 - The exact `plan` strings GitLab.com returns for trials and programs (`ultimate_trial`, `opensource`, and others). Only `free`, `premium`, and `ultimate` get an estimate.
