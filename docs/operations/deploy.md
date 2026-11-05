@@ -6,7 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
-- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the six provider apps.
+- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the seven provider apps.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
 
@@ -143,6 +143,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `DIGITALOCEAN_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, DigitalOcean OAuth app](oauth-apps.md#digitalocean-oauth-app) |
+| `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RAILWAY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Railway OAuth app](oauth-apps.md#railway-oauth-app) |
 | `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
@@ -212,7 +214,7 @@ Run every check against the production URL and write down the deployment URL you
 ## What stays Eddie's
 
 - Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and the six provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
+- Registering the sign-in OAuth app and the seven provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.

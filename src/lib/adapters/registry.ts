@@ -2,6 +2,7 @@ import "server-only";
 
 import { log } from "@/lib/log/logger";
 
+import { digitaloceanAdapter } from "./digitalocean";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { railwayAdapter } from "./railway";
@@ -34,6 +35,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  digitalocean: digitaloceanAdapter,
   railway: railwayAdapter,
 };
 
