@@ -397,7 +397,9 @@ export class MemoryJobStore implements JobStore {
   async enqueueAlertDispatches(): Promise<number> {
     let queued = 0;
     for (const workspaceId of new Set(this.undispatchedAlertWorkspaces)) {
-      const open = this.jobs.some((job) => job.kind === "alert_dispatch" && job.workspace_id === workspaceId && job.status === "queued");
+      const open = this.jobs.some(
+        (job) => job.kind === "alert_dispatch" && job.workspace_id === workspaceId && (job.status === "queued" || job.status === "running"),
+      );
       if (open) continue;
       this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "alert_dispatch" }));
       queued += 1;

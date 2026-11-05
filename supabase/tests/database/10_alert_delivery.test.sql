@@ -1,12 +1,13 @@
 -- Alert delivery (#152, #153): a member reads and writes only their own
 -- notification preference, and only owners and admins may write one; channel
 -- secrets and delivery records are service role only; removing a channel
--- deletes its sealed URL and rule links; recipients are owners and admins.
+-- deletes its sealed URL and rule links; recipients are owners and admins; a
+-- workspace has at most one open (queued or running) alert dispatch.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(38);
+select plan(41);
 
 -- Rows touched, or -1 when Postgres refuses the statement (42501: missing
 -- grant or RLS with check). Rolled back with the transaction.
@@ -235,6 +236,29 @@ select results_eq(
      where user_id = 'f8000002-0000-4000-8000-000000000000' $$,
   $$ values ('immediate') $$,
   'recipients: an admin with no saved setting defaults to immediate');
+
+-- ---------------------------------------------------------------------------
+-- Dispatch scheduling: one open alert_dispatch per workspace, running included,
+-- so a second dispatch never sends the alerts a running one is sending.
+-- ---------------------------------------------------------------------------
+insert into public.triggered_alerts (id, workspace_id, rule_id, cycle_key, threshold_label, is_estimated, message)
+values ('f80000a3-0000-4000-8000-000000000000', 'f80000a0-0000-4000-8000-000000000000',
+        'f80000a1-0000-4000-8000-000000000000', '2026-11-01', '80 percent', false, 'Alert A');
+
+insert into public.sync_jobs (id, workspace_id, kind, status, attempts, started_at, locked_until)
+values ('f80000a4-0000-4000-8000-000000000000', 'f80000a0-0000-4000-8000-000000000000', 'alert_dispatch',
+        'running', 1, now(), now() + interval '2 minutes');
+
+select is(public.enqueue_alert_dispatches(), 0,
+  'dispatch scheduling: no second dispatch while one is running for the workspace');
+
+update public.sync_jobs set status = 'succeeded', finished_at = now(), locked_until = null
+where id = 'f80000a4-0000-4000-8000-000000000000';
+
+select is(public.enqueue_alert_dispatches(), 1,
+  'dispatch scheduling: once the running dispatch finishes, the next tick queues one for the alert still waiting');
+select is(public.enqueue_alert_dispatches(), 0,
+  'dispatch scheduling: one queued dispatch per workspace');
 
 select * from finish();
 

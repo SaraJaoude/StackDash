@@ -282,13 +282,15 @@ revoke execute on function public.notification_recipients(uuid) from public, ano
 grant execute on function public.notification_recipients(uuid) to service_role;
 
 -- ── Job scheduling ──────────────────────────────────────────────────────────────
--- One queued alert_dispatch job per workspace at a time. Only queued, not running: an alert that
--- fires while a dispatch runs queues the next one instead of waiting for a dispatch that has
--- already read its alerts.
+-- One open (queued or running) alert_dispatch job per workspace, like
+-- sync_jobs_one_open_sync_per_connection. A running dispatch has read its alerts but records them
+-- only as it sends, so a second dispatch claimed beside it would send the same alerts again. An
+-- alert that fires while a dispatch runs keeps dispatched_at null and is queued by the first tick
+-- after that dispatch finishes.
 
-create unique index sync_jobs_one_queued_alert_dispatch_per_workspace
+create unique index sync_jobs_one_open_alert_dispatch_per_workspace
   on public.sync_jobs (workspace_id)
-  where kind = 'alert_dispatch' and status = 'queued';
+  where kind = 'alert_dispatch' and status in ('queued', 'running');
 
 -- Every tick: a dispatch for each workspace with an alert not yet dispatched. The scan is the
 -- partial index triggered_alerts_undispatched_idx, empty when nothing is waiting.
@@ -306,7 +308,7 @@ begin
   select distinct a.workspace_id, 'alert_dispatch'::public.sync_job_kind
   from public.triggered_alerts a
   where a.dispatched_at is null
-  on conflict (workspace_id) where kind = 'alert_dispatch' and status = 'queued' do nothing;
+  on conflict (workspace_id) where kind = 'alert_dispatch' and status in ('queued', 'running') do nothing;
 
   get diagnostics v_inserted = row_count;
   return v_inserted;

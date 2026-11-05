@@ -113,7 +113,7 @@ export interface JobStore {
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
   listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
 
-  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one queued per workspace (#152). */
+  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
   enqueueAlertDispatches(): Promise<number>;
   /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
   enqueueDigests(date: string): Promise<number>;
