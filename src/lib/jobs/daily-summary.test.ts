@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { Secret, type ProviderAdapter } from "@/lib/adapters/types";
+import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import type { Logger } from "@/lib/log/logger";
 
 import { DAILY_SUMMARY_TYPE_ID, dailySummaryJobKey, runDailySummaryJob, summaryDate } from "./daily-summary";
@@ -146,5 +147,92 @@ describe("daily summary (#64)", () => {
     expect(body).toContain("Example provider: Spending €5.00 (verified)");
     expect(body).toContain("Example provider: Spending $12.50 (verified)");
     expect(body).not.toContain("17.50");
+  });
+});
+
+describe("anomaly detection after the daily summary (#169)", () => {
+  /** Vercel month to date spend, $100 a day from 2026-10-01, with `spike` added on 2026-10-14. */
+  function seedVercelSpend(store: MemoryJobStore, spike: number) {
+    const connection = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "vercel", status: "active" });
+    const accountId = crypto.randomUUID();
+    let total = 0;
+    for (let day = 1; day <= 14; day += 1) {
+      const date = `2026-10-${String(day).padStart(2, "0")}`;
+      total += 10_000 + (day === 14 ? spike : 0);
+      store.snapshots.push(
+        snapshot({
+          connection_id: connection.id,
+          external_account_id: accountId,
+          metric_key: "vercel.spend.total",
+          kind: "verified_spend",
+          label: "Vercel billed spend, month to date",
+          amount_minor: total,
+          currency: "USD",
+          snapshot_date: date,
+          point_at: null,
+          period_start: "2026-10-01T00:00:00.000Z",
+          period_end: `${date}T23:59:50.000Z`,
+          retrieved_at: `${date}T23:59:50.000Z`,
+        }),
+      );
+    }
+    return connection;
+  }
+
+  function anomalies(store: MemoryJobStore) {
+    return store.events.filter((event) => event.type_id === ANOMALY_TYPE_ID);
+  }
+
+  it("writes exactly one event for the spike day, naming the provider, metric, value, and usual value", async () => {
+    const { store, deps } = setup();
+    const connection = seedVercelSpend(store, 30_000);
+
+    await runTick(deps);
+    const job = store.jobs.find((row) => row.kind === "daily_summary");
+    if (job === undefined) throw new Error("no summary job");
+    // A retry of the same job writes nothing new.
+    await runDailySummaryJob(job, deps);
+
+    const events = anomalies(store);
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      provider: "vercel",
+      connection_id: connection.id,
+      severity: "warning",
+      title: "Unusual spend on Vercel: 4 times the usual daily spend",
+      dedupe_key: "anomaly:2026-10-14:vercel:vercel.spend.total:money:USD:verified",
+    });
+    expect(events[0]?.body).toContain("Vercel billed spend, month to date (verified) went up by $400.00 on 2026-10-14");
+    expect(events[0]?.body).toContain("The usual amount is $100.00 a day");
+    expect(summaries(store)).toHaveLength(1);
+  });
+
+  it("writes nothing on an ordinary day", async () => {
+    const { store, deps } = setup();
+    seedVercelSpend(store, 0);
+    await runTick(deps);
+    expect(anomalies(store)).toEqual([]);
+    expect(summaries(store)).toHaveLength(1);
+  });
+
+  it("stops new events for a muted metric, and only for that metric", async () => {
+    const { store, deps } = setup();
+    seedVercelSpend(store, 30_000);
+    store.anomalyMutes.push(
+      { workspace_id: WORKSPACE_ID, provider: "vercel", metric_key: "vercel.spend.total" },
+      { workspace_id: OTHER_WORKSPACE_ID, provider: "vercel", metric_key: "vercel.spend.other" },
+    );
+    await runTick(deps);
+    expect(anomalies(store)).toEqual([]);
+    expect(summaries(store)).toHaveLength(1);
+  });
+
+  it("writes nothing while the workspace has anomaly detection turned off", async () => {
+    const { store, deps } = setup();
+    seedVercelSpend(store, 30_000);
+    store.anomalyDisabled.add(WORKSPACE_ID);
+    await runTick(deps);
+    expect(anomalies(store)).toEqual([]);
+    expect(summaries(store)).toHaveLength(1);
   });
 });

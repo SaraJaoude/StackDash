@@ -1,9 +1,11 @@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
 import type {
+  AnomalySettings,
   ClaimedJob,
   ConnectionPatch,
   ConnectionKey,
@@ -42,6 +44,9 @@ export class MemoryJobStore implements JobStore {
   oauthStates: MemoryOAuthState[] = [];
   credentials = new Map<string, OAuthCredential>();
   savedCredentials: OAuthCredential[] = [];
+  /** Workspaces with anomaly detection turned off; every other workspace has it on (#169). */
+  anomalyDisabled = new Set<string>();
+  anomalyMutes: Array<AnomalyMute & { workspace_id: string }> = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -401,24 +406,50 @@ export class MemoryJobStore implements JobStore {
   async listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]> {
     return this.snapshots
       .filter((row) => row.workspace_id === workspaceId && row.snapshot_date === date)
-      .map((row) => ({
-        connection_id: row.connection_id,
-        external_account_id: row.external_account_id,
-        metric_key: row.metric_key,
-        kind: row.kind,
-        label: row.label,
-        snapshot_date: row.snapshot_date,
-        value: row.value ?? null,
-        unit: row.unit ?? null,
-        amount_minor: row.amount_minor ?? null,
-        currency: row.currency ?? null,
-        period_start: row.period_start ?? null,
-        period_end: row.period_end ?? null,
-        point_at: row.point_at ?? null,
-        resets_at: row.resets_at ?? null,
-        retrieved_at: row.retrieved_at,
-        provenance_source: row.provenance_source,
-        pricing_source: row.pricing_source ?? null,
-      }));
+      .map((row) => this.#toSnapshotInput(row));
+  }
+
+  async getAnomalySettings(workspaceId: string): Promise<AnomalySettings> {
+    return {
+      enabled: !this.anomalyDisabled.has(workspaceId),
+      mutes: this.anomalyMutes
+        .filter((mute) => mute.workspace_id === workspaceId)
+        .map(({ provider, metric_key }) => ({ provider, metric_key })),
+    };
+  }
+
+  async listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]> {
+    return this.snapshots
+      .filter(
+        (row) =>
+          row.workspace_id === workspaceId &&
+          (row.kind === "verified_spend" || row.kind === "estimated_spend" || row.kind === "usage") &&
+          (row.point_at ?? null) === null &&
+          row.snapshot_date >= fromDate &&
+          row.snapshot_date <= toDate,
+      )
+      .map((row) => this.#toSnapshotInput(row));
+  }
+
+  #toSnapshotInput(row: MemorySnapshot): SummarySnapshot {
+    return {
+      connection_id: row.connection_id,
+      external_account_id: row.external_account_id,
+      metric_key: row.metric_key,
+      kind: row.kind,
+      label: row.label,
+      snapshot_date: row.snapshot_date,
+      value: row.value ?? null,
+      unit: row.unit ?? null,
+      amount_minor: row.amount_minor ?? null,
+      currency: row.currency ?? null,
+      period_start: row.period_start ?? null,
+      period_end: row.period_end ?? null,
+      point_at: row.point_at ?? null,
+      resets_at: row.resets_at ?? null,
+      retrieved_at: row.retrieved_at,
+      provenance_source: row.provenance_source,
+      pricing_source: row.pricing_source ?? null,
+    };
   }
 }
