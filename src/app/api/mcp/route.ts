@@ -18,7 +18,9 @@ import { authInfoFor, createDevMacroMcpServer, principalFrom } from "@/lib/mcp/s
 // Tool calls carry a few short filters; anything near this size is not a DevMacro request.
 const MAX_REQUEST_BODY_BYTES = 64 * 1024;
 
-const NO_STORE = { "Cache-Control": "no-store" } as const;
+// no-transform, which the SDK sets on its event streams, keeps a proxy from buffering or
+// compressing one; no-store keeps any answer out of a cache.
+const NO_STORE = { "Cache-Control": "no-store, no-transform" } as const;
 
 // The default response mode answers with one JSON body unless a tool sends progress or log
 // messages first, and none does.

@@ -521,7 +521,7 @@ describe("the HTTP endpoint", () => {
     const allowed = await rawPost({ authorization: `Bearer ${key}` });
     expect(allowed.status).toBe(200);
     expect(allowed.headers.get("x-ratelimit-remaining")).toBe("0");
-    expect(allowed.headers.get("cache-control")).toBe("no-store");
+    expect(allowed.headers.get("cache-control")).toBe("no-store, no-transform");
 
     keySetup = { status: "valid", scopes: API_KEY_SCOPES, requestCount: 121 };
     const limited = await rawPost({ authorization: `Bearer ${key}` });
@@ -611,7 +611,7 @@ describe("the HTTP endpoint", () => {
       }),
     );
     expect(response.status).toBe(200);
-    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("cache-control")).toBe("no-store, no-transform");
     expect(readCalls().map(([fn]) => fn)).toEqual(["api_workspaces", "api_projects"]);
   });
 });

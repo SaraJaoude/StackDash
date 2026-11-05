@@ -110,4 +110,4 @@ On a local install with the simulated providers on (`DEVMACRO_SIMULATE_PROVIDERS
 
 - The server reads through the same database functions as the REST API, with the hash of the presented key. The database resolves the workspace from that hash, so a key never reads another workspace, whatever a tool is asked.
 - The key itself is never stored, logged, or passed on: the server works with its SHA-256 hash.
-- Responses are `Cache-Control: no-store`.
+- Responses are `Cache-Control: no-store, no-transform`, so no cache keeps an answer and no proxy buffers or compresses a streamed one.
