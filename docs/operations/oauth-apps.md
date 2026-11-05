@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs six registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
+Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs seven registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -25,6 +25,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
+| GitLab OAuth application | GitLab.com, avatar, Edit profile, Access, Applications | `<SITE_URL>/api/connections/gitlab/callback` | `read_api`, `read_user` | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -108,6 +109,19 @@ Settings that must match the code:
 - `token_endpoint_auth_method`: `client_secret_basic`. `grant_types`: `authorization_code`, `refresh_token`. `scope`: `full_access`, the only scope that can read usage. It is **not** read-only; the connect flow tells users so before redirecting.
 
 Variables: `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET`. The secret is shown once in the registration response. Clients cannot be updated, so a new callback URL or a lost secret means registering a new client.
+
+## GitLab OAuth application
+
+Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Registering the hosted application is deferred (#141), so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
+
+Settings that must match the code:
+
+- GitLab.com, avatar, **Edit profile**, **Access**, **Applications**, **Add new application**. To own it as a group, use the group's **Settings**, **Applications**.
+- **Redirect URI**: `<SITE_URL>/api/connections/gitlab/callback`.
+- **Confidential**: checked.
+- **Scopes**: `read_api` and `read_user`. Nothing else: never `api`, which is read and write.
+
+Variables: `GITLAB_CLIENT_ID` (the Application ID), `GITLAB_CLIENT_SECRET` (the Secret; **Renew secret** rotates it and stops the old one at once). GitLab.com only: a self-managed GitLab instance would need its own application and is not supported.
 
 ## After registering
 
