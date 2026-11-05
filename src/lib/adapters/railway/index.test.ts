@@ -9,7 +9,7 @@ import {
 import { validateAdapterEvents, type ActivityEvent } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
-import { billingMetrics, deploymentEvents, GRAPHQL_URL, MAX_PROJECTS, PRICING_SOURCE, railwayAdapter } from "./index";
+import { billingMetrics, deploymentEvents, GRAPHQL_URL, PRICING_SOURCE, railwayAdapter } from "./index";
 import { BillingDataSchema, DeploymentSchema, RAILWAY_ISSUER, type BillingData, type Deployment } from "./schemas";
 // Every fixture below is from documentation, not recorded: no Railway account exists yet (#141).
 // Checked 2026-11-05, values synthetic.
@@ -99,6 +99,45 @@ const syncRoutes = (overrides: Partial<Record<Operation, Route>> = {}): Partial<
   DevMacroBilling: () => json(billingFixture),
   ...overrides,
 });
+
+const oneProject = { data: { workspace: { projects: { edges: [{ node: { id: "prj-shop", name: "shop" } }], pageInfo: { hasNextPage: false } } } } };
+
+/** A deployment node as the deployments query returns it: JSON, with ISO timestamps. */
+type DeploymentNode = Readonly<{
+  id: string;
+  status: Deployment["status"];
+  createdAt: string;
+  updatedAt: string;
+  statusUpdatedAt: string;
+  canRollback: boolean;
+  service: { name: string };
+  environment: { name: string };
+}>;
+
+function node(id: string, status: Deployment["status"], createdAt: string, statusAt: string, canRollback = false): DeploymentNode {
+  return {
+    id,
+    status,
+    createdAt,
+    updatedAt: statusAt,
+    statusUpdatedAt: statusAt,
+    canRollback,
+    service: { name: "web" },
+    environment: { name: "production" },
+  };
+}
+
+/** One page for project `d0`: a cursor means Railway reports more, `null` reports more without one. */
+function deploymentsPage(nodes: readonly DeploymentNode[], endCursor: string | null | undefined) {
+  return {
+    data: {
+      d0: {
+        edges: nodes.map((item) => ({ node: item })),
+        pageInfo: { hasNextPage: endCursor !== undefined, endCursor: endCursor ?? null },
+      },
+    },
+  };
+}
 
 const credential: OAuthCredential = {
   accessToken: new Secret("synthetic-access-token-1"),
@@ -381,6 +420,7 @@ describe("railwayAdapter.sync", () => {
       "railway.deployment:dep-docs-crashed:crashed",
       "railway.deployment:dep-preview-sleeping:building",
       "railway.deployment:dep-preview-sleeping:deployed",
+      "railway.deployment:dep-web-removed:building",
       "railway.deployment:dep-web-removed:removed",
       "railway.deployment:dep-web-success:building",
       "railway.deployment:dep-web-success:deployed",
@@ -402,16 +442,24 @@ describe("railwayAdapter.sync", () => {
       title: "Deployment of docs in Production crashed",
       body: "Project: docs",
     });
-    expect(byKey["railway.deployment:dep-web-removed:removed"]).toMatchObject({ severity: "info" });
+    // Replaced between two polls: Railway can still roll back to it, so it built and succeeded.
+    expect(byKey["railway.deployment:dep-web-removed:building"]?.occurredAt).toEqual(new Date("2026-11-04T09:00:00.000Z"));
+    expect(byKey["railway.deployment:dep-web-removed:removed"]).toMatchObject({
+      severity: "info",
+      title: "Deployment of web to production succeeded, then was removed",
+      occurredAt: new Date("2026-11-05T11:03:05.000Z"),
+    });
     // Nothing personal from the deployment reaches an event.
     expect(JSON.stringify(result.events)).not.toMatch(/someone@example\.com|Someone|synthetic commit/);
     expect(result.cursor).toBe("2026-11-05T11:59:30.000Z");
 
-    // One request each: projects, deployments for both projects, billing. Never a mutation.
+    // One request each: projects, deployments for both projects, billing. Never a mutation. The
+    // shop page reports more, but it already reaches deployments older than the window.
     expect(graphqlCalls("DevMacroDeployments")).toHaveLength(1);
     const [deployments] = graphqlCalls("DevMacroDeployments");
     if (deployments === undefined) throw new Error("expected a deployments call");
     expect(graphqlBody(deployments).variables).toEqual({ p0: "prj-shop", p1: "prj-docs" });
+    expect(graphqlBody(deployments).query).toContain("includeDeleted: true");
     for (const call of graphqlCalls("DevMacroProjects").concat(graphqlCalls("DevMacroBilling"), [deployments])) {
       expect(graphqlBody(call).query).not.toMatch(/mutation|creator|meta|email/);
     }
@@ -441,11 +489,13 @@ describe("railwayAdapter.sync", () => {
       { credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" },
       ctx,
     );
-    // From 10:30 onwards: the 10:30 build start is kept, the 09:15 crash and 02:00 sleep are not.
+    // From 10:30 onwards, by when each deployment entered its status: the 09:15 crash and 02:00
+    // sleep are not re-read; the deployment removed at 11:03 keeps its build start from the day before.
     expect(result.events.map((event) => event.dedupeKey).sort()).toEqual([
       "railway.deployment:dep-api-failed:building",
       "railway.deployment:dep-api-failed:failed",
       "railway.deployment:dep-docs-building:building",
+      "railway.deployment:dep-web-removed:building",
       "railway.deployment:dep-web-removed:removed",
       "railway.deployment:dep-web-success:building",
       "railway.deployment:dep-web-success:deployed",
@@ -464,7 +514,7 @@ describe("railwayAdapter.sync", () => {
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE, cursor: "1730800000000" }, ctx);
     expect(warnings).toContain("railway.deployments.cursor_ignored");
     expect(result.events.some((event) => event.dedupeKey.includes("dep-web-old"))).toBe(false);
-    expect(result.events).toHaveLength(10);
+    expect(result.events).toHaveLength(11);
   });
 
   it.each([
@@ -474,7 +524,7 @@ describe("railwayAdapter.sync", () => {
     const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
     const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
     expect(result.metrics).toEqual([]);
-    expect(result.events).toHaveLength(10);
+    expect(result.events).toHaveLength(11);
     expect(result.cursor).toBe("2026-11-05T11:59:30.000Z");
     const [gap] = result.partialErrors ?? [];
     expect(gap).toBeInstanceOf(PermissionMissingError);
@@ -540,14 +590,99 @@ describe("railwayAdapter.sync", () => {
       syncRoutes({
         DevMacroProjects: () => json(page),
         DevMacroDeployments: (call) =>
-          json({ data: Object.fromEntries(Object.keys(graphqlBody(call).variables).map((key) => [key.replace("p", "d"), { edges: [] }])) }),
+          json({
+            data: Object.fromEntries(
+              Object.keys(graphqlBody(call).variables).map((key) => [
+                key.replace("p", "d"),
+                { edges: [], pageInfo: { hasNextPage: false, endCursor: null } },
+              ]),
+            ),
+          }),
       }),
     );
     await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
     const requests = graphqlCalls("DevMacroDeployments").map((call) => Object.keys(graphqlBody(call).variables).length);
     expect(requests).toEqual([10, 1]);
     expect(warnings).toContain("railway.projects.cap_reached");
-    expect(MAX_PROJECTS).toBe(50);
+  });
+
+  it("pages through a project's history until a page reaches deployments older than the window", async () => {
+    const { ctx, graphqlCalls } = harness(
+      syncRoutes({
+        DevMacroProjects: () => json(oneProject),
+        DevMacroDeployments: (call) =>
+          graphqlBody(call).variables["a0"] === undefined
+            ? json(deploymentsPage([node("dep-new", "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:04:00.000Z")], "after-1"))
+            : json(
+                deploymentsPage([
+                  node("dep-replaced", "REMOVED", "2026-11-05T10:40:00.000Z", "2026-11-05T11:04:00.000Z", true),
+                  node("dep-older", "REMOVED", "2026-11-05T09:00:00.000Z", "2026-11-05T10:00:00.000Z", true),
+                ], "after-2"),
+              ),
+      }),
+    );
+    const result = await railwayAdapter.sync(
+      { credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" },
+      ctx,
+    );
+    expect(graphqlCalls("DevMacroDeployments").map((call) => graphqlBody(call).variables)).toEqual([
+      { p0: "prj-shop" },
+      { p0: "prj-shop", a0: "after-1" },
+    ]);
+    // The second page reached 09:00, before the 10:30 window start, so no third page is asked for;
+    // the deployment removed at 10:00 is outside the window and adds nothing.
+    expect(result.events.map((event) => event.dedupeKey).sort()).toEqual([
+      "railway.deployment:dep-new:building",
+      "railway.deployment:dep-new:deployed",
+      "railway.deployment:dep-replaced:building",
+      "railway.deployment:dep-replaced:removed",
+    ]);
+  });
+
+  it("reads at most five pages per project and warns when it stops there", async () => {
+    let served = 0;
+    const { ctx, warnings, graphqlCalls } = harness(
+      syncRoutes({
+        DevMacroProjects: () => json(oneProject),
+        DevMacroDeployments: () => {
+          served += 1;
+          return json(
+            deploymentsPage([node(`dep-${served}`, "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:05:00.000Z")], `after-${served}`),
+          );
+        },
+      }),
+    );
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(5);
+    expect(warnings).toContain("railway.deployments.page_cap_reached");
+    expect(result.events).toHaveLength(10);
+  });
+
+  it("fails as an invalid response when a page reports more deployments without a cursor", async () => {
+    const { ctx } = harness(
+      syncRoutes({
+        DevMacroProjects: () => json(oneProject),
+        DevMacroDeployments: () =>
+          json(deploymentsPage([node("dep-new", "SUCCESS", "2026-11-05T11:00:00.000Z", "2026-11-05T11:04:00.000Z")], null)),
+      }),
+    );
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+
+  it("keeps the build start of a deployment that waited longer than the overlap before it finished", async () => {
+    const route = (statusAt: string) => () =>
+      json(deploymentsPage([node("dep-waited", "SUCCESS", "2026-11-05T08:00:00.000Z", statusAt)], undefined));
+    const sync = async (statusAt: string) => {
+      const { ctx } = harness(syncRoutes({ DevMacroProjects: () => json(oneProject), DevMacroDeployments: route(statusAt) }));
+      const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" }, ctx);
+      return result.events.map((event) => event.dedupeKey).sort();
+    };
+    // Window from 10:30: finished at 10:30 exactly, both events; a second before, neither.
+    expect(await sync("2026-11-05T10:30:00.000Z")).toEqual([
+      "railway.deployment:dep-waited:building",
+      "railway.deployment:dep-waited:deployed",
+    ]);
+    expect(await sync("2026-11-05T10:29:59.000Z")).toEqual([]);
   });
 
   it("fails as an invalid response when Railway leaves out a project's deployments", async () => {
@@ -557,7 +692,8 @@ describe("railwayAdapter.sync", () => {
 });
 
 describe("deploymentEvents", () => {
-  const base: Deployment = DeploymentSchema.parse(deploymentsFixture.data.d0.edges[0]?.node);
+  // dep-web-success: a SUCCESS deployment that cannot be rolled back to.
+  const base: Deployment = DeploymentSchema.parse(deploymentsFixture.data.d0.edges[1]?.node);
 
   it.each<[Deployment["status"], string[]]>([
     ["QUEUED", []],
@@ -576,6 +712,32 @@ describe("deploymentEvents", () => {
   ])("%s gives %j", (status, kinds) => {
     const events = deploymentEvents({ ...base, status }, "shop", WORKSPACE);
     expect(events.map((event) => event.typeId.replace("railway.deployment.", ""))).toEqual(kinds);
+  });
+
+  it.each<Deployment["status"]>(["REMOVING", "REMOVED"])(
+    "%s that can still be rolled back to also built and says it succeeded",
+    (status) => {
+      const [building, removed] = deploymentEvents({ ...base, status, canRollback: true }, "shop", WORKSPACE);
+      expect(building).toMatchObject({ typeId: "railway.deployment.building", occurredAt: base.createdAt });
+      expect(removed).toMatchObject({
+        typeId: "railway.deployment.removed",
+        occurredAt: base.statusUpdatedAt,
+        title: "Deployment of web to production succeeded, then was removed",
+      });
+    },
+  );
+
+  it("titles a removed deployment that cannot be rolled back to as removed only", () => {
+    const [removed] = deploymentEvents({ ...base, status: "REMOVED", canRollback: false }, "shop", WORKSPACE);
+    expect(removed?.title).toBe("Deployment of web in production was removed");
+  });
+
+  it("ignores canRollback on statuses other than removal", () => {
+    const events = deploymentEvents({ ...base, status: "FAILED", canRollback: true }, "shop", WORKSPACE);
+    expect(events.map((event) => event.title)).toEqual([
+      "Deployment of web to production started building",
+      "Deployment of web to production failed",
+    ]);
   });
 
   it("dates the final event by updatedAt when statusUpdatedAt is null", () => {

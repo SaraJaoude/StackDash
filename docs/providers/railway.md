@@ -84,11 +84,13 @@ Only the workspaces picked on the consent screen. Each becomes an external accou
 
 `id` and `name` per project. At most 50 projects per workspace per sync; a larger workspace logs `railway.projects.cap_reached` and the rest are skipped until a later version pages through them.
 
-### Deployments: `deployments(first: 20, input: { projectId })`
+### Deployments: `deployments(first: 50, after, input: { projectId, includeDeleted: true })`
 
-The documented list query, one aliased field per project (`d0`, `d1`, ...), ten projects per request. Fields read: `id`, `status`, `createdAt`, `updatedAt`, `statusUpdatedAt`, `service { name }`, `environment { name }`. Never selected: `creator` (name, email, avatar), `meta` (commit details), logs, variables, and URLs.
+The documented list query, one aliased field per project (`d0`, `d1`, ...), ten projects per request. Fields read: `id`, `status`, `createdAt`, `updatedAt`, `statusUpdatedAt`, `canRollback`, `service { name }`, `environment { name }`, and `pageInfo { hasNextPage endCursor }`. Never selected: `creator` (name, email, avatar), `meta` (commit details), logs, variables, and URLs.
 
-The newest 20 deployments per project are read on each sync. The order is newest first, inferred from the documented "Get latest active deployment" example, which reads `first: 1`. Project-level and service-level `deployments` fields are deprecated in the schema "for properly scoped access control", so the adapter uses the root query.
+Each project's deployment history is read newest first, 50 at a time, following `endCursor` until a page reaches a deployment created before the sync window, so every deployment created in the window is read however many there are, up to five pages (250) per project per sync. The order is newest first, inferred from the documented "Get latest active deployment" example, which reads `first: 1`. `includeDeleted: true` asks for removed deployments too, so a deployment replaced between two polls is still listed (whether the default leaves them out is unverified). Project-level and service-level `deployments` fields are deprecated in the schema "for properly scoped access control", so the adapter uses the root query.
+
+Railway keeps no status history per deployment that the adapter can use. `Deployment` carries only its current `status`, `statusUpdatedAt` (when it entered that status), `createdAt`, and `updatedAt` (schema introspected 2026-11-05). The two other places that look like history do not fit: `deploymentEvents(id)` returns build and deploy steps (`DeploymentEventStep`: `SNAPSHOT_CODE`, `BUILD_IMAGE`, `HEALTHCHECK`, `DRAIN_INSTANCES`, and others) rather than statuses, needs one field per deployment, and is not in Railway's documentation; `events(projectId)` is the project activity feed with an untyped `JSON` payload, also undocumented. So a success is dated only while the deployment is still `SUCCESS`. A removed deployment that Railway can still roll back to (`canRollback: true`) had deployed successfully: rollback restores "the previously successful deployment" and is offered on removed deployments within the plan's image retention, at least 24 hours ([Deployment actions](https://docs.railway.com/deployments/deployment-actions#rollback), [image retention](https://docs.railway.com/pricing/plans#image-retention-policy)). The adapter uses that to keep replaced deployments on the timeline, see Timeline events.
 
 Statuses in the schema (checked 2026-11-05): `BUILDING`, `CRASHED`, `DEPLOYING`, `FAILED`, `INITIALIZING`, `NEEDS_APPROVAL`, `QUEUED`, `REMOVED`, `REMOVING`, `SKIPPED`, `SLEEPING`, `SUCCESS`, `WAITING`. A status outside this list fails the parse instead of being guessed at.
 
@@ -135,17 +137,17 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 
 | Event type | When | Dated |
 |---|---|---|
-| `railway.deployment.building` | The deployment's build started: status `BUILDING`, `DEPLOYING`, `SUCCESS`, `SLEEPING`, `FAILED`, or `CRASHED` | `createdAt` |
+| `railway.deployment.building` | The deployment's build started: status `BUILDING`, `DEPLOYING`, `SUCCESS`, `SLEEPING`, `FAILED`, or `CRASHED`, or `REMOVING` or `REMOVED` with `canRollback: true` | `createdAt` |
 | `railway.deployment.deployed` | Status `SUCCESS`, or `SLEEPING` (only a deployed service sleeps) | `statusUpdatedAt`, else `updatedAt` |
 | `railway.deployment.failed` | Status `FAILED` | Same |
 | `railway.deployment.crashed` | Status `CRASHED` | Same |
-| `railway.deployment.removed` | Status `REMOVING` or `REMOVED`; usually a newer deployment replaced it | Same |
+| `railway.deployment.removed` | Status `REMOVING` or `REMOVED`; usually a newer deployment replaced it. With `canRollback: true` the title says it succeeded first | Same |
 
 `QUEUED`, `WAITING`, `INITIALIZING`, `NEEDS_APPROVAL`, and `SKIPPED` produce no event. All five event types are shown by default, like every other adapter's; hiding types per workspace is #119.
 
-Titles name the service and environment (`Deployment of api to production failed`), the body names the project. A failure or crash in an environment named `production` (Railway's name for a new project's first environment, any letter case) is critical; elsewhere it is a warning. Dedupe keys are `railway.deployment:<id>:<kind>`, so a re-read or a later status never duplicates an event. Events carry no link: Railway documents no dashboard URL for a deployment.
+Titles name the service and environment (`Deployment of api to production failed`, `Deployment of web to production succeeded, then was removed`), the body names the project. A failure or crash in an environment named `production` (Railway's name for a new project's first environment, any letter case) is critical; elsewhere it is a warning. Dedupe keys are `railway.deployment:<id>:<kind>`, so a re-read or a later status never duplicates an event. Events carry no link: Railway documents no dashboard URL for a deployment.
 
-The first sync looks back 7 days. The cursor is the latest status time seen; each later sync re-reads from an hour before it, so a status that changed just before the last poll is seen again.
+The first sync looks back 7 days. The cursor is the latest status time seen; each later sync re-reads from an hour before it, so a status that changed just before the last poll is seen again. A deployment is kept or dropped as a whole, by when it entered its current status: one that sat queued for longer than the overlap still gets its building event alongside its final one.
 
 ## Verified, estimated, unavailable
 
@@ -165,7 +167,7 @@ The first sync looks back 7 days. The cursor is the latest status time seen; eac
 
 From the [Public API page](https://docs.railway.com/integrations/api): 100 requests per hour on Free, 1,000 on Hobby, 10,000 on Pro, custom on Enterprise; 10 requests per second on Hobby and 50 on Pro. Headers: `RateLimit-Policy`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, and `Retry-After` once the window is used up. An exceeded limit is HTTP 429; DevMacro honors `Retry-After`.
 
-Budget per workspace per sync: one projects request, one deployments request per ten projects, and one billing request, so four requests for a workspace of up to ten projects. The adapter polls hourly and runs requests one after another, because the limit is shared with the user's own tokens and scripts. Whether the limit counts per token, per user, or per workspace is unverified.
+Budget per workspace per sync: one projects request, one deployments request per ten projects, and one billing request, so four requests for a workspace of up to ten projects. A project that created more than 50 deployments since the last sync costs one more deployments request per further page of 50, up to five pages. The adapter polls hourly and runs requests one after another, because the limit is shared with the user's own tokens and scripts. Whether the limit counts per token, per user, or per workspace is unverified.
 
 ## Webhooks
 
@@ -225,7 +227,7 @@ All samples are from documentation, not recorded. Values are synthetic. The unit
 { "data": { "me": { "workspaces": [{ "id": "ws-synthetic-1", "name": "My Workspace" }] } } }
 ```
 
-`deployments(first: 20, input: { projectId })` (shaped from the schema and the "Manage Deployments" fields):
+`deployments(first: 50, after, input: { projectId, includeDeleted: true })` (shaped from the schema and the "Manage Deployments" fields):
 
 ```json
 {
@@ -239,11 +241,13 @@ All samples are from documentation, not recorded. Values are synthetic. The unit
             "createdAt": "2026-11-05T11:00:00.000Z",
             "updatedAt": "2026-11-05T11:03:00.000Z",
             "statusUpdatedAt": "2026-11-05T11:03:00.000Z",
+            "canRollback": false,
             "service": { "name": "web" },
             "environment": { "name": "production" }
           }
         }
-      ]
+      ],
+      "pageInfo": { "hasNextPage": true, "endCursor": "cursor-shop-1" }
     }
   }
 }
@@ -312,6 +316,7 @@ All checked 2026-11-05.
 - [Public API: endpoint, rate limits, errors, versioning](https://docs.railway.com/integrations/api)
 - [Public API: Manage Deployments (queries and statuses)](https://docs.railway.com/integrations/api/manage-deployments)
 - [Public API: API Cookbook](https://docs.railway.com/integrations/api/api-cookbook)
-- Public API schema, by introspection of `https://backboard.railway.com/graphql/v2` (`Customer`, `BillingPeriod`, `Deployment`, `DeploymentStatus`, `Workspace`, `Plan`, `MetricMeasurement`, `Query.usage`, `Query.estimatedUsage`)
-- [Pricing Plans (prices, included usage, default plan resources)](https://docs.railway.com/pricing/plans)
+- Public API schema, by introspection of `https://backboard.railway.com/graphql/v2` (`Customer`, `BillingPeriod`, `Deployment`, `DeploymentStatus`, `DeploymentListInput`, `PageInfo`, `Workspace`, `Plan`, `MetricMeasurement`, `Query.usage`, `Query.estimatedUsage`, `Query.deploymentEvents`, `DeploymentEventStep`, `Query.events`, `Service`, `Environment`)
+- [Pricing Plans (prices, included usage, default plan resources, image retention)](https://docs.railway.com/pricing/plans)
+- [Deployment actions (rollback)](https://docs.railway.com/deployments/deployment-actions)
 - [Workspaces (roles and billing access)](https://docs.railway.com/projects/workspaces)

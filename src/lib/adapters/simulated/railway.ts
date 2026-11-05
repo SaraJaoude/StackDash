@@ -21,6 +21,11 @@ import {
  * crashes, and each success removing the deployment it replaced. Resource usage accrues hour by
  * hour through a calendar month billing period. Events and metrics go through the real adapter's
  * `deploymentEvents` and `billingMetrics`, so titles, dedupe keys, and metric keys match a real sync.
+ *
+ * The event mix is richer than a real sync's. The simulator emits every transition in the slot it
+ * happens, while the real adapter polls hourly and sees only each deployment's latest status: a
+ * deployment that succeeds and is replaced within the hour reaches a real timeline as "started
+ * building" plus "succeeded, then was removed", never as a separate "succeeded" event.
  */
 
 const PROJECT = "shop";
@@ -53,6 +58,8 @@ function deployment(started: Started, status: Deployment["status"], statusAt: Da
     createdAt,
     updatedAt: statusAt,
     statusUpdatedAt: statusAt,
+    // Only a replaced deployment is removed here, and it had succeeded within the retention window.
+    canRollback: status === "REMOVED",
     service: { name: started.service },
     environment: { name: started.environment },
   };
@@ -76,8 +83,9 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
     const final = deploymentEvents(deployment(started, status, finishedAt), PROJECT, accountId);
     events.push(...final.filter((event) => event.typeId !== "railway.deployment.building"));
     if (status === "SUCCESS") {
+      // The replaced deployment's own start is not simulated, so only its removal is new here.
       const replaced = deployment({ ...started, id: `${started.id}-previous` }, "REMOVED", finishedAt);
-      events.push(...deploymentEvents(replaced, PROJECT, accountId));
+      events.push(...deploymentEvents(replaced, PROJECT, accountId).filter((event) => event.typeId !== "railway.deployment.building"));
     }
   }
   return events.sort((a, b) => a.occurredAt.getTime() - b.occurredAt.getTime());

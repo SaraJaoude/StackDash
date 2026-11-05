@@ -69,11 +69,15 @@ const WORKSPACE_SCOPE = "workspace:viewer";
 const STATE_MAX_LENGTH = 1024;
 const CODE_VERIFIER = /^[A-Za-z0-9\-._~]{43,128}$/;
 
-// Bounded sync. Projects beyond the cap are skipped with a warning; each project contributes its
-// newest deployments, which is newest first per the "Get latest active deployment" example.
-export const MAX_PROJECTS = 50;
+// Bounded sync. Projects beyond the cap are skipped with a warning. Each project's deployment
+// history is paged newest first (the order the "Get latest active deployment" example relies on)
+// until a page reaches deployments created before the sync window, so every deployment created in
+// the window is read, however many there are, up to the page cap.
+const MAX_PROJECTS = 50;
 const PROJECT_PAGE_SIZE = MAX_PROJECTS;
-const DEPLOYMENTS_PER_PROJECT = 20;
+const DEPLOYMENT_PAGE_SIZE = 50;
+// 250 deployments per project per sync: a week of the first sync's lookback at about 35 a day.
+const MAX_DEPLOYMENT_PAGES = 5;
 // Aliased `deployments` fields per request, so a large workspace costs a handful of requests
 // against plans with 100 requests per hour, without one very large query.
 const PROJECTS_PER_DEPLOYMENTS_REQUEST = 10;
@@ -96,16 +100,21 @@ const PROJECTS_QUERY = `query DevMacroProjects($workspaceId: String!) {
   }
 }`;
 
-const DEPLOYMENT_FIELDS = "id status createdAt updatedAt statusUpdatedAt service { name } environment { name }";
+const DEPLOYMENT_FIELDS = "id status createdAt updatedAt statusUpdatedAt canRollback service { name } environment { name }";
 
-/** One aliased `deployments` field per project; project ids only ever travel as variables. */
+/**
+ * One aliased `deployments` field per project; project ids and page cursors only ever travel as
+ * variables. `includeDeleted: true` asks for removed deployments too (whether the default leaves
+ * them out is unverified), so a deployment that succeeded and was replaced between two polls still
+ * reaches the timeline.
+ */
 function deploymentsQuery(count: number): string {
   const indexes = Array.from({ length: count }, (_, index) => index);
-  const variables = indexes.map((index) => `$p${index}: String!`).join(", ");
+  const variables = indexes.map((index) => `$p${index}: String!, $a${index}: String`).join(", ");
   const fields = indexes
     .map(
       (index) =>
-        `d${index}: deployments(first: ${DEPLOYMENTS_PER_PROJECT}, input: { projectId: $p${index} }) { edges { node { ${DEPLOYMENT_FIELDS} } } }`,
+        `d${index}: deployments(first: ${DEPLOYMENT_PAGE_SIZE}, after: $a${index}, input: { projectId: $p${index}, includeDeleted: true }) { edges { node { ${DEPLOYMENT_FIELDS} } } pageInfo { hasNextPage endCursor } }`,
     )
     .join("\n  ");
   return `query DevMacroDeployments(${variables}) {\n  ${fields}\n}`;
@@ -170,7 +179,8 @@ const finalEventOf: Partial<Record<Deployment["status"], EventKind>> = {
 };
 
 // Statuses that prove the build started, so the deployment also gets a "building" event at its
-// creation time. REMOVED is left out: a removed deployment may have been skipped before building.
+// creation time. REMOVING and REMOVED prove nothing alone (a removed deployment may have been
+// stopped before it built), so they count only when it can still be rolled back to (see `ran`).
 const builtStatuses: Partial<Record<Deployment["status"], true>> = {
   BUILDING: true,
   DEPLOYING: true,
@@ -186,7 +196,7 @@ function shorten(name: string): string {
   return value.length > NAME_MAX ? `${value.slice(0, NAME_MAX)}…` : value;
 }
 
-function titleOf(kind: EventKind, service: string, environment: string): string {
+function titleOf(kind: EventKind, service: string, environment: string, ran: boolean): string {
   switch (kind) {
     case "building":
       return `Deployment of ${service} to ${environment} started building`;
@@ -197,7 +207,9 @@ function titleOf(kind: EventKind, service: string, environment: string): string 
     case "crashed":
       return `Deployment of ${service} in ${environment} crashed`;
     case "removed":
-      return `Deployment of ${service} in ${environment} was removed`;
+      return ran
+        ? `Deployment of ${service} to ${environment} succeeded, then was removed`
+        : `Deployment of ${service} in ${environment} was removed`;
   }
 }
 
@@ -214,7 +226,10 @@ export function statusTime(deployment: Deployment): Date {
 
 /**
  * The timeline events one deployment stands for, as seen now: a "building" event at creation when
- * the build has started, plus one event for its current final status. Dedupe keys are per
+ * the build has started, plus one event for its current final status. Railway keeps no status
+ * history per deployment, only the current status and when it was entered, so a deployment that
+ * succeeded and was removed before a poll saw it gets no separate "succeeded" event: its removal
+ * says it succeeded instead, because there is no time to date a success by. Dedupe keys are per
  * deployment and kind, so re-polls and status changes never duplicate an event. No creator or
  * commit fields are selected, so nothing personal can reach an event.
  */
@@ -227,19 +242,24 @@ export function deploymentEvents(
   const environment = shorten(deployment.environment.name);
   // "production" is the name Railway gives a new project's first environment.
   const production = deployment.environment.name.trim().toLowerCase() === "production";
+  // A removed deployment Railway can still roll back to had deployed successfully: rollback restores
+  // "the previously successful deployment" and is offered on removed deployments within the plan's
+  // image retention, 24 hours at the least (Deployment actions, Rollback; Pricing plans, Image
+  // retention policy). So one replaced between two polls still shows that it built and succeeded.
+  const ran = (deployment.status === "REMOVING" || deployment.status === "REMOVED") && deployment.canRollback;
   const body = `Project: ${shorten(projectName)}`;
   const event = (kind: EventKind, occurredAt: Date): ActivityEvent => ({
     typeId: `railway.deployment.${kind}`,
     occurredAt,
     severity: severityOf(kind, production),
-    title: titleOf(kind, service, environment),
+    title: titleOf(kind, service, environment, ran),
     body,
     externalAccountId,
     dedupeKey: `railway.deployment:${deployment.id}:${kind}`,
   });
 
   const events: ActivityEvent[] = [];
-  if (builtStatuses[deployment.status] === true) events.push(event("building", deployment.createdAt));
+  if (builtStatuses[deployment.status] === true || ran) events.push(event("building", deployment.createdAt));
   const final = finalEventOf[deployment.status];
   if (final !== undefined) events.push(event(final, statusTime(deployment)));
   return events;
@@ -577,6 +597,8 @@ function parseCursor(cursor: string | undefined, ctx: OAuthContext): number | un
   return undefined;
 }
 
+type DeploymentPage = Readonly<{ project: RailwayProject; after: string | undefined; page: number }>;
+
 async function syncDeployments(
   ctx: OAuthContext,
   input: SyncInput,
@@ -587,11 +609,16 @@ async function syncDeployments(
     previous === undefined ? ctx.now().getTime() - FIRST_SYNC_LOOKBACK_MS : Math.max(0, previous - DEPLOYMENT_OVERLAP_MS);
   const events = new Map<string, ActivityEvent>();
   let latest = previous;
+  const pending: DeploymentPage[] = projects.map((project) => ({ project, after: undefined, page: 1 }));
 
   // Sequential on purpose: the plan's hourly request budget is shared with the user's own tokens.
-  for (let offset = 0; offset < projects.length; offset += PROJECTS_PER_DEPLOYMENTS_REQUEST) {
-    const chunk = projects.slice(offset, offset + PROJECTS_PER_DEPLOYMENTS_REQUEST);
-    const variables = Object.fromEntries(chunk.map((project, index) => [`p${index}`, project.id]));
+  while (pending.length > 0) {
+    const chunk = pending.splice(0, PROJECTS_PER_DEPLOYMENTS_REQUEST);
+    const variables: Record<string, string> = {};
+    chunk.forEach(({ project, after }, index) => {
+      variables[`p${index}`] = project.id;
+      if (after !== undefined) variables[`a${index}`] = after;
+    });
     const data = await graphql(
       ctx,
       input.credential,
@@ -600,17 +627,35 @@ async function syncDeployments(
       variables,
       DeploymentsDataSchema,
     );
-    chunk.forEach((project, index) => {
+    chunk.forEach(({ project, page }, index) => {
       const connection = data[`d${index}`];
       if (connection === undefined) {
         throw new InvalidResponseError("Railway left out a project's deployments", { status: 200, endpoint: GRAPHQL_URL });
       }
+      let reachedOlder = false;
       for (const { node } of connection.edges) {
         latest = Math.max(latest ?? 0, statusTime(node).getTime());
+        if (node.createdAt.getTime() < since) reachedOlder = true;
+        // Kept or dropped as a whole, by when it entered its current status: a deployment that sat
+        // queued for longer than the overlap still gets its "building" event with its final one.
+        if (statusTime(node).getTime() < since) continue;
         for (const event of deploymentEvents(node, project.name, input.externalAccountId)) {
-          if (event.occurredAt.getTime() >= since) events.set(event.dedupeKey, event);
+          events.set(event.dedupeKey, event);
         }
       }
+      const { hasNextPage, endCursor } = connection.pageInfo;
+      if (!hasNextPage || reachedOlder) return;
+      if (endCursor === null || endCursor === undefined) {
+        throw new InvalidResponseError("Railway reported more deployments without a page cursor", {
+          status: 200,
+          endpoint: GRAPHQL_URL,
+        });
+      }
+      if (page >= MAX_DEPLOYMENT_PAGES) {
+        ctx.logger.warn("railway.deployments.page_cap_reached", { maxPages: MAX_DEPLOYMENT_PAGES });
+        return;
+      }
+      pending.push({ project, after: endCursor, page: page + 1 });
     });
   }
   return { events: [...events.values()], latest };

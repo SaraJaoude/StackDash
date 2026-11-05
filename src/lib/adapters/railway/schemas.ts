@@ -91,6 +91,8 @@ export const DeploymentSchema = z.object({
   createdAt: isoDateTime,
   updatedAt: isoDateTime,
   statusUpdatedAt: isoDateTime.nullish(),
+  // `Boolean!` in the schema: whether Railway can still roll back to this deployment.
+  canRollback: z.boolean(),
   service: z.object({ name: z.string() }),
   environment: z.object({ name: z.string() }),
 });
@@ -99,9 +101,10 @@ export type Deployment = z.infer<typeof DeploymentSchema>;
 
 const DeploymentConnectionSchema = z.object({
   edges: z.array(z.object({ node: DeploymentSchema })),
+  pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().min(1).nullish() }),
 });
 
-/** One `deployments(input: { projectId })` connection per alias (`d0`, `d1`, ...). */
+/** One page of `deployments(input: { projectId })` per alias (`d0`, `d1`, ...). */
 export const DeploymentsDataSchema = z.record(z.string().regex(/^d\d+$/), DeploymentConnectionSchema);
 
 export const plans = ["FREE", "HOBBY", "PRO"] as const;
