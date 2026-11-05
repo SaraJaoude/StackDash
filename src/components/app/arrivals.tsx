@@ -32,8 +32,8 @@ import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, liveStatusText, type ArrivalRep
  * The live state and the batches live in an ArrivalStore that components read with
  * useSyncExternalStore, never in a context value that changes: a changing context value makes
  * React render the streamed page on the client before its server HTML is revealed, and the page
- * then shows twice (#211, explained in src/lib/realtime/arrival-store.ts). Both context values
- * below are created once and never change.
+ * was then in the document twice (#211, explained in src/lib/realtime/arrival-store.ts). Both
+ * context values below are created once and never change.
  */
 
 type ArrivalControls = Pick<ArrivalStore, "arrived" | "setStatus" | "watch"> &
