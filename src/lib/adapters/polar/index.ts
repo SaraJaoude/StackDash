@@ -64,10 +64,17 @@ const SUBSCRIPTIONS_URL = `${API_BASE}/v1/subscriptions/`;
 const REFUNDS_URL = `${API_BASE}/v1/refunds/`;
 // RFC 9207: Polar's discovery document sets `authorization_response_iss_parameter_supported`.
 const POLAR_ISSUER = "https://api.polar.sh";
-// Pinned: without the header Polar uses its Current version, which changes every quarter.
-// 2026-10 is removed in the first week of April 2027, then every call answers 404: bump it first
-// (docs/providers/polar.md, Limitations).
+// Pinned on every call, the OAuth2 token and revoke requests too (both are in the 2026-10
+// OpenAPI document): without the header Polar uses its Current version, which changes every
+// quarter. 2026-10 is removed in the first week of April 2027, then every call answers 404: bump
+// it first (docs/providers/polar.md, Limitations).
 const POLAR_API_VERSION = "2026-10";
+// Form encoded OAuth2 requests: token (exchange and refresh) and revoke.
+const OAUTH_FORM_HEADERS = {
+  "Content-Type": "application/x-www-form-urlencoded",
+  Accept: "application/json",
+  "Polar-Version": POLAR_API_VERSION,
+};
 
 // Polar's metrics endpoint has no currency field; amounts are cents in Polar's settlement
 // currency, USD (Unverified #3).
@@ -222,7 +229,7 @@ async function tokenRequest(ctx: OAuthContext, form: Readonly<Record<string, str
       TOKEN_URL,
       {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        headers: OAUTH_FORM_HEADERS,
         // client_secret_post, as in Polar's token request reference. Never logged.
         body: new URLSearchParams({
           ...form,
@@ -828,7 +835,7 @@ export const polarAdapter: ProviderAdapter = {
         REVOKE_URL,
         {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+          headers: OAUTH_FORM_HEADERS,
           body: new URLSearchParams({
             token: token.reveal(),
             token_type_hint: hint,

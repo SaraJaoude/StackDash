@@ -22,7 +22,7 @@ OAuth 2.0 authorization code flow with PKCE (S256), as a confidential client. Po
 | Discovery | `https://api.polar.sh/.well-known/openid-configuration` (issuer `https://api.polar.sh`) |
 | Callback URL | `<SITE_URL>/api/connections/polar/callback` |
 | API base URL | `https://api.polar.sh/v1` |
-| API version header | `Polar-Version: 2026-10`, the Current version on 2026-11-05. Without it Polar uses Current, which changes every quarter. `2026-10` is removed in the first week of April 2027; see [Limitations](#limitations) |
+| API version header | `Polar-Version: 2026-10` on every call, including the OAuth2 token and revoke requests (both are in the `2026-10` reference). `2026-10` was the Current version on 2026-11-05. Without it Polar uses Current, which changes every quarter. `2026-10` is removed in the first week of April 2027; see [Limitations](#limitations) |
 | Client authentication | `client_id` and `client_secret` in the form body (`client_secret_post`, as in Polar's token request reference). `client_secret_basic` is also advertised |
 | PKCE | `S256`, advertised in the discovery document. DevMacro always sends it |
 | Access token | 864000 seconds (10 days) in Polar's example; DevMacro reads `expires_in` from each response. Prefix `polar_at_` |

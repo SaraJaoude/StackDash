@@ -146,7 +146,7 @@ describe("polarAdapter.buildAuthorizeUrl", () => {
 });
 
 describe("polarAdapter.exchangeCode", () => {
-  it("posts the code, verifier, and client credentials and returns a 10 day credential without the id token", async () => {
+  it("posts the code, verifier, and client credentials on the pinned API version and returns a 10 day credential without the id token", async () => {
     const { fetch, calls } = fakeFetch({ "/v1/oauth2/token": ok(tokenFixture) });
     const { ctx } = context(fetch);
 
@@ -163,6 +163,7 @@ describe("polarAdapter.exchangeCode", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]?.init?.method).toBe("POST");
     expect(header(calls[0], "content-type")).toBe("application/x-www-form-urlencoded");
+    expect(header(calls[0], "polar-version")).toBe("2026-10");
     expect(formBody(calls[0])).toEqual({
       grant_type: "authorization_code",
       code: "polar_ac_fixture",
@@ -213,7 +214,7 @@ describe("polarAdapter.exchangeCode", () => {
 });
 
 describe("polarAdapter.refreshTokens", () => {
-  it("rotates both tokens with the refresh grant", async () => {
+  it("rotates both tokens with the refresh grant on the pinned API version", async () => {
     const { fetch, calls } = fakeFetch({ "/v1/oauth2/token": ok(refreshFixture) });
     const { ctx } = context(fetch);
 
@@ -225,6 +226,7 @@ describe("polarAdapter.refreshTokens", () => {
       client_id: "polar_ci_fixture_client",
       client_secret: clientSecret,
     });
+    expect(header(calls[0], "polar-version")).toBe("2026-10");
     expect(result?.accessToken.reveal()).toBe("polar_at_fixture_access_2");
     expect(result?.refreshToken?.reveal()).toBe("polar_rt_fixture_refresh_2");
     expect(result?.expiresAt).toEqual(new Date(now.getTime() + 864_000 * 1000));
@@ -274,7 +276,7 @@ describe("polarAdapter.refreshTokens", () => {
 });
 
 describe("polarAdapter.revoke", () => {
-  it("revokes the refresh token, then the access token", async () => {
+  it("revokes the refresh token, then the access token, on the pinned API version", async () => {
     const { fetch, calls } = fakeFetch({ "/v1/oauth2/revoke": ok({}) });
     const { ctx } = context(fetch);
 
@@ -284,6 +286,7 @@ describe("polarAdapter.revoke", () => {
       { token: "polar_rt_fixture_refresh_1", token_type_hint: "refresh_token", client_id: "polar_ci_fixture_client", client_secret: clientSecret },
       { token: "polar_at_fixture_access_1", token_type_hint: "access_token", client_id: "polar_ci_fixture_client", client_secret: clientSecret },
     ]);
+    expect(calls.map((call) => header(call, "polar-version"))).toEqual(["2026-10", "2026-10"]);
   });
 
   it("revokes only the access token when there is no refresh token", async () => {
