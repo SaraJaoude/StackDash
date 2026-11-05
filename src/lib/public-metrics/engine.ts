@@ -13,6 +13,11 @@ import { publicMetricDefinition, type PublicMetricDefinition, type PublicMetricI
  * - A count needs history covering its whole window, otherwise it is "not enough history".
  * - A value whose newest data is older than `STALE_AFTER_MS` is "stale", not a number.
  * - Partial data understates (an account added mid-window adds only what it saw), never overstates.
+ * - Nothing is counted twice. The engine never reads money, and every sum adds one metric key
+ *   across accounts (each account's newest reading), so a breakdown or a shorter window of the same
+ *   amount never meets its total. The dashboard's count-once rules (`countedSnapshots` in
+ *   src/lib/dashboard/aggregate.ts) exist for adding many keys of money together; a future formula
+ *   that adds several keys or any money must read through them instead.
  */
 
 export const STALE_AFTER_MS = 48 * 60 * 60 * 1000;
