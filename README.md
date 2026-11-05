@@ -231,7 +231,9 @@ npm run demo:seed -- --member you@example.com
   a live tick would have stored. Each day keeps the last 30 minutes of events before midnight in
   London, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day in
   every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
-  limit, and the budget alert triggers in the third week of each full month.
+  limit, and the budget alert triggers in the third week of each full month. The alerts the replay
+  triggers count as already sent, so the first tick afterwards emails and posts none of them;
+  alerts that trigger once the history runs live are delivered as usual.
 - `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
   demo workspace; repeat it for more people (an email given twice counts once, and
   `demo@example.com` is refused because it already owns the workspace). The demo account has no
