@@ -14,6 +14,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
 | `20261105002354_digitalocean_provider.sql` | `provider_id` gains `digitalocean` |
+| `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
 | `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
 | `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
 
