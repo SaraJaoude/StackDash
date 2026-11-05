@@ -23,7 +23,8 @@ function formActionSources(supabaseOrigin: string): string {
  * to handle it. That only works for HTML rendered per request: a static shell prerendered at build
  * time carries no nonce. So every page a proxied path can answer with renders its HTML per request
  * (`instant = false` plus `connection()` at the top): each app entry segment (decision on issue
- * #125), and the global not-found page that answers paths matching no route (#197).
+ * #125), the signed-out /unsubscribe page that alert emails link to (#152), and the global
+ * not-found page that answers paths matching no route (#197).
  */
 function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   const isDev = process.env.NODE_ENV === "development";
@@ -155,12 +156,13 @@ export async function proxy(request: NextRequest) {
   return response;
 }
 
-// The signed-in app, the account page, the auth pages, and public project pages (/@ addresses and
-// the /p route they are rewritten to), plus /docs paths with an uppercase letter (answered as not
-// found above, before any session or CSP work). The landing page, the docs, the signed-out
-// /account/deleted page, API routes, and static assets stay out: they need no session refresh, and
-// a nonce would force static pages to render per request. next.config.ts applies the static CSP to
-// every path except the paths listed here; keep them in sync.
+// The signed-in app, the account page, the auth pages, the signed-out /unsubscribe page (it reads
+// its link per request and posts a form, so it gets the full policy), and public project pages (/@
+// addresses and the /p route they are rewritten to), plus /docs paths with an uppercase letter
+// (answered as not found above, before any session or CSP work). The landing page, the docs, the
+// signed-out /account/deleted page, API routes, and static assets stay out: they need no session
+// refresh, and a nonce would force static pages to render per request. next.config.ts applies the
+// static CSP to every path except the paths listed here; keep them in sync.
 //
 // Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
 // paths that contain an uppercase letter and correctly cased docs never invoke the proxy. "/@" is
@@ -173,6 +175,7 @@ export const config = {
     "/account",
     "/sign-in",
     "/auth/:path*",
+    "/unsubscribe",
     "/docs/:path(.*[A-Z].*)",
     "/@:path(.*)",
     "/p/:path*",

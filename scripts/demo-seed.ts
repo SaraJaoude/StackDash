@@ -15,6 +15,8 @@
  * Refuses to run unless DEVMACRO_SIMULATE_PROVIDERS=1 and NEXT_PUBLIC_SUPABASE_URL points at this
  * computer. Rerunning replaces the demo workspace; nothing outside it is touched. Stop
  * `npm run jobs:tick -- --watch` while it runs, then start it again to continue the history live.
+ * The replayed alerts count as already sent, so only alerts that trigger live are emailed or
+ * posted (#152).
  * Reads `.env.local` when present.
  */
 import { existsSync } from "node:fs";
@@ -31,6 +33,7 @@ import {
   createDemoAlerts,
   DEMO_USER_EMAIL,
   ensureDemoUser,
+  markDemoAlertsSent,
   publishDemoProjectPage,
   resetDemoWorkspace,
   resolveMembers,
@@ -123,6 +126,7 @@ async function main(): Promise<number> {
       }
     },
   });
+  await markDemoAlertsSent(admin, { workspaceId: workspace.id, at: new Date() });
 
   const pagePath = await publishDemoProjectPage(admin, { workspaceId: workspace.id, workspaceSlug: workspace.slug, userId });
 

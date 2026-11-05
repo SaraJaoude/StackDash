@@ -5,11 +5,12 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { publishStars, seedProjectWithHistory, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
-// render their HTML per request so Next.js can stamp the nonce on every script. So do public
-// project pages (#150), and the global not-found page that answers paths matching no route, which
-// includes paths under the proxied prefixes (#197). The rest of the site keeps a static policy
-// (next.config.ts). CI runs these against the production build, where a prerendered page under the
-// nonce policy would carry unnonced inline scripts and never hydrate.
+// render their HTML per request so Next.js can stamp the nonce on every script. So do the signed-out
+// unsubscribe page that alert emails link to (#152), public project pages (#150), and the global
+// not-found page that answers paths matching no route, which includes paths under the proxied
+// prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
+// against the production build, where a prerendered page under the nonce policy would carry
+// unnonced inline scripts and never hydrate.
 
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
@@ -114,6 +115,22 @@ test.describe("signed out", () => {
     expectAppPolicy(headers["content-security-policy"]);
     expect(headers["content-security-policy-report-only"]).toBeUndefined();
     await expect(page.getByRole("button", { name: "Continue with GitHub" })).toBeEnabled();
+    await expectHydrated(page);
+    expect(violations).toEqual([]);
+  });
+
+  test("the unsubscribe page enforces the nonce policy, hydrates, and reports no violations", async ({ page }) => {
+    // Alert emails link here signed out (#152). A valid link's button is covered by alert-email.spec.ts,
+    // which needs a sent email; a broken link renders the same page without one.
+    const violations = await watchViolations(page);
+    const response = await page.goto("/unsubscribe?token=not-a-token");
+
+    expect(response?.status()).toBe(200);
+    const headers = response?.headers() ?? {};
+    expectAppPolicy(headers["content-security-policy"]);
+    expect(headers["content-security-policy-report-only"]).toBeUndefined();
+    await expect(page.getByRole("heading", { level: 1, name: "Unsubscribe from alert emails" })).toBeVisible();
+    await expect(page.getByText("This unsubscribe link is incomplete or no longer valid.", { exact: false })).toBeVisible();
     await expectHydrated(page);
     expect(violations).toEqual([]);
   });

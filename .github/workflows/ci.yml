@@ -193,6 +193,16 @@ jobs:
             echo "DEVMACRO_ENABLE_FAKE_PROVIDER=1"
             echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
             echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
+            # Alert email (#152) goes to the stack's mail catcher (supabase/config.toml
+            # [local_smtp], smtp_port 55425; e2e/alert-email.spec.ts reads it on port 55424).
+            echo "DEVMACRO_EMAIL_FROM=DevMacro alerts <alerts@example.com>"
+            echo "DEVMACRO_SMTP_URL=smtp://127.0.0.1:55425"
+            # Links in alert messages need the public origin in a production build: the
+            # Playwright web server's (playwright.config.ts, default port 3100).
+            echo "NEXT_PUBLIC_SITE_URL=http://localhost:3100"
+            # The e2e channel test posts to a webhook receiver on 127.0.0.1, which a
+            # production build refuses unless this is set (#153).
+            echo "DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1"
           } > .env.local
 
       - name: End-to-end tests

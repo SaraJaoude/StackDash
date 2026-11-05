@@ -55,6 +55,12 @@ erDiagram
   projects ||--o{ published_metrics : "publishes"
   projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
+  workspace_members ||--o| notification_preferences : "email setting"
+  workspaces ||--o{ notification_destinations : "channels"
+  notification_destinations ||--|| notification_destination_secrets : "sealed URL (service role only)"
+  notification_destinations ||--o{ alert_rule_destinations : "receives"
+  alert_rules ||--o{ alert_rule_destinations : "sent to"
+  triggered_alerts ||--o{ notification_deliveries : "sent once per target"
 
   workspaces {
     uuid id PK
@@ -109,12 +115,14 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 |---|---|---|
 | `workspaces` | viewer | rename: admin; delete: owner; create: only `create_workspace` (service role) |
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
-| `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules` | viewer | admin |
+| `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
 | `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
+| `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
+| `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
-| `connection_credentials`, `oauth_states`, `access_invites` | none | none (service role; the auth hook reads invites) |
+| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries` | none | none (service role; the auth hook reads invites) |
 
 Defense in depth, following BackTalk's hardening:
 
@@ -177,6 +185,8 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 | `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
 | `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
+| `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
+| `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 
 Nothing is aggregated in the MVP.
 

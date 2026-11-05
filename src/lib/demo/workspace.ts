@@ -319,3 +319,18 @@ export async function publishDemoProjectPage(
   if (saved !== "enabled") throw new Error(`Turning on the demo project page answered ${saved}.`);
   return projectPagePath(input.workspaceSlug, DEMO_PAGE_SLUG);
 }
+
+/**
+ * Marks the alerts the replay triggered as already sent (#152), the way the alert delivery
+ * migration treats alerts recorded before delivery existed. They are history: without this the
+ * first tick after the seed emails months of them as one "N thresholds were crossed" message.
+ * Alerts that trigger once the history continues live are sent as usual.
+ */
+export async function markDemoAlertsSent(admin: Admin, input: Readonly<{ workspaceId: string; at: Date }>): Promise<void> {
+  const { error } = await admin
+    .from("triggered_alerts")
+    .update({ dispatched_at: input.at.toISOString() })
+    .eq("workspace_id", input.workspaceId)
+    .is("dispatched_at", null);
+  if (error) throw new Error(`Marking the replayed alerts as sent failed (code ${error.code}).`);
+}
