@@ -11,7 +11,7 @@ import { isWorkspaceSlug } from "@/lib/workspaces/paths";
 /*
  * Public project pages (#150). The public reads run with the service role through
  * public_project_page() and public_project_page_sitemap(), the one definition of "this page is
- * public" (20261105120400_project_pages.sql); the values come from the metric engine's public API.
+ * public" (20261105120500_project_pages.sql); the values come from the metric engine's public API.
  * The settings read runs as the signed-in member, so row level security limits it to the workspace.
  */
 

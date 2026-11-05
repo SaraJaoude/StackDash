@@ -24,7 +24,7 @@ import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions
  * Publishing and unpublishing (#148), and turning the project page on and off (#150). Owner or
  * admin only: `requireWorkspaceAction` checks the signed-in member, then a service role function
  * writes the row and its timeline audit event in one transaction and checks the member's role
- * again (20261105023129_published_metrics.sql, 20261105120400_project_pages.sql).
+ * again (20261105023129_published_metrics.sql, 20261105120500_project_pages.sql).
  */
 
 export type PublicMetricActionResult =
