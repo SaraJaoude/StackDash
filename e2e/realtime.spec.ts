@@ -448,6 +448,87 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
+  ownerTest("does not mark what changed while the page was out of view, on a link or a back navigation", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Arrival navigation");
+    try {
+      const seeded = await seedConnection(workspace);
+      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      await insertEvent(seeded, "Earlier event");
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", {
+        name: "Spend in USD",
+      });
+      const updated = usd.getByText("Updated", { exact: true });
+      const nav = page.getByRole("navigation", { name: "Workspace" });
+      await expect(usd).toContainText("$43.21");
+      await expectSubscribed(live);
+      const announcements = await recordAnnouncements(page);
+
+      // The dashboard stays mounted but hidden while another page shows (Next.js keeps recent pages
+      // in React Activity), so a sync landing meanwhile reaches it as a change in its state.
+      async function syncWhileOnTimeline(amountMinor: number): Promise<void> {
+        await nav.getByRole("link", { name: "Timeline" }).click();
+        await expect(page).toHaveURL(/\/timeline$/);
+        await expect(page.getByRole("heading", { name: "Earlier event", exact: true })).toBeVisible();
+        const delivered = live.changesReceived();
+        await updateSpendSnapshot(snapshotId, amountMinor);
+        // An event in the same sync shows when the timeline has refreshed past the spend change. It
+        // arrives on the page in view, so it is marked, including on a second visit.
+        const title = `Synced while away ${randomUUID().slice(0, 8)}`;
+        await insertEvent(seeded, title);
+        const row = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
+        await expect(row.getByText(/^,?\s*New$/)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+        await expect.poll(live.changesReceived).toBeGreaterThanOrEqual(delivered + 2);
+      }
+
+      /** Lets any animation the return render started fire its animationstart: two frames. */
+      async function settle(): Promise<void> {
+        await page.evaluate(() => {
+          const { promise, resolve } = Promise.withResolvers<void>();
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+          return promise;
+        });
+      }
+
+      // Away by link, back by link: the new value shows, unmarked and unannounced.
+      await syncWhileOnTimeline(6_000);
+      let startedBefore = await animations();
+      let saidBefore = (await announcements()).length;
+      await nav.getByRole("link", { name: "Dashboard" }).click();
+      await expect(usd).toContainText("$60.00");
+      await settle();
+      await expect(updated).toHaveCount(0);
+      expect(await animations()).toEqual(startedBefore);
+
+      // A sync that lands while the page shows is still marked and announced, and only it is.
+      await updateSpendSnapshot(snapshotId, 7_000);
+      await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(usd).toContainText("$70.00");
+      await expect.poll(async () => (await announcements()).slice(saidBefore)).toEqual(["Spend in USD updated."]);
+      await expect(updated).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Away by link, back with the browser's back button: the same.
+      await syncWhileOnTimeline(8_000);
+      startedBefore = await animations();
+      saidBefore = (await announcements()).length;
+      await page.goBack();
+      await expect(page).toHaveURL(/\/dashboard$/);
+      await expect(usd).toContainText("$80.00");
+      await settle();
+      await expect(updated).toHaveCount(0);
+      expect(await animations()).toEqual(startedBefore);
+      await updateSpendSnapshot(snapshotId, 9_000);
+      await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect.poll(async () => (await announcements()).slice(saidBefore)).toEqual(["Spend in USD updated."]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("under reduced motion, marks a changed value with a static label and announces it once", async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     const workspace = await createTestWorkspace("Arrival reduced motion");

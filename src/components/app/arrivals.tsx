@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -29,10 +30,16 @@ import {
 
 type LiveState = Readonly<{
   status: LiveStatus;
-  /** Batches arrived since the page opened; the indicator pulses once each time it grows. */
-  arrivals: number;
   /** Commit time of the newest change Realtime delivered, from the database clock. */
   lastArrivalAt: string | null;
+}>;
+
+/** The latest batch LiveRefresh announced, and which of the components that mark data saw it. */
+type ArrivalBatch = Readonly<{
+  /** Batches arrived since the page opened; the indicator pulses once each time it grows. */
+  number: number;
+  /** The useRenderDiff ids that were in view when it arrived. */
+  inView: ReadonlySet<string>;
 }>;
 
 type ArrivalControls = Readonly<{
@@ -44,11 +51,15 @@ type ArrivalControls = Readonly<{
    * second run of an effect (React Strict Mode) is not counted twice.
    */
   report: (id: string, report: ArrivalReport) => void;
+  /** A component that marks data is in view until the returned function runs. */
+  watch: (id: string) => () => void;
 }>;
 
-const INITIAL_LIVE_STATE: LiveState = { status: "connecting", arrivals: 0, lastArrivalAt: null };
+const INITIAL_LIVE_STATE: LiveState = { status: "connecting", lastArrivalAt: null };
+const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set() };
 
 const LiveStateContext = createContext<LiveState>(INITIAL_LIVE_STATE);
+const ArrivalBatchContext = createContext<ArrivalBatch>(NO_BATCH);
 const ArrivalControlsContext = createContext<ArrivalControls | null>(null);
 
 // Long enough for a screen reader to notice the region emptied, so the same sentence twice in a
@@ -57,6 +68,8 @@ const ANNOUNCEMENT_RESET_MS = 100;
 
 export function ArrivalProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState<LiveState>(INITIAL_LIVE_STATE);
+  const [batch, setBatch] = useState<ArrivalBatch>(NO_BATCH);
+  const inView = useRef(new Set<string>());
   const [announcement, setAnnouncement] = useState("");
   const pending = useRef(new Map<string, ArrivalReport>());
   const timers = useRef({ flush: 0, announce: 0 });
@@ -79,12 +92,13 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
       arrived(at) {
         setLive((current) => ({
           ...current,
-          arrivals: current.arrivals + 1,
           lastArrivalAt:
             at === null || (current.lastArrivalAt !== null && Date.parse(current.lastArrivalAt) >= Date.parse(at))
               ? current.lastArrivalAt
               : at,
         }));
+        const seen: ReadonlySet<string> = new Set(inView.current);
+        setBatch((current) => ({ number: current.number + 1, inView: seen }));
       },
       setStatus(status) {
         setLive((current) => (current.status === status ? current : { ...current, status }));
@@ -92,6 +106,19 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
       report(id, report) {
         pending.current.set(id, report);
         if (timers.current.flush === 0) timers.current.flush = window.setTimeout(flush, 0);
+      },
+      watch(id) {
+        inView.current.add(id);
+        return () => {
+          inView.current.delete(id);
+          // Hidden before the batch's refresh reached it: that refresh is not an arrival for it.
+          setBatch((current) => {
+            if (!current.inView.has(id)) return current;
+            const seen = new Set(current.inView);
+            seen.delete(id);
+            return { ...current, inView: seen };
+          });
+        };
       },
     };
   });
@@ -107,11 +134,13 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
   return (
     <ArrivalControlsContext value={controls}>
       <LiveStateContext value={live}>
-        {children}
-        {/* In the page from the first render, so a later sentence is a change a screen reader hears. */}
-        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
-          {announcement}
-        </p>
+        <ArrivalBatchContext value={batch}>
+          {children}
+          {/* In the page from the first render, so a later sentence is a change a screen reader hears. */}
+          <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
+            {announcement}
+          </p>
+        </ArrivalBatchContext>
       </LiveStateContext>
     </ArrivalControlsContext>
   );
@@ -133,31 +162,65 @@ export function ArrivalScope({ scope, children }: { scope: string; children: Rea
 }
 
 export type RenderDiff<T> = Readonly<{
-  /** What the previous render in the same scope showed; null on the first render of a scope. */
+  /** What the previous render showed, when this render's change arrived in view; otherwise null. */
   previous: T | null;
-  /** Grows by one each time the value changes within a scope. */
+  /** Grows by one with each change that arrived in view. */
   batch: number;
 }>;
 
-type DiffState<T> = RenderDiff<T> & Readonly<{ scope: string | null; signature: string; value: T }>;
+type DiffState<T> = RenderDiff<T> &
+  Readonly<{
+    scope: string | null;
+    signature: string;
+    value: T;
+    /** The batch number when the value was taken, so one batch marks a change once. */
+    arrival: number;
+  }>;
 
 /**
  * The previous render's value, kept in state as React documents for information from previous
  * renders (https://react.dev/reference/react/useState#storing-information-from-previous-renders).
  * `signature` identifies the value, so a refresh that brings identical data changes nothing.
  * Outside an ArrivalScope there is never a previous value, so nothing animates.
+ *
+ * A change is an arrival only when a batch arrived while this component was in view. Leaving a
+ * page does not unmount it: with Cache Components, Next.js keeps recent pages in a hidden React
+ * Activity and shows them again, state and all, on return (node_modules/next/dist/docs/01-app/
+ * 02-guides/preserving-ui-state.md). Hiding runs layout effect cleanups and showing runs the
+ * layout effects again, so the layout effect tells the provider when this is in view, and the
+ * cleanup drops the last comparison, so nothing marked replays when the page shows again.
+ * Whatever changed while the page was hidden then shows unmarked: that is navigation, not arrival.
  */
 export function useRenderDiff<T>(value: T, signature: string): RenderDiff<T> {
   const scope = useContext(ScopeContext);
-  const [state, setState] = useState<DiffState<T>>({ scope, signature, value, previous: null, batch: 0 });
+  const controls = useContext(ArrivalControlsContext);
+  const arrival = useContext(ArrivalBatchContext);
+  const id = useId();
+  const [state, setState] = useState<DiffState<T>>({
+    scope,
+    signature,
+    value,
+    previous: null,
+    batch: 0,
+    arrival: arrival.number,
+  });
+  useLayoutEffect(() => {
+    const unwatch = controls?.watch(id);
+    return () => {
+      unwatch?.();
+      setState((current) => (current.previous === null ? current : { ...current, previous: null }));
+    };
+  }, [controls, id]);
   if (state.scope === scope && state.signature === signature) return state;
-  const sameScope = scope !== null && state.scope === scope;
+  const arrived =
+    scope !== null && state.scope === scope && arrival.number !== state.arrival && arrival.inView.has(id);
   const next: DiffState<T> = {
     scope,
     signature,
     value,
-    previous: sameScope ? state.value : null,
-    batch: sameScope ? state.batch + 1 : state.batch,
+    previous: arrived ? state.value : null,
+    batch: arrived ? state.batch + 1 : state.batch,
+    arrival: arrival.number,
   };
   setState(next);
   return next;
@@ -194,7 +257,8 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  * focus leaves, and a press keeps it open for touch screens.
  */
 export function LiveIndicator() {
-  const { status, arrivals, lastArrivalAt } = useContext(LiveStateContext);
+  const { status, lastArrivalAt } = useContext(LiveStateContext);
+  const arrivals = useContext(ArrivalBatchContext).number;
   const text = liveStatusText(status);
   const tooltipId = useId();
   const [pinned, setPinned] = useState(false);
