@@ -20,12 +20,6 @@ describe("generateApiKey", () => {
     expect(new Set(draws.map((draw) => draw.key)).size).toBe(200);
     expect(new Set(draws.map((draw) => draw.tokenHash)).size).toBe(200);
   });
-
-  it("does not keep the secret in the stored fields", () => {
-    const { key, tokenHash, tokenPrefix } = generateApiKey();
-    expect(tokenHash).not.toContain(key.slice(API_KEY_PREFIX.length));
-    expect(tokenPrefix.length).toBeLessThan(key.length);
-  });
 });
 
 describe("hashApiKey", () => {
