@@ -1,22 +1,23 @@
 import { createHash, randomUUID } from "node:crypto";
 
-import { DAY_MS, SLOT_MS, utcDayStart } from "@/lib/adapters/simulated/simulation";
+import { SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
+import { DAY_MS, SLOT_MS } from "@/lib/adapters/simulated/simulation";
 import { dailySummaryJobKey, runDailySummaryJob } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
 import type { ClaimedJob } from "@/lib/jobs/store";
 import { runSyncJob, type JobOutcome, type SyncDeps } from "@/lib/jobs/sync-connection";
+import { londonDate } from "@/lib/timeline/days";
 import { londonDayStart } from "@/lib/timeline/query";
 
 /*
  * The 90 day history behind the demo workspace (#166). The simulated providers (#131) make up every
  * value from the clock, so the history is built by moving the clock, not by writing rows: one
- * step per UTC day, each running the same job code as a live tick (`runSyncJob` with its
+ * step per London day, each running the same job code as a live tick (`runSyncJob` with its
  * validation, ingest, and alert evaluation, then `runDailySummaryJob`) with `now` set to that day.
  * The demo therefore cannot show anything the real pipeline would reject.
  */
 
 export const DEMO_HISTORY_DAYS = 90;
-export const SIMULATE_PROVIDERS_FLAG = "DEVMACRO_SIMULATE_PROVIDERS=1";
 
 /**
  * Why the demo seed must not run here, or null when it may. It writes only with simulation on
@@ -25,7 +26,7 @@ export const SIMULATE_PROVIDERS_FLAG = "DEVMACRO_SIMULATE_PROVIDERS=1";
  */
 export function demoSeedRefusal(input: Readonly<{ simulationEnabled: boolean; supabaseUrl: string | undefined }>): string | null {
   if (!input.simulationEnabled) {
-    return `Provider simulation is off. Set ${SIMULATE_PROVIDERS_FLAG} in .env.local and run the demo seed again.`;
+    return `Provider simulation is off. Set ${SIMULATE_PROVIDERS_ENV}=1 in .env.local and run the demo seed again.`;
   }
   if (input.supabaseUrl === undefined || input.supabaseUrl.trim() === "") {
     return "NEXT_PUBLIC_SUPABASE_URL is not set. Start the local Supabase stack and copy its URL into .env.local.";
@@ -59,25 +60,27 @@ export function demoAccountSeed(seed: string, provider: string): string {
 
 export type HistoryStep = Readonly<{
   at: Date;
-  /** The UTC day this step closes, whose daily summary runs after its syncs; null for today. */
+  /** The day this step closes, the same date in London and in UTC at `at`, whose daily summary runs after its syncs; null for today. */
   summaryDate: string | null;
 }>;
 
 /**
- * The replay clock: for each of the `days` UTC days before today, oldest first, the last 10 second
- * slot before that day ends in London, then `now`. London runs on UTC or one hour ahead, so that
- * instant is always late in the same UTC day: its snapshot carries the day's totals under the
- * day's date, and the half hour of events a step reads lands on the same day on the timeline,
- * which groups by London days. The step at `now` leaves every cursor where
- * `npm run jobs:tick -- --watch` continues from.
+ * The replay clock: for each of the `days` London days before the one `now` falls on, oldest
+ * first, the last 10 second slot before that day ends, then `now`. London runs on UTC or one hour
+ * ahead, so that instant is always late in the same UTC day: its snapshot carries the day's totals
+ * under the day's date, and the half hour of events a step reads lands on the same day on the
+ * timeline, which groups by London days. Counting back from the London date, not the UTC one,
+ * keeps the day that just ended when the seed runs after London midnight but before UTC midnight.
+ * The step at `now` leaves every cursor where `npm run jobs:tick -- --watch` continues from.
  */
 export function historySteps(now: Date, days: number = DEMO_HISTORY_DAYS): HistoryStep[] {
-  const today = utcDayStart(now.getTime());
+  // The London date of `now` as a UTC midnight, so whole days can be counted back in milliseconds.
+  const today = Date.parse(`${londonDate(now)}T00:00:00Z`);
   const steps: HistoryStep[] = [];
   for (let back = days; back >= 1; back -= 1) {
-    const day = today - back * DAY_MS;
-    const at = new Date(londonDayStart(utcDate(new Date(day + DAY_MS))).getTime() - SLOT_MS);
-    steps.push({ at, summaryDate: utcDate(new Date(day)) });
+    const nextDay = utcDate(new Date(today - (back - 1) * DAY_MS));
+    const at = new Date(londonDayStart(nextDay).getTime() - SLOT_MS);
+    steps.push({ at, summaryDate: utcDate(at) });
   }
   steps.push({ at: now, summaryDate: null });
   return steps;

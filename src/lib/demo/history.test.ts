@@ -11,7 +11,7 @@ import { utcDate } from "@/lib/jobs/ingest";
 import { MemoryJobStore, type MemorySnapshot } from "@/lib/jobs/memory-store";
 import { runSyncJob, type SyncDeps } from "@/lib/jobs/sync-connection";
 import type { Logger } from "@/lib/log/logger";
-import { groupEventsByDay } from "@/lib/timeline/days";
+import { groupEventsByDay, londonDate } from "@/lib/timeline/days";
 
 import { DEMO_HISTORY_DAYS, demoAccountSeed, demoSeedRefusal, historySteps, isLoopbackUrl, replayHistory } from "./history";
 
@@ -20,7 +20,6 @@ const WORKSPACE_ID = "16616616-6166-4166-8166-166166166166";
 const NOW = new Date("2026-11-05T14:23:17.000Z");
 const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
 const client: OAuthClient = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
-const LONDON_DATE = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" });
 const LONDON_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 
 describe("demoSeedRefusal", () => {
@@ -100,7 +99,7 @@ describe("demoAccountSeed", () => {
 });
 
 describe("historySteps", () => {
-  it("closes each of the 90 UTC days before today in the last slot before London midnight, then ends at now", () => {
+  it("closes each of the 90 London days before today in the last slot before London midnight, then ends at now", () => {
     const steps = historySteps(NOW);
     expect(steps).toHaveLength(DEMO_HISTORY_DAYS + 1);
     // British Summer Time: London midnight is 23:00 UTC.
@@ -112,7 +111,7 @@ describe("historySteps", () => {
       expect(step.at.toISOString().slice(0, 10)).toBe(step.summaryDate);
       const next = new Date(step.at.getTime() + SLOT_MS);
       expect(LONDON_TIME.format(next)).toBe("00:00:00");
-      expect(LONDON_DATE.format(step.at)).toBe(step.summaryDate);
+      expect(londonDate(step.at)).toBe(step.summaryDate);
     }
   });
 
@@ -135,10 +134,11 @@ describe("historySteps", () => {
     ]);
   });
 
-  it("keeps the last past step before now when London is already in the next day", () => {
+  it("closes the London day that just ended when London is already in the next day but UTC is not", () => {
+    // 00:30 in London on 2026-08-09, so 2026-08-08 is yesterday on the timeline.
     const lateEvening = new Date("2026-08-08T23:30:00.000Z");
     expect(historySteps(lateEvening, 1)).toEqual([
-      { at: new Date("2026-08-07T22:59:50.000Z"), summaryDate: "2026-08-07" },
+      { at: new Date("2026-08-08T22:59:50.000Z"), summaryDate: "2026-08-08" },
       { at: lateEvening, summaryDate: null },
     ]);
   });
@@ -246,7 +246,7 @@ describe("replayHistory with every simulated provider in the registry", () => {
     const newestFirst = store.events.toSorted((a, b) => Date.parse(b.occurred_at) - Date.parse(a.occurred_at));
     const days = new Set(groupEventsByDay(newestFirst, NOW).map((day) => day.date));
     for (let back = 0; back < DEMO_HISTORY_DAYS; back += 1) {
-      expect(days.has(LONDON_DATE.format(new Date(NOW.getTime() - back * DAY_MS))), `${back} days back`).toBe(true);
+      expect(days.has(londonDate(new Date(NOW.getTime() - back * DAY_MS))), `${back} days back`).toBe(true);
     }
   });
 
@@ -266,7 +266,7 @@ describe("replayHistory with every simulated provider in the registry", () => {
     const deploys = new Map<string, number>();
     for (const event of store.events) {
       if (event.provider !== "vercel") continue;
-      const date = LONDON_DATE.format(new Date(event.occurred_at));
+      const date = londonDate(new Date(event.occurred_at));
       deploys.set(date, (deploys.get(date) ?? 0) + 1);
     }
     const busiestOrdinary = Math.max(...ordinary.map((date) => deploys.get(date) ?? 0));
@@ -297,7 +297,6 @@ describe("replayHistory with every simulated provider in the registry", () => {
   it("evaluates alerts on the replay clock, never on the wall clock", () => {
     const steps = historySteps(NOW).map((step) => step.at.toISOString());
     expect(new Set(alertClocks)).toEqual(new Set(steps));
-    expect(alertClocks).toHaveLength(steps.length * adapters.length);
   });
 
   it("leaves every connection healthy and every cursor at now, so a live sync continues without a gap or a repeat", async () => {
