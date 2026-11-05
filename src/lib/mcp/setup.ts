@@ -1,10 +1,15 @@
 /*
  * How to connect each MCP client to this instance (#163), for the settings page. docs/mcp.md walks
  * through the same steps with the URL as $DEVMACRO_URL. The key is never written into a snippet:
- * each one reads it from DEVMACRO_API_KEY, or says where to paste it.
+ * Claude Code and Cursor read it from DEVMACRO_API_KEY each time they connect, and the Claude
+ * Desktop snippet holds a placeholder to replace in that app's own config file.
  *
  * Sources, checked 2026-11-05:
- * - Claude Code: https://code.claude.com/docs/en/mcp, "Option 1: Add a remote HTTP server".
+ * - Claude Code: https://code.claude.com/docs/en/mcp, "Option 1: Add a remote HTTP server",
+ *   "Environment variable expansion in .mcp.json", and "How references appear in /mcp and CLI
+ *   output": a ${VAR} reference in a remote server's headers is stored as written, in the local,
+ *   project, and user scope alike, and expanded when Claude Code connects. The single quotes keep
+ *   the shell from expanding it first, which would store the key itself in ~/.claude.json.
  * - Claude Desktop: Settings, Developer, Edit Config, then a restart, per
  *   https://modelcontextprotocol.io/docs/develop/connect-local-servers. The remote server is reached
  *   through mcp-remote (README, "Custom Headers", https://www.npmjs.com/package/mcp-remote), with
@@ -50,8 +55,8 @@ export function mcpClientSetups(endpointUrl: string): readonly McpClientSetup[] 
     {
       id: "claude-code",
       name: "Claude Code",
-      instructions: `Put the key in ${KEY_VARIABLE} in your shell, then run this once. Check it with claude mcp list.`,
-      snippet: `claude mcp add --transport http devmacro ${endpointUrl} \\\n  --header "Authorization: Bearer $${KEY_VARIABLE}"`,
+      instructions: `Put the key in ${KEY_VARIABLE} in the environment Claude Code starts from, then run this once. Claude Code saves the variable's name, not the key. Check it with claude mcp list.`,
+      snippet: `claude mcp add --transport http devmacro ${endpointUrl} \\\n  --header 'Authorization: Bearer \${${KEY_VARIABLE}}'`,
     },
     {
       id: "claude-desktop",

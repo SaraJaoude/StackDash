@@ -22,11 +22,11 @@ Each example reads the key from the environment rather than writing it into a fi
 
 ```bash
 claude mcp add --transport http devmacro "$DEVMACRO_URL/api/mcp" \
-  --header "Authorization: Bearer $DEVMACRO_API_KEY"
+  --header 'Authorization: Bearer ${DEVMACRO_API_KEY}'
 claude mcp list
 ```
 
-`claude mcp list` shows `devmacro` as connected. Add `--scope project` to share the server through the project's `.mcp.json`; there, write the header as `"Authorization": "Bearer ${DEVMACRO_API_KEY}"` so the key stays in each person's environment ([Claude Code, MCP](https://code.claude.com/docs/en/mcp)).
+The single quotes keep your shell from expanding `${DEVMACRO_API_KEY}`, so Claude Code saves the reference, not the key, and reads the variable each time it connects; `claude mcp list` and `/mcp` show the reference by name ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Environment variable expansion in .mcp.json"). `claude mcp list` shows `devmacro` as connected. Add `--scope project` to share the server through the project's `.mcp.json`; each person's key stays in their own environment.
 
 ### Claude Desktop
 

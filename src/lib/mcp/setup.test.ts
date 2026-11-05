@@ -39,7 +39,7 @@ describe("mcpClientSetups", () => {
 
   it("reads the key from the environment in the Claude Code command rather than embedding one", () => {
     expect(byId["claude-code"]?.snippet).toBe(
-      `claude mcp add --transport http devmacro ${endpoint} \\\n  --header "Authorization: Bearer $DEVMACRO_API_KEY"`,
+      `claude mcp add --transport http devmacro ${endpoint} \\\n  --header 'Authorization: Bearer \${DEVMACRO_API_KEY}'`,
     );
   });
 
