@@ -6,7 +6,8 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { openFilters } from "./fixtures/filters";
 
-// Every test seeds its own workspace with synthetic data from the fake provider only.
+// Every test seeds its own workspace with synthetic data: from the fake provider by default, and
+// GitHub rows where a GitHub shape is the subject.
 
 const HOUR_MS = 3_600_000;
 
