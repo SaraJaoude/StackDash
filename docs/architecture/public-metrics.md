@@ -16,8 +16,8 @@ Issues: #148, epic #147. The numbers a workspace can choose to make public, how 
 | Label | Meaning | Where it may appear |
 |---|---|---|
 | Verified | Counted from what the provider reported | Every surface |
-| Estimated | Calculated by DevMacro | Every surface, labelled Estimated |
-| Self-reported | Typed by a person on the public metrics page | The project page only, labelled Self-reported. Never on a badge, a card that claims Verified, or a leaderboard |
+| Estimated | Calculated by DevMacro | Every surface, labeled Estimated |
+| Self-reported | Typed by a person on the public metrics page | The project page only, labeled Self-reported. Never on a badge, a card that claims Verified, or a leaderboard |
 
 Every metric in the first set below is Verified.
 

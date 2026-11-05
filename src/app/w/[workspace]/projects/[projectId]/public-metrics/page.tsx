@@ -94,7 +94,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
       </p>
       <PageHeader
         title={`Public metrics for ${project.name}`}
-        description="Choose which numbers anyone can see. Nothing is public until you publish it. Spend, budgets, and alerts can never be published, and no account or repository names are shown."
+        description="Choose which numbers anyone can see. Nothing is public until you publish it. Spend, budgets, and alerts from your providers can never be published, and no account or repository names are shown."
       />
 
       <PublicationAnnouncer>
@@ -160,7 +160,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               Self-reported values
             </h2>
             <p className="mt-1 text-sm leading-6 text-muted">
-              Numbers you type yourself. They appear on the project page labelled Self-reported, and never on a
+              Numbers you type yourself. They appear on the project page labeled Self-reported, and never on a
               badge or a leaderboard.
             </p>
           </div>
