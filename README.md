@@ -2,17 +2,21 @@
 
 The big picture of your developer stack.
 
-DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog,
-Polar, Sentry, and Railway over OAuth (never with pasted API keys), and DevMacro syncs their usage on a
-schedule, shows it per workspace and project, keeps a timeline of activity, and raises alerts before a
-limit or budget becomes a problem.
+DevMacro is an open-source dashboard with one timeline and one alert for your whole developer stack.
+You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry, and
+Railway over OAuth (never with pasted provider keys), and DevMacro syncs them on a schedule:
+deploys, stars, signups, payments, and errors land in one feed per workspace and project. Alerts
+reach you by email, Slack, Discord, or webhook before a limit or budget becomes a problem, with
+daily or weekly digests on the same channels. Unusual daily spend and usage is flagged on the
+timeline with no setup. Publish the stats you choose as a project page, README badges, and cards,
+read a workspace from your own scripts through a read-only REST API or from an AI assistant
+through a read-only MCP server, and see spend and allowances where each provider reports them.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Webhooks come after the MVP. Sentry is built from Sentry's documentation and not yet tried
-against a real organization, and until Sentry approves the hosted integration's publication only
-the organization that registered it can install it; self-hosters register their own
-([Sentry provider page](docs/providers/sentry.md)).
+list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Sentry is built
+from Sentry's documentation and not yet tried against a real organization, and until Sentry
+approves the hosted integration's publication only the organization that registered it can
+install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
 
 ## Stack
 

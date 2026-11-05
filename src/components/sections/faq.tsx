@@ -21,7 +21,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Will any of my data be public?",
-    answer: "Not unless you choose to share it. Everything is private by default. An optional feature being explored for after the first release would let you publish milestone cards or a project page, picking each metric yourself. Credentials can never be published, and spending, budgets, and billing details are never shared automatically.",
+    answer: "Not unless you publish it. Everything is private by default. You choose each metric to publish, one at a time, and can round it or delay it 7 days first. Only verified metrics can count toward any public ranking. Self-reported numbers can appear on your project page, labeled self-reported. Credentials can never be published, and spending, budgets, and billing details are never shared automatically.",
   },
   {
     question: "Are the costs exact?",
@@ -33,11 +33,15 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Which services come first?",
-    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, and Railway, all connected with OAuth. GitLab, Polar, Sentry, and ElevenLabs are planned next. The OpenAI and Anthropic APIs only share usage with admin API keys, so they wait until an OAuth route exists.",
+    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, and Sentry, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. GitLab and ElevenLabs are planned next. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
   },
   {
-    question: "Will there be an API or MCP server?",
-    answer: `Yes, soon after the first release: a public REST API with scoped keys, and a read-only MCP server so AI assistants can answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials.`,
+    question: "Will it show OpenAI and Anthropic API spend?",
+    answer: "Not yet. Both share usage and cost only with an organization admin API key, not through OAuth. Once those adapters exist, they will connect with an admin key, restricted where the provider allows it, and be labeled Elevated access required, because an admin key is not read-only.",
+  },
+  {
+    question: "Is there an API or MCP server?",
+    answer: `The first release includes a read-only REST API with scoped keys, so your own scripts and dashboards can read usage, spend, timeline events, alerts, and connection status. A read-only MCP server on the same keys lets AI assistants such as Claude Code, Claude Desktop, or Cursor answer questions like "which provider is closest to its limit?" without ever seeing your provider credentials. The API and MCP guides are in the docs.`,
   },
 ];
 

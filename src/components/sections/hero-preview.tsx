@@ -18,7 +18,7 @@ const previewRows: readonly PreviewRow[] = [
   { provider: "Resend", detail: "Monthly emails · resets in 9 days", source: "Allowance", measure: { kind: "share", percentUsed: 75 } },
   { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", source: "Allowance", measure: { kind: "share", percentUsed: 42 } },
   { provider: "Stripe", detail: "Processing fees this month", source: "Verified cost", measure: { kind: "amount", amountMinor: 1450 } },
-  { provider: "GitHub Copilot", detail: "Premium requests beyond the plan", source: "Verified cost", measure: { kind: "amount", amountMinor: 400 } },
+  { provider: "GitHub Copilot", detail: "AI Credits beyond the plan", source: "Verified cost", measure: { kind: "amount", amountMinor: 400 } },
   { provider: "GitHub Actions", detail: "Larger runner minutes, not in the allowance", source: "Verified cost", measure: { kind: "amount", amountMinor: 240 } },
   { provider: "Supabase", detail: "Pro plan price, from published pricing", source: "Estimated cost", measure: { kind: "amount", amountMinor: 2500 } },
 ];
