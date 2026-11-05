@@ -4,6 +4,7 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
 import {
   aggregateDashboard,
+  dropSubWindows,
   dropSupersededBreakdowns,
   freshnessLabel,
   hasSimulatedSource,
@@ -213,6 +214,64 @@ describe("aggregateDashboard by project", () => {
   });
 });
 
+describe("aggregateDashboard GitHub spend levels (#137)", () => {
+  // GitHub reports the same money per product month to date, per SKU, and per product per day.
+  const github: ConnectionInput = { ...connection, provider: "github", display_name: "GitHub org" };
+  const day = { period_start: "2026-10-15T00:00:00.000Z", period_end: "2026-10-16T00:00:00.000Z" } as const;
+  const levels = [
+    money({ metric_key: "github.daily_spend.actions", amount_minor: 1_252, currency: "USD", ...day }),
+    money({ metric_key: "github.spend.actions", amount_minor: 5_175, currency: "USD" }),
+    money({ metric_key: "github.spend.actions.actions_linux", amount_minor: 5_175, currency: "USD" }),
+  ];
+
+  it("counts the month to date product spend once, not the SKU and daily levels again", () => {
+    const view = aggregateDashboard(input(levels, { connections: [github] }));
+    expect(view.totals.map(({ currency, verified }) => [currency, verified?.amountMinor])).toEqual([["USD", 5_175]]);
+    expect(view.byProvider[0]?.spend[0]?.verified?.amountMinor).toBe(5_175);
+    expect(view.byProject[0]?.spend[0]?.verified?.amountMinor).toBe(5_175);
+  });
+
+  it("shows the month as the billing period, not the day, whatever order the rows arrive in", () => {
+    for (const rows of [levels, [...levels].reverse()]) {
+      const view = aggregateDashboard(input(rows, { connections: [github] }));
+      expect(view.byProvider[0]?.billingPeriod).toEqual({ start: MONTH.period_start, end: MONTH.period_end });
+    }
+  });
+});
+
+describe("aggregateDashboard billing period", () => {
+  it("shows the whole month when the Fake provider reports month to date spend and a month estimate, in either order", () => {
+    // As the Fake adapter reports them: verified spend from the month start to tomorrow, and an
+    // estimate for the whole month.
+    const monthToDate = money({
+      metric_key: "fake.spend.month",
+      amount_minor: 1_000,
+      currency: "USD",
+      period_start: MONTH.period_start,
+      period_end: "2026-10-16T00:00:00.000Z",
+    });
+    const estimate = money({ metric_key: "fake.cost.estimate", kind: "estimated_spend", amount_minor: 2_500, currency: "USD" });
+    for (const rows of [
+      [monthToDate, estimate],
+      [estimate, monthToDate],
+    ]) {
+      expect(aggregateDashboard(input(rows)).byProvider[0]?.billingPeriod).toEqual({ start: MONTH.period_start, end: MONTH.period_end });
+    }
+  });
+
+  it("shows the period that starts first, even when it ends first, in either order", () => {
+    const cycle = { period_start: "2026-09-20T00:00:00.000Z", period_end: "2026-10-20T00:00:00.000Z" } as const;
+    const earlier = money({ metric_key: "fake.spend.cycle", amount_minor: 1_000, currency: "USD", ...cycle });
+    const estimate = money({ metric_key: "fake.cost.estimate", kind: "estimated_spend", amount_minor: 2_500, currency: "USD" });
+    for (const rows of [
+      [earlier, estimate],
+      [estimate, earlier],
+    ]) {
+      expect(aggregateDashboard(input(rows)).byProvider[0]?.billingPeriod).toEqual({ start: cycle.period_start, end: cycle.period_end });
+    }
+  });
+});
+
 describe("aggregateDashboard simulated sources (#131)", () => {
   // A real connection and a simulated one in the same workspace, each with one account.
   const simulated: ConnectionInput = { ...connection, id: "c2", display_name: "Simulated account", granted_scopes: [SIMULATED_SCOPE] };
@@ -365,6 +424,73 @@ describe("dropSupersededBreakdowns", () => {
       money({ metric_key: "vercel.other.usage", amount_minor: 50, currency: "USD" }),
     ];
     expect(dropSupersededBreakdowns(rows).map((row) => row.metric_key)).toEqual(["vercel.spend.total", "vercel.other.usage"]);
+  });
+
+  it("keeps a product and drops its SKUs, as GitHub reports them", () => {
+    const rows = [
+      money({ metric_key: "github.spend.actions", amount_minor: 5_175, currency: "USD" }),
+      money({ metric_key: "github.spend.actions.actions_linux", amount_minor: 5_000, currency: "USD" }),
+      money({ metric_key: "github.spend.actions.actions_macos", amount_minor: 175, currency: "USD" }),
+      money({ metric_key: "github.spend.copilot", amount_minor: 100, currency: "USD" }),
+    ];
+    expect(dropSupersededBreakdowns(rows).map((row) => row.metric_key)).toEqual(["github.spend.actions", "github.spend.copilot"]);
+  });
+
+  it.each([
+    ["there is no product row", []],
+    ["the product row is another account", [{ external_account_id: "a2" }]],
+    ["the product row is another currency", [{ currency: "EUR" }]],
+    ["the product row is another kind", [{ kind: "estimated_spend" as const }]],
+  ])("keeps a SKU when %s", (_name, parents: Partial<SnapshotInput>[]) => {
+    const sku = money({ metric_key: "github.spend.actions.actions_linux", amount_minor: 5_175, currency: "USD" });
+    const products = parents.map((parent) => money({ metric_key: "github.spend.actions", amount_minor: 5_175, currency: "USD", ...parent }));
+    expect(dropSupersededBreakdowns([...products, sku])).toContain(sku);
+  });
+
+  it("keeps a key two segments below another one", () => {
+    const rows = [
+      money({ metric_key: "github.spend", amount_minor: 1, currency: "USD" }),
+      money({ metric_key: "github.spend.actions.actions_linux", amount_minor: 1, currency: "USD" }),
+    ];
+    expect(dropSupersededBreakdowns(rows)).toHaveLength(2);
+  });
+});
+
+describe("dropSubWindows", () => {
+  const day = { period_start: "2026-10-15T00:00:00.000Z", period_end: "2026-10-16T00:00:00.000Z" } as const;
+  const month = money({ metric_key: "github.spend.actions", amount_minor: 5_175, currency: "USD" });
+  const today = money({ metric_key: "github.daily_spend.actions", amount_minor: 1_252, currency: "USD", ...day });
+
+  it("drops a day inside a month of the same account, kind, and currency", () => {
+    expect(dropSubWindows([today, month])).toEqual([month]);
+  });
+
+  it("drops a shorter window that starts with the month", () => {
+    const monthToDate = { ...today, period_start: MONTH.period_start, period_end: "2026-10-15T11:30:00.000Z" };
+    expect(dropSubWindows([monthToDate, month])).toEqual([month]);
+  });
+
+  it.each([
+    ["there is no longer window", [today], [today]],
+    ["the windows are equal, as Vercel's services and total are", [month, { ...month, metric_key: "vercel.spend.tax" }], null],
+    ["the longer window is another account", [today, { ...month, external_account_id: "a2" }], null],
+    ["the longer window is another currency", [today, { ...month, currency: "EUR" }], null],
+    ["the longer window is another kind", [today, { ...month, kind: "estimated_spend" as const }], null],
+    ["the longer window is a usage reading", [today, quantity({ metric_key: "github.usage.actions.minutes", kind: "usage", value: 1, unit: "minutes" })], null],
+    ["the row is a point in time reading", [{ ...today, period_start: null, period_end: null, point_at: "2026-10-15T11:30:00.000Z" }, month], null],
+  ])("keeps every row when %s", (_name, rows, expected) => {
+    expect(dropSubWindows(rows)).toEqual(expected ?? rows);
+  });
+
+  it("never lets a rolling window that starts mid day hide the month inside it", () => {
+    const monthToDate = money({ metric_key: "stripe.fees.month.usd", amount_minor: 100, currency: "USD", period_end: NOW.toISOString() });
+    const rolling = { ...monthToDate, metric_key: "stripe.fees.last_30_days.usd", period_start: "2026-09-15T12:00:00.000Z" };
+    expect(dropSubWindows([monthToDate, rolling])).toEqual([monthToDate, rolling]);
+  });
+
+  it("drops a day inside a month for revenue too", () => {
+    const revenue = { ...month, kind: "revenue" as const };
+    expect(dropSubWindows([{ ...today, kind: "revenue" }, revenue])).toEqual([revenue]);
   });
 });
 

@@ -57,6 +57,10 @@ const PLATFORM_MARKS: Record<Platform, BrandMark> = {
     fill: "#3FCF8E",
     path: "M11.9 1.036c-.015-.986-1.26-1.41-1.874-.637L.764 12.05C-.33 13.427.65 15.455 2.409 15.455h9.579l.113 7.51c.014.985 1.259 1.408 1.873.636l9.262-11.653c1.093-1.375.113-3.403-1.645-3.403h-9.642z",
   },
+  DigitalOcean: {
+    fill: "#0080FF",
+    path: "M12.04 0C5.408-.02.005 5.37.005 11.992h4.638c0-4.923 4.882-8.731 10.064-6.855a6.95 6.95 0 014.147 4.148c1.889 5.177-1.924 10.055-6.84 10.064v-4.61H7.391v4.623h4.61V24c7.86 0 13.967-7.588 11.397-15.83-1.115-3.59-3.985-6.446-7.575-7.575A12.8 12.8 0 0012.039 0zM7.39 19.362H3.828v3.564H7.39zm-3.563 0v-2.978H.85v2.978z",
+  },
   // Polar is not in Simple Icons. Path from the official logomark in Polar's brand kit
   // (https://polar.sh/brand, polar_brand.zip, Logomark/logomark_black.svg, checked 2026-11-05),
   // scaled from its 1510 viewBox to 24 and clipped to its circular mask. The mark is monochrome,
@@ -257,6 +261,15 @@ export function PuzzleIcon(props: IconProps) {
   return (
     <svg {...base(props)}>
       <path d="M14 4a2 2 0 1 0-4 0v2H6a2 2 0 0 0-2 2v4h2a2 2 0 1 1 0 4H4v4a2 2 0 0 0 2 2h4v-2a2 2 0 1 1 4 0v2h4a2 2 0 0 0 2-2v-4h-2a2 2 0 1 1 0-4h2V8a2 2 0 0 0-2-2h-4V4Z" />
+    </svg>
+  );
+}
+
+export function SearchIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
     </svg>
   );
 }
