@@ -31,7 +31,10 @@ export function focusSkipTarget(target: SkipTarget): void {
 /**
  * The first control on every page. Before hydration it is a plain fragment link that scrolls to
  * `#main`; once hydrated it also moves focus there. The fragment navigation still runs, so the
- * address ends in `#main` either way.
+ * address ends in `#main` either way. A skip that lands after this link has hydrated but before the
+ * page's `main` has adds a tabindex React then reports in development as a hydration mismatch; React
+ * logs it and does not patch it up, so the blur listener still clears the attribute, and
+ * `suppressHydrationWarning` on every `main` was judged worse.
  */
 export function SkipLink() {
   return (
