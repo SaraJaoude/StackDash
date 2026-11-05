@@ -1,0 +1,52 @@
+{
+  "data_points": [
+    {
+      "usage_team_urn": "do:team:11111111-a636-11ec-a6ac-1323bf96ef4d",
+      "start_date": "2026-11-03",
+      "total_amount": "0.86",
+      "region": "nyc3",
+      "sku": "1-DO-DROP-0109",
+      "description": "droplet name (c-2-4GiB)",
+      "group_description": ""
+    },
+    {
+      "usage_team_urn": "do:team:11111111-a636-11ec-a6ac-1323bf96ef4d",
+      "start_date": "2026-11-04",
+      "total_amount": "0.86",
+      "region": "nyc3",
+      "sku": "1-DO-DROP-0109",
+      "description": "droplet name (c-2-4GiB)",
+      "group_description": ""
+    },
+    {
+      "usage_team_urn": "do:team:11111111-a636-11ec-a6ac-1323bf96ef4d",
+      "start_date": "2026-11-04",
+      "total_amount": "0.425",
+      "region": "ams3",
+      "sku": "1-DO-DROP-0109",
+      "description": "second droplet (c-2-4GiB)",
+      "group_description": ""
+    },
+    {
+      "usage_team_urn": "do:team:11111111-a636-11ec-a6ac-1323bf96ef4d",
+      "start_date": "2026-11-04",
+      "total_amount": "2.57",
+      "region": "nyc3",
+      "sku": "1-KS-K8SWN-00109",
+      "description": "3 nodes - 4 GB / 2 vCPU / 80 GB SSD",
+      "group_description": "kubernetes cluster name"
+    },
+    {
+      "usage_team_urn": "do:team:99999999-1234-1234-1234-123456789012",
+      "start_date": "2026-11-04",
+      "total_amount": "9.99",
+      "region": "nyc3",
+      "sku": "1-DO-DROP-0109",
+      "description": "another team's droplet",
+      "group_description": ""
+    }
+  ],
+  "total_items": 5,
+  "total_pages": 1,
+  "current_page": 1
+}
