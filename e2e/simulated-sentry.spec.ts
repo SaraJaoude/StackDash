@@ -1,10 +1,7 @@
-import { existsSync } from "node:fs";
-
 import AxeBuilder from "@axe-core/playwright";
-import { z } from "zod";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 
 /*
  * The Sentry adapter (#117), simulated end to end: Sentry connects from the catalog through the
@@ -12,13 +9,6 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixture
  * timeline shows Sentry's issues and releases labeled "Simulated". Like simulated-providers.spec.ts
  * it runs the instance-wide tick, so it lives in the `instance-wide` Playwright project.
  */
-
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
-
-function cronSecret(): string {
-  if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  return z.string().min(32).parse(process.env.CRON_SECRET);
-}
 
 ownerTest.describe("simulated Sentry", () => {
   ownerTest("connects with its projects as accounts and puts issues and releases on the timeline", async ({ page }) => {
