@@ -6,7 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
-- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the seven provider apps.
+- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the eight provider apps.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
 
@@ -145,6 +145,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DIGITALOCEAN_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, DigitalOcean OAuth app](oauth-apps.md#digitalocean-oauth-app) |
 | `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `POSTHOG_OAUTH_CLIENT_ID` | Server only | Yes, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Optional | [OAuth apps, PostHog client ID metadata document](oauth-apps.md#posthog-client-id-metadata-document) |
+| `POSTHOG_OAUTH_PRIVATE_KEY` | Secret | Yes | Optional | Same. Paste the PEM; `\n` escapes are accepted |
 | `RAILWAY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Railway OAuth app](oauth-apps.md#railway-oauth-app) |
 | `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
@@ -170,6 +172,8 @@ Losing `DEVMACRO_ENCRYPTION_KEY` makes every stored provider credential unreadab
 Rotate `DEVMACRO_ENCRYPTION_KEY` without downtime by moving the old key into `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS`, deploying, then running `npm run keys:rotate` with the production variables in the environment (the same way as `npm run invite`). The full procedure is in the header comment of `scripts/rotate-encryption-key.ts`.
 
 To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cron job as described in [Jobs](jobs.md#register-the-pg_cron-job). Ticks fail with `401` between the two steps, and the next tick after the update catches up.
+
+To rotate `POSTHOG_OAUTH_PRIVATE_KEY`, generate a new key, set it, and deploy. It is a cutover: PostHog token calls can fail for up to a minute until PostHog fetches the new JWKS, and the affected syncs are retried. Details in [PostHog, Permission risks](../providers/posthog.md#permission-risks).
 
 ## 7. Schedule syncs (#89)
 
@@ -214,7 +218,7 @@ Run every check against the production URL and write down the deployment URL you
 ## What stays Eddie's
 
 - Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and the seven provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
+- Registering the sign-in OAuth app and the eight provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.

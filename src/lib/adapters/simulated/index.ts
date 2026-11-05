@@ -16,6 +16,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 
 import { digitaloceanProfile } from "./digitalocean";
 import { githubProfile } from "./github";
+import { postHogProfile } from "./posthog";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import { railwayProfile } from "./railway";
@@ -176,6 +177,7 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   stripe: createSimulatedAdapter(stripeProfile, "stripe"),
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
   digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean"),
+  posthog: createSimulatedAdapter(postHogProfile, "posthog"),
   railway: createSimulatedAdapter(railwayProfile, "railway"),
 };
 

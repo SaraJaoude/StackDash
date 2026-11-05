@@ -3,8 +3,8 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, and
-Railway over OAuth (never with pasted API keys), and DevMacro syncs their usage on a schedule,
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog,
+and Railway over OAuth (never with pasted API keys), and DevMacro syncs their usage on a schedule,
 shows it per workspace and project, keeps a timeline of activity, and raises alerts before a
 limit or budget becomes a problem.
 
@@ -171,7 +171,7 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, and Railway
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, and Railway
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -348,6 +348,8 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Supabase OAuth app client secret | Secret | Optional (enables Supabase) |
 | `DIGITALOCEAN_CLIENT_ID` | DigitalOcean OAuth app client ID | Server only | Optional (enables DigitalOcean) |
 | `DIGITALOCEAN_CLIENT_SECRET` | DigitalOcean OAuth app client secret | Secret | Optional (enables DigitalOcean) |
+| `POSTHOG_OAUTH_CLIENT_ID` | URL of PostHog's client ID metadata document, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Server only | Optional (enables PostHog) |
+| `POSTHOG_OAUTH_PRIVATE_KEY` | Private key that signs PostHog token requests, PEM with `\n` newlines | Secret | Optional (enables PostHog) |
 | `RAILWAY_CLIENT_ID` | Railway OAuth app client ID | Server only | Optional (enables Railway) |
 | `RAILWAY_CLIENT_SECRET` | Railway OAuth app client secret | Secret | Optional (enables Railway) |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
@@ -367,7 +369,7 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
-  seven provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+  eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 
 ### Invite testers
@@ -430,7 +432,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, railway, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, railway, fake, simulated) and registry
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
