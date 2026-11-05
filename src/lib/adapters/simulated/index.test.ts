@@ -121,6 +121,17 @@ function eventCount(syncs: readonly SpanSync[]): number {
   return syncs.reduce((sum, { result }) => sum + result.events.length, 0);
 }
 
+/** Groups syncs by account: the runner syncs one account per tick, so each bound holds per account. */
+function byAccount(syncs: readonly SpanSync[]): Map<string, SpanSync[]> {
+  const groups = new Map<string, SpanSync[]>();
+  for (const sync of syncs) {
+    const group = groups.get(sync.accountId);
+    if (group === undefined) groups.set(sync.accountId, [sync]);
+    else group.push(sync);
+  }
+  return groups;
+}
+
 function metric(metrics: readonly AdapterMetric[], key: string): AdapterMetric {
   const found = metrics.find((candidate) => candidate.metricKey === key);
   if (found === undefined) throw new Error(`metric ${key} missing`);
@@ -310,13 +321,16 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     for (const { result } of ticks) expect(result.events.length).toBeLessThanOrEqual(10);
   });
 
-  it("keeps events coming after the backfill across a UTC day of chained syncs", () => {
-    // The silence check, bounded per provider, so adding a provider never moves another's bound. A day
-    // and not the two hour span: the sparsest profiles write a few events a day, so two hours leaves
-    // them one or two (Resend 1, PostHog 2 on the seed). Over the day the seed gives PostHog 5, Resend
-    // 13, and every other provider 50 or more. A 0 here means syncs after the backfill stopped
-    // writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
-    expect(eventCount(dayTicks)).toBeGreaterThan(0);
+  it("keeps events coming after the backfill on every account across a UTC day of chained syncs", () => {
+    // The silence check, bounded per account, so adding a provider never moves another's bound and a
+    // busy account cannot hide a silent sibling (Supabase's two projects write 3668 and 82). A day and
+    // not the two hour span: the sparsest profiles write a few events a day, so two hours leaves them
+    // one or two (Resend 1, PostHog 2 on the seed). Over the day the seed gives PostHog 5, Resend 13,
+    // and every other account 50 or more. A 0 here means that account's syncs after the backfill
+    // stopped writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
+    const accounts = byAccount(dayTicks);
+    expect(accounts.size).toBeGreaterThan(0);
+    for (const [accountId, syncs] of accounts) expect(eventCount(syncs), accountId).toBeGreaterThan(0);
   });
 
   it("writes under one event a tick on average as watch mode ticks every 10 seconds", () => {
