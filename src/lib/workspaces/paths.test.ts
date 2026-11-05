@@ -1,17 +1,18 @@
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { isWorkspaceSlug, WORKSPACE_SECTIONS, workspaceHome, workspacePath } from "./paths";
 
 describe("workspacePath", () => {
-  it("builds the path to every section", () => {
-    expect(WORKSPACE_SECTIONS.map((section) => workspacePath("abc123", section))).toEqual([
-      "/w/abc123/timeline",
-      "/w/abc123/dashboard",
-      "/w/abc123/connections",
-      "/w/abc123/alerts",
-      "/w/abc123/projects",
-      "/w/abc123/settings",
-    ]);
+  it("builds /w/<slug>/<section>", () => {
+    expect(workspacePath("abc123", "alerts")).toBe("/w/abc123/alerts");
+  });
+
+  // The palette and the nav link to every section, so each one needs a page in the app router.
+  it.each(WORKSPACE_SECTIONS)("has a route for %s", (section) => {
+    const page = path.join(process.cwd(), "src/app/w/[workspace]", section, "page.tsx");
+    expect(fs.existsSync(page)).toBe(true);
   });
 
   it("opens a workspace on its timeline", () => {
