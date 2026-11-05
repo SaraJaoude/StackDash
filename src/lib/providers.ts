@@ -17,6 +17,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   digitalocean: "DigitalOcean",
   posthog: "PostHog",
   polar: "Polar",
+  sentry: "Sentry",
   fake: "Example provider",
 };
 
@@ -30,6 +31,7 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   digitalocean: "DigitalOcean",
   posthog: "PostHog",
   polar: "Polar",
+  sentry: "Sentry",
   fake: null,
 };
 

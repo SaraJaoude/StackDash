@@ -1,12 +1,9 @@
-import { existsSync } from "node:fs";
-
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
-import { z } from "zod";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 /*
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
@@ -24,11 +21,6 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
 const POLAR_CONNECTION = "Polar (Example organization)";
-
-function cronSecret(): string {
-  if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  return z.string().min(32).parse(process.env.CRON_SECRET);
-}
 
 /** Ticks until every simulated connection has synced; other specs' jobs may share a tick. */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {

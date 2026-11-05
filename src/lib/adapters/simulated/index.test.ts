@@ -8,6 +8,7 @@ import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metri
 import { polarAdapter } from "@/lib/adapters/polar";
 import { postHogAdapter } from "@/lib/adapters/posthog";
 import { resendAdapter } from "@/lib/adapters/resend";
+import { sentryAdapter } from "@/lib/adapters/sentry";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
 import {
@@ -42,6 +43,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   digitalocean: digitaloceanAdapter,
   posthog: postHogAdapter,
   polar: polarAdapter,
+  sentry: sentryAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -75,25 +77,61 @@ async function connect(adapter: ProviderAdapter): Promise<OAuthCredential> {
   return { ...credential, metadata: { ...credential.metadata, seed: SEED } };
 }
 
-type SpanSync = { accountId: string; at: Date; result: SyncResult };
+type SpanSync = { accountId: string; backfill: boolean; result: SyncResult };
+type Chain = { start: Date; stepMs: number; steps: number };
 
-/** Syncs every account once per 10 second slot across the span, chaining cursors like the runner. */
-async function syncSpan(adapter: ProviderAdapter, credential: OAuthCredential): Promise<SpanSync[]> {
-  const accounts = await adapter.listAccounts(credential, makeCtx(SPAN_START));
+// Watch mode: one sync per 10 second slot for two hours.
+const WATCH_SPAN: Chain = { start: SPAN_START, stepMs: SLOT_MS, steps: SPAN_SLOTS };
+// One UTC day in steps of the backfill window, the longest step a chained sync covers without a gap.
+// Every simulator is a pure function of account and slot, so the 48 syncs after the backfill (step 0
+// backfills the half hour before midnight and is filtered out as `backfill`) write exactly the events
+// 8,640 ticks of 10 seconds would, including the daily ones that land at UTC midnight.
+const DAY_CHAIN: Chain = {
+  start: new Date("2026-11-05T00:00:00.000Z"),
+  stepMs: SIMULATED_BACKFILL_MS,
+  steps: DAY_MS / SIMULATED_BACKFILL_MS,
+};
+// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so its 721 chained syncs are
+// the slowest work in this file, and two places run them: Stripe's `beforeAll` in "simulated %s over
+// a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the group test at the end. Each takes
+// about 1.5 s on a laptop on the merged base. On CI the group test took 2.5 s (run 41960569995) and
+// 3.3 s (run 41964081379); CI does not report hook times. Vitest's defaults are 5 s for a test and
+// 10 s for a hook, and the all-provider shape this replaced ran past 5 s on CI (run 41959212551).
+// 20 s is six times the slower CI measurement, for both.
+const WATCH_TIMEOUT_MS = 20_000;
+
+/** Syncs every account once per step across the chain, chaining cursors like the runner. */
+async function syncChain(adapter: ProviderAdapter, credential: OAuthCredential, chain: Chain): Promise<SpanSync[]> {
+  const accounts = await adapter.listAccounts(credential, makeCtx(chain.start));
   const results: SpanSync[] = [];
   for (const account of accounts) {
     let cursor: string | undefined;
-    for (let slot = 0; slot <= SPAN_SLOTS; slot += 1) {
-      const now = new Date(SPAN_START.getTime() + slot * SLOT_MS + 3000);
+    for (let step = 0; step <= chain.steps; step += 1) {
+      const now = new Date(chain.start.getTime() + step * chain.stepMs + 3000);
       const input = cursor === undefined
         ? { credential, externalAccountId: account.externalId }
         : { credential, externalAccountId: account.externalId, cursor };
       const result = await adapter.sync(input, makeCtx(now));
-      results.push({ accountId: account.externalId, at: now, result });
+      results.push({ accountId: account.externalId, backfill: cursor === undefined, result });
       cursor = result.cursor;
     }
   }
   return results;
+}
+
+function eventCount(syncs: readonly SpanSync[]): number {
+  return syncs.reduce((sum, { result }) => sum + result.events.length, 0);
+}
+
+/** Groups syncs by account: the runner syncs one account per tick, so each bound holds per account. */
+function byAccount(syncs: readonly SpanSync[]): Map<string, SpanSync[]> {
+  const groups = new Map<string, SpanSync[]>();
+  for (const sync of syncs) {
+    const group = groups.get(sync.accountId);
+    if (group === undefined) groups.set(sync.accountId, [sync]);
+    else group.push(sync);
+  }
+  return groups;
 }
 
 function metric(metrics: readonly AdapterMetric[], key: string): AdapterMetric {
@@ -245,12 +283,19 @@ describe("simulated markers", () => {
 describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
   const adapter = simulatedAdapters[id];
   let results: SpanSync[];
+  let ticks: SpanSync[];
   let allEvents: ActivityEvent[];
+  let dayTicks: SpanSync[];
 
+  // Carries the Stripe cost described at WATCH_TIMEOUT_MS, so it states the same timeout.
   beforeAll(async () => {
-    results = await syncSpan(adapter, await connect(adapter));
+    const credential = await connect(adapter);
+    results = await syncChain(adapter, credential, WATCH_SPAN);
+    // Every sync after an account's backfill is one `jobs:tick -- --watch` tick.
+    ticks = results.filter(({ backfill }) => !backfill);
     allEvents = results.flatMap(({ result }) => result.events);
-  });
+    dayTicks = (await syncChain(adapter, credential, DAY_CHAIN)).filter(({ backfill }) => !backfill);
+  }, WATCH_TIMEOUT_MS);
 
   it("passes validateAdapterMetrics and validateAdapterEvents on every sync", () => {
     for (const { result } of results) {
@@ -269,11 +314,36 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     }
   });
 
-  it("trickles events in, a few per sync at most, with no dedupe key repeated across chained syncs", () => {
+  it("trickles events in, at most 10 a tick like the group test, with no dedupe key repeated across chained syncs", () => {
     expect(allEvents.length).toBeGreaterThan(0);
     const keys = allEvents.map((event) => event.dedupeKey);
     expect(new Set(keys).size).toBe(keys.length);
-    for (const { result } of results.slice(1)) expect(result.events.length).toBeLessThanOrEqual(12);
+    // The group test's per-tick cap, so no single provider is allowed a burst the group would reject.
+    // The most any provider writes in one tick on the seed is 4 (Stripe).
+    for (const { result } of ticks) expect(result.events.length).toBeLessThanOrEqual(10);
+  });
+
+  it("keeps events coming after the backfill on every account across a UTC day of chained syncs", () => {
+    // The silence check, bounded per account, so adding a provider never moves another's bound and a
+    // busy account cannot hide a silent sibling (Supabase's two projects write 3668 and 82). A day and
+    // not the two hour span: the sparsest profiles write a few events a day, so two hours leaves them
+    // one or two (Resend 1, PostHog 2 on the seed). Over the day the seed gives PostHog 5, Resend 13,
+    // and every other account 50 or more. A 0 here means that account's syncs after the backfill
+    // stopped writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
+    const accounts = byAccount(dayTicks);
+    expect(accounts.size).toBeGreaterThan(0);
+    for (const [accountId, syncs] of accounts) expect(eventCount(syncs), accountId).toBeGreaterThan(0);
+  });
+
+  it("writes under one event a tick on average on every account as watch mode ticks every 10 seconds", () => {
+    // The flood check, bounded per account like the silence check, because one account's
+    // `eventsInSlot` is what floods and a provider-wide mean would dilute it with quiet siblings.
+    // Stripe, the busiest profile, writes about 0.7 a tick on the seed (497 over 720 ticks, all its
+    // event types together), so this ceiling is 1.45 times its whole stream: tuning any profile past
+    // that fails here.
+    for (const [accountId, syncs] of byAccount(ticks)) {
+      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(1);
+    }
   });
 
   it("backfills the last 30 minutes on the first sync, never newer than the last whole slot", () => {
@@ -361,10 +431,16 @@ describe("simulated sync boundaries", () => {
   });
 });
 
+// The five providers simulated since #131, the group the watch bounds below were set for. Fixed, so
+// these aggregate bounds and this test's cost stay the same as providers are added; every provider's
+// own silence, flood, and burst bounds are in "simulated %s over a two hour span" above. Its timeout
+// is explained at WATCH_TIMEOUT_MS.
+const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
+
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the live providers, and keep Stripe revenue moving", async () => {
+  it("bring new events on most ticks across the #131 providers, and keep Stripe revenue moving", async () => {
     const connections = await Promise.all(
-      liveProviderIds.map(async (id) => {
+      WATCH_GROUP.map(async (id) => {
         const adapter = simulatedAdapters[id];
         const credential = await connect(adapter);
         const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
@@ -396,7 +472,7 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
     expect(Math.max(...perTick)).toBeLessThanOrEqual(10);
     const moved = revenue.slice(1).filter((value, index) => value !== revenue[index]).length;
     expect(moved / (revenue.length - 1)).toBeGreaterThan(0.8);
-  });
+  }, WATCH_TIMEOUT_MS);
 });
 
 describe("simulated numbers", () => {
@@ -578,6 +654,38 @@ describe("simulated numbers", () => {
       start: new Date("2026-11-19T00:00:00Z"),
       end: new Date("2026-11-20T00:00:00Z"),
     });
+  });
+
+  it("reports Sentry errors by outcome over the last 24 hours for each of three projects", async () => {
+    const credential = await connect(simulatedAdapters.sentry);
+    const accounts = await simulatedAdapters.sentry.listAccounts(credential, makeCtx(SPAN_START));
+    expect(accounts.map((account) => account.displayName)).toEqual(["web", "api", "ios"]);
+    const now = new Date("2026-11-20T15:00:00Z");
+    for (const account of accounts) {
+      const { metrics } = await simulatedAdapters.sentry.sync({ credential, externalAccountId: account.externalId }, makeCtx(now));
+      expect(metrics.map((item) => item.metricKey)).toEqual([
+        "sentry.errors.accepted",
+        "sentry.errors.filtered",
+        "sentry.errors.rate_limited",
+      ]);
+      for (const item of metrics) {
+        expect(item.timeframe).toEqual({ type: "period", start: new Date("2026-11-19T15:00:00Z"), end: now });
+      }
+      expect(quantity(metric(metrics, "sentry.errors.accepted"))).toBeGreaterThan(quantity(metric(metrics, "sentry.errors.filtered")));
+    }
+  });
+
+  it("puts at least one Sentry release in every project's 30 minute backfill, each on its own project", async () => {
+    const credential = await connect(simulatedAdapters.sentry);
+    const accounts = await simulatedAdapters.sentry.listAccounts(credential, makeCtx(SPAN_START));
+    for (const account of accounts) {
+      for (const minutes of [0, 7, 45, 90]) {
+        const { events } = await simulatedAdapters.sentry.sync({ credential, externalAccountId: account.externalId }, makeCtx(at(minutes)));
+        const releases = events.filter((event) => event.typeId === "sentry.release.created");
+        expect(releases.length, `${account.displayName} at minute ${minutes}`).toBeGreaterThan(0);
+        for (const event of releases) expect(event.externalAccountId).toBe(account.externalId);
+      }
+    }
   });
 
   it("lands the daily GitHub stars and Supabase summary events in the first minute of a UTC day", async () => {
