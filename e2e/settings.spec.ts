@@ -87,7 +87,6 @@ ownerTest.describe("renaming a workspace as the owner", () => {
       await expect(page.getByRole("status").filter({ hasText: "Workspace renamed." })).toBeVisible();
       await expect(save).not.toHaveAttribute("aria-disabled");
       await expect(save).toBeFocused();
-      await page.waitForLoadState("networkidle");
       expect(saves).toBe(1);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
