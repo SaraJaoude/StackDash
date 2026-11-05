@@ -155,6 +155,10 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 
 `connection_credentials`, `oauth_states`, `access_invites`, and `profiles` are never published: `supabase/tests/database/07_realtime_publication.test.sql` pins the exact table list and fails if any of them is added. Replica identity stays the default, because inserts and updates carry the whole new row; only deletes would need `replica identity full`, and the screens do not listen for deletes.
 
+## Trend event markers (#168)
+
+The dashboard trend charts mark how many deployments, payments, signups, star events, and triggered alerts happened in each UTC day or month. PostgREST cannot group rows, so `public.activity_event_daily_counts(workspace_id, since, type_ids, providers, account_ids)` counts them: one row per UTC day, provider, and type id with events, from the first UTC instant of `since`. It is `security invoker`, so the `activity_events` select policy decides what a member can count, and only `authenticated` and `service_role` may call it. The provider and account filters behave like the timeline's: an empty provider list or a null account list means any, and otherwise events with no provider or no account (DevMacro's own events) are left out, so a marker counts exactly what its timeline link lists. Which type ids form each category lives in `src/lib/dashboard/markers.ts`, where a unit test fails if an id is not declared by an adapter.
+
 ## Retention defaults (#37)
 
 | Data | Kept | Index used by the retention job |
