@@ -47,6 +47,9 @@ export function HistoryChart({
   const simulated = points.some((point) => point.value.status === "available" && point.value.simulated);
   const first = chartPoints[0];
   const last = chartPoints.at(-1);
+  const available = chartPoints.filter((point) => point.value !== null);
+  const highest = available.reduce<ChartPoint | undefined>((best, point) => (best === undefined || (point.value ?? 0) > (best.value ?? 0) ? point : best), undefined);
+  const lowest = available.reduce<ChartPoint | undefined>((best, point) => (best === undefined || (point.value ?? 0) < (best.value ?? 0) ? point : best), undefined);
 
   return (
     <figure aria-labelledby={captionId} className="rounded-xl border border-line bg-panel p-5">
@@ -95,6 +98,7 @@ export function HistoryChart({
       {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
       <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
         <span>{first === undefined ? "" : utcDay(first.asOf)}</span>
+        <span>{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
         <span>{last === undefined ? "" : utcDay(last.asOf)}</span>
       </div>
 
