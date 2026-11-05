@@ -129,6 +129,7 @@ export function CommandPalette({
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
+  const noticeId = useId();
   const shortcutsTitleId = useId();
   const optionId = (index: number) => `${listboxId}-option-${index}`;
 
@@ -264,6 +265,7 @@ export function CommandPalette({
       <dialog
         ref={paletteRef}
         aria-labelledby={titleId}
+        aria-describedby={notice === null ? undefined : noticeId}
         onClose={onPaletteClose}
         onKeyDown={trapTab}
         className="mx-auto mt-[12vh] w-[calc(100%-2rem)] max-w-xl rounded-xl border border-line-strong bg-panel p-0 text-foreground shadow-xl shadow-black/40 backdrop:bg-black/60"
@@ -303,7 +305,11 @@ export function CommandPalette({
           </button>
         </div>
 
-        {notice === null ? null : <p className="border-b border-line px-4 py-2 text-sm text-warning">{notice}</p>}
+        {notice === null ? null : (
+          <p id={noticeId} className="border-b border-line px-4 py-2 text-sm text-warning">
+            {notice}
+          </p>
+        )}
 
         {hasResults ? (
           <ul
