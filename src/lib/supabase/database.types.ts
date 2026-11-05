@@ -487,7 +487,7 @@ isOneToOne: false
 { Args: { "p_actor_id": string,"p_body": string,"p_delay_days": number,"p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_rounding": Database["public"]['Enums']["published_metric_rounding"],"p_title": string,"p_workspace_id": string }; Returns: string
                            },
 "publish_self_reported_metric":
-{ Args: { "p_actor_id": string,"p_label": string,"p_project_id": string,"p_title": string,"p_unit": string,"p_value": number,"p_workspace_id": string }; Returns: string
+{ Args: { "p_actor_id": string,"p_body": string,"p_label": string,"p_project_id": string,"p_title": string,"p_unit": string,"p_value": number,"p_workspace_id": string }; Returns: string
                            },
 "purge_activity_events":
 { Args: { "p_before": string,"p_limit": number }; Returns: number

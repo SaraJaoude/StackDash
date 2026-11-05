@@ -7,7 +7,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(48);
+select plan(49);
 
 -- Test helper, rolled back with the transaction: rows a statement touched as the current role, or
 -- -1 when Postgres refuses it (42501). A refused write is any result <= 0.
@@ -100,7 +100,7 @@ select is_empty(
 
 select ok(
   has_function_privilege('service_role', 'public.publish_metric(uuid, uuid, uuid, public.public_metric_id, public.published_metric_rounding, smallint, text, text)', 'execute')
-  and has_function_privilege('service_role', 'public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text)', 'execute')
+  and has_function_privilege('service_role', 'public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text, text)', 'execute')
   and has_function_privilege('service_role', 'public.unpublish_metric(uuid, uuid, uuid, text)', 'execute')
   and has_function_privilege('service_role', 'public.unpublish_all_metrics(uuid, uuid)', 'execute')
   and has_function_privilege('service_role', 'public.public_published_metrics(uuid)', 'execute'),
@@ -188,13 +188,21 @@ select throws_ok(
 
 select is(
   public.publish_self_reported_metric('a8000002-0000-4000-8000-000000000001', 'a8000003-0000-4000-8000-000000000001',
-    'a8000001-0000-4000-8000-000000000001', ' Downloads ', 4200, 'downloads', 'Published Downloads (self-reported)'),
+    'a8000001-0000-4000-8000-000000000001', ' Downloads ', 4200, 'downloads', 'Published Downloads (self-reported)',
+    'Project Acme web. 4,200 downloads.'),
   'published',
   'publish_self_reported_metric: an owner publishes a self-reported value');
 
 select is(
+  (select body from public.activity_events
+   where workspace_id = 'a8000002-0000-4000-8000-000000000001' and type_id = 'devmacro.metric_published'
+     and title = 'Published Downloads (self-reported)'),
+  'Project Acme web. 4,200 downloads.',
+  'publish_self_reported_metric: the audit event names the project and the value');
+
+select is(
   public.publish_self_reported_metric('a8000002-0000-4000-8000-000000000001', 'a8000003-0000-4000-8000-000000000001',
-    'a8000001-0000-4000-8000-000000000001', 'DOWNLOADS', 1, 'downloads', 't'),
+    'a8000001-0000-4000-8000-000000000001', 'DOWNLOADS', 1, 'downloads', 't', null),
   'duplicate',
   'publish_self_reported_metric: a second live value with the same name, ignoring case and spaces, is refused');
 
@@ -207,7 +215,7 @@ select throws_ok(
 
 select throws_ok(
   $$ select public.publish_self_reported_metric('a8000002-0000-4000-8000-000000000001', 'a8000003-0000-4000-8000-000000000001',
-       'a8000001-0000-4000-8000-000000000001', 'Rating', -1, 'points', 't') $$,
+       'a8000001-0000-4000-8000-000000000001', 'Rating', -1, 'points', 't', null) $$,
   '23514', null,
   'published_metrics_source: a negative self-reported value is refused');
 

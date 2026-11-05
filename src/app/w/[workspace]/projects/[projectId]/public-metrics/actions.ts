@@ -5,6 +5,7 @@ import { unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
 import { selfReportedFields } from "@/components/public-metrics/self-reported-rules";
+import { formatQuantity } from "@/lib/format";
 import { logError } from "@/lib/log/logger";
 import {
   allowedRoundings,
@@ -214,6 +215,8 @@ export async function publishSelfReported(
 
   try {
     const { workspace: ws, user } = await requireWorkspaceAction(parsed.data.workspace, "publish_metrics");
+    const name = await projectName(ws.id, projectId);
+    if (name === null) return { ok: false, message: PROJECT_GONE };
     const { data, error } = await createAdminClient().rpc("publish_self_reported_metric", {
       p_workspace_id: ws.id,
       p_project_id: projectId,
@@ -222,6 +225,7 @@ export async function publishSelfReported(
       p_value: value,
       p_unit: unit,
       p_title: `Published ${label} (self-reported)`,
+      p_body: `Project ${name}. ${formatQuantity(value, unit)}.`,
     });
     if (error) rpcFailure(error, "Publish self-reported value");
     if (data === "not_found") return { ok: false, message: PROJECT_GONE };

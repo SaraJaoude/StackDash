@@ -216,7 +216,8 @@ grant execute on function public.publish_metric(
 
 -- ── publish_self_reported_metric ────────────────────────────────────────────────
 -- Publishes a value the user typed, for the project page only. Returns 'published', 'duplicate'
--- (a live value with the same label, ignoring case), or 'not_found'.
+-- (a live value with the same label, ignoring case), or 'not_found'. `p_body` names the project
+-- and the value in the audit event, as `publish_metric` does.
 
 create function public.publish_self_reported_metric(
   p_workspace_id uuid,
@@ -225,7 +226,8 @@ create function public.publish_self_reported_metric(
   p_label text,
   p_value bigint,
   p_unit text,
-  p_title text
+  p_title text,
+  p_body text
 )
   returns text
   language plpgsql
@@ -263,15 +265,15 @@ begin
   returning id into v_id;
 
   perform public.record_publication_event(
-    p_workspace_id, 'devmacro.metric_published', p_title, null, 'metric_published:' || v_id::text
+    p_workspace_id, 'devmacro.metric_published', p_title, p_body, 'metric_published:' || v_id::text
   );
   return 'published';
 end;
 $$;
 
-revoke execute on function public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text)
+revoke execute on function public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text, text)
   from public, anon, authenticated;
-grant execute on function public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text)
+grant execute on function public.publish_self_reported_metric(uuid, uuid, uuid, text, bigint, text, text, text)
   to service_role;
 
 -- ── unpublish_metric ────────────────────────────────────────────────────────────

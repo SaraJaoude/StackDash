@@ -47,13 +47,14 @@ Changing either option revokes the publication and publishes a new one, so the h
 
 Owners and admins publish on a project's public metrics page (Projects, then Public metrics). Every change writes a DevMacro event to the workspace timeline in the same transaction:
 
-| Event type | Title |
-|---|---|
-| `devmacro.metric_published` | Published GitHub stars |
-| `devmacro.metric_unpublished` | Unpublished GitHub stars |
-| `devmacro.metrics_unpublished_all` | Unpublished everything |
+| Event type | Title | Body |
+|---|---|---|
+| `devmacro.metric_published` | Published GitHub stars | Project Acme web. Rounded down to 100, current. |
+| `devmacro.metric_published` (self-reported) | Published Downloads this month (self-reported) | Project Acme web. 4,200 downloads. |
+| `devmacro.metric_unpublished` | Unpublished GitHub stars | None |
+| `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics are no longer public. |
 
-"Unpublish everything" revokes every live publication of every project in the workspace in one action. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics-148).
+"Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics-148).
 
 ## Reading published values
 
