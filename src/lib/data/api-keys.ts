@@ -33,23 +33,33 @@ export type ApiKeyList = { keys: ApiKeySummary[]; hasMore: boolean };
 /** The workspace's keys, newest first, through api_keys_workspace_created_at_idx. */
 export const listApiKeys = cache(async (workspaceId: string): Promise<ApiKeyList> => {
   const supabase = await createClient();
-  const [keys, members] = await Promise.all([
-    supabase
-      .from("api_keys")
-      .select("id, name, token_prefix, scopes, created_by, created_at, last_used_at, revoked_at")
-      .eq("workspace_id", workspaceId)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      // One extra row tells whether older keys were left out.
-      .limit(API_KEYS_LIST_LIMIT + 1),
-    // Every member may read the workspace's member list (workspace_members_select).
-    supabase.from("workspace_members").select("user_id").eq("workspace_id", workspaceId),
-  ]);
+  const keys = await supabase
+    .from("api_keys")
+    .select("id, name, token_prefix, scopes, created_by, created_at, last_used_at, revoked_at")
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false })
+    // One extra row tells whether older keys were left out.
+    .limit(API_KEYS_LIST_LIMIT + 1);
   if (keys.error) throw new Error("Failed to list API keys", { cause: keys.error });
-  if (members.error) throw new Error("Failed to list workspace members for API keys", { cause: members.error });
-  const memberIds = new Set(members.data.map((member) => member.user_id));
+  const page = keys.data.slice(0, API_KEYS_LIST_LIMIT);
+  // Only the creators of this page, so the read is bounded by API_KEYS_LIST_LIMIT ids however many
+  // members the workspace has; an unbounded member list would be cut at PostgREST's max_rows
+  // without an error and mislabel keys whose creator is still a member.
+  const creatorIds = [...new Set(page.flatMap((key) => (key.created_by === null ? [] : [key.created_by])))];
+  const memberIds = new Set<string>();
+  if (creatorIds.length > 0) {
+    // Every member may read the workspace's member list (workspace_members_select).
+    const members = await supabase
+      .from("workspace_members")
+      .select("user_id")
+      .eq("workspace_id", workspaceId)
+      .in("user_id", creatorIds);
+    if (members.error) throw new Error("Failed to list workspace members for API keys", { cause: members.error });
+    for (const member of members.data) memberIds.add(member.user_id);
+  }
   return {
-    keys: keys.data.slice(0, API_KEYS_LIST_LIMIT).map(({ created_by, ...key }) => ({
+    keys: page.map(({ created_by, ...key }) => ({
       ...key,
       creator_left: created_by === null || !memberIds.has(created_by),
     })),
