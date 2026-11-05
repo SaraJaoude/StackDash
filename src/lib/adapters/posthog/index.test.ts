@@ -592,6 +592,23 @@ describe("billingMetrics", () => {
     });
   });
 
+  it.each([
+    ["with Z", "2026-11-01T00:00:00Z", "2026-12-01T00:00:00Z"],
+    ["with an offset", "2026-11-01T01:00:00+01:00", "2026-12-01T01:00:00+01:00"],
+    ["without a zone, read as UTC", "2026-11-01T00:00:00", "2026-12-01T00:00:00.000000"],
+  ])("reads billing period timestamps %s", (_title, start, end) => {
+    const [spend] = metricsFor({ current_total_amount_usd: "1.00", billing_period: { current_period_start: start, current_period_end: end } });
+    expect(spend?.timeframe).toEqual({
+      type: "period",
+      start: new Date("2026-11-01T00:00:00.000Z"),
+      end: new Date("2026-12-01T00:00:00.000Z"),
+    });
+  });
+
+  it("refuses a billing period that is a date with no time", () => {
+    expect(() => metricsFor({ billing_period: { current_period_start: "2026-11-01", current_period_end: "2026-12-01" } })).toThrow();
+  });
+
   it("skips a product whose type cannot be part of a metric key", () => {
     expect(metricsFor({ products: [{ type: "Data-Warehouse", name: "x", usage_key: "rows", current_usage: 1 }] })).toEqual([]);
   });

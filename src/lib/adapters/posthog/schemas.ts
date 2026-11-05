@@ -7,7 +7,12 @@ import { z } from "zod";
  * the adapter.
  */
 
-const isoDateTime = z.iso.datetime({ offset: true }).transform((text) => new Date(text));
+// Billing period timestamps. No sample shows the exact string PostHog sends, and its frontend parses
+// them with dayjs, which takes a timestamp with or without a zone; one without is read as UTC.
+const ZONE_SUFFIX = /(?:Z|[+-]\d{2}(?::?\d{2})?)$/i;
+const isoDateTime = z.iso
+  .datetime({ offset: true, local: true })
+  .transform((text) => new Date(ZONE_SUFFIX.test(text) ? text : `${text}Z`));
 const count = z.int().nonnegative();
 // Billing amounts are decimal strings in US dollars ("12.34"); null when not computed.
 const usdAmount = z.string().nullable().optional();

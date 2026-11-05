@@ -124,6 +124,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 
 - Money: billing amounts are decimal strings in US dollars. They are parsed as decimals and rounded once to cents (`amountMinor`, `currency: "USD"`), never through floats. A non-string amount fails the sync as an unexpected shape.
 - Quantities: the product's own `unit` (`event`, `recording`, `survey response`), or `units` when PostHog sends none or one the metric model cannot store.
+- Billing period: `current_period_start` and `current_period_end` are read as ISO 8601 timestamps with `Z`, an offset, or no zone, which is read as UTC. Anything else fails the sync as an unexpected shape.
 - Freshness: billing usage is not real time; PostHog's billing page and the API read the same billing service. Signups are counted once a UTC day has ended.
 - The first sync reports the last 7 complete UTC days of signups; later syncs report only days that ended since the last one, at most 7 back after a long pause.
 
@@ -272,6 +273,7 @@ Confirm with a real PostHog account (#141) before relying on the adapter:
 10. That the JWKS cache the provisioning guide documents (1 hour, an early re-fetch at most once a minute for a key id PostHog has not seen) applies to a consent-flow CIMD app as well. Permission risks and Limitations assume it does.
 11. That the revoke endpoint answers 200 with an empty body for a refresh token.
 12. Whether `GET /api/organizations/` is already narrowed to `scoped_organizations` for an organization-level grant, and whether `scoped_organizations` is empty or null for a grant that covers every organization. The adapter filters by the list when it names any organization.
+13. The exact `billing_period` timestamp format (no sample shows one). The adapter accepts `Z`, an offset, or no zone.
 
 ## Sources
 
