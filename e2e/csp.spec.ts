@@ -11,13 +11,14 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
+// The server under test is a production build when CI is set and the dev server otherwise, the same
+// switch as the webServer command in playwright.config.ts.
+const PRODUCTION_BUILD = Boolean(process.env.CI);
+
 const NONCE_SOURCE = /^'nonce-[A-Za-z0-9+/=]+'$/;
 
-declare global {
-  interface Window {
-    reportCspViolation?: (violation: string) => Promise<void>;
-  }
-}
+/** The page's view of the function `watchViolations` exposes to it. */
+type ViolationWindow = Window & { reportCspViolation?: (violation: string) => Promise<void> };
 
 function directives(policy: string): Map<string, string[]> {
   return new Map(
@@ -42,8 +43,12 @@ function expectAppPolicy(policy: string | undefined): void {
   const supabaseUrl = new URL(authEnv().NEXT_PUBLIC_SUPABASE_URL);
   expect(new Set(app.get("form-action"))).toEqual(new Set(["'self'", supabaseUrl.origin, "https://github.com"]));
   // Scripts from this origin or carrying this response's nonce, and nothing else: no
-  // 'unsafe-inline', and no 'unsafe-eval' outside development.
-  expect(app.get("script-src")).toEqual(["'self'", expect.stringMatching(NONCE_SOURCE)]);
+  // 'unsafe-inline', and 'unsafe-eval' only from the dev server (src/proxy.ts).
+  expect(app.get("script-src")).toEqual([
+    "'self'",
+    expect.stringMatching(NONCE_SOURCE),
+    ...(PRODUCTION_BUILD ? [] : ["'unsafe-eval'"]),
+  ]);
   // Live updates (#129) need the Realtime socket.
   expect(app.get("connect-src")).toContain(`${supabaseUrl.protocol === "https:" ? "wss:" : "ws:"}//${supabaseUrl.host}`);
 }
@@ -59,7 +64,7 @@ async function watchViolations(page: Page): Promise<string[]> {
   });
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
-      void window.reportCspViolation?.(
+      void (window as ViolationWindow).reportCspViolation?.(
         `${event.disposition} ${event.effectiveDirective}: ${event.blockedURI} on ${location.pathname}`,
       );
     });
