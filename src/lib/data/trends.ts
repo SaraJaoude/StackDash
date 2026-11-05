@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { ConnectionInput, SnapshotInput } from "@/lib/dashboard/aggregate";
-import { markerTypeIds, markerWindowStart, type EventCountRow, type MarkerCategory } from "@/lib/dashboard/markers";
+import { eventCountBucket, markerTypeIds, markerWindowStart, type EventCountRow, type MarkerCategory } from "@/lib/dashboard/markers";
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { applyScope, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
@@ -28,16 +28,15 @@ export async function getTrendData(workspaceId: string, now: Date, scope: ScopeF
   return { connections: scoped.connections, snapshots: scoped.snapshots };
 }
 
-// One row per UTC day, provider, and type with events: about 400 days times a handful of types
-// for the monthly window. PostgREST returns at most 1000 rows per request (max_rows), so the
-// counts are read in pages of that size, up to a hard cap.
-const EVENT_COUNT_PAGE_SIZE = 1000;
-const EVENT_COUNT_MAX_PAGES = 10;
+// The database groups by the chart's bucket, so there is at most one row per bucket and type id
+// (each type id belongs to one provider): 30 days or 13 months times about ten types, well under
+// PostgREST's 1000 row max_rows. One request; an offset page would run the whole aggregate again.
+const EVENT_COUNT_LIMIT = 1000;
 
 /**
- * Daily event counts for the trend markers (#168) of `categories`, from the first day of the
- * `granularity` window, filtered by `scope` exactly as the timeline filters it. Counted in the
- * database (`activity_event_daily_counts`), under row level security. Call only after
+ * Event counts for the trend markers (#168) of `categories`, per `granularity` bucket from the first
+ * day of its window, filtered by `scope` exactly as the timeline filters it. Counted in the database
+ * (`activity_event_counts`), which counts nothing for a non-member. Call only after
  * `requireWorkspace` has confirmed membership.
  */
 export async function getTrendEventCounts(
@@ -54,26 +53,21 @@ export async function getTrendEventCounts(
   if (accountIds !== null && accountIds.length === 0) return [];
 
   const supabase = await createClient();
-  const rows: EventCountRow[] = [];
-  for (let page = 0; page < EVENT_COUNT_MAX_PAGES; page += 1) {
-    const from = page * EVENT_COUNT_PAGE_SIZE;
-    const { data, error } = await supabase
-      .rpc("activity_event_daily_counts", {
-        p_workspace_id: workspaceId,
-        p_since: markerWindowStart(granularity, now),
-        p_type_ids: typeIds,
-        p_providers: [...providers],
-        ...(accountIds === null ? {} : { p_account_ids: [...accountIds] }),
-      })
-      .order("day", { ascending: false })
-      .order("provider", { ascending: true })
-      .order("type_id", { ascending: true })
-      .range(from, from + EVENT_COUNT_PAGE_SIZE - 1);
-    if (error) throw new Error("Failed to load event counts for the trend markers", { cause: error });
-    rows.push(...data);
-    if (data.length < EVENT_COUNT_PAGE_SIZE) return rows;
-  }
-  // Newest first, so what was left out is the oldest days; recent markers are still shown.
-  log.warn("dashboard.event_counts_truncated", { workspaceId, granularity, rows: rows.length });
-  return rows;
+  const { data, error } = await supabase
+    .rpc("activity_event_counts", {
+      p_workspace_id: workspaceId,
+      p_since: markerWindowStart(granularity, now),
+      p_bucket: eventCountBucket(granularity),
+      p_type_ids: typeIds,
+      p_providers: [...providers],
+      ...(accountIds === null ? {} : { p_account_ids: [...accountIds] }),
+    })
+    .order("bucket_start", { ascending: false })
+    .order("provider", { ascending: true })
+    .order("type_id", { ascending: true })
+    .limit(EVENT_COUNT_LIMIT);
+  if (error) throw new Error("Failed to load event counts for the trend markers", { cause: error });
+  // Newest first, so if more types ever push past the limit, the oldest buckets are what is lost.
+  if (data.length === EVENT_COUNT_LIMIT) log.warn("dashboard.event_counts_truncated", { workspaceId, granularity, rows: data.length });
+  return data;
 }

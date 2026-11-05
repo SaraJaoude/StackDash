@@ -1,11 +1,11 @@
 /**
  * Event markers on the trend charts (#168): how many deployments, payments, signups, star events,
  * and triggered alerts happened in each trend bucket, and where each count leads on the timeline.
- * Pure: no I/O and no clock; the caller passes `now` and the daily counts the database returned.
+ * Pure: no I/O and no clock; the caller passes `now` and the counts the database returned.
  *
  * Rules decided here, once:
- * - Buckets are the trend buckets (`trendBuckets`): UTC days, or UTC months summing those days.
- *   Days outside the chart's window are dropped, never moved to an edge bucket.
+ * - Buckets are the trend buckets (`trendBuckets`): UTC days or UTC months, counted per bucket in
+ *   the database. Buckets outside the chart's window are dropped, never moved to an edge bucket.
  * - A provider's events mark that provider's charts only. DevMacro's own events (triggered
  *   alerts) carry no provider and mark every chart (decided on #168).
  * - Counts are filtered by the dashboard scope the same way the timeline filters, so a marker's
@@ -111,7 +111,7 @@ export function toggleHidden(hidden: readonly MarkerCategory[], category: Marker
 // Generated function types mark every returned column non-null; `provider` is null for DevMacro's
 // own events.
 export type EventCountRow = Readonly<
-  Pick<Database["public"]["Functions"]["activity_event_daily_counts"]["Returns"][number], "day" | "type_id" | "event_count"> & {
+  Pick<Database["public"]["Functions"]["activity_event_counts"]["Returns"][number], "bucket_start" | "type_id" | "event_count"> & {
     provider: ProviderId | null;
   }
 >;
@@ -119,6 +119,11 @@ export type EventCountRow = Readonly<
 /** First UTC date the counts are needed from: the first day of the oldest bucket. */
 export function markerWindowStart(granularity: TrendGranularity, now: Date): string {
   return granularity === "daily" ? (trendBuckets("daily", now)[0] ?? "") : trendWindowStart(now);
+}
+
+/** The unit `activity_event_counts` groups by for `granularity`. */
+export function eventCountBucket(granularity: TrendGranularity): "day" | "month" {
+  return granularity === "daily" ? "day" : "month";
 }
 
 export type EventBucketCount = Readonly<{
@@ -131,9 +136,8 @@ export type EventBucketCount = Readonly<{
 }>;
 
 /**
- * Daily counts summed into the trend buckets for `granularity`, per provider and category. Rows
- * for types in no category, and days outside the window, are dropped. Oldest bucket first, then
- * category order.
+ * Counts per bucket summed per provider and category for `granularity`. Rows for types in no
+ * category, and buckets outside the window, are dropped. Oldest bucket first, then category order.
  */
 export function bucketEventCounts(
   rows: readonly EventCountRow[],
@@ -144,7 +148,7 @@ export function bucketEventCounts(
   const totals = new Map<string, { provider: ProviderId | null; category: MarkerCategory; bucket: string; count: number }>();
   for (const row of rows) {
     const category = MARKER_CATEGORIES.find((entry) => CATEGORIES[entry].typeIds.includes(row.type_id));
-    const bucket = granularity === "daily" ? row.day : row.day.slice(0, 7);
+    const bucket = granularity === "daily" ? row.bucket_start : row.bucket_start.slice(0, 7);
     if (category === undefined || !inWindow.has(bucket) || row.event_count <= 0) continue;
     const key = `${row.provider ?? ""} ${category} ${bucket}`;
     const total = totals.get(key);

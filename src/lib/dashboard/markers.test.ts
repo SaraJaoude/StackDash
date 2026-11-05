@@ -13,6 +13,7 @@ import {
   bucketEventCounts,
   canonicalHidden,
   chartMarkers,
+  eventCountBucket,
   MARKER_CATEGORIES,
   markerLabel,
   markerTypeIds,
@@ -27,8 +28,8 @@ import { trendBuckets } from "./trends";
 const NOW = new Date("2026-01-15T12:00:00.000Z");
 const TIMELINE = "/w/acme/timeline";
 
-function row(day: string, type_id: string, event_count: number, provider: EventCountRow["provider"] = "vercel"): EventCountRow {
-  return { day, type_id, event_count, provider };
+function row(bucket_start: string, type_id: string, event_count: number, provider: EventCountRow["provider"] = "vercel"): EventCountRow {
+  return { bucket_start, type_id, event_count, provider };
 }
 
 describe("markerWindowStart", () => {
@@ -36,6 +37,13 @@ describe("markerWindowStart", () => {
     expect(markerWindowStart("daily", NOW)).toBe(trendBuckets("daily", NOW)[0]);
     expect(markerWindowStart("daily", NOW)).toBe("2025-12-17");
     expect(markerWindowStart("monthly", NOW)).toBe("2025-01-01");
+  });
+});
+
+describe("eventCountBucket", () => {
+  it("asks the database for days on the daily chart and months on the monthly chart", () => {
+    expect(eventCountBucket("daily")).toBe("day");
+    expect(eventCountBucket("monthly")).toBe("month");
   });
 });
 
@@ -105,25 +113,25 @@ describe("bucketEventCounts in daily buckets", () => {
 });
 
 describe("bucketEventCounts in monthly buckets", () => {
-  it("puts December 31 and January 1 in different months and sums the days of a month", () => {
+  it("maps each month's row to its month and sums a category's types within it", () => {
     const counts = bucketEventCounts(
       [
-        row("2025-12-01", "vercel.deployment.succeeded", 1),
-        row("2025-12-31", "vercel.deployment.succeeded", 2),
+        row("2025-12-01", "vercel.deployment.succeeded", 3),
+        row("2025-12-01", "vercel.deployment.failed", 1),
         row("2026-01-01", "vercel.deployment.succeeded", 7),
       ],
       "monthly",
       NOW,
     );
     expect(counts.map(({ bucket, count }) => [bucket, count])).toEqual([
-      ["2025-12", 3],
+      ["2025-12", 4],
       ["2026-01", 7],
     ]);
   });
 
   it("keeps the first month of the window and drops the month before it", () => {
     const counts = bucketEventCounts(
-      [row("2024-12-31", "vercel.deployment.succeeded", 1), row("2025-01-01", "vercel.deployment.succeeded", 2)],
+      [row("2024-12-01", "vercel.deployment.succeeded", 1), row("2025-01-01", "vercel.deployment.succeeded", 2)],
       "monthly",
       NOW,
     );

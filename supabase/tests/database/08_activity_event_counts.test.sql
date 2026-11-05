@@ -1,11 +1,11 @@
--- Event markers (20261105002238_activity_event_daily_counts.sql): activity_event_daily_counts
--- counts per UTC day whatever the session time zone, filters like the timeline query, and counts
--- only what row level security lets the caller read.
+-- Event markers (20261105002238_activity_event_counts.sql): activity_event_counts counts per UTC
+-- day or UTC month whatever the session time zone, filters like the timeline query, and counts
+-- nothing for a caller who is not a member of the workspace.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(12);
+select plan(15);
 
 -- Fixtures as postgres: a member and an outsider, one workspace with one account, and events
 -- either side of UTC midnight.
@@ -34,6 +34,9 @@ insert into public.activity_events (
   workspace_id, connection_id, external_account_id, provider, type_id, severity, title, occurred_at, dedupe_key
 )
 values
+  -- 2026-10-01 00:30 in Europe/London, still September in UTC.
+  ('a80000a0-0000-4000-8000-000000000000', 'a80000c0-0000-4000-8000-000000000000', 'a80000e0-0000-4000-8000-000000000000',
+   'fake', 'fake.deploy.succeeded', 'success', 'Deploy', '2026-09-30T23:30:00Z', 'markers-month-edge'),
   -- Before the window.
   ('a80000a0-0000-4000-8000-000000000000', 'a80000c0-0000-4000-8000-000000000000', 'a80000e0-0000-4000-8000-000000000000',
    'fake', 'fake.deploy.succeeded', 'success', 'Deploy', '2026-10-19T23:59:59.999Z', 'markers-before'),
@@ -52,7 +55,7 @@ values
    null, 'devmacro.alert_triggered', 'warning', 'Alert', '2026-10-20T12:00:00Z', 'markers-alert');
 
 -- ---------------------------------------------------------------------------
--- Shape: security invoker (row level security applies), empty search_path, members only.
+-- Shape: security definer with an empty search_path, members only.
 -- ---------------------------------------------------------------------------
 select is_empty(
   $$
@@ -60,15 +63,15 @@ select is_empty(
     from pg_catalog.pg_proc p
     cross join lateral (
       values
-        (case when p.prosecdef then 'security definer' end),
+        (case when not p.prosecdef then 'security invoker' end),
         (case when not coalesce(p.proconfig && array['search_path=""', 'search_path='], false) then 'search_path not empty' end),
         (case when has_function_privilege('anon', p.oid, 'execute') then 'executable by anon' end),
         (case when not has_function_privilege('authenticated', p.oid, 'execute') then 'not executable by authenticated' end)
     ) as v(problem)
-    where p.oid = 'public.activity_event_daily_counts(uuid, date, text[], public.provider_id[], uuid[])'::regprocedure
+    where p.oid = 'public.activity_event_counts(uuid, date, text, text[], public.provider_id[], uuid[])'::regprocedure
       and v.problem is not null
   $$,
-  'activity_event_daily_counts: security invoker, empty search_path, executable by authenticated and not anon');
+  'activity_event_counts: security definer, empty search_path, executable by authenticated and not anon');
 
 set local role authenticated;
 set local request.jwt.claims to '{"sub": "a8000001-0000-4000-8000-000000000000", "role": "authenticated"}';
@@ -77,11 +80,11 @@ set local timezone to 'Europe/London';
 
 select results_eq(
   $$
-    select day, provider::text, type_id, event_count
-    from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.succeeded', 'fake.signup']
+    select bucket_start, provider::text, type_id, event_count
+    from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded', 'fake.signup']
     )
-    order by day, type_id
+    order by bucket_start, type_id
   $$,
   $$
     values
@@ -89,92 +92,116 @@ select results_eq(
       ('2026-10-20'::date, 'fake', 'fake.signup', 1::bigint),
       ('2026-10-21'::date, 'fake', 'fake.deploy.succeeded', 1::bigint)
   $$,
-  'activity_event_daily_counts: groups by UTC day in a London session, from the first UTC instant of p_since');
+  'activity_event_counts: groups by UTC day in a London session, from the first UTC instant of p_since');
+
+select results_eq(
+  $$
+    select bucket_start, event_count
+    from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-09-01', 'month', array['fake.deploy.succeeded']
+    )
+    order by bucket_start
+  $$,
+  $$ values ('2026-09-01'::date, 1::bigint), ('2026-10-01'::date, 4::bigint) $$,
+  'activity_event_counts: groups by UTC month in a London session, one row per month starting on its first day');
+
+select throws_ok(
+  $$ select public.activity_event_counts('a80000a0-0000-4000-8000-000000000000', '2026-09-01', 'week', array['fake.signup']) $$,
+  '22023'::char(5), 'p_bucket must be day or month, not week',
+  'activity_event_counts: a bucket other than day or month is refused');
 
 select is_empty(
   $$
-    select 1 from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.failed']
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.failed']
     )
   $$,
-  'activity_event_daily_counts: a type with no events returns no rows, not a zero');
+  'activity_event_counts: a type with no events returns no rows, not a zero');
 
 select is_empty(
-  $$ select 1 from public.activity_event_daily_counts('a80000a0-0000-4000-8000-000000000000', '2026-10-20', '{}') $$,
-  'activity_event_daily_counts: no requested types counts nothing');
+  $$ select 1 from public.activity_event_counts('a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', '{}') $$,
+  'activity_event_counts: no requested types counts nothing');
 
 select results_eq(
   $$
     select provider::text, event_count
-    from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['devmacro.alert_triggered']
+    from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['devmacro.alert_triggered']
     )
   $$,
   $$ values (null::text, 1::bigint) $$,
-  'activity_event_daily_counts: with no provider filter, events with no provider are counted');
+  'activity_event_counts: with no provider filter, events with no provider are counted');
 
 select is_empty(
   $$
-    select 1 from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['devmacro.alert_triggered'], array['fake']::public.provider_id[]
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['devmacro.alert_triggered'], array['fake']::public.provider_id[]
     )
   $$,
-  'activity_event_daily_counts: a provider filter leaves out events with no provider, as the timeline does');
+  'activity_event_counts: a provider filter leaves out events with no provider, as the timeline does');
 
 select is(
   (
-    select sum(event_count)::int from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.succeeded'], array['fake']::public.provider_id[]
+    select sum(event_count)::int from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded'], array['fake']::public.provider_id[]
     )
   ),
   3,
-  'activity_event_daily_counts: a provider filter keeps that provider''s events');
+  'activity_event_counts: a provider filter keeps that provider''s events');
 
 select is_empty(
   $$
-    select 1 from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.succeeded'], array['vercel']::public.provider_id[]
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded'], array['vercel']::public.provider_id[]
     )
   $$,
-  'activity_event_daily_counts: another provider''s filter counts nothing');
+  'activity_event_counts: another provider''s filter counts nothing');
 
 select is(
   (
-    select sum(event_count)::int from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.succeeded', 'devmacro.alert_triggered'],
+    select sum(event_count)::int from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded', 'devmacro.alert_triggered'],
       '{}', array['a80000e0-0000-4000-8000-000000000000']::uuid[]
     )
   ),
   3,
-  'activity_event_daily_counts: an account filter keeps that account''s events and leaves out events with no account');
+  'activity_event_counts: an account filter keeps that account''s events and leaves out events with no account');
 
 select is_empty(
   $$
-    select 1 from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', array['fake.deploy.succeeded'], '{}', '{}'::uuid[]
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-10-20', 'day', array['fake.deploy.succeeded'], '{}', '{}'::uuid[]
     )
   $$,
-  'activity_event_daily_counts: an empty account list matches nothing');
+  'activity_event_counts: an empty account list matches nothing');
 
--- The outsider reads nothing through the function, because activity_events RLS applies.
+-- The outsider counts nothing: the membership check returns before any row is read.
 set local request.jwt.claims to '{"sub": "a8000002-0000-4000-8000-000000000000", "role": "authenticated"}';
 
 select is_empty(
   $$
-    select 1 from public.activity_event_daily_counts(
-      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', array['fake.deploy.succeeded', 'devmacro.alert_triggered']
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'day', array['fake.deploy.succeeded', 'devmacro.alert_triggered']
     )
   $$,
-  'activity_event_daily_counts: a non-member counts nothing in another workspace');
+  'activity_event_counts: a non-member counts nothing in another workspace');
+
+select is_empty(
+  $$
+    select 1 from public.activity_event_counts(
+      'a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'month', array['fake.deploy.succeeded', 'devmacro.alert_triggered']
+    )
+  $$,
+  'activity_event_counts: a non-member counts nothing by month either');
 
 reset role;
 reset request.jwt.claims;
 
 set local role anon;
 select throws_ok(
-  $$ select public.activity_event_daily_counts('a80000a0-0000-4000-8000-000000000000', '2026-01-01', array['fake.signup']) $$,
+  $$ select public.activity_event_counts('a80000a0-0000-4000-8000-000000000000', '2026-01-01', 'day', array['fake.signup']) $$,
   '42501'::char(5), null::text,
-  'activity_event_daily_counts: anon cannot call it');
+  'activity_event_counts: anon cannot call it');
 reset role;
 
 select * from finish();

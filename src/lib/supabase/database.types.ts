@@ -389,9 +389,9 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "activity_event_daily_counts":
-{ Args: { "p_account_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
-              "day": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
+            "activity_event_counts":
+{ Args: { "p_account_ids"?: (string)[],"p_bucket": string,"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
+              "bucket_start": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
             }[]
                            },
 "claim_sync_jobs":
