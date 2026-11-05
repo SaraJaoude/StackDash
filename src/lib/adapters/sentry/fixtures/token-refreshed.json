@@ -1,0 +1,9 @@
+{
+  "id": "39",
+  "token": "doc-sample-installation-token-2",
+  "refreshToken": "doc-sample-refresh-token-2",
+  "dateCreated": "2026-11-05T16:55:00.000Z",
+  "expiresAt": "2026-11-06T00:55:00.000Z",
+  "state": null,
+  "application": null
+}

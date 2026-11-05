@@ -8,6 +8,7 @@ import { githubAdapter } from "./github";
 import { postHogAdapter } from "./posthog";
 import { resendAdapter } from "./resend";
 import { polarAdapter } from "./polar";
+import { sentryAdapter } from "./sentry";
 import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
 import { supabaseAdapter } from "./supabase";
@@ -39,6 +40,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   digitalocean: digitaloceanAdapter,
   posthog: postHogAdapter,
   polar: polarAdapter,
+  sentry: sentryAdapter,
 };
 
 /** Read on every call, not at module load, so the flag can never be baked into a build. */
