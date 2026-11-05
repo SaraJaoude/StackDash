@@ -5,7 +5,6 @@ import {
   useContext,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -58,7 +57,9 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
   const pending = useRef(new Map<string, ArrivalReport>());
   const timers = useRef({ flush: 0, announce: 0 });
 
-  const controls = useMemo<ArrivalControls>(() => {
+  // State, not a memo: LiveRefresh's channel effect depends on this object, so its identity must
+  // never change (React may drop a memoized value; a state initializer runs once).
+  const [controls] = useState<ArrivalControls>(() => {
     // Every component that changed reports from its effect in the same commit, so the reports of
     // one refresh are all in before a zero-delay timer runs.
     function flush(): void {
@@ -89,7 +90,7 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
         if (timers.current.flush === 0) timers.current.flush = window.setTimeout(flush, 0);
       },
     };
-  }, []);
+  });
 
   useEffect(() => {
     const pendingTimers = timers.current;
