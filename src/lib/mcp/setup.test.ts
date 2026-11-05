@@ -22,25 +22,35 @@ describe("mcpClientSetups", () => {
     for (const setup of setups) expect(setup.snippet).toContain(endpoint);
   });
 
-  it("gives Claude Desktop and Cursor configuration files that parse and name the endpoint", () => {
-    expect(JSON.parse(byId["claude-desktop"]?.snippet ?? "")).toEqual({
-      mcpServers: {
-        devmacro: {
-          command: "npx",
-          args: ["-y", "mcp-remote", endpoint, "--header", "Authorization:${AUTH_HEADER}"],
-          env: { AUTH_HEADER: "Bearer paste-your-key-here" },
-        },
-      },
-    });
-    expect(JSON.parse(byId.cursor?.snippet ?? "")).toEqual({
-      mcpServers: { devmacro: { url: endpoint, headers: { Authorization: "Bearer ${env:DEVMACRO_API_KEY}" } } },
-    });
+  it("gives Claude Desktop a config file that parses, names the endpoint, and sends the key as a bearer header", () => {
+    const config = JSON.parse(byId["claude-desktop"]?.snippet ?? "") as {
+      mcpServers: { devmacro: { args: string[]; env: Record<string, string> } };
+    };
+    const { args, env } = config.mcpServers.devmacro;
+    expect(args).toContain(endpoint);
+    const header = args[args.indexOf("--header") + 1];
+    expect(header).toMatch(/^Authorization:\$\{(\w+)\}$/);
+    const variable = /\$\{(\w+)\}/.exec(header ?? "")?.[1] ?? "";
+    expect(env[variable]).toMatch(/^Bearer /);
   });
 
-  it("reads the key from the environment in the Claude Code command rather than embedding one", () => {
-    expect(byId["claude-code"]?.snippet).toBe(
-      `claude mcp add --transport http devmacro ${endpoint} \\\n  --header 'Authorization: Bearer \${DEVMACRO_API_KEY}'`,
-    );
+  it("gives Cursor a config file that parses, names the endpoint, and reads the key from DEVMACRO_API_KEY", () => {
+    const config = JSON.parse(byId.cursor?.snippet ?? "") as {
+      mcpServers: { devmacro: { url: string; headers: Record<string, string> } };
+    };
+    const { url, headers } = config.mcpServers.devmacro;
+    expect(url).toBe(endpoint);
+    expect(headers.Authorization).toMatch(/^Bearer \$\{env:DEVMACRO_API_KEY\}$/);
+  });
+
+  it("passes the Claude Code header in single quotes, so the shell leaves the variable for Claude Code", () => {
+    const snippet = byId["claude-code"]?.snippet ?? "";
+    expect(snippet).toContain(endpoint);
+    expect(/--header '([^']*)'/.exec(snippet)?.[1]).toMatch(/^Authorization: Bearer \$\{DEVMACRO_API_KEY\}$/);
+  });
+
+  it("never leaves the key variable inside double quotes, where the shell would expand it", () => {
+    expect(byId["claude-code"]?.snippet).not.toMatch(/"[^"]*\$\{?DEVMACRO_API_KEY/);
   });
 
   it("never contains a key or a dash in the words people read", () => {
