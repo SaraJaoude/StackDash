@@ -1,6 +1,6 @@
 import { generateKeyPairSync, verify, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { AuthRevokedError, InvalidResponseError, PermissionMissingError } from "../errors";
+import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError } from "../errors";
 import { validateAdapterEvents } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
@@ -220,8 +220,19 @@ describe("exchangeCode", () => {
   it("maps invalid_grant to auth revoked and other 400s to an invalid response", async () => {
     const revoked = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json({ error: "invalid_grant" }, 400) });
     await expect(postHogAdapter.exchangeCode(input, revoked.ctx)).rejects.toBeInstanceOf(AuthRevokedError);
-    const invalid = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json({ error: "invalid_client" }, 400) });
+    const invalid = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json({ error: "invalid_request" }, 400) });
     await expect(postHogAdapter.exchangeCode(input, invalid.ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+
+  // A rejected client assertion is the deployment's key or clock, not the user's grant: retried,
+  // never a revoked connection (Provisioning, Troubleshoot assertion errors).
+  it.each([
+    ["a 401 invalid_client", () => json({ error: "invalid_client", error_description: "Client keys could not be retrieved" }, 401)],
+    ["a 401 without an error body", () => new Response("", { status: 401 })],
+    ["a 400 invalid_client", () => json({ error: "invalid_client" }, 400)],
+  ])("reports %s as provider unavailable, not auth revoked", async (_title, route) => {
+    const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: route });
+    await expect(postHogAdapter.exchangeCode(input, ctx)).rejects.toBeInstanceOf(ProviderUnavailableError);
   });
 
   it.each([
@@ -259,6 +270,16 @@ describe("refreshTokens", () => {
   it("uses a rotated refresh token when PostHog returns one", async () => {
     const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json(tokenFixture) });
     expect((await postHogAdapter.refreshTokens?.(credential, ctx))?.refreshToken?.reveal()).toBe("fixture-refresh-token");
+  });
+
+  it("keeps the connection retryable when PostHog cannot verify the client assertion on a refresh", async () => {
+    const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json({ error: "invalid_client" }, 401) });
+    await expect(postHogAdapter.refreshTokens?.(credential, ctx)).rejects.toBeInstanceOf(ProviderUnavailableError);
+  });
+
+  it("asks to reconnect when PostHog reports the refresh token gone", async () => {
+    const { ctx } = harness({ [`POST ${OAUTH}/oauth/token/`]: () => json({ error: "invalid_grant" }, 400) });
+    await expect(postHogAdapter.refreshTokens?.(credential, ctx)).rejects.toBeInstanceOf(AuthRevokedError);
   });
 
   it.each([

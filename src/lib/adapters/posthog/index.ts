@@ -2,10 +2,11 @@ import { z } from "zod";
 import { decimalToMinorUnits } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import {
+  AdapterError,
   AuthRevokedError,
   fetchJson,
-  InvalidResponseError,
   PermissionMissingError,
+  ProviderUnavailableError,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric, Timeframe } from "../metrics";
@@ -152,15 +153,19 @@ function clientAuthentication(ctx: OAuthContext): Record<string, string> {
 }
 
 /**
- * Token endpoint call. `invalid_grant` (400) means the code or refresh token is gone (the user
- * revoked the app, or the grant expired), so it is reported as auth revoked: the connection asks to
- * reconnect and is never retried. `fetchJson` alone would call it an invalid response.
+ * Token endpoint call. `invalid_grant` means the code or refresh token is gone (the user revoked
+ * the app, or the grant expired), so it is reported as auth revoked: the connection asks to
+ * reconnect and is never retried. A 401, or `invalid_client` with any status, is client
+ * authentication failing (RFC 6749 section 5.2): PostHog could not read the JWKS, has not seen a
+ * rotated key yet, or the clock drifted past its skew (Provisioning, Troubleshoot assertion errors).
+ * That is the deployment's problem and passes once fixed, so it is reported as provider
+ * unavailable, which the runner retries, never as a revoked grant for every connection.
  */
 async function requestTokens(ctx: OAuthContext, form: Record<string, string>): Promise<TokenResponse> {
   let oauthError: string | undefined;
   const capturingFetch: FetchLike = async (input, init) => {
     const response = await ctx.fetch(input, init);
-    if (response.status === 400) oauthError = await readOAuthErrorCode(response.clone());
+    if (response.status === 400 || response.status === 401) oauthError = await readOAuthErrorCode(response.clone());
     return response;
   };
   try {
@@ -175,12 +180,20 @@ async function requestTokens(ctx: OAuthContext, form: Record<string, string>): P
       TokenResponseSchema,
     );
   } catch (error) {
-    if (error instanceof InvalidResponseError && error.status === 400 && oauthError === "invalid_grant") {
-      throw new AuthRevokedError("PostHog rejected the authorization grant (invalid_grant)", {
-        cause: error,
-        status: 400,
-        ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
-      });
+    if (!(error instanceof AdapterError) || (error.status !== 400 && error.status !== 401)) throw error;
+    const details = {
+      cause: error,
+      status: error.status,
+      ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
+    };
+    if (oauthError === "invalid_grant") {
+      throw new AuthRevokedError("PostHog rejected the authorization grant (invalid_grant)", details);
+    }
+    if (error.status === 401 || oauthError === "invalid_client") {
+      throw new ProviderUnavailableError(
+        `PostHog rejected DevMacro's client assertion (${oauthError ?? "401"}); check POSTHOG_OAUTH_PRIVATE_KEY and the JWKS route`,
+        details,
+      );
     }
     throw error;
   }
