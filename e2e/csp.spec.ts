@@ -4,11 +4,11 @@ import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
-// render their HTML per request so Next.js can stamp the nonce on every script. Paths under /app,
-// /w/<slug>, and /auth that match no page reach a catch-all segment that renders the not-found page
-// per request too (#197). The rest of the site, the prerendered not-found page included, keeps a
-// static policy (next.config.ts). CI runs these against the production build, where a prerendered
-// page under the nonce policy would carry unnonced inline scripts and never hydrate.
+// render their HTML per request so Next.js can stamp the nonce on every script. So does the global
+// not-found page that answers paths matching no route, which includes paths under the proxied
+// prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
+// against the production build, where a prerendered page under the nonce policy would carry
+// unnonced inline scripts and never hydrate.
 
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
@@ -151,18 +151,13 @@ test.describe("signed out", () => {
     expect(violations).toEqual([]);
   });
 
-  test("unmatched paths outside the proxy answer 404 under the static policy and hydrate", async ({ page }) => {
+  test("an unmatched path outside the proxy answers 404 under the static policy and hydrates", async ({ page }) => {
     const violations = await watchViolations(page);
-    // /w and /auth have no page of their own and sit outside the proxy matcher (`:path+`).
-    for (const path of ["/no-such-page", "/w", "/auth"]) {
-      await test.step(path, async () => {
-        const response = await page.goto(path);
-        expect(response?.status()).toBe(404);
-        expect(response?.headers()["content-security-policy"]).toBe(BASELINE_CSP);
-        await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
-        await expectHydrated(page);
-      });
-    }
+    const response = await page.goto("/no-such-page");
+    expect(response?.status()).toBe(404);
+    expect(response?.headers()["content-security-policy"]).toBe(BASELINE_CSP);
+    await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
+    await expectHydrated(page);
     expect(violations).toEqual([]);
   });
 });

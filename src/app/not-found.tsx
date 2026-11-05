@@ -5,12 +5,10 @@ import { Wordmark } from "@/components/wordmark";
 
 export const metadata: Metadata = { title: "Page not found" };
 
-// Next.js answers a URL that matches no route with this page, prerendered at build time. It also
-// replaces the built-in not-found page, whose inline style block carries no CSP nonce. Unmatched
-// paths under /app, /w/<slug>, and /auth, where the proxy enforces the nonce policy (src/proxy.ts),
-// never reach the prerendered copy: catch-all segments there call notFound() in a per-request
-// render, which shows this page with the nonce (#197). It must stay static: Next.js renders it into
-// every route as the root not-found boundary, so request data here would fail the prerendered docs.
+// Shown when a page calls notFound() with no closer not-found page, and rendered by
+// global-not-found.tsx for URLs that match no route. It replaces the built-in page, whose inline
+// style block carries no CSP nonce (#197). It must stay static: Next.js renders it into every route
+// as the root not-found boundary, so request data here would fail the prerendered pages.
 export default function NotFound() {
   return (
     <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">

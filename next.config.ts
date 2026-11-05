@@ -28,6 +28,12 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
+  experimental: {
+    // src/app/global-not-found.tsx answers unmatched URLs, rendered per request so the 404 under the
+    // app paths carries the CSP nonce (#197). The root not-found.tsx cannot: it is rendered into every
+    // route, so request data there would make the prerendered pages dynamic.
+    globalNotFound: true,
+  },
   // src/lib/docs.ts reads docs/**/*.md with fs. A /docs slug that was not prerendered renders on
   // demand (and answers 404), so the Markdown ships with that route's server output.
   outputFileTracingIncludes: {

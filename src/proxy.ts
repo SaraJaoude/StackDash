@@ -23,8 +23,7 @@ function formActionSources(supabaseOrigin: string): string {
  * to handle it. That only works for HTML rendered per request: a static shell prerendered at build
  * time carries no nonce. So every page a proxied path can answer with renders its HTML per request
  * (`instant = false` plus `connection()` at the top): each app entry segment (decision on issue
- * #125), and, for paths under /app, /w, and /auth that match no page, a catch-all segment that
- * renders the not-found page per request instead of the prerendered one (#197).
+ * #125), and the global not-found page that answers paths matching no route (#197).
  */
 function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   const isDev = process.env.NODE_ENV === "development";
@@ -132,12 +131,10 @@ export async function proxy(request: NextRequest) {
 // letter (answered as not found above, before any session or CSP work). The landing page, the docs,
 // the signed-out /account/deleted page, API routes, and static assets stay out: they need no session
 // refresh, and a nonce would force static pages to render per request. next.config.ts applies the
-// static CSP to every path except the app paths listed here; keep them in sync. /w and /auth take
-// at least one more segment (`:path+`): neither has a page of its own, so the bare paths are
-// answered by the prerendered not-found page, which only works under the static policy.
+// static CSP to every path except the app paths listed here; keep them in sync.
 //
 // Next compiles each matcher to a case-sensitive regular expression, so the docs entry matches only
 // paths that contain an uppercase letter and correctly cased docs never invoke the proxy.
 export const config = {
-  matcher: ["/app", "/app/:path*", "/w/:path+", "/account", "/sign-in", "/auth/:path+", "/docs/:path(.*[A-Z].*)"],
+  matcher: ["/app", "/app/:path*", "/w/:path*", "/account", "/sign-in", "/auth/:path*", "/docs/:path(.*[A-Z].*)"],
 };
