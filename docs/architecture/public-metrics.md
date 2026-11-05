@@ -136,7 +136,13 @@ The public metrics page (Projects, then Public metrics) has a Share button besid
 
 ### Rate limit
 
-The badge, card, and JSON routes allow 120 requests per client IP per minute between them (`PUBLIC_REQUESTS_PER_MINUTE` in `src/lib/public-metrics/requests.ts`), then answer `429` with `Retry-After` until the next minute. The count lives in Postgres (`public_rate_limit_counters`), so every server instance shares it. The IP comes from `x-real-ip`, else the first `x-forwarded-for` entry (Vercel sets both and does not forward a client's own); it is hashed with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before it is stored, and the table accepts nothing but such a hash. Requests a cache answers never reach DevMacro and are not counted. Counters are deleted after a day.
+The badge, card, and JSON routes allow 120 requests per client IP per minute between them (`PUBLIC_REQUESTS_PER_MINUTE` in `src/lib/public-metrics/requests.ts`), then answer `429` with `Retry-After` until the next minute. The count lives in Postgres (`public_rate_limit_counters`), so every server instance shares it. The IP is hashed with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before it is stored, and the table accepts nothing but such a hash. Requests a cache answers never reach DevMacro and are not counted. Counters are deleted after a day.
+
+Where the IP comes from (`clientIpEnv` in `src/lib/env.ts`, `clientIp` in `requests.ts`):
+
+- On Vercel (`VERCEL=1`): `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel cannot overwrite ([Vercel request headers](https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for), checked 2026-11-05). `x-real-ip` is never read: it adds nothing on Vercel and a client can send it anywhere else.
+- Self-hosted: `x-forwarded-for`, taking the entry `DEVMACRO_TRUSTED_PROXY_COUNT` places from the right (1 when unset). Each proxy appends the address it received the request from, so that entry is the one the outermost trusted proxy wrote, and whatever a client put to its left is ignored. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and gets a bucket per claimed address.
+- A request with no address shares one `unknown` bucket.
 
 ### View counts
 

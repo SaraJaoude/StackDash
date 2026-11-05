@@ -1,20 +1,56 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import { clientIpEnv, type ClientIpEnv } from "@/lib/env";
 
 import { clientIp, hashClientIp, PUBLIC_REQUESTS_PER_MINUTE, rateLimitDecision, secondsUntilNextMinute } from "./requests";
 
 const KEY = Buffer.alloc(32, 7);
 
+const VERCEL: ClientIpEnv = { header: "x-vercel-forwarded-for", trustedProxies: 1 };
+const ONE_PROXY: ClientIpEnv = { header: "x-forwarded-for", trustedProxies: 1 };
+const TWO_PROXIES: ClientIpEnv = { header: "x-forwarded-for", trustedProxies: 2 };
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe("clientIp", () => {
   it.each([
-    ["x-real-ip first", { "x-real-ip": "203.0.113.7", "x-forwarded-for": "198.51.100.1" }, "203.0.113.7"],
-    ["the first x-forwarded-for entry, trimmed", { "x-forwarded-for": " 198.51.100.1 , 10.0.0.1" }, "198.51.100.1"],
-    ["IPv6 as given", { "x-real-ip": "2001:db8::1" }, "2001:db8::1"],
-    // Boundaries: empty and blank values are not an address.
-    ["x-forwarded-for when x-real-ip is blank", { "x-real-ip": "  ", "x-forwarded-for": "198.51.100.1" }, "198.51.100.1"],
-    ["null when neither is present", {}, null],
-    ["null when x-forwarded-for is empty", { "x-forwarded-for": "" }, null],
-  ])("reads %s", (_title, headers, expected) => {
-    expect(clientIp(new Headers(headers))).toBe(expected);
+    ["Vercel's own header, ignoring what the client put in x-forwarded-for and x-real-ip", VERCEL, { "x-vercel-forwarded-for": "203.0.113.7", "x-forwarded-for": "198.51.100.1", "x-real-ip": "198.51.100.2" }, "203.0.113.7"],
+    ["the entry one proxy appended, not the one the client prepended", ONE_PROXY, { "x-forwarded-for": "198.51.100.66, 203.0.113.7" }, "203.0.113.7"],
+    ["the entry the outer of two proxies appended, trimmed", TWO_PROXIES, { "x-forwarded-for": "198.51.100.66 , 203.0.113.7 , 10.0.0.2" }, "203.0.113.7"],
+    ["IPv6 as given", ONE_PROXY, { "x-forwarded-for": "2001:db8::1" }, "2001:db8::1"],
+    ["the appended address and never x-real-ip, which a client can send", ONE_PROXY, { "x-real-ip": "198.51.100.2", "x-forwarded-for": "203.0.113.7" }, "203.0.113.7"],
+    // Boundaries: fewer entries than trusted proxies, and empty or blank values.
+    ["the leftmost entry when a trusted proxy did not append", TWO_PROXIES, { "x-forwarded-for": "203.0.113.7" }, "203.0.113.7"],
+    ["the last address, skipping a trailing blank entry", ONE_PROXY, { "x-forwarded-for": "198.51.100.66, 203.0.113.7, " }, "203.0.113.7"],
+    ["null on Vercel when only x-forwarded-for is present", VERCEL, { "x-forwarded-for": "203.0.113.7" }, null],
+    ["null when the header is missing", ONE_PROXY, {}, null],
+    ["null when the header is empty", ONE_PROXY, { "x-forwarded-for": " , " }, null],
+  ])("reads %s", (_title, source, headers, expected) => {
+    expect(clientIp(new Headers(headers), source)).toBe(expected);
+  });
+});
+
+describe("clientIpEnv", () => {
+  it("reads Vercel's header on Vercel, whatever the proxy count says", () => {
+    vi.stubEnv("VERCEL", "1");
+    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "3");
+    expect(clientIpEnv()).toEqual(VERCEL);
+  });
+
+  it("trusts one proxy when self-hosted and unset, and the configured count when set", () => {
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "");
+    expect(clientIpEnv()).toEqual(ONE_PROXY);
+    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", "2");
+    expect(clientIpEnv()).toEqual(TWO_PROXIES);
+  });
+
+  it.each(["0", "10", "two", "1.5"])("refuses DEVMACRO_TRUSTED_PROXY_COUNT=%s (boundary: 1 to 9)", (value) => {
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("DEVMACRO_TRUSTED_PROXY_COUNT", value);
+    expect(() => clientIpEnv()).toThrow("DEVMACRO_TRUSTED_PROXY_COUNT is invalid");
   });
 });
 

@@ -5,6 +5,7 @@ import { createHmac } from "node:crypto";
 import { after } from "next/server";
 
 import { derivedKey } from "@/lib/crypto/credentials";
+import { clientIpEnv, type ClientIpEnv } from "@/lib/env";
 import { logError } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
@@ -38,16 +39,21 @@ export const PUBLIC_REQUESTS_PER_MINUTE = 120;
 const UNKNOWN_CLIENT = "unknown";
 
 /**
- * The client IP the hosting platform reports. Vercel sets `x-real-ip` and overwrites
- * `x-forwarded-for` so neither can be spoofed there
- * (https://vercel.com/docs/headers/request-headers#x-forwarded-for); behind another proxy the first
- * `x-forwarded-for` entry is the client. Null when neither is present.
+ * The client IP, read from the header `source` names (clientIpEnv in env.ts), counting
+ * `trustedProxies` entries from the right. Each proxy appends the address it received the request
+ * from, so the entry the outermost trusted proxy appended is the client, and anything to its left
+ * is whatever the client sent and is ignored: a client cannot pick its own bucket. On Vercel the
+ * header is `x-vercel-forwarded-for`, which holds exactly the client
+ * (https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for). Fewer entries than
+ * trusted proxies means one did not append, so the leftmost entry, which a trusted proxy wrote, is
+ * used. Null when the header is missing or empty.
  */
-export function clientIp(headers: Headers): string | null {
-  const real = headers.get("x-real-ip")?.trim();
-  if (real !== undefined && real !== "") return real;
-  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return forwarded !== undefined && forwarded !== "" ? forwarded : null;
+export function clientIp(headers: Headers, source: ClientIpEnv): string | null {
+  const entries = (headers.get(source.header) ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+  return entries[Math.max(0, entries.length - source.trustedProxies)] ?? null;
 }
 
 /** Lowercase hex HMAC-SHA-256 of the IP, the only form public_rate_limit_counters accepts. */
@@ -70,7 +76,7 @@ export function rateLimitDecision(countThisMinute: number, now: Date): RateLimit
 
 /** Counts this request against its client IP and decides whether to serve it. */
 export async function checkPublicRateLimit(headers: Headers, now: Date): Promise<RateLimitDecision> {
-  const ipHash = hashClientIp(clientIp(headers) ?? UNKNOWN_CLIENT, derivedKey("public-rate-limit"));
+  const ipHash = hashClientIp(clientIp(headers, clientIpEnv()) ?? UNKNOWN_CLIENT, derivedKey("public-rate-limit"));
   const { data, error } = await createAdminClient().rpc("bump_public_rate_limit", { p_ip_hash: ipHash });
   if (error) throw new Error("Failed to count a public request", { cause: error });
   return rateLimitDecision(data, now);
