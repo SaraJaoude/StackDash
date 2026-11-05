@@ -123,7 +123,8 @@ const EMPTY_TOTALS: Readonly<HourTotals> = {
 function hourOf(accountId: string, hourMs: number): HourTotals {
   const orders = between(2, 9, accountId, "orders", hourMs);
   const revenue = orders * between(900, 4900, accountId, "price", hourMs);
-  // Polar's Starter rate, 5 percent plus 50 cents an order (docs/providers/polar.md, Fees).
+  // Polar's Starter rate, 5% + 50¢ per transaction (Polar, Merchant of Record, Fees,
+  // https://polar.sh/docs/merchant-of-record/fees, checked 2026-11-05).
   const fees = Math.floor(revenue / 20) + orders * 50;
   return {
     orders,
