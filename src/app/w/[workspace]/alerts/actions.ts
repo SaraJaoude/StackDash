@@ -41,6 +41,7 @@ import {
   describeFailure,
   newSigningSecret,
   parseChannelUrl,
+  pinnedFetch,
   postToChannel,
   urlPolicyFromEnv,
 } from "@/lib/notifications/channels";
@@ -406,8 +407,10 @@ export async function deleteAlertChannel(_previous: AlertActionResult | null, fo
 }
 
 /**
- * Posts a test message to a channel and reports whether it arrived. A success turns a channel that
- * needed attention back on; a failure records the error on the channel without sending anything else.
+ * Posts a test message to a channel and reports whether it arrived. One attempt, so the person who
+ * pressed the button hears the first answer rather than waiting out the retries. A success turns a
+ * channel that needed attention back on; a failure records the error on the channel without
+ * sending anything else.
  */
 export async function sendAlertChannelTest(_previous: AlertActionResult | null, formData: FormData): Promise<AlertActionResult> {
   const parsed = channelRefSchema.safeParse(pickFormFields(formData, ["workspace", "destinationId"]));
@@ -425,11 +428,12 @@ export async function sendAlertChannelTest(_previous: AlertActionResult | null, 
       return { ok: false, message: `The URL of ${destination.name} can no longer be read. Remove the channel and add it again with its URL.` };
     }
     const notice = testNotice(workspace.name, destination.name, workspaceLinks(messageOrigin(), workspace.slug));
-    const outcome = await postToChannel(channelRequest(destination.kind, secret, notice, { now: () => new Date(), newId: randomUUID }), {
-      fetch,
-      sleep: (ms) => sleep(ms),
-      random: Math.random,
-    });
+    const policy = urlPolicyFromEnv();
+    const outcome = await postToChannel(
+      channelRequest(destination.kind, secret, notice, { now: () => new Date(), newId: randomUUID }),
+      { fetch: pinnedFetch(policy), sleep: (ms) => sleep(ms), random: Math.random, policy },
+      { maxAttempts: 1 },
+    );
     if (outcome.ok) {
       await updateDestinationHealth(workspace.id, destinationId, {
         status: "active",

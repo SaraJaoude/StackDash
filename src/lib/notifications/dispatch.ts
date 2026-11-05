@@ -5,7 +5,7 @@ import type { ClaimedJob, EventRow } from "@/lib/jobs/store";
 import type { JobOutcome } from "@/lib/jobs/sync-connection";
 import type { LogFields, Logger } from "@/lib/log/logger";
 
-import { channelRequest, describeFailure, type ChannelSecret, type PostOutcome } from "./channels";
+import { channelRequest, describeFailure, type ChannelRequest, type ChannelSecret, type PostOutcome } from "./channels";
 import { renderNoticeEmail } from "./email";
 import { emailPreferenceUrl, unsubscribeUrls, workspaceLinks } from "./links";
 import {
@@ -95,7 +95,7 @@ export type NotificationDeps = Readonly<{
   store: NotificationStore;
   /** Null when email is not set up on this instance: email targets are skipped, channels still send. */
   email: EmailTransport | null;
-  post: (request: { url: string; body: string; headers: Record<string, string> }) => Promise<PostOutcome>;
+  post: (request: ChannelRequest) => Promise<PostOutcome>;
   /** The instance's public origin, for links in messages. */
   origin: () => string;
   unsubscribeToken: (workspaceId: string, userId: string) => string;
