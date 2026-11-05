@@ -1,6 +1,12 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
-import { projectAllowances, projectSpend, quotaProjectionLine, spendProjectionLine } from "@/lib/dashboard/projection";
+import {
+  PROJECTION_WINDOW_POINTS,
+  projectAllowances,
+  projectSpend,
+  quotaProjectionLine,
+  spendProjectionLine,
+} from "@/lib/dashboard/projection";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
@@ -26,8 +32,12 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
 
 export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
 const DAY_MS = 86_400_000;
-/** UTC days of snapshots read for the projections, the dashboard's snapshot window. */
-export const SUMMARY_HISTORY_DAYS = 45;
+/**
+ * UTC days of snapshots read for the projections, ending with the summarized day: a projection
+ * uses the latest PROJECTION_WINDOW_POINTS daily readings, so twice that leaves a full window
+ * after a week of missed syncs. A metric not read in that time gets no projection line.
+ */
+const SUMMARY_HISTORY_DAYS = PROJECTION_WINDOW_POINTS * 2;
 
 /** The UTC day a summary job created at `createdAt` reports on: the day before. */
 export function summaryDate(createdAt: Date): string {
@@ -122,6 +132,9 @@ export function buildDailySummary(input: {
 
   // The end of the summarized day, so the summary sorts after everything it describes.
   const endOfDay = new Date(Date.parse(`${input.date}T00:00:00.000Z`) + DAY_MS);
+  // Projections are as of the last instant of the summarized day: at `endOfDay` itself a period
+  // ending at midnight has already ended, though it was still running on the day summarized.
+  const projectedAt = new Date(endOfDay.getTime() - 1);
   const providers = [...byProvider.entries()]
     .map(([id, rows]) => ({ info: input.provider(id), ...rows }))
     .sort((a, b) => a.info.name.localeCompare(b.info.name));
@@ -134,7 +147,7 @@ export function buildDailySummary(input: {
     severity: "info",
     title: `Daily summary for ${input.date}`,
     body: providers
-      .flatMap(({ info, day, history }) => [...lines(info, day), ...projectionLines(info, history, endOfDay)])
+      .flatMap(({ info, day, history }) => [...lines(info, day), ...projectionLines(info, history, projectedAt)])
       .join("\n"),
     url: null,
     occurred_at: endOfDay.toISOString(),

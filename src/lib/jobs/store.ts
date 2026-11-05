@@ -4,6 +4,7 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
+import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
 
@@ -382,11 +383,13 @@ export function createSupabaseJobStore(): JobStore {
         .eq("workspace_id", workspaceId)
         .gte("snapshot_date", fromDate)
         .lte("snapshot_date", toDate)
-        // The (workspace_id, snapshot_date desc) index; if the cap is ever reached, the oldest go first.
+        // The (workspace_id, snapshot_date desc) index. Newest first, so if the cap is reached the
+        // oldest days are the ones cut, and the projections lose history before the day's values.
         .order("snapshot_date", { ascending: false })
         .order("id")
         .limit(SUMMARY_ROW_LIMIT);
       if (error) throw failure("summary snapshots read", error);
+      if (data.length === SUMMARY_ROW_LIMIT) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: data.length });
       return data;
     },
   };
