@@ -245,6 +245,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"project_pages": {
+                  Row: {
+                    "created_at": string,"enabled": boolean,"indexable": boolean,"project_id": string,"slug": string,"updated_at": string,"updated_by": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"enabled"?: boolean,"indexable"?: boolean,"project_id": string,"slug": string,"updated_at"?: string,"updated_by"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"enabled"?: boolean,"indexable"?: boolean,"project_id"?: string,"slug"?: string,"updated_at"?: string,"updated_by"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "project_pages_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "project_pages_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"projects": {
                   Row: {
                     "created_at": string,"created_by": string | null,"id": string,"name": string,"updated_at": string,"updated_by": string | null,"workspace_id": string
@@ -455,6 +481,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"disable_project_page":
+{ Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
+                           },
 "enqueue_daily_summaries":
 { Args: { "p_date": string }; Returns: number
                            },
@@ -476,6 +505,16 @@ isOneToOne: false
 "latest_usage_resets":
 { Args: { "p_external_account_id": string,"p_workspace_id": string }; Returns: {
               "metric_key": string,"resets_at": string
+            }[]
+                           },
+"public_project_page":
+{ Args: { "p_page_slug": string,"p_workspace_slug": string }; Returns: {
+              "indexable": boolean,"project_id": string,"project_name": string,"workspace_id": string
+            }[]
+                           },
+"public_project_page_sitemap":
+{ Args: { "p_limit": number }; Returns: {
+              "page_slug": string,"updated_at": string,"workspace_slug": string
             }[]
                            },
 "public_published_metrics":
@@ -509,6 +548,9 @@ isOneToOne: false
                            },
 "require_published_metrics_admin":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"save_project_page":
+{ Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string
                            },
 "unpublish_all_metrics":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
