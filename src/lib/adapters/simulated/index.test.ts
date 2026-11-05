@@ -91,9 +91,10 @@ const DAY_CHAIN: Chain = {
 // Stripe's sync re-adds 31 days of hourly transactions for its metrics, so its 721 chained syncs are
 // the slowest work in this file, and two places run them: Stripe's `beforeAll` in "simulated %s over
 // a two hour span" (with DAY_CHAIN's 49 syncs, 0.1 s more) and the group test at the end. Each takes
-// about 1.5 s on a laptop on the merged base, and the group test took 2.5 s on CI (run 41960569995).
-// Vitest's defaults are 5 s for a test and 10 s for a hook, and the all-provider shape this replaced
-// ran past 5 s on CI (run 41959212551). 20 s is eight times the CI measurement, for both.
+// about 1.5 s on a laptop on the merged base. On CI the group test took 2.5 s (run 41960569995) and
+// 3.3 s (run 41964081379); CI does not report hook times. Vitest's defaults are 5 s for a test and
+// 10 s for a hook, and the all-provider shape this replaced ran past 5 s on CI (run 41959212551).
+// 20 s is six times the slower CI measurement, for both.
 const WATCH_TIMEOUT_MS = 20_000;
 
 /** Syncs every account once per step across the chain, chaining cursors like the runner. */
