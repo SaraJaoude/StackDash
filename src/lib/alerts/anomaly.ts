@@ -21,20 +21,34 @@
  *   estimated values are separate series and the event says which one it used. Accounts are added
  *   up the way trends add them: a day where an account that had started reporting has no amount
  *   is unavailable for the whole series.
- * - A breakdown never fires beside its own total: the dashboard's `.total` rule applies, and so
- *   does its parent rule (`github.spend.actions.actions_linux` is dropped when the account also
- *   reports `github.spend.actions` in the same kind and currency).
+ * - Each amount is counted once, by the dashboard's own rules (`src/lib/dashboard/aggregate.ts`)
+ *   applied to each snapshot date's rows: a breakdown never fires beside its own total
+ *   (`dropSupersededBreakdowns`: `<prefix>.total`, and `github.spend.actions.actions_linux` beside
+ *   `github.spend.actions`), and a window inside a longer billing window of the same account,
+ *   kind, and currency is dropped (`dropSubWindows`: `github.daily_spend.actions` inside the
+ *   month's `github.spend.actions`), so one spike is one event. `checkedRows` is that rule, and
+ *   the alerts page lists only the metrics it keeps, so every mute silences something.
  * - The latest complete UTC day is compared with the 14 days before it. It needs at least 7 of
  *   them, and it fires only when all three hold: the day is at least twice the median, it is above
  *   the median by at least the minimum change for its currency or unit, and its modified z-score
- *   (0.6745 times the distance from the median, over the median absolute deviation) is above
- *   3.5, the outlier cutoff Iglewicz and Hoaglin recommend (NIST/SEMATECH e-Handbook of
- *   Statistical Methods, section 1.3.5.17, "Detection of Outliers"). The median and its absolute
- *   deviation are robust: one past spike moves neither, so it cannot hide the next one, and a
- *   steady ramp stays inside its own spread.
+ *   is above 3.5, the outlier cutoff Iglewicz and Hoaglin recommend (NIST/SEMATECH e-Handbook of
+ *   Statistical Methods, section 1.3.5.17, "Detection of Outliers"). The score is 0.6745 times
+ *   the distance from the median over the median absolute deviation. When more than half the days
+ *   share one amount that deviation is 0 (a weekday and weekend rhythm, or a workspace quiet four
+ *   days a week), so the score falls back to the distance over 1.253314 times the mean absolute
+ *   deviation from the median (IBM Cognos Analytics 12.0.x, "Modified z score"). Only a history
+ *   with no spread at all (every day the same amount) skips the score, and then anything past the
+ *   ratio and the minimum change is unusual. One past spike barely moves the median, so it cannot
+ *   hide the next one, and a steady ramp stays inside its own spread.
  * - Only spikes fire. A drop (weekends, a quiet day) is the normal rhythm of most workspaces.
  */
-import { isEstimated, type ProviderId, type SnapshotInput } from "@/lib/dashboard/aggregate";
+import {
+  dropSubWindows,
+  dropSupersededBreakdowns,
+  isEstimated,
+  type ProviderId,
+  type SnapshotInput,
+} from "@/lib/dashboard/aggregate";
 import { formatTrendValue, type TrendMeasure } from "@/lib/dashboard/trends";
 import type { TablesInsert } from "@/lib/supabase/database.types";
 import { currencyMinorDigits } from "@/lib/money";
@@ -60,30 +74,17 @@ const DAY_MS = 86_400_000;
 // 0.6745 is the 0.75 quantile of the standard normal, which scales the median absolute deviation
 // to the standard deviation of normally distributed data.
 const MAD_SCALE = 0.6745;
+// 1.253314 (the square root of pi over 2) times the mean absolute deviation approximates the
+// standard deviation of normally distributed data; the score's fallback when the MAD is 0.
+const MEAN_AD_SCALE = 1.253314;
 
 export type AnomalySource = "verified" | "estimated";
 
 /** How a series' rows become daily amounts. */
 export type Accrual = "daily" | "period_to_date";
 
-export type AnomalyRow = Pick<
-  SnapshotInput,
-  | "connection_id"
-  | "external_account_id"
-  | "metric_key"
-  | "kind"
-  | "label"
-  | "snapshot_date"
-  | "value"
-  | "unit"
-  | "amount_minor"
-  | "currency"
-  | "period_start"
-  | "period_end"
-  | "point_at"
-  | "retrieved_at"
-  | "provenance_source"
->;
+/** A usage_snapshots row as detection reads it: the same columns the dashboard reads. */
+export type AnomalyRow = SnapshotInput;
 
 export type AnomalyConnection = Readonly<{ id: string; provider: ProviderId }>;
 
@@ -138,6 +139,21 @@ export function minimumChange(measure: TrendMeasure): number {
 }
 
 /**
+ * The modified z-score of `value` against the window's amounts, whose median is `usual`. Divides
+ * by the median absolute deviation, or by the mean absolute deviation when more than half the
+ * days share one amount and the median deviation is 0. Infinite for a history with no spread at
+ * all, where anything past the ratio and the minimum change is unusual.
+ */
+export function modifiedZScore(available: readonly number[], usual: number, value: number): number {
+  const deviations = available.map((amount) => Math.abs(amount - usual));
+  const medianDeviation = median([...deviations].sort((a, b) => a - b));
+  if (medianDeviation > 0) return (MAD_SCALE * (value - usual)) / medianDeviation;
+  const meanDeviation = deviations.reduce((sum, amount) => sum + amount, 0) / deviations.length;
+  if (meanDeviation > 0) return (value - usual) / (MEAN_AD_SCALE * meanDeviation);
+  return Number.POSITIVE_INFINITY;
+}
+
+/**
  * The checked day against the days before it, or null when it is not unusual or there is not
  * enough history. `history` holds the window's daily amounts, null where unavailable.
  */
@@ -148,9 +164,7 @@ export function detectSpike(history: readonly (number | null)[], value: number |
   const usual = median(available);
   if (value - usual < minimumChange(measure)) return null;
   if (value < ANOMALY_MIN_RATIO * usual) return null;
-  const deviation = median(available.map((amount) => Math.abs(amount - usual)).sort((a, b) => a - b));
-  // A flat history has no spread: anything past the ratio and the minimum change is unusual.
-  if (deviation > 0 && (MAD_SCALE * (value - usual)) / deviation <= ANOMALY_SCORE_CUTOFF) return null;
+  if (modifiedZScore(available, usual, value) <= ANOMALY_SCORE_CUTOFF) return null;
   return { value, usual, ratio: usual > 0 ? value / usual : null, historyDays: available.length };
 }
 
@@ -181,17 +195,21 @@ function isLongerThanADay(row: AnomalyRow): boolean {
 }
 
 /**
- * Drops breakdowns that sit beside their total: `<prefix>.total`, or the parent key itself, for
- * the same account, kind, and currency or unit.
+ * The rows detection checks: the dashboard's breakdown and sub-window drops, applied to each
+ * snapshot date's rows on their own (across dates, a later month to date reading would cover
+ * every earlier one and leave no history), then only spend and usage over a period that starts on
+ * a UTC day boundary with an amount.
  */
-function dropBreakdowns(rows: readonly AnomalyRow[]): AnomalyRow[] {
-  const groupOf = (row: AnomalyRow, key: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? row.unit ?? ""} ${key}`;
-  const present = new Set(rows.map((row) => groupOf(row, row.metric_key)));
-  return rows.filter((row) => {
-    if (row.metric_key.endsWith(".total")) return true;
-    const parent = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
-    return !present.has(groupOf(row, parent)) && !present.has(groupOf(row, `${parent}.total`));
-  });
+export function checkedRows<T extends AnomalyRow>(rows: readonly T[]): T[] {
+  const byDate = new Map<string, T[]>();
+  for (const row of rows) {
+    const dayRows = byDate.get(row.snapshot_date);
+    if (dayRows === undefined) byDate.set(row.snapshot_date, [row]);
+    else dayRows.push(row);
+  }
+  return [...byDate.values()]
+    .flatMap((dayRows) => dropSubWindows(dropSupersededBreakdowns(dayRows)))
+    .filter((row) => isDailyCandidate(row) && measureOf(row) !== null);
 }
 
 type Cell = {
@@ -253,10 +271,10 @@ type Series = {
 function buildSeries(rows: readonly AnomalyRow[], connections: readonly AnomalyConnection[]): Series[] {
   const providers = new Map(connections.map((connection) => [connection.id, connection.provider]));
   const series = new Map<string, Series>();
-  for (const row of dropBreakdowns(rows)) {
+  for (const row of checkedRows(rows)) {
     const provider = providers.get(row.connection_id);
     const measure = measureOf(row);
-    if (provider === undefined || measure === null || !isDailyCandidate(row)) continue;
+    if (provider === undefined || measure === null) continue;
     const source: AnomalySource = isEstimated(row) ? "estimated" : "verified";
     const key = `${provider} ${row.metric_key} ${measureKey(measure)} ${source}`;
     let entry = series.get(key);

@@ -424,7 +424,7 @@ export function createSupabaseJobStore(): JobStore {
         const { data, error } = await db
           .from("usage_snapshots")
           .select(
-            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, retrieved_at, provenance_source",
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
           )
           .eq("workspace_id", workspaceId)
           .in("kind", [...ANOMALY_KINDS])
