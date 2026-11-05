@@ -110,7 +110,7 @@ The first sync reads the last 30 days. Each later sync reads from one day before
 | `polar.order.paid` | `GET /v1/orders/?created_after=` | Status `paid`, `refunded`, or `partially_refunded`. Draft, pending, and void orders are skipped | By `billing_reason`: "Order paid", "Order paid for a new subscription", "Subscription renewed", "Order paid for a subscription change" |
 | `polar.subscription.started` | `GET /v1/subscriptions/?started_after=` | `started_at` set | "Subscription started", or "Trial started" while trialing |
 | `polar.subscription.canceled` | `GET /v1/subscriptions/?canceled_at_after=` | `canceled_at` set | "Subscription canceled". Body: the customer's reason from Polar's enum, and "Access continues until the paid period ends." when `cancel_at_period_end` |
-| `polar.refund.succeeded` | `GET /v1/refunds/?sorting=-created_at` | Status `succeeded`. No date filter exists, so the list stops at the first refund before the window | "Order refunded". Body: Polar's reason enum in words |
+| `polar.refund.succeeded` | `GET /v1/refunds/?succeeded=true&sorting=-created_at` | Status `succeeded`, filtered by Polar so pending and failed refunds do not use the page cap. No date filter exists, so the list stops at the first refund before the window | "Order refunded". Body: Polar's reason enum in words |
 
 Event times are the order's `created_at`, the subscription's `started_at` or `canceled_at`, and the refund's `created_at`. Dedupe keys are `order:<id>`, `subscription_started:<id>`, `subscription_canceled:<id>`, and `refund:<id>`.
 
@@ -272,7 +272,7 @@ All samples are from documentation, not recorded: shaped after the API reference
 }
 ```
 
-`GET /v1/refunds/?sorting=-created_at` (trimmed):
+`GET /v1/refunds/?succeeded=true&sorting=-created_at` (trimmed):
 
 ```json
 {

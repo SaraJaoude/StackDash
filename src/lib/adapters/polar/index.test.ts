@@ -98,6 +98,7 @@ const syncRoutes: Record<string, Route> = {
   "/v1/customers/": ok(customersFixture),
   "/v1/orders/": ok(ordersFixture),
   "/v1/subscriptions/": subscriptionsRoute,
+  // The pending refund stays in the fixture: the adapter still drops it if Polar ignores `succeeded`.
   "/v1/refunds/": ok(refundsFixture),
 };
 
@@ -416,7 +417,13 @@ describe("polarAdapter.sync", () => {
     });
     expect(at("/v1/subscriptions/", (url) => url.searchParams.has("started_after"))?.get("started_after")).toBe(thirtyDaysAgo);
     expect(at("/v1/subscriptions/", (url) => url.searchParams.has("canceled_at_after"))?.get("canceled_at_after")).toBe(thirtyDaysAgo);
-    expect(at("/v1/refunds/")?.get("sorting")).toBe("-created_at");
+    expect(Object.fromEntries(at("/v1/refunds/") ?? [])).toEqual({
+      organization_id: orgId,
+      succeeded: "true",
+      sorting: "-created_at",
+      page: "1",
+      limit: "100",
+    });
     // Newest first: the first customer from before the month ends the walk on page one.
     expect(calls.filter((call) => call.url.pathname === "/v1/customers/")).toHaveLength(1);
     for (const call of calls) {

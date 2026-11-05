@@ -706,10 +706,11 @@ function timelineStreams(externalAccountId: string, since: Date) {
     } satisfies StreamRead<Subscription>,
     {
       // Refunds have no date filter: newest first, stopping at the first one before the window.
+      // `succeeded=true` keeps pending and failed refunds, which never become events, off the page cap.
       name: "refunds",
       url: REFUNDS_URL,
       scope: "refunds:read",
-      params: new URLSearchParams({ ...org, sorting: "-created_at" }),
+      params: new URLSearchParams({ ...org, succeeded: "true", sorting: "-created_at" }),
       schema: polarListSchema(RefundSchema),
       stopAt: (refund: Refund) => refund.created_at.getTime() < since.getTime(),
       toEvent: refundEvent,
