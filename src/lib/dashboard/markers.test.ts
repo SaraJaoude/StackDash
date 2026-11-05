@@ -87,6 +87,11 @@ describe("bucketEventCounts in daily buckets", () => {
     ]);
   });
 
+  it("counts a new Stripe customer as a signup on the Stripe chart", () => {
+    const counts = bucketEventCounts([row("2026-01-10", "stripe.customer.created", 6, "stripe")], "daily", NOW);
+    expect(counts).toEqual([{ provider: "stripe", category: "signups", bucket: "2026-01-10", count: 6 }]);
+  });
+
   it.each([
     { name: "a type in no category", input: row("2026-01-10", "stripe.charge.refunded", 3, "stripe") },
     { name: "a zero count", input: row("2026-01-10", "vercel.deployment.succeeded", 0) },

@@ -47,11 +47,12 @@ const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
   },
   // Successful charges only: a failed or refunded charge is not money that came in that day.
   payments: { label: "Payments", one: "payment", many: "payments", typeIds: ["stripe.charge.succeeded"], owner: "provider" },
+  // A new Stripe customer counts as a signup: it is the only signup signal a Stripe-only workspace has.
   signups: {
     label: "Signups",
     one: "signup",
     many: "signups",
-    typeIds: ["fake.signup", "supabase.auth.signup"],
+    typeIds: ["fake.signup", "stripe.customer.created", "supabase.auth.signup"],
     owner: "provider",
   },
   // Events, not stars: one daily event can stand for many stars, and the count is of events.
