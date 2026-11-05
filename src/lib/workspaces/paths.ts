@@ -35,3 +35,8 @@ export function workspacePath(slug: string, section: WorkspaceSection): string {
 export function workspaceHome(slug: string): string {
   return workspacePath(slug, "timeline");
 }
+
+/** The yearly stack summary of one calendar year (#151). */
+export function yearInReviewPath(slug: string, year: number): string {
+  return `/w/${slug}/year/${year}`;
+}
