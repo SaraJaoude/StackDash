@@ -6,7 +6,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(54);
+select plan(57);
 
 -- Test helpers, rolled back with the transaction.
 create schema api_test;
@@ -401,6 +401,34 @@ select throws_ok(
      values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'dmk_pgtapC18', '{usage:read}') $$,
   '54000'::char(5), null::text,
   'limit: a 21st key that is not revoked is refused with program_limit_exceeded');
+
+-- Workspace A is now full. A signed-in caller who is not an admin of it is not counted: row level
+-- security answers them, as for a workspace under the limit, and the count (and its lock) is skipped.
+set local request.jwt.claims to '{"sub": "b1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
+select throws_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     values ('a1620000-0000-4000-8000-000000000010', 'Planted', api_test.hash('pgtap-planted-full'), 'dmk_pgtapPlF', '{usage:read}') $$,
+  '42501'::char(5), null::text,
+  'limit: the owner of B gets insufficient_privilege, not the limit, for a full workspace A');
+set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000003", "role": "authenticated"}';
+select throws_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     values ('a1620000-0000-4000-8000-000000000010', 'Viewer key', api_test.hash('pgtap-viewer-full'), 'dmk_pgtapVwF', '{usage:read}') $$,
+  '42501'::char(5), null::text,
+  'limit: a viewer of A gets insufficient_privilege, not the limit, for a full workspace A');
+
+-- The service role has no auth.uid() and is always counted.
+reset role;
+reset request.jwt.claims;
+select throws_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes, created_by)
+     values ('a1620000-0000-4000-8000-000000000010', 'Service key', api_test.hash('pgtap-service-full'), 'dmk_pgtapSvF', '{usage:read}',
+             'a1620000-0000-4000-8000-000000000001') $$,
+  '54000'::char(5), null::text,
+  'limit: the service role is counted too, so a 21st key is refused without a signed-in user');
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
 
 update public.api_keys set revoked_at = now() where token_prefix = 'dmk_pgtapC01';
 

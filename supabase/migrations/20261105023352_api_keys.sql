@@ -79,9 +79,12 @@ create trigger api_keys_guard_revoke
 -- src/lib/data/api-keys.ts). Enforced here rather than in the server action so two admins creating
 -- keys at once cannot both pass a count. Locking the workspace row serializes concurrent creates in
 -- one workspace; FOR NO KEY UPDATE does not block the foreign key checks of other inserts. Runs as
--- definer so the count sees every key in the workspace whoever inserts; row level security still
--- decides afterwards whether the insert is allowed at all. A key whose creator left still counts
--- until it is revoked, which is the next step settings gives for it.
+-- definer so the count sees every key in the workspace whoever inserts. A signed-in caller who is not
+-- an admin of the workspace is not counted at all: the row trigger runs before the insert policy, so
+-- returning early lets row level security answer insufficient_privilege (42501) for them, as it does
+-- for any other workspace, instead of the limit error and a lock on a workspace they cannot write.
+-- The service role (no auth.uid()) is always counted. A key whose creator left still counts until
+-- it is revoked, which is the next step settings gives for it.
 create function public.api_keys_enforce_limit()
   returns trigger
   language plpgsql
@@ -91,6 +94,9 @@ as $$
 declare
   v_active int;
 begin
+  if auth.uid() is not null and not public.has_workspace_role(new.workspace_id, 'admin') then
+    return new;
+  end if;
   perform 1 from public.workspaces w where w.id = new.workspace_id for no key update;
   select count(*) into v_active
   from public.api_keys k
