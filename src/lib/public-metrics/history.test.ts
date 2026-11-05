@@ -1,0 +1,242 @@
+import { describe, expect, it } from "vitest";
+
+import type { PublicMetricId } from "./definitions";
+import { computePublicMetrics, type SnapshotPoint, type SourceAccount } from "./engine";
+import {
+  computeMetricHistories,
+  firstEventMilestones,
+  HISTORY_DAYS,
+  HISTORY_EVENT_PAGES,
+  HISTORY_PAGE_ROWS,
+  historyMoments,
+  historySummary,
+  starMilestones,
+  type HistoryStore,
+} from "./history";
+import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
+
+const AS_OF = new Date("2026-11-05T12:00:00Z");
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+function account(overrides: Partial<SourceAccount> = {}): SourceAccount {
+  return {
+    accountId: "gh-1",
+    provider: "github",
+    connectionCreatedAt: new Date(AS_OF.getTime() - 200 * DAY_MS),
+    lastSyncedAt: new Date(AS_OF.getTime() - 10 * 60_000),
+    simulated: false,
+    ...overrides,
+  };
+}
+
+/** The end-of-day star reading `daysAgo` UTC days before AS_OF (today's is from this morning). */
+function starPoint(daysAgo: number, value: number, accountId = "gh-1"): SnapshotPoint {
+  const retrievedAt =
+    daysAgo === 0 ? new Date(AS_OF.getTime() - 10 * 60_000) : new Date(Date.parse(`${AS_OF.toISOString().slice(0, 10)}T23:00:00Z`) - daysAgo * DAY_MS);
+  return {
+    accountId,
+    metricKey: "github.stars.total",
+    snapshotDate: retrievedAt.toISOString().slice(0, 10),
+    value,
+    periodStart: null,
+    periodEnd: null,
+    resetsAt: null,
+    retrievedAt,
+  };
+}
+
+function deployment(hoursAgo: number, failed = false, accountId = "vc-1"): MemoryEvent {
+  return {
+    typeId: failed ? "vercel.deployment.failed" : "vercel.deployment.succeeded",
+    occurredAt: new Date(AS_OF.getTime() - hoursAgo * HOUR_MS),
+    accountId,
+  };
+}
+
+/** Wraps a store and counts the reads that reach it. */
+function counted(base: HistoryStore): { store: HistoryStore; reads: () => number } {
+  let reads = 0;
+  const count = <T>(result: Promise<T>) => {
+    reads += 1;
+    return result;
+  };
+  return {
+    reads: () => reads,
+    store: {
+      accounts: () => count(base.accounts()),
+      snapshots: (query) => count(base.snapshots(query)),
+      countEvents: (query) => count(base.countEvents(query)),
+      earliestEvent: (query) => count(base.earliestEvent(query)),
+      recentEvents: (query) => count(base.recentEvents(query)),
+      eventPage: (query) => count(base.eventPage(query)),
+    },
+  };
+}
+
+/** What the engine answers at each moment when asked one by one, without the cache. */
+async function computedOneByOne(store: HistoryStore, metricId: PublicMetricId, asOf: Date, days = HISTORY_DAYS) {
+  return computePublicMetrics(
+    store,
+    historyMoments(asOf, days).map((moment) => ({ metricId, asOf: moment })),
+  );
+}
+
+const STAR_POINTS = Array.from({ length: 130 }, (_, daysAgo) => starPoint(daysAgo, 2000 - daysAgo * 10));
+// A deployment every 6 hours for 130 days, with a failure once every 3 days.
+const DEPLOYMENTS = Array.from({ length: 130 * 4 }, (_, index) => deployment(index * 6 + 1, index % 12 === 5));
+const ACCOUNTS = [account(), account({ accountId: "vc-1", provider: "vercel" })];
+
+describe("historyMoments", () => {
+  it("returns one moment per day, oldest first, ending at asOf", () => {
+    const moments = historyMoments(AS_OF);
+    expect(moments).toHaveLength(90);
+    expect(moments.at(-1)).toEqual(AS_OF);
+    expect(moments[0]).toEqual(new Date(AS_OF.getTime() - 89 * DAY_MS));
+  });
+
+  it("returns just asOf for a one day history (boundary)", () => {
+    expect(historyMoments(AS_OF, 1)).toEqual([AS_OF]);
+  });
+});
+
+describe("computeMetricHistories", () => {
+  const metricIds: PublicMetricId[] = ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployment-streak"];
+
+  it("answers exactly what the engine answers moment by moment, with a handful of reads", async () => {
+    const base = new MemoryMetricStore(ACCOUNTS, STAR_POINTS, DEPLOYMENTS);
+    const { store, reads } = counted(base);
+    const histories = await computeMetricHistories(
+      store,
+      metricIds.map((metricId) => ({ metricId, asOf: AS_OF })),
+    );
+    for (const [index, metricId] of metricIds.entries()) {
+      expect(histories[index], metricId).toEqual(await computedOneByOne(base, metricId, AS_OF));
+    }
+    expect(histories[0]?.at(-1)?.result).toMatchObject({ status: "available", value: 2000 });
+    // One accounts read, one snapshot read per key, one event page, one earliest event per type set.
+    expect(reads()).toBeLessThanOrEqual(5);
+  });
+
+  it("ends a delayed publication's history at its own asOf", async () => {
+    const base = new MemoryMetricStore(ACCOUNTS, STAR_POINTS, DEPLOYMENTS);
+    const delayed = new Date(AS_OF.getTime() - 7 * DAY_MS);
+    const [history] = await computeMetricHistories(base, [{ metricId: "github-stars", asOf: delayed }]);
+    expect(history?.at(-1)?.asOf).toEqual(delayed);
+    expect(history).toEqual(await computedOneByOne(base, "github-stars", delayed));
+  });
+
+  it("falls back to the real store, and still agrees, when the events are more than it loads (boundary)", async () => {
+    const many = HISTORY_EVENT_PAGES * HISTORY_PAGE_ROWS + 500;
+    // Every 15 minutes, newest first, so the loaded pages stop well inside the 90 day window.
+    const events = Array.from({ length: many }, (_, index) => deployment(index / 4 + 0.1, index % 900 === 450));
+    const base = new MemoryMetricStore(ACCOUNTS, [], events);
+    const { store, reads } = counted(base);
+    const [counts, streaks] = await computeMetricHistories(store, [
+      { metricId: "vercel-deployments-30d", asOf: AS_OF },
+      { metricId: "vercel-deployment-streak", asOf: AS_OF },
+    ]);
+    expect(counts).toEqual(await computedOneByOne(base, "vercel-deployments-30d", AS_OF));
+    expect(streaks).toEqual(await computedOneByOne(base, "vercel-deployment-streak", AS_OF));
+    expect(reads()).toBeGreaterThan(HISTORY_EVENT_PAGES + 2);
+  });
+
+  it("treats a full snapshot read as cut short and still agrees (boundary)", async () => {
+    // 12 accounts of 130 days is more rows than one read returns.
+    const accounts = Array.from({ length: 12 }, (_, index) => account({ accountId: `gh-${index}` }));
+    const points = accounts.flatMap((entry) => Array.from({ length: 130 }, (_, daysAgo) => starPoint(daysAgo, 500 - daysAgo, entry.accountId)));
+    expect(points.length).toBeGreaterThan(HISTORY_PAGE_ROWS);
+    const base = new MemoryMetricStore(accounts, points, []);
+    const [history] = await computeMetricHistories(base, [{ metricId: "github-stars-gained-30d", asOf: AS_OF }]);
+    expect(history).toEqual(await computedOneByOne(base, "github-stars-gained-30d", AS_OF));
+  });
+
+  it("returns nothing for no requests (boundary)", async () => {
+    expect(await computeMetricHistories(new MemoryMetricStore([], [], []), [])).toEqual([]);
+  });
+});
+
+describe("firstEventMilestones", () => {
+  const base = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 40), deployment(24 * 3)]);
+
+  it("dates the first recorded deployment while a deployments metric is published", async () => {
+    expect(await firstEventMilestones(base, [{ metricId: "vercel-deployments-30d", asOf: AS_OF }])).toEqual([
+      { id: "first-deployment", title: "First deployment recorded", at: new Date(AS_OF.getTime() - 40 * DAY_MS) },
+    ]);
+  });
+
+  it("shows nothing for an event after a delayed publication's moment (boundary)", async () => {
+    const recent = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 3)]);
+    expect(await firstEventMilestones(recent, [{ metricId: "vercel-deployments-7d", asOf: new Date(AS_OF.getTime() - 7 * DAY_MS) }])).toEqual([]);
+  });
+
+  it("shows nothing when no metric revealing the events is published (boundary)", async () => {
+    expect(await firstEventMilestones(base, [{ metricId: "github-stars", asOf: AS_OF }])).toEqual([]);
+    expect(await firstEventMilestones(base, [])).toEqual([]);
+  });
+
+  it("shows nothing when the provider is no longer connected (boundary)", async () => {
+    const disconnected = new MemoryMetricStore(
+      [account(), { ...account({ accountId: "vc-1", provider: "vercel" }), connectionStatus: "revoked" }],
+      [],
+      [deployment(24 * 40)],
+    );
+    expect(await firstEventMilestones(disconnected, [{ metricId: "vercel-deployment-streak", asOf: AS_OF }])).toEqual([]);
+  });
+});
+
+describe("starMilestones", () => {
+  const day = (index: number) => new Date(AS_OF.getTime() - (10 - index) * DAY_MS);
+  const series = (values: readonly (number | null)[]) => values.map((value, index) => ({ asOf: day(index), value }));
+
+  it("marks the first moment the published value reaches a threshold after being below it", () => {
+    expect(starMilestones(series([90, 95, 100, 120, 99, 130]), 1)).toEqual([
+      { id: "github-stars-100", title: "Reached 100 GitHub stars", at: day(2) },
+    ]);
+  });
+
+  it("counts a crossing across a day with no value", () => {
+    expect(starMilestones(series([990, null, 1000]), 10)).toEqual([
+      { id: "github-stars-1000", title: "Reached 1,000 GitHub stars", at: day(2) },
+    ]);
+  });
+
+  it("marks nothing for a threshold already reached when the history starts (boundary)", () => {
+    expect(starMilestones(series([150, 160, 170]), 1)).toEqual([]);
+  });
+
+  it("marks only thresholds the rounding can show (boundary)", () => {
+    expect(starMilestones(series([0, 1000]), 1000).map((milestone) => milestone.id)).toEqual(["github-stars-1000"]);
+    expect(starMilestones(series([0, 1000]), 1).map((milestone) => milestone.id)).toEqual(["github-stars-100", "github-stars-1000"]);
+  });
+});
+
+describe("historySummary", () => {
+  const at = (index: number) => new Date(Date.UTC(2026, 10, 1 + index, 12));
+
+  it("says where the period starts and ends, its highest value, and the days with no value", () => {
+    expect(
+      historySummary("GitHub stars", "last 30 days", [
+        { asOf: at(0), value: 100, text: "100 stars" },
+        { asOf: at(1), value: null, text: "Not synced in the last 2 days" },
+        { asOf: at(2), value: 140, text: "140 stars" },
+        { asOf: at(3), value: 120, text: "120 stars" },
+      ]),
+    ).toBe(
+      "GitHub stars, last 30 days: from 100 stars on 2026-11-01 to 120 stars on 2026-11-04. Highest 140 stars on 2026-11-03. 1 day has no value.",
+    );
+  });
+
+  it("names the one value of a period with a single value (boundary)", () => {
+    expect(historySummary("Signups in 7 days", "last 90 days", [{ asOf: at(0), value: 3, text: "3 signups" }])).toBe(
+      "Signups in 7 days, last 90 days: 3 signups on 2026-11-01.",
+    );
+  });
+
+  it("says so when there are no values at all (boundary)", () => {
+    expect(historySummary("GitHub stars", "last 30 days", [{ asOf: at(0), value: null, text: "No data yet" }])).toBe(
+      "GitHub stars, last 30 days: no values yet.",
+    );
+    expect(historySummary("GitHub stars", "last 30 days", [])).toBe("GitHub stars, last 30 days: no values yet.");
+  });
+});
