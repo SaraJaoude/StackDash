@@ -268,6 +268,8 @@ viewerTest.describe("public metrics as a viewer", () => {
       if (error) throw new Error(`Publishing failed (code ${error.code}).`);
 
       await page.goto(publicMetricsPath(workspace, projectId));
+      // The page description is true for a viewer too: it names who publishes.
+      await expect(page.getByText("Owners and admins choose which numbers anyone can see. Nothing is public until it is published.")).toBeVisible();
       await expect(page.getByText("Only owners and admins can publish or unpublish metrics.")).toBeVisible();
       await expect(metricRow(page, "GitHub stars")).toContainText("Published (Exact, current)");
       await expect(metricRow(page, "GitHub stars")).toContainText("Public value: 1,204 stars");

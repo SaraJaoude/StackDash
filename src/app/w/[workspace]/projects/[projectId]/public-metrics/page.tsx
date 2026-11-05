@@ -94,7 +94,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
       </p>
       <PageHeader
         title={`Public metrics for ${project.name}`}
-        description="Choose which numbers anyone can see. Nothing is public until you publish it. Spend, budgets, and alerts from your providers can never be published, and no account or repository names are shown."
+        description="Owners and admins choose which numbers anyone can see. Nothing is public until it is published. Spend, budgets, and alerts from your providers can never be published, and no account or repository names are shown."
       />
 
       <PublicationAnnouncer>
