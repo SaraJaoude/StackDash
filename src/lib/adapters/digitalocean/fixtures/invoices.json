@@ -1,0 +1,32 @@
+{
+  "invoices": [
+    {
+      "invoice_uuid": "22737513-0ea7-4206-8ceb-98a575af7681",
+      "invoice_id": "12345678",
+      "amount": "58.13",
+      "invoice_period": "2026-10"
+    },
+    {
+      "invoice_uuid": "fdabb512-6faf-443c-ba2e-665452332a9e",
+      "invoice_id": "23456789",
+      "amount": "23.45",
+      "invoice_period": "2026-09"
+    }
+  ],
+  "invoice_preview": {
+    "invoice_uuid": "1afe95e6-0958-4eb0-8d9a-9c5060d3ef03",
+    "invoice_id": "34567890",
+    "amount": "11.21",
+    "invoice_period": "2026-11",
+    "updated_at": "2026-11-05T06:31:50Z"
+  },
+  "links": {
+    "pages": {
+      "next": "https://api.digitalocean.com/v2/customers/my/invoices?page=2&per_page=20",
+      "last": "https://api.digitalocean.com/v2/customers/my/invoices?page=4&per_page=20"
+    }
+  },
+  "meta": {
+    "total": 70
+  }
+}

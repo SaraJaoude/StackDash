@@ -11,7 +11,7 @@ test.describe("docs", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
     const providers = page.getByRole("region", { name: "Providers" });
-    for (const name of ["GitHub", "Resend", "Stripe", "Supabase", "Vercel"]) {
+    for (const name of ["DigitalOcean", "GitHub", "PostHog", "Resend", "Stripe", "Supabase", "Vercel"]) {
       await expect(providers.getByRole("link", { name, exact: true })).toBeVisible();
     }
     const operations = page.getByRole("region", { name: "Operations" });
@@ -77,7 +77,7 @@ test.describe("docs", () => {
   test("keyboard focus reaches the docs list and opens a doc", async ({ page }) => {
     await page.goto("/docs/providers/vercel");
     const firstDoc = page.getByRole("navigation", { name: "Docs" }).getByRole("link").first();
-    await expect(firstDoc).toHaveText("GitHub");
+    await expect(firstDoc).toHaveText("DigitalOcean");
 
     // Tab from the top of the page until focus lands on the first doc in the list. Each attempt
     // presses Tab once, so focus walks forward and stops there.
@@ -87,7 +87,7 @@ test.describe("docs", () => {
     }).toPass({ timeout: 10_000 });
 
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL("/docs/providers/github");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("GitHub");
+    await expect(page).toHaveURL("/docs/providers/digitalocean");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("DigitalOcean");
   });
 });

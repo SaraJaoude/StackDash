@@ -19,7 +19,7 @@ import { requireUser } from "@/lib/auth/session";
 import { manualRevokeStep } from "@/lib/connections/revoke";
 import { loadAccountIdentity, loadDeletionPreview, loadMembershipFacts, type WorkspaceDeletionSummary } from "@/lib/data/account";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Account" };
 

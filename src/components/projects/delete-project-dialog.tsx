@@ -3,6 +3,7 @@
 import { useActionState, useId, useRef, useState } from "react";
 
 import { deleteProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { FormErrorSummary, failureOf } from "@/components/projects/project-form-parts";
 import { deletionConsequences, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 
@@ -114,23 +115,23 @@ function DeleteProjectConfirmation({
       </div>
       <FormErrorSummary failure={failureOf(state)} />
       <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button
+        <GuardedButton
           type="button"
           // Cancel first and focused, so Enter right after opening never deletes.
           autoFocus
-          disabled={pending}
+          unavailable={pending}
           onClick={onCancel}
-          className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-60"
+          className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
         >
           Cancel
-        </button>
-        <button
+        </GuardedButton>
+        <GuardedButton
           type="submit"
-          disabled={pending}
-          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60"
+          unavailable={pending}
+          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
         >
           {pending ? "Deleting" : "Delete project"}
-        </button>
+        </GuardedButton>
       </div>
     </form>
   );

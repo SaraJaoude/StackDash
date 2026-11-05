@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 
 import { addSuggestedAlerts, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import type { ProviderId } from "@/lib/alerts/rule-schema";
 
 import { failureOf, secondaryButtonClass } from "./form-controls";
@@ -33,10 +34,10 @@ export function AddSuggestedAlerts({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="provider" value={provider} />
-      <button type="submit" disabled={pending} className={secondaryButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={secondaryButtonClass}>
         {pending ? "Adding" : "Add these alerts"}
         <span className="sr-only"> for {providerLabel}</span>
-      </button>
+      </GuardedButton>
       <div role="status" aria-live="polite" className="mt-2 text-sm">
         {failure === null ? null : (
           <p className="text-danger">
