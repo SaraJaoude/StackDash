@@ -77,13 +77,17 @@ export function availableProviders(): ProviderAdapter[] {
 }
 
 /**
- * Every event type an adapter declares, and every usage metric an adapter declares as a daily
- * signup total. The fake provider's are included whatever the flag says, because its stored data
- * outlives the flag; simulated twins declare the live adapters' own.
+ * What adapters declare for figures across providers: every event type, every usage metric that
+ * is a daily signup total, and the providers that report revenue. The fake provider's are included
+ * whatever the flag says, because its stored data outlives the flag; simulated twins declare the
+ * live adapters' own.
  */
 const declaringAdapters: readonly ProviderAdapter[] = [...Object.values(liveAdapters), fakeAdapter];
 export const declaredEventTypes: readonly EventType[] = declaringAdapters.flatMap((adapter) => adapter.eventTypes);
 export const declaredSignupDailyTotals: readonly string[] = declaringAdapters.flatMap((adapter) => adapter.signupDailyTotals ?? []);
+export const revenueProviderIds: readonly ProviderId[] = declaringAdapters
+  .filter((adapter) => adapter.capabilities.revenue)
+  .map((adapter) => adapter.id);
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { EventType } from "@/lib/adapters/events";
 import { signupMetric } from "@/lib/adapters/posthog";
-import { declaredEventTypes, declaredSignupDailyTotals } from "@/lib/adapters/registry";
+import { declaredEventTypes, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
@@ -47,6 +47,7 @@ const github = connection("c-github", "github");
 const fake = connection("c-fake", "fake");
 const digitalocean = connection("c-digitalocean", "digitalocean");
 const posthog = connection("c-posthog", "posthog");
+const polar = connection("c-polar", "polar");
 
 function dates(from: string, to: string): string[] {
   const out: string[] = [];
@@ -185,6 +186,7 @@ function headline({ events = NO_EVENTS, firstReadings: readings, ...overrides }:
     kind: "week",
     now: NOW,
     eventTypes: EVENT_TYPES,
+    revenueProviders: revenueProviderIds,
     ...overrides,
     events: { ...events, firstReadings: readings ?? firstReadings(overrides.snapshots) },
   });
@@ -260,6 +262,9 @@ describe("buildHeadline money", () => {
     const strip = headline({ snapshots: vercelSpend, connections: [stripe, vercel] });
     expect(strip.revenue).toMatchObject({ lines: null, included: [], unavailable: ["Stripe"] });
     expect(strip.net.lines).toBeNull();
+    // Which providers report revenue comes from the adapters' capabilities, Polar's included.
+    expect(headline({ snapshots: vercelSpend, connections: [polar, stripe, vercel] }).revenue).toMatchObject({ unavailable: ["Polar", "Stripe"] });
+    expect(headline({ snapshots: vercelSpend, connections: [stripe, vercel], revenueProviders: [] }).revenue).toMatchObject({ lines: null, unavailable: [] });
   });
 
   it("keeps spend in two currencies on separate lines, never converted or added", () => {
@@ -696,5 +701,10 @@ describe("headlineEventTypes", () => {
     expect(EVENT_TYPES.signups).not.toContain("supabase.auth.daily_summary");
     expect(EVENT_TYPES.signups).not.toContain("posthog.signups.daily");
     expect(EVENT_TYPES.signupDailyTotals).toEqual(expect.arrayContaining(["posthog.signups.daily"]));
+    // Payments are not signups: Stripe's customer and subscription events and Polar's orders and
+    // subscriptions have no category.
+    const payments = ["stripe.customer.created", "stripe.customer.subscription.created", "polar.order.paid", "polar.subscription.started"];
+    expect([...EVENT_TYPES.signups, ...EVENT_TYPES.deploys].filter((id) => payments.includes(id))).toEqual([]);
+    expect(revenueProviderIds).toEqual(expect.arrayContaining(["stripe", "polar"]));
   });
 });

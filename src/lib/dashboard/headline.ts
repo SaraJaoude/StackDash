@@ -81,9 +81,6 @@ export function headlineEventTypes(declared: readonly EventType[], signupDailyTo
   };
 }
 
-/** Providers whose connections can report revenue even before their first revenue reading. */
-const REVENUE_PROVIDERS: readonly string[] = ["stripe"];
-
 /** Events of one type from one connection within one window. */
 export type EventCount = Readonly<{ connection_id: string; type_id: string; events: number }>;
 
@@ -437,8 +434,13 @@ export type HeadlineInput = Readonly<{
   connections: readonly ConnectionInput[];
   /** Event counts and first readings, for the included accounts in scope. */
   events: HeadlineEvents;
-  /** The event types counted, from the adapters' declarations (`headlineEventTypes`). */
+  /** The event types and daily totals counted, from the adapters' declarations (`headlineEventTypes`). */
   eventTypes: HeadlineEventTypes;
+  /**
+   * Providers whose adapters declare revenue (`capabilities.revenue`): their connections are revenue
+   * sources even before their first revenue reading, so one that cannot report it is named.
+   */
+  revenueProviders: readonly string[];
   kind: HeadlineWindowKind;
   now: Date;
 }>;
@@ -545,7 +547,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   const moneyOf = (measure: MoneyMeasure) => (connection: ConnectionInput, window: WindowSpec) =>
     moneySource(seriesOf(connection, measure), window);
   const revenueCandidates = connections.filter(
-    (connection) => REVENUE_PROVIDERS.includes(connection.provider) || seriesOf(connection, "revenue").length > 0,
+    (connection) => input.revenueProviders.includes(connection.provider) || seriesOf(connection, "revenue").length > 0,
   );
   const revenue = assemble(revenueCandidates, moneyOf("revenue"), specs);
   // Every connection can cost money, so one that cannot report spend is named rather than skipped.
