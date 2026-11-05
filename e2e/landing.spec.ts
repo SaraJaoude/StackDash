@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { ownerTest } from "./fixtures/auth";
@@ -181,7 +182,8 @@ test.describe("landing page", () => {
 
 /**
  * Keyboard only, from a fresh load: the first Tab reaches the skip link, Enter moves focus onto
- * the main landmark, and the next Tab continues inside it rather than at the page navigation.
+ * the main landmark, and the next Tab continues inside it rather than at the page navigation. The
+ * focusable landmark must not cost an accessibility violation either.
  */
 async function expectSkipToContent(page: Page): Promise<void> {
   const skip = page.getByRole("link", { name: "Skip to content" });
@@ -193,9 +195,14 @@ async function expectSkipToContent(page: Page): Promise<void> {
   await expect(main).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.locator("main :focus")).toHaveCount(1);
+  const scan = await new AxeBuilder({ page }).analyze();
+  expect(scan.violations).toEqual([]);
 }
 
 test.describe("skip to content", () => {
+  // The landing page fades its hero in; a scan mid-fade reports contrast the settled page has not.
+  test.use({ reducedMotion: "reduce" });
+
   for (const route of ["/", "/docs", "/sign-in"]) {
     test(`moves keyboard focus to the main content on ${route}`, async ({ page }) => {
       await page.goto(route);
