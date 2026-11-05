@@ -1,7 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { adminClient, CONNECTION_URL, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
+import { connectSimulated } from "./fixtures/connections";
+import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 
 /*
  * The Sentry adapter (#117), simulated end to end: Sentry connects from the catalog through the
@@ -15,26 +16,23 @@ ownerTest.describe("simulated Sentry", () => {
     ownerTest.slow();
     const workspace = await createTestWorkspace("Simulated Sentry");
     try {
-      await page.goto(`/w/${workspace.slug}/connections`);
-      const card = page
-        .getByRole("list", { name: "Providers" })
-        .getByRole("listitem")
-        .filter({ has: page.getByRole("heading", { name: "Sentry", exact: true }) });
-      await expect(card.getByText("Simulated", { exact: true })).toBeVisible();
-      await expect(card.getByText("Read access only.")).toBeVisible();
-      await card.getByRole("link", { name: "Connect Sentry" }).click();
+      await connectSimulated(page, workspace.slug, "Sentry", {
+        catalog: async () => {
+          const card = page
+            .getByRole("list", { name: "Providers" })
+            .getByRole("listitem")
+            .filter({ has: page.getByRole("heading", { name: "Sentry", exact: true }) });
+          await expect(card.getByText("Read access only.")).toBeVisible();
+        },
+        connectScreen: async () => {
+          const data = page.getByRole("region", { name: "Data collected" });
+          await expect(data.getByText(/^Error events per project over the last 24 hours/)).toBeVisible();
+          await expect(data.getByText(/^New, regressed, and resolved issues per project/)).toBeVisible();
+          const disclosure = await new AxeBuilder({ page }).analyze();
+          expect(disclosure.violations).toEqual([]);
+        },
+      });
 
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect Sentry");
-      const data = page.getByRole("region", { name: "Data collected" });
-      await expect(data.getByText(/^Error events per project over the last 24 hours/)).toBeVisible();
-      await expect(data.getByText(/^New, regressed, and resolved issues per project/)).toBeVisible();
-      const disclosure = await new AxeBuilder({ page }).analyze();
-      expect(disclosure.violations).toEqual([]);
-      await page.getByRole("button", { name: "Continue to Sentry" }).focus();
-      await page.keyboard.press("Enter");
-
-      await expect(page).toHaveURL(CONNECTION_URL);
-      await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
       const accounts = page.getByRole("list", { name: "Accounts" }).getByRole("listitem");
       await expect(accounts).toHaveCount(3);
       for (const name of ["web", "api", "ios"]) {
