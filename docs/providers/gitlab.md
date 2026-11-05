@@ -84,10 +84,10 @@ query DevMacroUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $
 
 - `ciMinutesUsage.minutes`: compute minutes used by every project in the namespace this month. No row yet this month counts as 0.
 - `ciMinutesProjectMonthlyUsage`: the same per project, for up to 20 projects. Project ids are GraphQL global ids (`gid://gitlab/Project/42`); the number keys the per project metric.
-- `rootStorageStatistics.storageSize`: total storage of the namespace in bytes (repositories, LFS, artifacts, packages, registry, wiki, snippets, uploads).
+- `rootStorageStatistics.storageSize`: total storage of the namespace in bytes (repositories, LFS, artifacts, packages, registry, wiki, snippets, uploads). GitLab builds these statistics in the background, so a namespace with nothing stored yet can have none. Then the storage used and limit are left out, with no permission error.
 - `actualSizeLimit`: the storage limit in bytes for the namespace, whichever kind of enforcement applies. Zero or null means no limit is shown.
 
-`read_api` is enough for GraphQL queries. A field the user may not read comes back `null` with no error, so a `null` usage field is reported as unavailable, not as zero.
+`read_api` is enough for GraphQL queries. A field the user may not read comes back `null` with no error, so a `null` usage field is reported as unavailable, not as zero. Only a `null` `ciMinutesUsage` is reported as a missing permission.
 
 The REST `ci_minutes_usage` attribute on `GET /namespaces/:id` (GitLab 19.4) was not used: it is documented for top-level groups only, so personal namespaces would have no minutes at all.
 
@@ -274,6 +274,7 @@ Confirm with a real GitLab.com account and a test group once the application is 
 - That OAuth tokens with `read_api` are accepted by the releases endpoints (their page only names personal access tokens and job tokens).
 - That `owned_only=true` lists every top-level group where the user has the Owner role, and not only groups the user created.
 - Who may read `ciMinutesUsage`, `ciMinutesProjectMonthlyUsage`, and `rootStorageStatistics` (Owner is assumed, from the Usage Quotas page), and whether a refused field is `null` (assumed) or an error.
+- That `rootStorageStatistics` is `null` for a namespace whose statistics GitLab has not built yet, and not only when the role is missing (assumed from the field being nullable).
 - That a month without usage returns an empty `ciMinutesUsage` list rather than a row with `0`.
 - What `actualSizeLimit` holds for a Free namespace under project limit enforcement (per project or per namespace) and on paid plans.
 - The exact `plan` strings GitLab.com returns for trials and programs (`ultimate_trial`, `opensource`, and others). Only `free`, `premium`, and `ultimate` get an estimate.

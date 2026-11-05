@@ -51,6 +51,7 @@ function harness(overrides: Readonly<Record<string, Handler>> = {}, now: Date = 
   const handlers = { ...defaults, ...overrides };
   const calls: Recorded[] = [];
   const warnings: string[] = [];
+  const infos: string[] = [];
   const fetch: FetchLike = async (input, init) => {
     const url = new URL(input);
     expect(url.origin).toBe("https://gitlab.com");
@@ -61,7 +62,9 @@ function harness(overrides: Readonly<Record<string, Handler>> = {}, now: Date = 
     return handler(request);
   };
   const logger: Logger = {
-    info: () => undefined,
+    info: (event) => {
+      infos.push(event);
+    },
     warn: (event) => {
       warnings.push(event);
     },
@@ -75,7 +78,7 @@ function harness(overrides: Readonly<Record<string, Handler>> = {}, now: Date = 
     client: { clientId: "synthetic-app-id", clientSecret: new Secret("synthetic-app-secret"), extra: {} },
   };
   const callsTo = (method: string, path: string) => calls.filter((call) => call.method === method && call.url.pathname === path);
-  return { ctx, calls, callsTo, warnings };
+  return { ctx, calls, callsTo, warnings, infos };
 }
 
 const credential: OAuthCredential = {
@@ -399,6 +402,20 @@ describe("sync", () => {
     expect(result.partialErrors?.[0]?.missingScopes).toEqual(["read_api"]);
     // Activity still arrives.
     expect(result.events.length).toBeGreaterThan(0);
+  });
+
+  it("leaves out storage without a partial error when storage statistics are absent but minutes are present", async () => {
+    const { ctx, infos } = harness({
+      "POST /api/graphql": () =>
+        json({ data: { ...usage.data, namespace: { actualSizeLimit: 10737418240, rootStorageStatistics: null } } }),
+    });
+    const result = await gitlabAdapter.sync({ credential, externalAccountId: NAMESPACE_ID }, ctx);
+    expectValid(result);
+    expect(result.partialErrors).toBeUndefined();
+    expect(infos).toContain("gitlab.usage.storage_unavailable");
+    expect(metric(result, metricKeys.storageUsed)).toBeUndefined();
+    expect(metric(result, metricKeys.storageLimit)).toBeUndefined();
+    expect(metric(result, metricKeys.minutesUsed)).toBeDefined();
   });
 
   it("logs GraphQL errors by count only and treats the refused fields as unavailable", async () => {

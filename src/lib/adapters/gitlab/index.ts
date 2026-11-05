@@ -434,7 +434,7 @@ const USAGE_QUERY = `query DevMacroUsage($fullPath: ID!, $namespaceId: Namespace
 const PROJECT_GID = /^gid:\/\/gitlab\/Project\/(\d+)$/;
 
 const USAGE_ROLE_MESSAGE =
-  "GitLab did not share compute minutes or storage for this namespace. Reading them needs the Owner role on the group";
+  "GitLab did not share compute minutes for this namespace. Reading them needs the Owner role on the group";
 
 type UsageRead = Readonly<{ facts: Omit<UsageFacts, "plan">; partialErrors: PermissionMissingError[] }>;
 
@@ -482,12 +482,23 @@ async function readUsage(ctx: OAuthContext, credential: OAuthCredential, namespa
     projectMinutes.push({ projectId: Number(id), fullPath: node.project.fullPath, minutes: node.minutes });
   }
 
+  // Only a refused ciMinutesUsage means the role is missing. rootStorageStatistics is nullable on
+  // its own: GitLab builds the row asynchronously, so a namespace with nothing stored yet (or not
+  // yet counted) has none while minutes still answer. That is not a permission gap, so the storage
+  // metrics are left out instead.
   const partialErrors: PermissionMissingError[] = [];
-  if (minutesUsed === undefined || storage === undefined) {
+  if (minutesUsed === undefined) {
     partialErrors.push(new PermissionMissingError(USAGE_ROLE_MESSAGE, [READ_API], { endpoint: GRAPHQL_URL }));
+  } else if (storage === undefined) {
+    ctx.logger.info("gitlab.usage.storage_unavailable", { namespaceId: namespace.id });
   }
   return {
-    facts: { minutesUsed, projectMinutes, storageBytes: storage, storageLimitBytes: limit },
+    facts: {
+      minutesUsed,
+      projectMinutes,
+      storageBytes: storage,
+      storageLimitBytes: storage === undefined ? undefined : limit,
+    },
     partialErrors,
   };
 }
