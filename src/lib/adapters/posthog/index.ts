@@ -285,9 +285,18 @@ async function detectRegion(ctx: OAuthContext, accessToken: string): Promise<Reg
   throw new AuthRevokedError("Neither PostHog US Cloud nor EU Cloud accepted the new access token");
 }
 
-function permissionGap(error: unknown, scope: (typeof SCOPES)[number], what: string): PermissionMissingError | undefined {
+/**
+ * A refusal reported as a missing permission. `message` replaces the default wording when the
+ * scope is already granted and the refusal has another cause.
+ */
+function permissionGap(
+  error: unknown,
+  scope: (typeof SCOPES)[number],
+  what: string,
+  message = `PostHog refused ${what}; the grant needs ${scope}`,
+): PermissionMissingError | undefined {
   if (!(error instanceof PermissionMissingError)) return undefined;
-  return new PermissionMissingError(`PostHog refused ${what}; the grant needs ${scope}`, [scope], {
+  return new PermissionMissingError(message, [scope], {
     cause: error,
     ...(error.status === undefined ? {} : { status: error.status }),
     ...(error.endpoint === undefined ? {} : { endpoint: error.endpoint }),
@@ -754,7 +763,17 @@ export const postHogAdapter: ProviderAdapter = {
       metrics.push(...billingMetrics(billing, externalAccountId, retrievedAt, region));
       events.push(...usageLimitEvents(billing, externalAccountId, retrievedAt, region));
     } catch (error) {
-      const gap = permissionGap(error, "billing:read", "the billing overview");
+      // With billing:read granted, the refusal is the member's: PostHog reads billing only for
+      // members with billing access (ee/api/billing.py, `user_has_billing_access`). The scope stays
+      // listed so the connection still shows billing as unavailable.
+      const gap = permissionGap(
+        error,
+        "billing:read",
+        "the billing overview",
+        credential.scopes.includes("billing:read")
+          ? "PostHog refused the billing overview for this member. Reading billing needs billing access in the PostHog organization."
+          : undefined,
+      );
       if (gap === undefined) throw error;
       partialErrors.push(gap);
     }

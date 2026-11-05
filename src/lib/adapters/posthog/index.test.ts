@@ -478,6 +478,15 @@ describe("sync", () => {
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
   });
 
+  it.each([
+    ["the member lacks billing access when billing:read is granted", SCOPES, /for this member\. Reading billing needs billing access/],
+    ["the grant lacks billing:read when it was not granted", ["organization:read", "project:read", "query:read"], /the grant needs billing:read$/],
+  ])("says %s", async (_title, scopes, message) => {
+    const { ctx } = harness(syncRoutes({ [`GET ${US}/api/billing/`]: () => json({ detail: "forbidden" }, 403) }));
+    const result = await postHogAdapter.sync({ credential: { ...credential, scopes }, externalAccountId: ORG_ID }, ctx);
+    expect(result.partialErrors?.map((error) => error.message)).toEqual([expect.stringMatching(message)]);
+  });
+
   it("keeps the cursor and reports query:read once when the signup queries are refused", async () => {
     const refused = () => json({ detail: "forbidden" }, 403);
     const { ctx } = harness(
