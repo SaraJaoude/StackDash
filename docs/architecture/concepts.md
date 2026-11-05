@@ -41,6 +41,7 @@ An external account is the thing a provider actually bills or measures. In the a
 | PostHog | `organization` | One PostHog organization the grant covers; signups are counted across its projects |
 | Polar | `organization` | One Polar organization the grant can read; a token the user limited to some organizations lists only those |
 | Sentry | `project` | One Sentry project in the organization the integration is installed on |
+| Railway | `workspace` | One Railway workspace picked on Railway's consent screen |
 
 Usage belongs to the external account: `usage_snapshots` holds one row per external account, metric, and UTC day. Activity events can name the external account they are about.
 

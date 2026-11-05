@@ -29,6 +29,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | PostHog client ID metadata document | Nothing to create: DevMacro serves the document at `<SITE_URL>/oauth/posthog/client-metadata` | `<SITE_URL>/api/connections/posthog/callback` (listed in the document) | `billing:read`, `organization:read`, `project:read`, `query:read` | `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` |
 | Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
+| Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -165,6 +166,19 @@ Settings that must match the code:
 Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
 
 Until Sentry publishes it, a public integration can only be installed by the organization that created it. Hosted DevMacro needs Sentry's publication review before other organizations can connect; a self-hosted install registers its own integration in its own organization and needs no review.
+
+## Railway OAuth app
+
+Reads deployments, resource usage, usage cost, credits, and plan. Full steps: [Railway, Self-hosted registration](../providers/railway.md#self-hosted-registration). Scopes and what they also allow: [Railway, Scopes](../providers/railway.md#scopes) and [Permission risks](../providers/railway.md#permission-risks).
+
+Settings that must match the code:
+
+- Created by a workspace admin: workspace **Settings**, **Developer**, **New OAuth App**.
+- **App type**: **Web (Confidential)**. DevMacro authenticates with `client_secret_basic` and always sends PKCE.
+- **Redirect URI**: `<SITE_URL>/api/connections/railway/callback`, matched exactly. Add a separate `http://localhost:3000/...` URI for local development.
+- Scopes are not set on the app: the authorize request asks for `openid email profile offline_access workspace:viewer` with `prompt=consent`, which Railway needs before it issues a refresh token.
+
+Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown once, right after the app is created. Railway has no token revocation endpoint, so disconnecting in DevMacro deletes the tokens and asks the user to remove the app in Railway.
 
 ## After registering
 

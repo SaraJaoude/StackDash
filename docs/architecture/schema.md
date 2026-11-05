@@ -20,6 +20,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105023129_published_metrics.sql` | `public_metric_id`, `published_metric_rounding`, `published_metrics`, and the publish, unpublish, and public read functions |
 | `20261105120300_provider_sentry.sql` | `provider_id` gains `sentry` |
 | `20261105120310_anomaly_detection.sql` | `workspaces.anomaly_detection_enabled` (on by default) and `anomaly_mutes`, the metrics a workspace muted for anomaly detection |
+| `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 

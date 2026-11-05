@@ -7,6 +7,7 @@ import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
 import { polarAdapter } from "@/lib/adapters/polar";
 import { postHogAdapter } from "@/lib/adapters/posthog";
+import { railwayAdapter } from "@/lib/adapters/railway";
 import { resendAdapter } from "@/lib/adapters/resend";
 import { sentryAdapter } from "@/lib/adapters/sentry";
 import { stripeAdapter } from "@/lib/adapters/stripe";
@@ -44,6 +45,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   posthog: postHogAdapter,
   polar: polarAdapter,
   sentry: sentryAdapter,
+  railway: railwayAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -685,6 +687,61 @@ describe("simulated numbers", () => {
         expect(releases.length, `${account.displayName} at minute ${minutes}`).toBeGreaterThan(0);
         for (const event of releases) expect(event.externalAccountId).toBe(account.externalId);
       }
+    }
+  });
+
+  it("grows Railway usage cost through the billing period, the bill estimate never below the fee or the cost so far", async () => {
+    const samples = await metricsAt(simulatedAdapters.railway, [
+      new Date("2026-11-03T09:00:00Z"),
+      new Date("2026-11-20T09:00:00Z"),
+    ]);
+    const [early, late] = samples;
+    if (early === undefined || late === undefined) throw new Error("expected metrics");
+    expect(amount(metric(early, "railway.spend.usage"))).toBeLessThan(amount(metric(late, "railway.spend.usage")));
+    for (const metrics of samples) {
+      // Hobby: the $5 fee covers the first $5 of usage, and the estimate covers the whole period.
+      const bill = amount(metric(metrics, "railway.estimate.bill"));
+      expect(bill).toBeGreaterThanOrEqual(500);
+      expect(bill).toBeGreaterThanOrEqual(amount(metric(metrics, "railway.spend.usage")));
+      expect(metric(metrics, "railway.spend.usage").timeframe).toEqual({
+        type: "period",
+        start: new Date("2026-11-01T00:00:00Z"),
+        end: new Date("2026-12-01T00:00:00Z"),
+      });
+    }
+    expect(metric(late, "railway.plan.memory_per_service").kind).toBe("included_allowance");
+  });
+
+  it("lands each Railway deployment's building event before its final event, one final event each", async () => {
+    const credential = await connect(simulatedAdapters.railway);
+    const [account] = await simulatedAdapters.railway.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected an account");
+    // A day of first syncs, each backfilling its own 30 minutes, so every deployment is seen.
+    const events: ActivityEvent[] = [];
+    for (let minute = 30; minute <= 24 * 60; minute += 30) {
+      const result = await simulatedAdapters.railway.sync({ credential, externalAccountId: account.externalId }, makeCtx(at(minute)));
+      events.push(...result.events);
+    }
+    const byDeployment = new Map<string, ActivityEvent[]>();
+    for (const event of events) {
+      const id = event.dedupeKey.split(":")[1] ?? "";
+      byDeployment.set(id, [...(byDeployment.get(id) ?? []), event]);
+    }
+    const finals = ["railway.deployment.deployed", "railway.deployment.failed", "railway.deployment.crashed"];
+    const typeIds = new Set(events.map((event) => event.typeId));
+    expect([...typeIds].sort()).toEqual([
+      "railway.deployment.building",
+      "railway.deployment.crashed",
+      "railway.deployment.deployed",
+      "railway.deployment.failed",
+      "railway.deployment.removed",
+    ]);
+    for (const [id, list] of byDeployment) {
+      const building = list.find((event) => event.typeId === "railway.deployment.building");
+      const final = list.filter((event) => finals.includes(event.typeId));
+      if (building === undefined) continue;
+      expect(final.length, id).toBeLessThanOrEqual(1);
+      for (const event of final) expect(event.occurredAt.getTime()).toBeGreaterThan(building.occurredAt.getTime());
     }
   });
 
