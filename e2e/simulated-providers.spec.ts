@@ -10,7 +10,7 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 
 /*
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
- * (playwright.config.ts), so Vercel and Stripe connect from the catalog through the dev consent
+ * (playwright.config.ts), so Vercel, Stripe, and Polar connect from the catalog through the dev consent
  * screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up data, and
  * every screen labels it "Simulated". Nothing leaves the machine.
  *
@@ -23,13 +23,14 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 
 const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
+const POLAR_CONNECTION = "Polar (Example organization)";
 
 function cronSecret(): string {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
   return z.string().min(32).parse(process.env.CRON_SECRET);
 }
 
-/** Ticks until both simulated connections have synced; other specs' jobs may share a tick. */
+/** Ticks until every simulated connection has synced; other specs' jobs may share a tick. */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {
   const authorization = `Bearer ${cronSecret()}`;
   await expect(async () => {
@@ -41,7 +42,7 @@ async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<vo
       .eq("workspace_id", workspace.id)
       .limit(10);
     if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
-    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["stripe", "vercel"]);
+    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["polar", "stripe", "vercel"]);
   }).toPass({ timeout: 90_000 });
 }
 
@@ -52,11 +53,12 @@ ownerTest.describe("simulated providers", () => {
     try {
       await connectSimulated(page, workspace.slug, "Vercel");
       await connectSimulated(page, workspace.slug, "Stripe");
+      await connectSimulated(page, workspace.slug, "Polar");
 
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");
-      await expect(connections).toHaveCount(2);
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION]) {
+      await expect(connections).toHaveCount(3);
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION]) {
         const row = connections.filter({ has: page.getByRole("link", { name, exact: true }) });
         await expect(row.getByText("Simulated", { exact: true })).toBeVisible();
       }
@@ -77,6 +79,13 @@ ownerTest.describe("simulated providers", () => {
       await expect(events.first().getByText("Stripe", { exact: true })).toBeVisible();
       await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
 
+      // Polar's backfill holds paid orders (about one a minute); each row is labeled.
+      await page.goto(`/w/${workspace.slug}/timeline?provider=polar`);
+      await expect(status).toHaveText(/^Showing \d+ events? for provider Polar$/);
+      await expect(events.first()).toBeVisible();
+      await expect(events.first().getByText("Polar", { exact: true })).toBeVisible();
+      await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
+
       // A Vercel deployment is not guaranteed in the backfill, so the filtered page may be empty;
       // every Vercel row that is there is labeled. The Vercel dashboard card below always is.
       await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
@@ -89,8 +98,17 @@ ownerTest.describe("simulated providers", () => {
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const byProvider = page.getByRole("region", { name: "By provider" });
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION]) {
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION]) {
         await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
+      }
+      // Polar's revenue shows as revenue and its fees as spend on its own card, never mixed.
+      const polarCard = byProvider.getByRole("article", { name: POLAR_CONNECTION });
+      await expect(polarCard.getByRole("heading", { name: "Revenue this billing period", level: 4 })).toBeVisible();
+      await expect(polarCard.getByRole("heading", { name: "Spend this billing period", level: 4 })).toBeVisible();
+      // MRR and ARR are run rates under their own heading, never added into the revenue above.
+      await expect(polarCard.getByRole("heading", { name: "Recurring revenue", level: 4 })).toBeVisible();
+      for (const label of ["Monthly recurring revenue (USD)", "Annual recurring revenue (USD)"]) {
+        await expect(polarCard.getByText(label, { exact: true })).toBeVisible();
       }
       // Every total the simulated connections contribute to says so, not only their own cards.
       const spendCards = page
@@ -99,7 +117,7 @@ ownerTest.describe("simulated providers", () => {
       for (let index = 0; index < (await spendCards.count()); index += 1) {
         await expect(spendCards.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
       }
-      // Stripe's made-up payments arrive as revenue, kept apart per currency.
+      // Stripe's and Polar's made-up payments arrive as revenue, kept apart per currency.
       const revenueCards = page
         .getByRole("region", { name: "Revenue this billing period" })
         .getByRole("region", { name: /^Revenue in [A-Z]{3}$/ });

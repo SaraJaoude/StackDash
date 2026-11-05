@@ -68,6 +68,25 @@ describe("toSnapshotRow", () => {
     });
   });
 
+  it("maps recurring revenue to amount and currency, as money, never as a quantity", () => {
+    const row = toSnapshotRow(
+      {
+        kind: "recurring_revenue",
+        metricKey: "fake.mrr.usd",
+        label: "Monthly recurring revenue (USD)",
+        timeframe: { type: "point", at: retrievedAt },
+        amountMinor: 0,
+        currency: "USD",
+        externalAccountId: "fake-acct-1",
+        retrievedAt,
+        provenance: { source: "provider_api" },
+      },
+      connection,
+      account,
+    );
+    expect(row).toMatchObject({ kind: "recurring_revenue", amount_minor: 0, currency: "USD", value: null, unit: null });
+  });
+
   it("maps quantity metrics to value and unit with a period timeframe", () => {
     const row = toSnapshotRow(allowance("included_allowance", new Date("2026-12-01T00:00:00.000Z")), connection, account);
     expect(row).toMatchObject({

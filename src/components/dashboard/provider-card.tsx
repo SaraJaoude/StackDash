@@ -90,7 +90,7 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
   );
 }
 
-/** One connection: its spend, revenue, credit balance, billing period, and allowances. */
+/** One connection: its spend, revenue, recurring revenue, credit balance, billing period, and allowances. */
 export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: Date }) {
   const titleId = useId();
   const name = providerName(summary.provider);
@@ -188,6 +188,23 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
                 </li>
               ))}
             </ul>
+          </>
+        )}
+
+        {summary.recurringRevenue.length === 0 ? null : (
+          <>
+            {/* Run rates at the time they were read, never added into revenue or spend above. */}
+            <h4 className="mt-5 text-sm font-semibold">Recurring revenue</h4>
+            <dl className="mt-2 grid gap-4 sm:grid-cols-2">
+              {summary.recurringRevenue.map((rate) => (
+                <div key={rate.key}>
+                  <dt className="text-xs font-medium text-muted">{rate.label}</dt>
+                  <dd className="mt-1">
+                    <MoneyValueBlock value={rate.value} now={now} />
+                  </dd>
+                </div>
+              ))}
+            </dl>
           </>
         )}
 
