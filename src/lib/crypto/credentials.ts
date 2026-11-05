@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from "node:crypto";
 
 import { z } from "zod";
 
@@ -131,6 +131,19 @@ export function currentKeyId(): string {
 /** True when a record sealed with `keyId` should be re-encrypted under the current key. */
 export function needsRotation(keyId: string): boolean {
   return keyId !== loadKeyring().currentKeyId;
+}
+
+/**
+ * A key for one purpose other than sealing credentials, derived from the current key with HKDF
+ * (RFC 5869, `crypto.hkdfSync`), so the deployment needs no second secret and the derived key
+ * reveals nothing about the encryption key. Rotating the encryption key changes it, so only use it
+ * where that is harmless, such as hashing client IPs for a one minute rate limit window (#149).
+ */
+export function derivedKey(purpose: string): Buffer {
+  const { currentKeyId: keyId, keys } = loadKeyring();
+  const key = keys.get(keyId);
+  if (key === undefined) throw new UnknownEncryptionKeyError(keyId);
+  return Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), `devmacro:${purpose}`, KEY_BYTES));
 }
 
 /** Associated data for a stored connection credential; binds the ciphertext to its row. */

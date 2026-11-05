@@ -104,6 +104,10 @@ export interface JobStore {
   purgeJobs(before: Date, limit: number): Promise<number>;
   /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
   purgeOAuthStates(before: Date, limit: number): Promise<number>;
+  /** Deletes public rate limit counters whose minute started before `before` (#149). */
+  purgeRateLimitCounters(before: Date, limit: number): Promise<number>;
+  /** Deletes published metric view counts of UTC days before `beforeDate` (#149). */
+  purgeMetricViews(beforeDate: string, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
@@ -351,6 +355,18 @@ export function createSupabaseJobStore(): JobStore {
     async purgeOAuthStates(before, limit) {
       const { data, error } = await db.rpc("purge_oauth_states", { p_before: before.toISOString(), p_limit: limit });
       if (error) throw failure("purge_oauth_states", error);
+      return data;
+    },
+
+    async purgeRateLimitCounters(before, limit) {
+      const { data, error } = await db.rpc("purge_public_rate_limit_counters", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_public_rate_limit_counters", error);
+      return data;
+    },
+
+    async purgeMetricViews(beforeDate, limit) {
+      const { data, error } = await db.rpc("purge_published_metric_views", { p_before: beforeDate, p_limit: limit });
+      if (error) throw failure("purge_published_metric_views", error);
       return data;
     },
 
