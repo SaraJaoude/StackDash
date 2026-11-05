@@ -143,6 +143,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `RAILWAY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Railway OAuth app](oauth-apps.md#railway-oauth-app) |
+| `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
 | `DEVMACRO_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |

@@ -3,9 +3,10 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, and Resend over OAuth (never
-with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace and
-project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a problem.
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, and Railway over
+OAuth (never with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per
+workspace and project, keeps a timeline of activity, and raises alerts before a limit or budget
+becomes a problem.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Webhooks come after the MVP.
@@ -170,7 +171,7 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, and Supabase
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, and Railway
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -311,6 +312,8 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `STRIPE_APP_TEST_SECRET_KEY` | Test mode secret key for test mode installs | Secret | Optional |
 | `SUPABASE_OAUTH_CLIENT_ID` | Supabase OAuth app client ID | Server only | Optional (enables Supabase) |
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Supabase OAuth app client secret | Secret | Optional (enables Supabase) |
+| `RAILWAY_CLIENT_ID` | Railway OAuth app client ID | Server only | Optional (enables Railway) |
+| `RAILWAY_CLIENT_SECRET` | Railway OAuth app client secret | Secret | Optional (enables Railway) |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
 | `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
@@ -391,7 +394,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, railway, fake, simulated) and registry
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation

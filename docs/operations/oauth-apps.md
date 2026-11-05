@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs six registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
+Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs seven registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -25,6 +25,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
+| Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -108,6 +109,19 @@ Settings that must match the code:
 - `token_endpoint_auth_method`: `client_secret_basic`. `grant_types`: `authorization_code`, `refresh_token`. `scope`: `full_access`, the only scope that can read usage. It is **not** read-only; the connect flow tells users so before redirecting.
 
 Variables: `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET`. The secret is shown once in the registration response. Clients cannot be updated, so a new callback URL or a lost secret means registering a new client.
+
+## Railway OAuth app
+
+Reads deployments, resource usage, usage cost, credits, and plan. Full steps: [Railway, Self-hosted registration](../providers/railway.md#self-hosted-registration). Scopes and what they also allow: [Railway, Scopes](../providers/railway.md#scopes) and [Permission risks](../providers/railway.md#permission-risks).
+
+Settings that must match the code:
+
+- Created by a workspace admin: workspace **Settings**, **Developer**, **New OAuth App**.
+- **App type**: **Web (Confidential)**. DevMacro authenticates with `client_secret_basic` and always sends PKCE.
+- **Redirect URI**: `<SITE_URL>/api/connections/railway/callback`, matched exactly. Add a separate `http://localhost:3000/...` URI for local development.
+- Scopes are not set on the app: the authorize request asks for `openid email profile offline_access workspace:viewer` with `prompt=consent`, which Railway needs before it issues a refresh token.
+
+Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown once, right after the app is created. Railway has no token revocation endpoint, so disconnecting in DevMacro deletes the tokens and asks the user to remove the app in Railway.
 
 ## After registering
 
