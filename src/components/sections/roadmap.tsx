@@ -9,39 +9,38 @@ interface Phase {
 const phases: readonly Phase[] = [
   {
     name: "First release",
-    summary: "Prove that one view of usage and spend is worth connecting accounts for.",
+    summary: "One timeline and one alert across your stack, with stats you choose to share.",
     items: [
       "Connections through OAuth, no API keys",
-      "Usage and spending dashboard",
-      "Allowances, remaining quota, and reset dates",
+      "Timeline of deploys, stars, signups, logins, payments, and errors",
+      "Alerts by email, Slack, Discord, and webhook",
+      "Daily and weekly email digests",
       "Percentage and dollar thresholds",
-      "Daily usage summaries",
-      "Timeline of signups, payments, deploys, and stars",
+      "Publish chosen metrics, one at a time",
+      "Allowances, remaining quota, and reset dates",
+      "Spend where the provider allows it",
       "Usage history",
     ],
   },
   {
     name: "Straight after",
-    summary: "Open the code, share it with a team, and query it from your own tools.",
+    summary: "Share what you publish, see what is coming, and query it from your own tools.",
     items: [
+      "README badges and shareable milestone cards",
+      "Opt-in public project pages",
+      "Spend forecasts and anomaly detection",
+      "More integrations, starting with GitLab",
+      "Public REST API with scoped keys",
+      "Read-only MCP server for AI assistants",
       "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
-      "More integrations, starting with GitLab and Polar",
-      "Public REST API with scoped keys",
-      "Read-only MCP server for AI assistants",
     ],
   },
   {
     name: "Later",
     summary: "Ideas we will build only if users ask for them.",
-    items: [
-      "Anomaly detection and spend forecasts",
-      "Alerts by email, Slack, Discord, and webhook",
-      "Shareable milestone cards and opt-in public project pages",
-      "Cost optimization suggestions",
-      "Many more integrations",
-    ],
+    items: ["Cost optimization suggestions", "Many more integrations"],
   },
 ];
 
@@ -51,7 +50,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release stays focused. Self-hosting, teams, an API, and MCP follow once the core is solid."
+      intro="The first release covers the timeline, alerts, and publishing your own stats. Badges, public pages, forecasts, an API, and self-hosting follow."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

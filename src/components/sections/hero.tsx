@@ -1,4 +1,4 @@
-import { ArrowRightIcon, BellIcon, GaugeIcon, ReportIcon, TimelineIcon } from "@/components/icons";
+import { ArrowRightIcon, BellIcon, EyeIcon, GaugeIcon, TimelineIcon } from "@/components/icons";
 import type { Icon } from "@/components/icon-card";
 import { GitHubButton } from "@/components/github-button";
 import { HeroPreview } from "@/components/sections/hero-preview";
@@ -10,12 +10,12 @@ interface HeroFeature {
   body: string;
 }
 
-// Each line names a part of the preview above it, so the picture doubles as the feature list.
+// The strip restates the paragraph's order: what works on every plan first, spend last.
 const heroFeatures: readonly HeroFeature[] = [
-  { icon: ReportIcon, title: "Verified and estimated spend", body: "Every figure says where it came from." },
-  { icon: GaugeIcon, title: "Allowances and reset dates", body: "See what is left before it runs out." },
-  { icon: BellIcon, title: "Budget alerts", body: "Once per billing period, not every hour." },
-  { icon: TimelineIcon, title: "Live events", body: "Signups, payments, deploys, stars, and usage alerts in one feed." },
+  { icon: TimelineIcon, title: "One timeline", body: "Deploys, stars, signups, logins, payments, and errors in one feed." },
+  { icon: BellIcon, title: "One alert, where you read it", body: "Email, Slack, Discord, or a webhook. Each threshold fires once per billing period." },
+  { icon: EyeIcon, title: "Stats you can share", body: "Publish one metric at a time, each labeled with where it came from." },
+  { icon: GaugeIcon, title: "Spend where the provider allows it", body: "With allowances and reset dates, and the plan each provider needs." },
 ];
 
 // The feature strip follows the preview's own entrance (see hero-preview.tsx).
@@ -49,9 +49,10 @@ export function Hero() {
           </h1>
 
           <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted">
-            {site.name} brings the spending, usage, quotas, and activity of the services you build on
-            into one dashboard. See what you have spent, how much allowance is left, and when it resets,
-            and get an alert before a limit or budget becomes a problem.
+            One timeline and one alert for your whole stack. {site.name} puts the deploys, stars, signups,
+            logins, payments, and errors from the services you build on into one feed, and sends an alert by
+            email, Slack, Discord, or webhook when usage or spend crosses a line you set. Publish the stats
+            you choose, each labeled with its source, and see spend where the provider allows it.
           </p>
 
           <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4">

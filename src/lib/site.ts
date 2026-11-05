@@ -3,7 +3,7 @@ export const site = {
   name: "DevMacro",
   tagline: "The big picture of your developer stack",
   description:
-    "DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer services you build on. See what you have spent, how much allowance is left, and when it resets, and get alerted before a limit or budget becomes a problem.",
+    "DevMacro is an open-source dashboard with one timeline and one alert for your whole developer stack: deploys, stars, signups, payments, and errors in one feed, and alerts by email, Slack, Discord, or webhook. Publish the stats you choose, and see spend and allowances where each provider reports them.",
   githubUrl: "https://github.com/eddiejaoude/DevMacro",
   founder: {
     name: "Eddie Jaoude",
