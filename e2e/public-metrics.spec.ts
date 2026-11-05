@@ -149,10 +149,35 @@ ownerTest.describe("public metrics as the owner", () => {
       if (error) throw new Error(`Reading events failed (code ${error.code}).`);
       expect(events).toEqual([{ title: "Published GitHub stars", provider: null }]);
 
-      await page.getByRole("button", { name: "Unpublish everything" }).click();
+      // A disconnected connection stops feeding the public value; its rows stay stored.
+      const { error: revokeError } = await adminClient()
+        .from("connections")
+        .update({ status: "revoked", next_sync_at: null })
+        .eq("workspace_id", workspace.id);
+      if (revokeError) throw new Error(`Revoking the connection failed (code ${revokeError.code}).`);
+      expect((await readPublic(baseURL, projectId)).body).toMatchObject({
+        metrics: [{ id: "github-stars", status: "unavailable", reason: "not_connected", text: "Not connected" }],
+      });
+
+      // Unpublish everything asks first, names the count and the reach, and Escape backs out.
+      const unpublishAll = page.getByRole("button", { name: "Unpublish everything" });
+      await unpublishAll.click();
+      const dialog = page.getByRole("dialog", { name: "Unpublish everything in this workspace?" });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText("1 published value stops being public, across every project in this workspace");
+      await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+      expect(await new AxeBuilder({ page }).include("dialog").analyze().then((result) => result.violations)).toEqual([]);
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(unpublishAll).toBeFocused();
+      expect((await readPublic(baseURL, projectId)).status).toBe(200);
+
+      await unpublishAll.click();
+      await dialog.getByRole("button", { name: "Unpublish everything" }).click();
       await expect(
         page.getByRole("status").filter({ hasText: "Unpublished everything in this workspace: 1 metric." }),
       ).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Metrics from your connected providers" })).toBeFocused();
       await expect(stars).toContainText("Not published");
       expect((await readPublic(baseURL, projectId)).status).toBe(404);
     } finally {
@@ -179,6 +204,15 @@ ownerTest.describe("public metrics as the owner", () => {
       await expect(page.getByRole("status").filter({ hasText: "Published Downloads this month as a self-reported value." })).toBeVisible();
       await expect(form.getByRole("listitem")).toContainText("Downloads this month: 4,200 downloads");
       await expect(form.getByRole("listitem")).toContainText("Self-reported");
+
+      // The audit event names the project, so it can be traced in a workspace with several.
+      const { data: events, error } = await adminClient()
+        .from("activity_events")
+        .select("title, body")
+        .eq("workspace_id", workspace.id)
+        .eq("type_id", "devmacro.metric_published");
+      if (error) throw new Error(`Reading events failed (code ${error.code}).`);
+      expect(events).toEqual([{ title: "Published Downloads this month (self-reported)", body: "Project Acme web. 4,200 downloads." }]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -132,7 +132,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               <p className="mb-3 leading-6 text-muted">
                 Unpublish every metric and self-reported value of every project in this workspace at once.
               </p>
-              <UnpublishEverythingButton workspaceSlug={workspace.slug} focusId={METRICS_HEADING_ID} />
+              <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCount={liveCount} focusId={METRICS_HEADING_ID} />
             </div>
           ) : null}
         </section>

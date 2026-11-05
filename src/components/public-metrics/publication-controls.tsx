@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, use, useActionState, useId, useState, type ReactNode } from "react";
+import { createContext, use, useActionState, useId, useRef, useState, type ReactNode } from "react";
 
 import {
   publishMetric,
@@ -10,6 +10,7 @@ import {
   type PublicMetricActionResult,
 } from "@/app/w/[workspace]/projects/[projectId]/public-metrics/actions";
 import { inputClass, primaryButtonClass, smallButtonClass } from "@/components/alerts/form-controls";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField } from "./self-reported-rules";
 
@@ -156,19 +157,130 @@ export function UnpublishButton({
   );
 }
 
-export function UnpublishEverythingButton({ workspaceSlug, focusId }: { workspaceSlug: string; focusId: string }) {
-  const [state, formAction, pending] = useAnnouncedAction(unpublishEverything, focusId);
+/**
+ * "Unpublish everything" plus a native modal `<dialog>` that names what it revokes before
+ * confirming, like `DeleteProjectDialog`: it reaches every project in the workspace, not only
+ * this page. Escape or Cancel closes it and focus goes back to the button. After it succeeds the
+ * button is gone, so focus goes to the section named by `focusId` instead.
+ */
+export function UnpublishEverythingButton({
+  workspaceSlug,
+  liveCount,
+  focusId,
+}: {
+  workspaceSlug: string;
+  /** Live publications in the whole workspace, engine metrics and self-reported values. */
+  liveCount: number;
+  focusId: string;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const doneRef = useRef(false);
+  // Bumped on every open so the confirmation starts fresh, without a previous attempt's error.
+  const [openCount, setOpenCount] = useState(0);
+  const titleId = useId();
+  const descriptionId = useId();
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => {
+          setOpenCount((count) => count + 1);
+          dialogRef.current?.showModal();
+        }}
+        className="inline-flex min-h-10 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
+      >
+        Unpublish everything
+      </button>
+      <dialog
+        ref={dialogRef}
+        aria-labelledby={titleId}
+        aria-describedby={descriptionId}
+        onClose={() => {
+          if (!doneRef.current) triggerRef.current?.focus();
+        }}
+        className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
+      >
+        {/* Mounted on first open only, so its autofocus never fires on page load. */}
+        {openCount === 0 ? null : (
+          <UnpublishEverythingConfirmation
+            key={openCount}
+            workspaceSlug={workspaceSlug}
+            liveCount={liveCount}
+            focusId={focusId}
+            titleId={titleId}
+            descriptionId={descriptionId}
+            onCancel={() => dialogRef.current?.close()}
+            onDone={() => {
+              doneRef.current = true;
+              dialogRef.current?.close();
+            }}
+          />
+        )}
+      </dialog>
+    </>
+  );
+}
+
+function UnpublishEverythingConfirmation({
+  workspaceSlug,
+  liveCount,
+  focusId,
+  titleId,
+  descriptionId,
+  onCancel,
+  onDone,
+}: {
+  workspaceSlug: string;
+  liveCount: number;
+  focusId: string;
+  titleId: string;
+  descriptionId: string;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  // The dialog closes before the success is announced, so focus lands on `focusId`, not the trigger.
+  const [state, formAction, pending] = useAnnouncedAction(async (previous, formData) => {
+    const result = await unpublishEverything(previous, formData);
+    if (result.ok) onDone();
+    return result;
+  }, focusId);
+
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <button
-        type="submit"
-        disabled={pending}
-        className="inline-flex min-h-10 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10 disabled:opacity-60"
-      >
-        {pending ? "Unpublishing everything" : "Unpublish everything"}
-      </button>
+      <h2 id={titleId} className="text-lg font-semibold tracking-tight">
+        Unpublish everything in this workspace?
+      </h2>
+      <div id={descriptionId} className="mt-3 space-y-2 text-sm leading-6 text-muted">
+        <p>
+          {liveCount === 1 ? "1 published value stops" : `${liveCount} published values stop`} being public, across every project
+          in this workspace, not only this one.
+        </p>
+        <p>Anything that reads them shows nothing within a minute. To publish again, choose rounding and timing for each one again.</p>
+      </div>
       <Failure state={state} />
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <GuardedButton
+          type="button"
+          // Cancel first and focused, so Enter right after opening never unpublishes.
+          autoFocus
+          unavailable={pending}
+          onClick={onCancel}
+          className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
+        >
+          Cancel
+        </GuardedButton>
+        <GuardedButton
+          type="submit"
+          unavailable={pending}
+          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+        >
+          {pending ? "Unpublishing everything" : "Unpublish everything"}
+        </GuardedButton>
+      </div>
     </form>
   );
 }
