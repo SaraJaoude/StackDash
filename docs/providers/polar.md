@@ -89,7 +89,7 @@ One call per organization per sync: `start_date` the first of the current UTC mo
 | `annual_recurring_revenue` | `polar.arr.usd`, "Annual recurring revenue (USD)" | `recurring_revenue` | Latest day |
 | `active_subscriptions` | `polar.subscriptions.active` | `usage` (subscriptions) | Latest day |
 
-Revenue is revenue and fees are spend, like Stripe: revenue appears under "Revenue this billing period" and Polar fees under spending, never mixed. MRR and ARR are run rates, not money earned in a period, so they have their own kind, `recurring_revenue`, which the dashboard never adds into revenue or spend; they appear in trends. The decision and the options considered are on #114.
+Revenue is revenue and fees are spend, like Stripe: revenue appears under "Revenue this billing period" and Polar fees under spending, never mixed. MRR and ARR are run rates, not money earned in a period, so they have their own kind, `recurring_revenue`, which the dashboard never adds into revenue or spend. They appear on the Polar card under "Recurring revenue", one figure each (summed over the connection's organizations, never MRR into ARR), and in trends. The decision and the options considered are on #114.
 
 Rounding: amounts are summed exactly and rounded once to cents, half to even (`src/lib/money.ts`). MRR can carry a fraction of a cent because yearly plans are divided by twelve.
 

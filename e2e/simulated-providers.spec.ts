@@ -126,6 +126,11 @@ ownerTest.describe("simulated providers", () => {
       const polarCard = byProvider.getByRole("article", { name: POLAR_CONNECTION });
       await expect(polarCard.getByRole("heading", { name: "Revenue this billing period", level: 4 })).toBeVisible();
       await expect(polarCard.getByRole("heading", { name: "Spend this billing period", level: 4 })).toBeVisible();
+      // MRR and ARR are run rates under their own heading, never added into the revenue above.
+      await expect(polarCard.getByRole("heading", { name: "Recurring revenue", level: 4 })).toBeVisible();
+      for (const label of ["Monthly recurring revenue (USD)", "Annual recurring revenue (USD)"]) {
+        await expect(polarCard.getByText(label, { exact: true })).toBeVisible();
+      }
       // Every total the simulated connections contribute to says so, not only their own cards.
       const spendCards = page
         .getByRole("region", { name: "Spending this billing period" })
