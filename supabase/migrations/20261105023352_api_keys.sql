@@ -14,7 +14,7 @@
 --   * The API itself (/api/v1/*): the server calls the functions below with the service role and
 --     the hash of the presented key. Every read function resolves the workspace from the key inside
 --     the database, so a key can only ever read its own workspace, whatever the caller passes.
---     supabase/tests/database/08_api_keys.test.sql proves that per function.
+--     supabase/tests/database/09_api_keys.test.sql proves that per function.
 
 create type public.api_key_scope as enum ('usage:read', 'events:read', 'alerts:read', 'connections:read');
 
