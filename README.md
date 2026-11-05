@@ -213,8 +213,8 @@ If nothing new appears:
 - The first line of `jobs:tick -- --watch` says "Provider simulation is off": the flag is missing
   from `.env.local`, or the watcher was started before you added it. Add it and restart the watcher
   and `npm run dev`.
-- It says "No active simulated connection": connect providers from step 2, or open the ones you
-  connected and check they are active; a simulated connection that needs attention is not synced.
+- It says "No active simulated connection": connect providers from step 2, or open the ones that
+  need attention and reconnect them; a simulated connection that needs attention is not synced.
   The Example provider from step 8 is not simulated.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
