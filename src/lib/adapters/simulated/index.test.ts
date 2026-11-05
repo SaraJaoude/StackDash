@@ -5,6 +5,7 @@ import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
+import { postHogAdapter } from "@/lib/adapters/posthog";
 import { resendAdapter } from "@/lib/adapters/resend";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
@@ -38,6 +39,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
   digitalocean: digitaloceanAdapter,
+  posthog: postHogAdapter,
 };
 
 const MINUTE_MS = 60_000;
