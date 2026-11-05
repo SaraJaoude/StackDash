@@ -9,10 +9,11 @@ import type { SnapshotPoint, SourceAccount } from "./engine";
 import type { HistoryEvent, HistoryStore } from "./history";
 
 /*
- * The engine's reads for one project, against Supabase. Every query is scoped to the workspace and
- * to the project's included accounts explicitly, because the public route runs it with the service
- * role, which bypasses row level security. In the app it runs as the signed-in member, and row
- * level security applies as well.
+ * The engine's reads for one project (or, with `projectId` null, every included account of the
+ * workspace, for the yearly card #151), against Supabase. Every query is scoped to the workspace
+ * and to those accounts explicitly, because the public route runs it with the service role, which
+ * bypasses row level security. In the app it runs as the signed-in member, and row level security
+ * applies as well.
  */
 
 type MetricKind = Database["public"]["Enums"]["metric_kind"];
@@ -29,19 +30,13 @@ const SNAPSHOTS_LIMIT = 5000;
 export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
   workspaceId: string,
-  projectId: string,
+  projectId: string | null,
 ): HistoryStore {
   return {
     async accounts(): Promise<SourceAccount[]> {
+      const included = db.from("external_accounts").select("id, connection_id").eq("workspace_id", workspaceId).eq("included", true);
       const [accounts, connections] = await Promise.all([
-        db
-          .from("external_accounts")
-          .select("id, connection_id")
-          .eq("workspace_id", workspaceId)
-          .eq("project_id", projectId)
-          .eq("included", true)
-          .order("id")
-          .limit(ACCOUNTS_LIMIT),
+        (projectId === null ? included : included.eq("project_id", projectId)).order("id").limit(ACCOUNTS_LIMIT),
         // A disconnected (revoked) connection keeps its rows, but the user asked DevMacro to stop
         // using them, so its accounts drop out and the metric reads "not connected". The scheduler
         // and the daily summary skip revoked connections the same way (src/lib/jobs/store.ts).
@@ -107,6 +102,23 @@ export function createSupabaseMetricStore(
       );
     },
 
+    async earliestSnapshotDate({ accountIds, metricKey }): Promise<string | null> {
+      if (accountIds.length === 0) return null;
+      // Served by usage_snapshots_workspace_date_idx (workspace_id, snapshot_date).
+      const { data, error } = await db
+        .from("usage_snapshots")
+        .select("snapshot_date")
+        .eq("workspace_id", workspaceId)
+        .in("external_account_id", accountIds)
+        .eq("metric_key", metricKey)
+        .in("kind", QUANTITY_KINDS)
+        .not("value", "is", null)
+        .order("snapshot_date", { ascending: true })
+        .limit(1);
+      if (error) throw new Error("Failed to load the earliest snapshot for public metrics", { cause: error });
+      return data[0]?.snapshot_date ?? null;
+    },
+
     async countEvents({ accountIds, typeIds, from, to }): Promise<number> {
       if (accountIds.length === 0 || typeIds.length === 0) return 0;
       // A head request: Postgres counts, no rows travel. Served by activity_events_workspace_timeline_idx.
@@ -138,20 +150,24 @@ export function createSupabaseMetricStore(
       return first === undefined ? null : new Date(first.occurred_at);
     },
 
-    async recentEvents({ accountIds, typeIds, before, limit }) {
+    async recentEvents({ accountIds, typeIds, since, before, limit }) {
       if (accountIds.length === 0 || typeIds.length === 0) return [];
-      const { data, error } = await db
+      let query = db
         .from("activity_events")
-        .select("type_id, occurred_at")
+        .select("external_account_id, type_id, occurred_at")
         .eq("workspace_id", workspaceId)
         .in("external_account_id", accountIds)
         .in("type_id", typeIds)
-        .lte("occurred_at", before.toISOString())
+        .lte("occurred_at", before.toISOString());
+      if (since !== undefined) query = query.gte("occurred_at", since.toISOString());
+      const { data, error } = await query
         .order("occurred_at", { ascending: false })
         .order("id", { ascending: false })
         .limit(limit);
       if (error) throw new Error("Failed to load recent events for public metrics", { cause: error });
-      return data.map((row) => ({ typeId: row.type_id, occurredAt: new Date(row.occurred_at) }));
+      return data.flatMap((row) =>
+        row.external_account_id === null ? [] : [{ accountId: row.external_account_id, typeId: row.type_id, occurredAt: new Date(row.occurred_at) }],
+      );
     },
 
     // The history cache (#150) pages through a window's events. Ordered like recentEvents, with

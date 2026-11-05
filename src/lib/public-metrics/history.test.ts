@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PublicMetricId } from "./definitions";
-import { computePublicMetrics, type SnapshotPoint, type SourceAccount } from "./engine";
+import { computePublicMetrics, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
 import {
   computeMetricHistories,
   firstEventMilestones,
@@ -10,10 +10,11 @@ import {
   HISTORY_PAGE_ROWS,
   historyMoments,
   historySummary,
+  preloadHistoryStore,
   starMilestones,
   type HistoryStore,
 } from "./history";
-import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
+import { MemoryMetricStore } from "./memory-store";
 
 const AS_OF = new Date("2026-11-05T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -46,7 +47,7 @@ function starPoint(daysAgo: number, value: number, accountId = "gh-1"): Snapshot
   };
 }
 
-function deployment(hoursAgo: number, failed = false, accountId = "vc-1"): MemoryEvent {
+function deployment(hoursAgo: number, failed = false, accountId = "vc-1"): StoredEvent {
   return {
     typeId: failed ? "vercel.deployment.failed" : "vercel.deployment.succeeded",
     occurredAt: new Date(AS_OF.getTime() - hoursAgo * HOUR_MS),
@@ -66,6 +67,7 @@ function counted(base: HistoryStore): { store: HistoryStore; reads: () => number
     store: {
       accounts: () => count(base.accounts()),
       snapshots: (query) => count(base.snapshots(query)),
+      earliestSnapshotDate: (query) => count(base.earliestSnapshotDate(query)),
       countEvents: (query) => count(base.countEvents(query)),
       earliestEvent: (query) => count(base.earliestEvent(query)),
       recentEvents: (query) => count(base.recentEvents(query)),
@@ -153,6 +155,41 @@ describe("computeMetricHistories", () => {
 
   it("returns nothing for no requests (boundary)", async () => {
     expect(await computeMetricHistories(new MemoryMetricStore([], [], []), [])).toEqual([]);
+  });
+});
+
+describe("preloadHistoryStore", () => {
+  const STREAK: PublicMetricId[] = ["vercel-deployment-streak"];
+  // More than every event loaded, so only `since` decides whether the cache has them all.
+  const query = (since: Date) => ({ accountIds: ["vc-1"], typeIds: ["vercel.deployment.succeeded"], since, before: AS_OF, limit: 10_000 });
+
+  it("answers recent events since a moment it loaded from memory, as the real store does", async () => {
+    const base = new MemoryMetricStore(ACCOUNTS, STAR_POINTS, DEPLOYMENTS);
+    const { store, reads } = counted(base);
+    const cached = await preloadHistoryStore(store, STREAK, new Date(AS_OF.getTime() - 30 * DAY_MS), AS_OF);
+    const loaded = reads();
+    const since = new Date(AS_OF.getTime() - 10 * DAY_MS);
+    expect(await cached.recentEvents(query(since))).toEqual(await base.recentEvents(query(since)));
+    expect(reads()).toBe(loaded);
+    // The yearly card's read, not a history's: passed through unchanged.
+    expect(await cached.earliestSnapshotDate({ accountIds: ["gh-1"], metricKey: "github.stars.total" })).toBe(
+      await base.earliestSnapshotDate({ accountIds: ["gh-1"], metricKey: "github.stars.total" }),
+    );
+  });
+
+  it("reads the real store for events since a moment older than it loaded, and still agrees (boundary)", async () => {
+    const events = Array.from({ length: HISTORY_EVENT_PAGES * HISTORY_PAGE_ROWS + 500 }, (_, index) => deployment(index / 4 + 0.1));
+    const base = new MemoryMetricStore(ACCOUNTS, [], events);
+    const { store, reads } = counted(base);
+    const cached = await preloadHistoryStore(store, STREAK, new Date(AS_OF.getTime() - 30 * DAY_MS), AS_OF);
+    const loaded = reads();
+    // Inside the loaded pages (about 52 days at four an hour), fewer than the limit: still from memory.
+    const recent = new Date(AS_OF.getTime() - 10 * DAY_MS);
+    expect(await cached.recentEvents(query(recent))).toEqual(await base.recentEvents(query(recent)));
+    expect(reads()).toBe(loaded);
+    const old = new Date(AS_OF.getTime() - 80 * DAY_MS);
+    expect(await cached.recentEvents(query(old))).toEqual(await base.recentEvents(query(old)));
+    expect(reads()).toBe(loaded + 1);
   });
 });
 

@@ -10,8 +10,8 @@ import { vercelProfile } from "@/lib/adapters/simulated/vercel";
 import type { AdapterContext, LiveProviderId } from "@/lib/adapters/types";
 
 import { PUBLIC_METRIC_IDS, type PublicMetricId } from "./definitions";
-import { computePublicMetrics, type SnapshotPoint, type SourceAccount } from "./engine";
-import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
+import { computePublicMetrics, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
+import { MemoryMetricStore } from "./memory-store";
 
 /*
  * Every metric against stored data shaped exactly like a sync writes it: 35 days of the simulated
@@ -71,8 +71,8 @@ function dailySnapshots(profile: SimulatedProfile, provider: LiveProviderId): Sn
 }
 
 /** Every event a sync stored over the history, up to SYNCED_AT. */
-function storedEvents(profile: SimulatedProfile, provider: LiveProviderId): MemoryEvent[] {
-  const events: MemoryEvent[] = [];
+function storedEvents(profile: SimulatedProfile, provider: LiveProviderId): StoredEvent[] {
+  const events: StoredEvent[] = [];
   const first = Math.floor((AS_OF.getTime() - HISTORY_DAYS * DAY_MS) / SLOT_MS);
   const last = Math.floor(SYNCED_AT.getTime() / SLOT_MS);
   for (let slot = first; slot < last; slot += 1) {

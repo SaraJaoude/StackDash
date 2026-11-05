@@ -8,74 +8,69 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
   type ReactNode,
 } from "react";
 
 import { formatLondonTime } from "@/lib/format";
 import {
-  ARRIVAL_HIGHLIGHT_MS,
-  describeArrivals,
-  liveStatusText,
-  type ArrivalReport,
-  type LiveStatus,
-} from "@/lib/realtime/arrivals";
+  createArrivalStore,
+  INITIAL_LIVE_STATE,
+  NO_BATCH,
+  type ArrivalBatch,
+  type ArrivalStore,
+} from "@/lib/realtime/arrival-store";
+import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, liveStatusText, type ArrivalReport } from "@/lib/realtime/arrivals";
 
 /**
  * Arriving data, made visible (#171). The provider sits in the workspace layout around the header
  * and the page: LiveRefresh tells it when a batch arrives, the components that show data tell it
  * what changed, and it says so once per batch in one polite live region. The live indicator in
  * the header reads its state.
+ *
+ * The live state and the batches live in an ArrivalStore that components read with
+ * useSyncExternalStore, never in a context value that changes: a changing context value makes
+ * React render the streamed page on the client before its server HTML is revealed, and the page
+ * was then in the document twice (#211, explained in src/lib/realtime/arrival-store.ts). Both
+ * context values below are created once and never change.
  */
 
-type LiveState = Readonly<{
-  status: LiveStatus;
-  /** Commit time of the newest change Realtime delivered, from the database clock. */
-  lastArrivalAt: string | null;
-}>;
+type ArrivalControls = Pick<ArrivalStore, "arrived" | "setStatus" | "watch"> &
+  Readonly<{
+    /**
+     * What one component saw change in a render. `id` is unique per component and batch, so the
+     * second run of an effect (React Strict Mode) is not counted twice.
+     */
+    report: (id: string, report: ArrivalReport) => void;
+  }>;
 
-/** The latest batch LiveRefresh announced, and which of the components that mark data saw it. */
-type ArrivalBatch = Readonly<{
-  /** Batches arrived since the page opened; the indicator pulses once each time it grows. */
-  number: number;
-  /** The useRenderDiff ids that were in view when it arrived. */
-  inView: ReadonlySet<string>;
-}>;
-
-type ArrivalControls = Readonly<{
-  /** A batch of changes arrived and the page is refreshing; `at` is its newest commit time. */
-  arrived: (at: string | null) => void;
-  setStatus: (status: LiveStatus) => void;
-  /**
-   * What one component saw change in a render. `id` is unique per component and batch, so the
-   * second run of an effect (React Strict Mode) is not counted twice.
-   */
-  report: (id: string, report: ArrivalReport) => void;
-  /** A component that marks data is in view until the returned function runs. */
-  watch: (id: string) => () => void;
-}>;
-
-const INITIAL_LIVE_STATE: LiveState = { status: "connecting", lastArrivalAt: null };
-const NO_BATCH: ArrivalBatch = { number: 0, inView: new Set() };
-
-const LiveStateContext = createContext<LiveState>(INITIAL_LIVE_STATE);
-const ArrivalBatchContext = createContext<ArrivalBatch>(NO_BATCH);
+const ArrivalStoreContext = createContext<ArrivalStore | null>(null);
 const ArrivalControlsContext = createContext<ArrivalControls | null>(null);
+
+// The server snapshots are the initial state, so hydration matches the server HTML and a change
+// that came first re-renders the component once it has hydrated. Outside the provider nothing
+// arrives and the snapshots never change.
+const noSubscription = () => () => {};
+const initialLiveState = () => INITIAL_LIVE_STATE;
+const noBatch = () => NO_BATCH;
+
+function useArrivalBatch(): ArrivalBatch {
+  const store = useContext(ArrivalStoreContext);
+  return useSyncExternalStore(store?.subscribe ?? noSubscription, store?.batch ?? noBatch, noBatch);
+}
 
 // Long enough for a screen reader to notice the region emptied, so the same sentence twice in a
 // row is still announced twice.
 const ANNOUNCEMENT_RESET_MS = 100;
 
 export function ArrivalProvider({ children }: { children: ReactNode }) {
-  const [live, setLive] = useState<LiveState>(INITIAL_LIVE_STATE);
-  const [batch, setBatch] = useState<ArrivalBatch>(NO_BATCH);
-  const inView = useRef(new Set<string>());
+  // State, not memos: LiveRefresh's channel effect depends on the controls, so neither identity may
+  // ever change (React may drop a memoized value; a state initializer runs once).
+  const [store] = useState(createArrivalStore);
   const [announcement, setAnnouncement] = useState("");
   const pending = useRef(new Map<string, ArrivalReport>());
   const timers = useRef({ flush: 0, announce: 0 });
-
-  // State, not a memo: LiveRefresh's channel effect depends on this object, so its identity must
-  // never change (React may drop a memoized value; a state initializer runs once).
   const [controls] = useState<ArrivalControls>(() => {
     // Every component that changed reports from its effect in the same commit, so the reports of
     // one refresh are all in before a zero-delay timer runs.
@@ -89,36 +84,12 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
       timers.current.announce = window.setTimeout(() => setAnnouncement(text), ANNOUNCEMENT_RESET_MS);
     }
     return {
-      arrived(at) {
-        setLive((current) => ({
-          ...current,
-          lastArrivalAt:
-            at === null || (current.lastArrivalAt !== null && Date.parse(current.lastArrivalAt) >= Date.parse(at))
-              ? current.lastArrivalAt
-              : at,
-        }));
-        const seen: ReadonlySet<string> = new Set(inView.current);
-        setBatch((current) => ({ number: current.number + 1, inView: seen }));
-      },
-      setStatus(status) {
-        setLive((current) => (current.status === status ? current : { ...current, status }));
-      },
+      arrived: store.arrived,
+      setStatus: store.setStatus,
+      watch: store.watch,
       report(id, report) {
         pending.current.set(id, report);
         if (timers.current.flush === 0) timers.current.flush = window.setTimeout(flush, 0);
-      },
-      watch(id) {
-        inView.current.add(id);
-        return () => {
-          inView.current.delete(id);
-          // Hidden before the batch's refresh reached it: that refresh is not an arrival for it.
-          setBatch((current) => {
-            if (!current.inView.has(id)) return current;
-            const seen = new Set(current.inView);
-            seen.delete(id);
-            return { ...current, inView: seen };
-          });
-        };
       },
     };
   });
@@ -133,15 +104,13 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
 
   return (
     <ArrivalControlsContext value={controls}>
-      <LiveStateContext value={live}>
-        <ArrivalBatchContext value={batch}>
-          {children}
-          {/* In the page from the first render, so a later sentence is a change a screen reader hears. */}
-          <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
-            {announcement}
-          </p>
-        </ArrivalBatchContext>
-      </LiveStateContext>
+      <ArrivalStoreContext value={store}>
+        {children}
+        {/* In the page from the first render, so a later sentence is a change a screen reader hears. */}
+        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
+          {announcement}
+        </p>
+      </ArrivalStoreContext>
     </ArrivalControlsContext>
   );
 }
@@ -194,7 +163,7 @@ type DiffState<T> = RenderDiff<T> &
 export function useRenderDiff<T>(value: T, signature: string): RenderDiff<T> {
   const scope = useContext(ScopeContext);
   const controls = useContext(ArrivalControlsContext);
-  const arrival = useContext(ArrivalBatchContext);
+  const arrival = useArrivalBatch();
   const id = useId();
   const [state, setState] = useState<DiffState<T>>({
     scope,
@@ -257,8 +226,13 @@ export function useArrivalReport(batch: number, report: ArrivalReport | null): v
  * focus leaves, and a press keeps it open for touch screens.
  */
 export function LiveIndicator() {
-  const { status, lastArrivalAt } = useContext(LiveStateContext);
-  const arrivals = useContext(ArrivalBatchContext).number;
+  const store = useContext(ArrivalStoreContext);
+  const { status, lastArrivalAt } = useSyncExternalStore(
+    store?.subscribe ?? noSubscription,
+    store?.live ?? initialLiveState,
+    initialLiveState,
+  );
+  const arrivals = useArrivalBatch().number;
   const text = liveStatusText(status);
   const tooltipId = useId();
   const [pinned, setPinned] = useState(false);

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes } from "node:crypto";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,11 +9,13 @@ import {
   decryptCredential,
   decryptSecret,
   DecryptionFailedError,
+  derivedKey,
   encryptCredential,
   encryptSecret,
   EncryptionKeyConfigError,
   keyIdFor,
   needsRotation,
+  signMessage,
   UnknownEncryptionKeyError,
   type EncryptedSecret,
 } from "@/lib/crypto/credentials";
@@ -201,6 +203,33 @@ describe("rotation", () => {
       expect(caught.message).not.toContain(material);
       expect(JSON.stringify(caught)).not.toContain(material);
     }
+  });
+});
+
+describe("derivedKey", () => {
+  function hkdf(key: Buffer, info: string): Buffer {
+    return Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), info, 32));
+  }
+
+  it("is a 32 byte HKDF key in its own versioned namespace, one per purpose", () => {
+    const key = derivedKey("public-rate-limit");
+    expect(key).toEqual(hkdf(KEY_A, "devmacro key v1:public-rate-limit"));
+    expect(key).toHaveLength(32);
+    expect(key).not.toEqual(KEY_A);
+    expect(derivedKey("other")).not.toEqual(key);
+  });
+
+  it("never equals the signing key of the same purpose, whose namespace is unchanged (boundary: same purpose string)", () => {
+    const signingKey = hkdf(KEY_A, "devmacro signing v1:public-rate-limit");
+    expect(derivedKey("public-rate-limit")).not.toEqual(signingKey);
+    // Signatures already sent still verify: the signing derivation is byte for byte the old one.
+    const signature = createHmac("sha256", signingKey).update("message", "utf8").digest("base64url");
+    expect(signMessage("public-rate-limit", "message")).toBe(`${keyIdFor(KEY_A)}.${signature}`);
+  });
+
+  it("follows the current key, never a previous one (boundary: rotation)", () => {
+    useKeys(KEY_B_B64, `${keyIdFor(KEY_A)}:${KEY_A_B64}`);
+    expect(derivedKey("public-rate-limit")).toEqual(hkdf(KEY_B, "devmacro key v1:public-rate-limit"));
   });
 });
 

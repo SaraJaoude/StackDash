@@ -33,12 +33,25 @@ const emailEnvSchema = z
     error: "set either DEVMACRO_SMTP_URL or DEVMACRO_RESEND_API_KEY, not both",
   });
 
+// Where the public routes' per IP rate limit (#149) finds the client. VERCEL=1 is Vercel's system
+// environment variable (https://vercel.com/docs/environment-variables/system-environment-variables).
+// Elsewhere DEVMACRO_TRUSTED_PROXY_COUNT is how many proxies in front of the app append to
+// x-forwarded-for; one when unset.
+const clientIpEnvSchema = z.object({
+  VERCEL: z.string().optional(),
+  DEVMACRO_TRUSTED_PROXY_COUNT: z
+    .string()
+    .regex(/^[1-9]$/, "use a whole number from 1 to 9: the proxies in front of the app that append to x-forwarded-for")
+    .optional(),
+});
+
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
 export type EmailEnv =
   | Readonly<{ transport: "smtp"; from: string; smtpUrl: string }>
   | Readonly<{ transport: "resend"; from: string; resendApiKey: string }>;
+export type ClientIpEnv = Readonly<{ header: "x-vercel-forwarded-for" | "x-forwarded-for"; trustedProxies: number }>;
 
 function parseEnv<Schema extends z.ZodType>(
   schema: Schema,
@@ -127,4 +140,19 @@ export function emailEnv(): EmailEnv | null {
     return { transport: "resend", from: env.DEVMACRO_EMAIL_FROM, resendApiKey: env.DEVMACRO_RESEND_API_KEY };
   }
   return null;
+}
+
+/**
+ * Which request header holds the client IP and how many proxies appended to it. On Vercel,
+ * `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel
+ * cannot overwrite (https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
+ * Self-hosted, `x-forwarded-for` with DEVMACRO_TRUSTED_PROXY_COUNT proxies appending to it.
+ */
+export function clientIpEnv(): ClientIpEnv {
+  const env = parseEnv(clientIpEnvSchema, {
+    VERCEL: process.env.VERCEL,
+    DEVMACRO_TRUSTED_PROXY_COUNT: process.env.DEVMACRO_TRUSTED_PROXY_COUNT,
+  });
+  if (env.VERCEL === "1") return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
+  return { header: "x-forwarded-for", trustedProxies: Number(env.DEVMACRO_TRUSTED_PROXY_COUNT ?? "1") };
 }

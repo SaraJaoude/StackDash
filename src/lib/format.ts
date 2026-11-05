@@ -42,6 +42,11 @@ const UTC_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
+/** "2026-11-05": the UTC calendar day of an instant, for windows that start on UTC day boundaries. */
+export function formatUtcDate(at: Instant): string {
+  return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 // en-GB names the London zone GMT or BST (en-CA says GMT+1). Its own date order is day first, so
 // the parts are assembled into the ISO order below.
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {

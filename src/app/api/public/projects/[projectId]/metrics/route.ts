@@ -4,15 +4,17 @@ import { z } from "zod";
 import { connectOrigin } from "@/lib/connections/oauth-state";
 import { logError } from "@/lib/log/logger";
 import { loadPublishedProjectMetrics, type PublishedMetric } from "@/lib/public-metrics/published";
+import { checkPublicRateLimit, NO_STORE, PUBLIC_CACHE_CONTROL, rateLimitedHeaders } from "@/lib/public-metrics/requests";
 
 /*
  * GET /api/public/projects/<projectId>/metrics (#148): the metrics a project has published, as
  * JSON, for anyone. Live publications only (public_published_metrics), each value computed from
  * stored snapshots and events. No account, repository, or provider account names, and no money.
  *
- * Caching: one minute in browsers and shared caches, so an unpublished metric stops showing within
- * a minute (#149's acceptance bound) while an embed polled by many readers is computed about once a
- * minute per cache. Not prerendered: every response reads the database at request time.
+ * Caching and the per IP rate limit are shared with badges and cards (src/lib/public-metrics/
+ * requests.ts): one minute in browsers and shared caches, so an unpublished metric stops showing
+ * within a minute, and a 429 with Retry-After past the limit. Not prerendered: every response
+ * reads the database at request time.
  *
  * CORS: same-origin only. No `Access-Control-Allow-Origin` is sent, so a script on another site
  * cannot `fetch` this; badges and cards (#149) are rendered by DevMacro's own server, and anyone
@@ -23,7 +25,6 @@ import { loadPublishedProjectMetrics, type PublishedMetric } from "@/lib/public-
  * build theirs), because readers off-site cannot resolve a path against an origin they do not know.
  */
 
-const CACHE_CONTROL = "public, max-age=60, s-maxage=60";
 // `guid`, not `uuid`: fixtures use hand-written ids that skip the RFC version bits.
 const ProjectIdSchema = z.guid();
 
@@ -32,7 +33,7 @@ const ProjectIdSchema = z.guid();
 function notFound(): Response {
   return Response.json(
     { error: "not_found", message: "Nothing is published for this project." },
-    { status: 404, headers: { "Cache-Control": CACHE_CONTROL } },
+    { status: 404, headers: { "Cache-Control": PUBLIC_CACHE_CONTROL } },
   );
 }
 
@@ -77,21 +78,29 @@ export async function GET(request: Request, ctx: RouteContext<"/api/public/proje
   // The answer depends on the clock and the database, so it is always rendered at request time.
   await connection();
   const { projectId } = await ctx.params;
-  if (!ProjectIdSchema.safeParse(projectId).success) return notFound();
 
   try {
-    const published = await loadPublishedProjectMetrics(projectId, new Date());
+    const now = new Date();
+    const limit = await checkPublicRateLimit(request.headers, now);
+    if (!limit.allowed) {
+      return Response.json(
+        { error: "rate_limited", message: "Too many requests from this address. Try again in a minute." },
+        { status: 429, headers: rateLimitedHeaders(limit) },
+      );
+    }
+    if (!ProjectIdSchema.safeParse(projectId).success) return notFound();
+    const published = await loadPublishedProjectMetrics(projectId, now);
     if (published === null) return notFound();
     const origin = connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL);
     return Response.json(
       { projectId: published.projectId, metrics: published.metrics.map((metric) => serialize(metric, origin)) },
-      { headers: { "Cache-Control": CACHE_CONTROL } },
+      { headers: { "Cache-Control": PUBLIC_CACHE_CONTROL } },
     );
   } catch (error) {
     const referenceId = logError("public_metrics.read_failed", error);
     return Response.json(
       { error: "unavailable", message: "Published metrics could not be read. Try again in a moment.", referenceId },
-      { status: 503, headers: { "Cache-Control": "no-store" } },
+      { status: 503, headers: { "Cache-Control": NO_STORE } },
     );
   }
 }
