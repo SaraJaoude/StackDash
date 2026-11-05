@@ -16,7 +16,8 @@ import type { TrendGranularity } from "@/lib/dashboard/trends";
  * shape and text, never by color: each category has its own shape, named in the legend, and each
  * marker's name ("14 deployments on 2026-10-21") is shown on hover and keyboard focus. The marker
  * grows with its count, so a burst stands out. In the DOM, markers run oldest bucket first and
- * then in category order, which is the keyboard order.
+ * then in category order, which is the keyboard order. A month of daily markers can be over a
+ * hundred tab stops, so a skip link, shown on focus, comes first and jumps past them.
  */
 
 /** Width of one marker slot and the least distance between bucket centers, in CSS pixels. */
@@ -65,11 +66,14 @@ export function TrendMarkers({
   markers,
   granularity,
   positions,
+  skipTo,
 }: {
   markers: readonly TrendMarker[];
   granularity: TrendGranularity;
   /** Each bucket's horizontal position, as a percent of the chart's width. */
   positions: ReadonlyMap<string, number>;
+  /** The id of the first element after the markers, where the skip link lands. */
+  skipTo: string;
 }) {
   const lanes = markerLanes(markers);
   const largest = new Map(
@@ -82,45 +86,53 @@ export function TrendMarkers({
   for (const marker of markers) byBucket.set(marker.bucket, [...(byBucket.get(marker.bucket) ?? []), marker]);
 
   return (
-    <ul aria-label="Event markers" className="relative mt-2" style={{ height: lanes.length * MARKER_SLOT_PX }}>
-      {[...byBucket].map(([bucket, items]) => {
-        const left = positions.get(bucket);
-        if (left === undefined) return null;
-        return (
-          <li key={bucket} className="absolute top-0 flex -translate-x-1/2 flex-col" style={{ left: `${left}%` }}>
-            {lanes.map((category) => {
-              const marker = items.find((item) => item.category === category);
-              if (marker === undefined) return <span key={category} aria-hidden="true" className="block size-7" />;
-              const label = markerLabel(marker, granularity);
-              // Square root, so a count four times larger reads as a shape twice the size.
-              const share = Math.sqrt(marker.count / (largest.get(category) ?? marker.count));
-              return (
-                <span key={category} className="flex size-7 items-center justify-center">
-                  {/* One link per marker in view: prefetching each would load the timeline dozens of times. */}
-                  <Link
-                    href={marker.href}
-                    prefetch={false}
-                    aria-label={label}
-                    className="group relative flex size-6 items-center justify-center rounded text-muted transition-colors hover:text-foreground focus-visible:text-foreground"
-                  >
-                    <MarkerShape category={category} size={Math.round(SHAPE_MIN_PX + (SHAPE_MAX_PX - SHAPE_MIN_PX) * share)} />
-                    {/* The visible form of the link's name, for pointer and keyboard users alike. */}
-                    <span
-                      aria-hidden="true"
-                      className={`pointer-events-none absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-md border border-line-strong bg-panel-raised px-2 py-1 text-xs text-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 ${
-                        left < 50 ? "left-0" : "right-0"
-                      }`}
+    <>
+      <a
+        href={`#${skipTo}`}
+        className="sr-only focus:not-sr-only focus:mt-2 focus:inline-block focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background"
+      >
+        Skip the event markers
+      </a>
+      <ul aria-label="Event markers" className="relative mt-2" style={{ height: lanes.length * MARKER_SLOT_PX }}>
+        {[...byBucket].map(([bucket, items]) => {
+          const left = positions.get(bucket);
+          if (left === undefined) return null;
+          return (
+            <li key={bucket} className="absolute top-0 flex -translate-x-1/2 flex-col" style={{ left: `${left}%` }}>
+              {lanes.map((category) => {
+                const marker = items.find((item) => item.category === category);
+                if (marker === undefined) return <span key={category} aria-hidden="true" className="block size-7" />;
+                const label = markerLabel(marker, granularity);
+                // Square root, so a count four times larger reads as a shape twice the size.
+                const share = Math.sqrt(marker.count / (largest.get(category) ?? marker.count));
+                return (
+                  <span key={category} className="flex size-7 items-center justify-center">
+                    {/* One link per marker in view: prefetching each would load the timeline dozens of times. */}
+                    <Link
+                      href={marker.href}
+                      prefetch={false}
+                      aria-label={label}
+                      className="group relative flex size-6 items-center justify-center rounded text-muted transition-colors hover:text-foreground focus-visible:text-foreground"
                     >
-                      {label}
-                    </span>
-                  </Link>
-                </span>
-              );
-            })}
-          </li>
-        );
-      })}
-    </ul>
+                      <MarkerShape category={category} size={Math.round(SHAPE_MIN_PX + (SHAPE_MAX_PX - SHAPE_MIN_PX) * share)} />
+                      {/* The visible form of the link's name, for pointer and keyboard users alike. */}
+                      <span
+                        aria-hidden="true"
+                        className={`pointer-events-none absolute bottom-full z-10 mb-1 whitespace-nowrap rounded-md border border-line-strong bg-panel-raised px-2 py-1 text-xs text-foreground opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 ${
+                          left < 50 ? "left-0" : "right-0"
+                        }`}
+                      >
+                        {label}
+                      </span>
+                    </Link>
+                  </span>
+                );
+              })}
+            </li>
+          );
+        })}
+      </ul>
+    </>
   );
 }
 

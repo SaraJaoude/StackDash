@@ -34,6 +34,7 @@ const ESTIMATE_DASH = "6 4";
  */
 export function TrendChart({ series, markers }: { series: TrendSeries; markers: readonly TrendMarker[] | null }) {
   const titleId = useId();
+  const legendId = useId();
   const { points, measure, granularity } = series;
   const values = points.flatMap((point) => (point.value === null ? [] : [point.value]));
   const low = Math.min(0, ...values);
@@ -121,7 +122,9 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
             )}
           </svg>
 
-          {lanes.length === 0 ? null : <TrendMarkers markers={markers ?? []} granularity={granularity} positions={positions} />}
+          {lanes.length === 0 ? null : (
+            <TrendMarkers markers={markers ?? []} granularity={granularity} positions={positions} skipTo={legendId} />
+          )}
 
           {/* Axis labels are in the table and the chart's name already, so screen readers skip them here. */}
           <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
@@ -134,7 +137,7 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
         </div>
       </div>
 
-      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+      <ul id={legendId} className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
         <li className="flex items-center gap-2">
           <LegendLine dashed={false} />
           Solid line, filled points: verified
