@@ -255,6 +255,21 @@ describe("exchangeCode", () => {
   });
 });
 
+  it("maps a 400 invalid_grant code to auth revoked and a 400 invalid_client to invalid_response", async () => {
+    const grant = fakeDigitalOcean({
+      "/v1/oauth/token": () => Response.json({ error: "invalid_grant" }, { status: 400 }),
+    });
+    await expect(digitaloceanAdapter.exchangeCode(input, makeCtx(grant.fetch).ctx)).rejects.toBeInstanceOf(
+      AuthRevokedError,
+    );
+    const client = fakeDigitalOcean({
+      "/v1/oauth/token": () => Response.json({ error: "invalid_client" }, { status: 400 }),
+    });
+    await expect(digitaloceanAdapter.exchangeCode(input, makeCtx(client.fetch).ctx)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
 describe("refreshTokens", () => {
   it("spends the refresh token once and returns the NEW access and refresh token together", async () => {
     const api = fakeDigitalOcean({ "/v1/oauth/token": () => Response.json(tokenRefreshedFixture) });
@@ -277,11 +292,11 @@ describe("refreshTokens", () => {
   });
 
   it.each([
-    ["400 (used or expired refresh token)", 400],
-    ["401 (revoked grant)", 401],
-  ])("maps a %s to auth revoked, so the connection asks to reconnect", async (_title, status) => {
+    ["400 invalid_grant (used or expired refresh token)", 400, "invalid_grant"],
+    ["401 invalid_grant (revoked grant)", 401, "invalid_grant"],
+  ])("maps a %s to auth revoked, so the connection asks to reconnect", async (_title, status, error) => {
     const api = fakeDigitalOcean({
-      "/v1/oauth/token": () => Response.json({ error: "invalid_grant", error_description: "used" }, { status }),
+      "/v1/oauth/token": () => Response.json({ error, error_description: "used" }, { status }),
     });
     await expect(digitaloceanAdapter.refreshTokens?.(credential, makeCtx(api.fetch).ctx)).rejects.toBeInstanceOf(
       AuthRevokedError,
@@ -289,6 +304,20 @@ describe("refreshTokens", () => {
   });
 
   it("rejects a refresh answered without a new refresh token as invalid_response", async () => {
+  // Bodies from the OAuth troubleshooting page (docs.digitalocean.com/support/im-getting-an-error-
+  // when-using-the-digitalocean-oauth-api., checked 2026-11-05): instance configuration, not the grant.
+  it.each([
+    ["400 invalid_client (wrong client id or secret)", 400, { error: "invalid_client", error_description: "Client authentication failed due to unknown client, no client authentication included, or unsupported authentication method." }],
+    ["401 invalid_client (wrong client id or secret)", 401, { error: "invalid_client", error_description: "Client authentication failed due to unknown client, no client authentication included, or unsupported authentication method." }],
+    ["400 invalid_request (malformed request)", 400, { error: "invalid_request", error_description: "The request is missing a required parameter, includes an unsupported parameter value, or is otherwise malformed." }],
+    ["400 without an OAuth error body", 400, { message: "bad request" }],
+  ])("keeps a %s as invalid_response, not auth revoked", async (_title, status, body) => {
+    const api = fakeDigitalOcean({ "/v1/oauth/token": () => Response.json(body, { status }) });
+    await expect(digitaloceanAdapter.refreshTokens?.(credential, makeCtx(api.fetch).ctx)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
     const { refresh_token: _spent, ...withoutRefresh } = tokenRefreshedFixture;
     const api = fakeDigitalOcean({ "/v1/oauth/token": () => Response.json(withoutRefresh) });
     await expect(digitaloceanAdapter.refreshTokens?.(credential, makeCtx(api.fetch).ctx)).rejects.toMatchObject({

@@ -44,6 +44,14 @@ export const TokenResponseSchema = z.object({
 });
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 
+/**
+ * RFC 6749 section 5.2 error body from the token endpoint, as the OAuth troubleshooting page shows
+ * it (`invalid_grant`, `invalid_client`, `invalid_request`). Only the code is read.
+ */
+export const OAuthErrorSchema = z.object({
+  error: z.string().min(1),
+});
+
 /** `GET /v2/account`. `team` is present "when authorized in a team context". */
 export const AccountResponseSchema = z.object({
   account: z.object({

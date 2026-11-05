@@ -8,6 +8,7 @@ import type { AdapterMetric } from "../metrics";
 import {
   Secret,
   type ExternalAccount,
+  type FetchLike,
   type OAuthContext,
   type OAuthCredential,
   type ProviderAdapter,
@@ -24,6 +25,7 @@ import {
   InsightsSchema,
   InvoiceItemsSchema,
   InvoicesSchema,
+  OAuthErrorSchema,
   TokenResponseSchema,
   type Action,
   type App,
@@ -248,22 +250,67 @@ function parseScopes(scope: string | undefined, fallback: readonly string[]): re
   return scope.split(" ").filter((value) => value.length > 0);
 }
 
+async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  const parsed = OAuthErrorSchema.safeParse(body);
+  return parsed.success ? parsed.data.error : undefined;
+}
+
 /**
  * Token endpoint call. The documentation's code exchange example puts every parameter in the query
  * string; they go in a form body here (RFC 6749 section 4.1.3), which the documented refresh
  * example also uses, so the client secret never sits in a URL (page, Unverified; decided on #116).
+ *
+ * DigitalOcean documents three token errors (OAuth troubleshooting page). Only `invalid_grant`
+ * (a code or refresh token that is used, expired, or revoked) means the grant is gone, so only it
+ * becomes auth revoked and asks the user to reconnect. `invalid_client` (wrong client id or secret)
+ * and `invalid_request` (malformed request) are this instance's configuration, not the user's
+ * grant: they stay invalid responses, retried and logged, even when `invalid_client` comes as a
+ * 401 (RFC 6749 section 5.2), which `fetchJson` alone would call auth revoked.
  */
-function requestTokens(ctx: OAuthContext, form: Readonly<Record<string, string>>): Promise<TokenResponse> {
-  return fetchJson(
-    ctx,
-    TOKEN_URL,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
-      body: new URLSearchParams(form).toString(),
-    },
-    TokenResponseSchema,
-  );
+async function requestTokens(ctx: OAuthContext, form: Readonly<Record<string, string>>): Promise<TokenResponse> {
+  let oauthError: string | undefined;
+  const capturingFetch: FetchLike = async (input, init) => {
+    const response = await ctx.fetch(input, init);
+    if (response.status === 400 || response.status === 401) {
+      oauthError = await readOAuthErrorCode(response.clone());
+    }
+    return response;
+  };
+  try {
+    return await fetchJson(
+      { ...ctx, fetch: capturingFetch },
+      TOKEN_URL,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        body: new URLSearchParams(form).toString(),
+      },
+      TokenResponseSchema,
+    );
+  } catch (error) {
+    if (error instanceof InvalidResponseError && error.status === 400 && oauthError === "invalid_grant") {
+      throw new AuthRevokedError("DigitalOcean rejected the authorization grant (invalid_grant); reconnect DigitalOcean", {
+        cause: error,
+        status: 400,
+        endpoint: TOKEN_URL,
+      });
+    }
+    if (error instanceof AuthRevokedError && error.status === 401 && oauthError === "invalid_client") {
+      throw new InvalidResponseError("DigitalOcean rejected this instance's OAuth client credentials (invalid_client)", {
+        cause: error,
+        status: 401,
+        endpoint: TOKEN_URL,
+      });
+    }
+    throw error;
+  }
 }
 
 function toCredential(
@@ -939,27 +986,15 @@ export const digitaloceanAdapter: ProviderAdapter = {
       throw new AuthRevokedError("DigitalOcean connection has no refresh token; reconnect DigitalOcean");
     }
     const teamUuid = readTeamUuid(credential);
-    let tokens: TokenResponse;
-    try {
-      // The refresh example sends only `grant_type` and `refresh_token`; a confidential client
-      // also authenticates, per RFC 6749 section 6 (page, Unverified).
-      tokens = await requestTokens(ctx, {
-        grant_type: "refresh_token",
-        refresh_token: credential.refreshToken.reveal(),
-        client_id: ctx.client.clientId,
-        client_secret: ctx.client.clientSecret.reveal(),
-      });
-    } catch (error) {
-      // A used, expired, or revoked refresh token cannot be retried into working (page, Unverified).
-      if (error instanceof InvalidResponseError && error.status === 400) {
-        throw new AuthRevokedError("DigitalOcean rejected the refresh token; reconnect DigitalOcean", {
-          cause: error,
-          status: 400,
-          endpoint: TOKEN_URL,
-        });
-      }
-      throw error;
-    }
+    // The refresh example sends only `grant_type` and `refresh_token`; a confidential client
+    // also authenticates, per RFC 6749 section 6 (page, Unverified). A used, expired, or revoked
+    // refresh token is `invalid_grant`, which `requestTokens` reports as auth revoked.
+    const tokens = await requestTokens(ctx, {
+      grant_type: "refresh_token",
+      refresh_token: credential.refreshToken.reveal(),
+      client_id: ctx.client.clientId,
+      client_secret: ctx.client.clientSecret.reveal(),
+    });
     if (tokens.info?.team_uuid !== undefined && tokens.info.team_uuid !== teamUuid) {
       throw new InvalidResponseError("DigitalOcean refreshed a token for a different team", { endpoint: TOKEN_URL });
     }

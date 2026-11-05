@@ -46,7 +46,8 @@ A refresh token works exactly once, and refreshing invalidates the old access to
 - The adapter returns the new pair as one credential, and the sync runner saves it before anything else uses it (`refreshIfExpiring` in `src/lib/jobs/sync-connection.ts`).
 - Refreshes are serialized per connection by the job queue: at most one sync per connection is queued or running (`sync_jobs_one_open_sync_per_connection`, see [Jobs, How a tick works](../operations/jobs.md#how-a-tick-works)). Two parallel refreshes would spend the same token twice and lose the connection.
 - The runner refreshes within 5 minutes of expiry. An hourly sync refreshes once every 30 days.
-- A `400` or `401` from the refresh is reported as `auth_revoked`, so the connection asks to be reconnected instead of retrying a token that can never work again.
+- DigitalOcean documents three token errors ([OAuth troubleshooting](https://docs.digitalocean.com/support/im-getting-an-error-when-using-the-digitalocean-oauth-api./)). Only `invalid_grant`, a refresh token or code that is used, expired, or revoked, is reported as `auth_revoked`, so the connection asks to be reconnected instead of retrying a token that can never work again. A `401` is also `auth_revoked` unless its body says `invalid_client`.
+- `invalid_client` (wrong client id or secret, as a `400` or a `401`) and `invalid_request` (a malformed request) are this instance's OAuth app configuration, not the user's grant. They are reported as `invalid_response`: retried, and logged with the error reference, never a reconnect prompt. If every DigitalOcean connection fails this way, check `DIGITALOCEAN_CLIENT_ID` and `DIGITALOCEAN_CLIENT_SECRET`.
 
 ### Disconnect and revoke
 
@@ -308,7 +309,7 @@ From documentation, not recorded: the OAuth page and the OpenAPI examples, trimm
 Confirm with a test team (#141) before the adapter is offered to users:
 
 1. That the code exchange accepts its parameters as a form body, as the refresh example does, not only in the query string.
-2. That a refresh with `client_id` and `client_secret` in the body succeeds (the example sends neither), and which status a spent refresh token returns (`400` and `401` are both treated as revoked).
+2. That a refresh with `client_id` and `client_secret` in the body succeeds (the example sends neither), and that a spent refresh token returns `invalid_grant` with `400`, as the troubleshooting page shows for a spent code (`invalid_grant` is treated as revoked with `400` or `401`; `invalid_client` and `invalid_request` are not).
 3. The exact form of the granted `scope` in the token response when granular scopes are requested (space separated is assumed; the documented example says `read`).
 4. That the space separated `scope` parameter on the authorize URL is how granular scopes are requested.
 5. The sign of `account_balance` for a team with credit (negative is inferred from the documented sum).
@@ -328,6 +329,7 @@ Confirm with a test team (#141) before the adapter is offered to users:
 All checked 2026-11-05.
 
 - [DigitalOcean OAuth API](https://docs.digitalocean.com/reference/api/oauth/)
+- [I'm getting an error when using the DigitalOcean OAuth API](https://docs.digitalocean.com/support/im-getting-an-error-when-using-the-digitalocean-oauth-api./) (token error bodies)
 - [Scopes for API tokens](https://docs.digitalocean.com/reference/api/scopes/)
 - [DigitalOcean OpenAPI specification](https://github.com/digitalocean/openapi), commit `ace42c4`: `specification/resources/billing`, `actions`, `apps`, `droplets`, `account`, and `specification/description.yml` (rate limits, pagination)
 - [Billing API reference](https://docs.digitalocean.com/reference/api/reference/billing/)
