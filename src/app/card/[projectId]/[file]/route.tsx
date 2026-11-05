@@ -17,9 +17,9 @@ import { CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
  * GET /card/<project id>/<metric id>.png (#149): the 1200 by 630 milestone card of a published
  * metric, for a post on X, LinkedIn, or Reddit and as the preview image of the public project
  * page (#150). The same rules as the badge route beside it: the value comes from the public engine,
- * an unknown or unpublished metric gets a neutral "Not published" card with a 200 (so a preview
- * never breaks and never tells which projects exist), the same one minute cache and per IP rate
- * limit, and no session or cookie.
+ * an unknown or unpublished metric gets a neutral "Unpublished" card (the badge's word) with a 200
+ * (so a preview never breaks and never tells which projects exist), the same one minute cache and
+ * per IP rate limit, and no session or cookie.
  *
  * A Route Handler rather than the opengraph-image file convention: the convention attaches an
  * image to a page segment, and this card has no page of its own. Rendered at request time
@@ -51,7 +51,7 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
         : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
     const headers = { ...IMAGE_HEADERS, "Cache-Control": PUBLIC_CACHE_CONTROL };
     if (card === null) {
-      return cardImageResponse(<NoticeCard title="Not published" body="This metric is not public on DevMacro." />, { headers });
+      return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
     }
     countViewAfterResponse(projectId, card.metric.metricId, "card");
     return cardImageResponse(<MetricCard card={card} />, { headers });

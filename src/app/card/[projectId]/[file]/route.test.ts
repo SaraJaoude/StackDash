@@ -97,13 +97,13 @@ describe("GET /card/[projectId]/[file]", () => {
     ["an unpublished or unknown metric", PROJECT_ID, "github-stars.png", true],
     ["a malformed project id", "../etc", "github-stars.png", false],
     ["the badge's extension", PROJECT_ID, "github-stars.svg", false],
-  ])("answers %s with a cached Not published card and counts nothing", async (_title, projectId, file, reachesDatabase) => {
+  ])("answers %s with a cached Unpublished card and counts nothing", async (_title, projectId, file, reachesDatabase) => {
     loadPublishedMetricCard.mockResolvedValue(null);
     await get(projectId, file);
 
     const { card, props, status, headers } = rendered();
     expect(card).toBe("NoticeCard");
-    expect(props.title).toBe("Not published");
+    expect(props.title).toBe("Unpublished");
     expect(status).toBe(200);
     expect(headers["Cache-Control"]).toBe("public, max-age=60, s-maxage=60");
     expect(loadPublishedMetricCard).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
