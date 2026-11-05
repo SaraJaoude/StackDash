@@ -454,6 +454,37 @@ describe("spend_amount", () => {
   });
 });
 
+describe("GitHub spend levels (#137)", () => {
+  // The same money per product month to date, per SKU, and per product for today.
+  const github = { connection_id: "conn-github", external_account_id: "acct-github", provider: "github" as const };
+  const levels = [
+    spend(1252, "USD", { ...github, metric_key: "github.daily_spend.actions", period_start: "2026-10-20T00:00:00Z", period_end: "2026-10-21T00:00:00Z" }),
+    spend(5175, "USD", { ...github, metric_key: "github.spend.actions", period_end: "2026-11-01T00:00:00Z" }),
+    spend(5175, "USD", { ...github, metric_key: "github.spend.actions.actions_linux", period_end: "2026-11-01T00:00:00Z" }),
+  ];
+
+  it("counts the month to date product spend once and keys the cycle by the month", () => {
+    expect(evaluate([spendRule(5176, "USD")], levels)).toEqual([]);
+    const [trigger] = evaluate([spendRule(5175, "USD")], levels);
+    expect(trigger).toMatchObject({ cycleKey: OCTOBER, observed: { amountMinor: 5175, currency: "USD" } });
+  });
+
+  it("measures a budget against the month to date product spend once", () => {
+    const githubBudget: BudgetInput = { ...BUDGET, provider: "github", amount_minor: 10_000 };
+    expect(evaluate([budgetRule(52)], levels, { budgets: [githubBudget] })).toEqual([]);
+    const [trigger] = evaluate([budgetRule(51)], levels, { budgets: [githubBudget] });
+    expect(trigger?.observed).toEqual({ value: 51.75, amountMinor: 5175, currency: "USD" });
+  });
+
+  it("counts a GitHub day on its own when the month is unavailable, keyed by that day", () => {
+    const [daily] = levels;
+    if (daily === undefined) throw new Error("expected the daily row");
+    expect(evaluate([spendRule(1253, "USD")], [daily])).toEqual([]);
+    const [trigger] = evaluate([spendRule(1252, "USD")], [daily]);
+    expect(trigger).toMatchObject({ cycleKey: "2026-10-20", observed: { amountMinor: 1252 } });
+  });
+});
+
 describe("budget_percent", () => {
   it.each([
     ["exactly at the threshold fires", 7500, 75, true],
