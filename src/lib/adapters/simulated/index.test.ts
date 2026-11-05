@@ -376,10 +376,9 @@ describe("simulated sync boundaries", () => {
 // these aggregate bounds and this test's cost stay the same as providers are added; every provider's
 // own silence and flood bounds are in "simulated %s over a two hour span" above.
 const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
-// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so this group costs about
-// 1.4 s on a laptop, the slowest test in the file. The old all-provider shape took 2.1 s on the same
-// laptop and ran past 5 s on CI (run 41959212551), so CI is at least 2.4 times slower: the default
-// 5 s would leave this test almost no headroom there.
+// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so this group is the slowest
+// test in the file: 1.4 s on a laptop, 2.5 s on CI (run 41960569995). The all-provider shape it
+// replaced ran past the 5 s default on CI (run 41959212551). 20 s is eight times the CI measurement.
 const WATCH_TIMEOUT_MS = 20_000;
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
