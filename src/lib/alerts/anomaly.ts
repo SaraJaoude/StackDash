@@ -360,7 +360,7 @@ export function anomalyEvent(workspaceId: string, anomaly: Anomaly): TablesInser
     severity: "warning",
     title: `Unusual ${noun} on ${provider}: ${unusualWords(anomaly)}`,
     body: [
-      `${anomaly.label} (${anomaly.source}) ${amount} on ${anomaly.date}. The usual amount is ${usual} a day, the median of the ${anomaly.historyDays} days before.`,
+      `${anomaly.label} (${anomaly.source}) ${amount} on ${anomaly.date}. The usual amount is ${usual} a day, the median of ${anomaly.historyDays === ANOMALY_WINDOW_DAYS ? "the" : `${anomaly.historyDays} of the`} ${ANOMALY_WINDOW_DAYS} days before.`,
       `What to do next: open ${provider} to see what drove it, check the timeline for deploys on ${anomaly.date}, or mute this metric on the Alerts page if it was expected.`,
     ].join("\n"),
     url: null,

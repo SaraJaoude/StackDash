@@ -203,7 +203,8 @@ describe("anomaly detection after the daily summary (#169)", () => {
       dedupe_key: "anomaly:2026-10-14:vercel:vercel.spend.total:money:USD:verified",
     });
     expect(events[0]?.body).toContain("Vercel billed spend, month to date (verified) went up by $400.00 on 2026-10-14");
-    expect(events[0]?.body).toContain("The usual amount is $100.00 a day");
+    // 2026-10-01 starts the period and has no day before it, so 12 of the 14 days count.
+    expect(events[0]?.body).toContain("The usual amount is $100.00 a day, the median of 12 of the 14 days before.");
     expect(summaries(store)).toHaveLength(1);
   });
 

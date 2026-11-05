@@ -121,7 +121,8 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await expect(section).toContainText("Every spend and usage metric is muted.");
       await expectNoAxeViolations(page);
 
-      await muted.getByRole("button", { name: `Unmute: ${METRIC_NAME}` }).click();
+      // The visually hidden suffix names the metric, so each Unmute button is unique in the list.
+      await muted.getByRole("button", { name: new RegExp(`^Unmute\\s?: ${METRIC_NAME}$`) }).click();
       await expect(page.getByRole("heading", { name: "Unusual spend and usage" })).toBeFocused();
       await expect(section).toContainText("No muted metrics. Every spend and usage metric is checked.");
       await expect(section.getByLabel("Metric to mute")).toBeVisible();
