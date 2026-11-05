@@ -200,6 +200,81 @@ ownerTest.describe("projection to the end of the period", () => {
     }
   });
 
+  ownerTest("names every reason when no amount of a total can be projected, and says nothing on a quota's first day", async ({ page }) => {
+    const workspace = await createTestWorkspace("Projection reasons");
+    try {
+      const todayStart = Math.floor(Date.now() / DAY_MS) * DAY_MS;
+      const yesterday = { snapshot_date: utcDate(todayStart - DAY_MS), retrieved_at: new Date(todayStart - DAY_MS / 2).toISOString() };
+      const spend = { metric_key: "fake.spend.month", kind: "verified_spend", label: "Spend this month", currency: "USD", provenance_source: "provider_api" } as const;
+      // One connection billed in 2 day periods: too short to project.
+      const short = await seedConnection(workspace, "Fake billing account", "acct_short");
+      // Another with one day of spend in a 30 day period, and a daily quota read once, today, so the
+      // reset before it is unknown and with it how long the quota's period lasts.
+      const second = await seedConnection(workspace, "Second fake account", "acct_first_day");
+      const quotaAt = Math.max(todayStart, Date.now() - 60_000);
+      const quotaPoint = {
+        workspace_id: workspace.id,
+        connection_id: second.connectionId,
+        external_account_id: second.accountId,
+        provenance_source: "provider_api",
+        snapshot_date: utcDate(quotaAt),
+        retrieved_at: new Date(quotaAt).toISOString(),
+        point_at: new Date(quotaAt).toISOString(),
+        resets_at: new Date(todayStart + DAY_MS).toISOString(),
+        unit: "emails",
+      } as const;
+      const rows: SnapshotInsert[] = [
+        {
+          ...spend,
+          ...yesterday,
+          workspace_id: workspace.id,
+          connection_id: short.connectionId,
+          external_account_id: short.accountId,
+          amount_minor: 100,
+          period_start: new Date(todayStart - DAY_MS).toISOString(),
+          period_end: new Date(todayStart + DAY_MS).toISOString(),
+        },
+        {
+          ...spend,
+          ...yesterday,
+          workspace_id: workspace.id,
+          connection_id: second.connectionId,
+          external_account_id: second.accountId,
+          amount_minor: 200,
+          period_start: new Date(todayStart - DAY_MS).toISOString(),
+          period_end: new Date(todayStart + 29 * DAY_MS).toISOString(),
+        },
+        { ...quotaPoint, metric_key: "fake.emails.daily.used", kind: "usage", label: "Emails sent today", value: 40 },
+        { ...quotaPoint, metric_key: "fake.emails.daily.limit", kind: "included_allowance", label: "Daily email quota", value: 100 },
+      ];
+      const { error } = await adminClient().from("usage_snapshots").insert(rows);
+      if (error) throw new Error(`Seeding snapshots failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
+      await expect(totals).toContainText("Projection unavailable");
+      await expect(totals).toContainText(
+        "DevMacro cannot project any of the 2 amounts in this total (the period is shorter than 3 days, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+      );
+
+      const providers = page.getByRole("region", { name: "By provider" });
+      await expect(providers.getByRole("article", { name: "Fake billing account" })).toContainText(
+        "The period is shorter than 3 days, so there is nothing to project.",
+      );
+      const secondCard = providers.getByRole("article", { name: "Second fake account" });
+      await expect(secondCard).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
+      const daily = secondCard.getByRole("article", { name: "Daily email quota" });
+      await expect(daily).toBeVisible();
+      await expect(daily).not.toContainText("Projection");
+      await expect(daily).not.toContainText("3 days");
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("says why there is no projection before 3 days of data", async ({ page }) => {
     const workspace = await createTestWorkspace("Projection early");
     try {

@@ -64,13 +64,13 @@ function spendRows(amounts: readonly number[], overrides: Partial<SnapshotInput>
   return amounts.map((amount, index) => row(november(1 + index), { metric_key: "fake.spend.month", amount_minor: amount, ...overrides }));
 }
 
-/** No projection for one metric, or for `missing` of the `of` parts of a sum. */
+/** No projection for one metric, or for `missing` of the `of` parts of a sum, for one reason. */
 function none(reason: UnavailableReason, missing = 1, of = 1): Projection {
-  return { status: "unavailable", reason, missing, of };
+  return { status: "unavailable", reasons: [reason], missing, of };
 }
 
 function projected(projection: Projection) {
-  if (projection.status !== "projected") throw new Error(`expected a projection, got ${projection.reason}`);
+  if (projection.status !== "projected") throw new Error(`expected a projection, got ${projection.reasons.join(", ")}`);
   return projection;
 }
 
@@ -222,8 +222,21 @@ describe("projectMetric", () => {
       expect(projectMetric(rows, (candidate) => candidate.value, new Date("2026-11-10T12:00:00.000Z"))).toEqual(none("period_too_short"));
     });
 
-    it("cannot tell a reset's period from its first day, so asks for more days", () => {
-      expect(projectMetric([point(november(5), 10, nextMidnight(november(5)))], (candidate) => candidate.value, NOW)).toEqual(none("too_few_days"));
+    it("cannot tell a reset's period from its first day, so promises nothing", () => {
+      expect(projectMetric([point(november(5), 10, nextMidnight(november(5)))], (candidate) => candidate.value, NOW)).toEqual(
+        none("period_length_unknown"),
+      );
+    });
+
+    it("projects a monthly reset from its third day, with no earlier reset to measure it by", () => {
+      const rows = [3, 4, 5].map((day) => point(november(day), day * 10, MONTH_END.at));
+      expect(projected(projectMetric(rows, (candidate) => candidate.value, NOW)).basis).toMatchObject({ days: 3, ratePerDay: 10 });
+    });
+
+    it("still says a period with a known length has too few days", () => {
+      // The previous reset is known, 30 days before this one, so the period is long enough.
+      const rows = [point("2026-10-31", 2900, "2026-11-01T00:00:00.000Z"), point(november(5), 10, MONTH_END.at)];
+      expect(projectMetric(rows, (candidate) => candidate.value, NOW)).toEqual(none("too_few_days"));
     });
 
     it("says so for resets 2 days apart, told by the previous reset", () => {
@@ -286,6 +299,21 @@ describe("projectSpend", () => {
   it("is unavailable when any counted amount cannot be projected, saying how many", () => {
     const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([5, 6], { external_account_id: "a2" })];
     expect(projectSpend(rows, NOW)[0]?.projection).toEqual(none("too_few_days", 1, 2));
+  });
+
+  it("keeps every distinct reason when no amount can be projected for the same one, at a month rollover", () => {
+    // Before the first sync of November: a1 still reports October to date, a2 was connected on November 1.
+    const october = spendRows([100, 200, 300]).map((candidate) => {
+      const date = candidate.snapshot_date.replace("2026-11", "2026-10");
+      return { ...candidate, snapshot_date: date, period_start: "2026-10-01T00:00:00.000Z", period_end: `${date}T06:00:00.000Z`, retrieved_at: `${date}T06:00:00.000Z` };
+    });
+    const rows = [...october, ...spendRows([50], { external_account_id: "a2" })];
+    expect(projectSpend(rows, new Date("2026-11-01T12:00:00.000Z"))[0]?.projection).toEqual({
+      status: "unavailable",
+      reasons: ["period_ended", "too_few_days"],
+      missing: 2,
+      of: 2,
+    });
   });
 
   it("projects GitHub's month once, not its SKU and day rows as amounts of their own (#137)", () => {
@@ -392,6 +420,15 @@ describe("projectAllowances", () => {
     expect(projectAllowances(daily(60), now).has("a1:resend.emails.daily")).toBe(false);
     expect(projectAllowances(daily(100), now).get("a1:resend.emails.daily")?.quota).toMatchObject({ status: "used_up" });
   });
+
+  it("leaves out a quota with a reset on its first day, when its period's length is not known yet", () => {
+    const point = { currency: null, unit: "emails", period_start: null, period_end: null, point_at: `${november(5)}T06:00:00.000Z`, resets_at: "2026-11-06T00:00:00.000Z" };
+    const rows = [
+      row(november(5), { ...point, metric_key: "resend.emails.daily.used", kind: "usage", value: 40 }),
+      row(november(5), { ...point, metric_key: "resend.emails.daily.limit", kind: "included_allowance", label: "Daily email quota", value: 100 }),
+    ];
+    expect(projectAllowances(rows, NOW).has("a1:resend.emails.daily")).toBe(false);
+  });
 });
 
 describe("projectedToCross", () => {
@@ -494,9 +531,41 @@ describe("wording", () => {
     expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (fewer than 3 days of data)");
   });
 
+  it("names every reason when no amount of a total could be projected for the same one", () => {
+    const spend: SpendProjection = {
+      currency: "USD",
+      includesEstimates: false,
+      projection: { status: "unavailable", reasons: ["period_ended", "too_few_days"], missing: 2, of: 2 },
+    };
+    const text = spendProjectionText(spend, "Each provider card shows its own projection or the reason there is none.");
+    expect(text.explanation).toBe(
+      "DevMacro cannot project any of the 2 amounts in this total (the period has ended, fewer than 3 days of data), so it does not project the total. Each provider card shows its own projection or the reason there is none.",
+    );
+    expect(text.explanation).not.toMatch(DASHES);
+    expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (2 amounts: the period has ended, fewer than 3 days of data)");
+  });
+
+  it("names every reason of the amounts a partial total is missing", () => {
+    const spend: SpendProjection = {
+      currency: "USD",
+      includesEstimates: false,
+      projection: { status: "unavailable", reasons: ["unknown_period", "too_few_days"], missing: 2, of: 3 },
+    };
+    expect(spendProjectionText(spend).explanation).toBe(
+      "DevMacro cannot project 2 of the 3 amounts in this total (the end of the period is unknown, fewer than 3 days of data), so it does not project the total.",
+    );
+    expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (2 of 3 amounts: the end of the period is unknown, fewer than 3 days of data)");
+  });
+
   it("says a period too short has nothing to project", () => {
     expect(spendProjectionText({ currency: "USD", includesEstimates: false, projection: none("period_too_short") }).explanation).toBe(
       "The period is shorter than 3 days, so there is nothing to project.",
+    );
+  });
+
+  it("says the length of a period not known yet is why there is none", () => {
+    expect(spendProjectionText({ currency: "USD", includesEstimates: false, projection: none("period_length_unknown") }).explanation).toBe(
+      "DevMacro does not know yet how long the current period lasts, so it does not project it.",
     );
   });
 

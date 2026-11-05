@@ -305,5 +305,10 @@ describe("daily summary (#64)", () => {
 
     await runTick(deps);
     expect(summaries(store)[0]?.body).toContain("GitHub: Spending $64.27 (verified)");
+    // Neither amount can be projected, each for its own reason (the day's window has no end
+    // DevMacro can project to, the month has one day of data), so the line names both.
+    expect(summaries(store)[0]?.body).toContain(
+      "GitHub: Spending projection in USD unavailable (2 amounts: the end of the period is unknown, fewer than 3 days of data)",
+    );
   });
 });
