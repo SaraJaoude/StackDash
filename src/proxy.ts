@@ -75,7 +75,7 @@ const UNKNOWN_PROJECT_PAGE = "/p/_";
 
 /**
  * Whether an address answers a public page right now, by public_project_page(), the same rule the
- * page reads (20261105120300_project_pages.sql). It runs here because with Cache Components the
+ * page reads (20261105120400_project_pages.sql). It runs here because with Cache Components the
  * page streams its shell with a 200 before its own notFound() can run, so only a check before the
  * render can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own
  * check for a page turned off between the two reads.
