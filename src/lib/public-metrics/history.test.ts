@@ -159,19 +159,35 @@ describe("computeMetricHistories", () => {
 describe("firstEventMilestones", () => {
   const base = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 40), deployment(24 * 3)]);
 
-  it("dates the first recorded deployment while a deployments metric is published", async () => {
-    expect(await firstEventMilestones(base, [{ metricId: "vercel-deployments-30d", asOf: AS_OF }])).toEqual([
+  it("dates the first recorded deployment while a deployments metric is published exactly", async () => {
+    expect(await firstEventMilestones(base, [{ metricId: "vercel-deployments-30d", asOf: AS_OF, roundingStep: 1 }])).toEqual([
       { id: "first-deployment", title: "First deployment recorded", at: new Date(AS_OF.getTime() - 40 * DAY_MS) },
     ]);
   });
 
   it("shows nothing for an event after a delayed publication's moment (boundary)", async () => {
     const recent = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 3)]);
-    expect(await firstEventMilestones(recent, [{ metricId: "vercel-deployments-7d", asOf: new Date(AS_OF.getTime() - 7 * DAY_MS) }])).toEqual([]);
+    expect(
+      await firstEventMilestones(recent, [{ metricId: "vercel-deployments-7d", asOf: new Date(AS_OF.getTime() - 7 * DAY_MS), roundingStep: 1 }]),
+    ).toEqual([]);
+  });
+
+  it("shows nothing when the revealing publication rounds a single event away (boundary)", async () => {
+    expect(await firstEventMilestones(base, [{ metricId: "vercel-deployments-30d", asOf: AS_OF, roundingStep: 10 }])).toEqual([]);
+  });
+
+  it("reveals only through the exact publication when another one is rounded (boundary)", async () => {
+    const recent = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 3)]);
+    const delayedExact = { metricId: "vercel-deployments-7d", asOf: new Date(AS_OF.getTime() - 7 * DAY_MS), roundingStep: 1 } as const;
+    const currentRounded = { metricId: "vercel-deployments-30d", asOf: AS_OF, roundingStep: 100 } as const;
+    expect(await firstEventMilestones(recent, [delayedExact, currentRounded])).toEqual([]);
+    expect(await firstEventMilestones(recent, [{ ...delayedExact, asOf: AS_OF }, currentRounded])).toEqual([
+      { id: "first-deployment", title: "First deployment recorded", at: new Date(AS_OF.getTime() - 3 * DAY_MS) },
+    ]);
   });
 
   it("shows nothing when no metric revealing the events is published (boundary)", async () => {
-    expect(await firstEventMilestones(base, [{ metricId: "github-stars", asOf: AS_OF }])).toEqual([]);
+    expect(await firstEventMilestones(base, [{ metricId: "github-stars", asOf: AS_OF, roundingStep: 1 }])).toEqual([]);
     expect(await firstEventMilestones(base, [])).toEqual([]);
   });
 
@@ -181,7 +197,7 @@ describe("firstEventMilestones", () => {
       [],
       [deployment(24 * 40)],
     );
-    expect(await firstEventMilestones(disconnected, [{ metricId: "vercel-deployment-streak", asOf: AS_OF }])).toEqual([]);
+    expect(await firstEventMilestones(disconnected, [{ metricId: "vercel-deployment-streak", asOf: AS_OF, roundingStep: 1 }])).toEqual([]);
   });
 });
 

@@ -269,7 +269,7 @@ export async function loadPublishedProjectHistory(published: PublishedProjectMet
   const engine = published.metrics.filter((metric): metric is PublishedEngineMetric => metric.kind === "engine");
   if (engine.length === 0) return { histories: [], milestones: [] };
   const store = createSupabaseMetricStore(createAdminClient(), published.workspaceId, published.projectId);
-  const requests = engine.map((metric) => ({ metricId: metric.metricId, asOf: metric.asOf }));
+  const requests = engine.map((metric) => ({ metricId: metric.metricId, asOf: metric.asOf, roundingStep: ROUNDING_STEP[metric.rounding] }));
   const [computed, firsts] = await Promise.all([computeMetricHistories(store, requests), firstEventMilestones(store, requests)]);
 
   const histories = engine.map((metric, index): PublishedMetricHistory => ({

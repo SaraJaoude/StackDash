@@ -225,8 +225,8 @@ export type Milestone = Readonly<{
 
 /**
  * "First ... recorded" milestones: the oldest stored event of a kind, shown only while a metric
- * counting those events is published. "Recorded" because providers backfill a limited history, so
- * the oldest event DevMacro has may not be the very first.
+ * counting those events is published exactly. "Recorded" because providers backfill a limited
+ * history, so the oldest event DevMacro has may not be the very first.
  */
 const FIRST_EVENT_MILESTONES: readonly Readonly<{
   id: string;
@@ -255,15 +255,17 @@ function successTypeIds(metricId: PublicMetricId): readonly string[] {
 
 /**
  * The first-event milestones of the published metrics. `published` lists each published engine
- * metric with the moment it describes; an event after that moment is never shown, so a delayed
- * publication stays delayed here too.
+ * metric with the moment it describes and the step its rounding rounds down to. Only a publication
+ * that can show a single event (step 1) reveals a milestone: a rounded one can publish 0 while
+ * events exist, and a milestone must not say what the rounding hides. An event after the revealing
+ * publications' moment is never shown, so a delayed publication stays delayed here too.
  */
 export async function firstEventMilestones(
   store: PublicMetricStore,
-  published: readonly Readonly<{ metricId: PublicMetricId; asOf: Date }>[],
+  published: readonly Readonly<{ metricId: PublicMetricId; asOf: Date; roundingStep: number }>[],
 ): Promise<Milestone[]> {
   const candidates = FIRST_EVENT_MILESTONES.flatMap((milestone) => {
-    const revealing = published.filter((entry) => milestone.metricIds.includes(entry.metricId));
+    const revealing = published.filter((entry) => entry.roundingStep === 1 && milestone.metricIds.includes(entry.metricId));
     const first = revealing[0];
     if (first === undefined) return [];
     const asOf = new Date(Math.max(...revealing.map((entry) => entry.asOf.getTime())));
