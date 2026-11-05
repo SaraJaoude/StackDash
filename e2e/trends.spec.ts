@@ -199,11 +199,12 @@ ownerTest.describe("dashboard trends", () => {
       expect(box?.width).toBeGreaterThanOrEqual(24);
       expect(box?.height).toBeGreaterThanOrEqual(24);
 
-      // Keyboard only: from the last toggle, Tab reaches the skip link, shown on focus, and then the
-      // first chart's markers oldest day first.
+      // Keyboard only: from the last toggle, Tab reaches the first chart's skip link, shown on focus,
+      // and then that chart's markers oldest day first.
+      const firstChart = trends.getByRole("figure").first();
       await toggles.getByRole("link", { name: "Hide triggered alerts" }).focus();
       await page.keyboard.press("Tab");
-      const skip = spend.getByRole("link", { name: "Skip the event markers" });
+      const skip = firstChart.getByRole("link", { name: "Skip the event markers" });
       await expect(skip).toBeFocused();
       const skipBox = await skip.boundingBox();
       expect(skipBox?.width).toBeGreaterThanOrEqual(24);
@@ -223,7 +224,7 @@ ownerTest.describe("dashboard trends", () => {
       await skip.focus();
       await page.keyboard.press("Enter");
       await page.keyboard.press("Tab");
-      await expect(spend.getByText("Show the values as a table")).toBeFocused();
+      await expect(firstChart.getByText("Show the values as a table")).toBeFocused();
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
