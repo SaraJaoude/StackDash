@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import type { PublicMetricId } from "./definitions";
@@ -148,5 +150,12 @@ describe("computeTrend (#149)", () => {
     expect(trend[0]).toBeNull();
     // Today the newest STREAK_EVENT_LIMIT events were all read: at least that many in a row.
     expect(trend[2]?.result).toMatchObject({ status: "available", value: STREAK_EVENT_LIMIT, lowerBound: true });
+  });
+
+  it("asks for no more events than one PostgREST request returns, so a cut read is seen (boundary: supabase/config.toml max_rows)", () => {
+    const config = readFileSync(new URL("../../../supabase/config.toml", import.meta.url), "utf8");
+    const maxRows = Number(/^max_rows = (\d+)$/m.exec(config)?.[1]);
+    expect(maxRows).toBeGreaterThan(0);
+    expect(TREND_EVENTS_LIMIT).toBe(maxRows);
   });
 });

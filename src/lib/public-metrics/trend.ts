@@ -12,9 +12,9 @@ import { MemoryMetricStore } from "./memory-store";
  * - The oldest stored event, which decides "not enough history" for an event count, is asked of
  *   the database once and shared by every moment, so it means what it means for the published
  *   value, not "the oldest event in the rows read".
- * - The event read is capped at TREND_EVENTS_LIMIT rows, newest first. When it is cut, rows at or
- *   before its oldest event may be missing, so a moment that needs them has no value rather than
- *   an understated one.
+ * - The event read is one request of TREND_EVENTS_LIMIT rows, newest first. When it is cut, rows
+ *   at or before its oldest event may be missing, so a moment that needs them has no value rather
+ *   than an understated one.
  * - The snapshot read keeps the Supabase store's own cap and order (newest first), so a cut list
  *   loses the oldest baselines, which the engine reports as not enough history, as it does for a
  *   published value.
@@ -22,8 +22,14 @@ import { MemoryMetricStore } from "./memory-store";
  * Pure apart from the injected store, so it is unit tested against the in-memory store.
  */
 
-/** Most events read for one trend: weeks of deployments or signups of a busy project. */
-export const TREND_EVENTS_LIMIT = 10_000;
+/**
+ * Most events read for one trend. PostgREST returns at most 1000 rows per request
+ * (supabase/config.toml max_rows, also the Supabase hosted default) and cuts a longer read without
+ * an error, so a larger limit would never be reached and a cut read would pass as complete. At
+ * the cap, a full read is treated as possibly cut, and a busy project gets no point rather than a
+ * smaller one.
+ */
+export const TREND_EVENTS_LIMIT = 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
