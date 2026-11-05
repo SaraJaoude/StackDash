@@ -90,6 +90,8 @@ async function pressPaletteShortcut(page: Page): Promise<void> {
  * the shell hydrates, which can land after its streamed HTML is already visible (the dev server
  * compiles the client chunk on first use), and an action before that does nothing. Repeating is
  * safe: an open dialog makes the page inert and the shortcut ignores presses while one is open.
+ * Use it for a test's first open only. Later opens are plain, so a bug that breaks re-opening is not
+ * retried away.
  */
 async function openWith(dialog: Locator, open: () => Promise<void>): Promise<void> {
   await expect(async () => {
@@ -283,6 +285,13 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(palette(page)).toBeHidden();
       await expect(navLink).toBeFocused();
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+
+      // Opening again, once, starts fresh: an empty field with focus in it and every result listed.
+      await pressPaletteShortcut(page);
+      await expect(palette(page)).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expect(combobox(page)).toHaveValue("");
+      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -326,7 +335,9 @@ ownerTest.describe("command palette as the owner", () => {
       await page.keyboard.press("Escape");
       await expect(shortcuts).toBeHidden();
 
-      await openWith(palette(page), () => trigger(page).click());
+      // `?` already proved the shell hydrated, so this open is plain: a retry would hide a re-open bug.
+      await trigger(page).click();
+      await expect(palette(page)).toBeVisible();
       await combobox(page).fill("shortcuts");
       await page.keyboard.press("Enter");
       await expect(palette(page)).toBeHidden();
