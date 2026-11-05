@@ -21,8 +21,10 @@ function formActionSources(supabaseOrigin: string): string {
  * Builds the per-request nonce policy, enforced on every proxied page. Next.js reads the nonce from
  * the request's CSP header and stamps it on the scripts it renders per request, so no page code has
  * to handle it. That only works for HTML rendered per request: a static shell prerendered at build
- * time carries no nonce, so every app route renders its HTML per request (`instant = false` plus
- * `connection()` at the top of each app entry segment; decision on issue #125).
+ * time carries no nonce. So every page a proxied path can answer with renders its HTML per request
+ * (`instant = false` plus `connection()` at the top): each app entry segment, and the root
+ * not-found page, which answers unmatched paths under /app, /w, and /auth (decision on issue #125,
+ * not-found in #197).
  */
 function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
   const isDev = process.env.NODE_ENV === "development";

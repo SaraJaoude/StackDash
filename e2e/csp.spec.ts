@@ -4,9 +4,10 @@ import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
-// render their HTML per request so Next.js can stamp the nonce on every script; the rest of the
+// render their HTML per request so Next.js can stamp the nonce on every script. So does the root
+// not-found page, which answers unmatched paths under the proxied prefixes (#197). The rest of the
 // site keeps a static policy (next.config.ts). CI runs these against the production build, where a
-// prerendered shell would carry unnonced inline scripts and never hydrate.
+// prerendered page would carry unnonced inline scripts and never hydrate.
 
 // The enforced policy of the landing page (next.config.ts).
 const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
@@ -80,6 +81,20 @@ async function expectHydrated(page: Page): Promise<void> {
   await expect(page.locator("next-route-announcer")).toBeAttached();
 }
 
+/**
+ * An unmatched path under a proxied prefix gets the enforced nonce policy and the root not-found
+ * page, which must render per request to carry the nonce (#197).
+ */
+async function expectNotFoundPage(page: Page, path: string): Promise<void> {
+  const response = await page.goto(path);
+  expect(response?.status()).toBe(404);
+  const headers = response?.headers() ?? {};
+  expectAppPolicy(headers["content-security-policy"]);
+  expect(headers["content-security-policy-report-only"]).toBeUndefined();
+  await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
+  await expectHydrated(page);
+}
+
 test.describe("signed out", () => {
   test("the landing page keeps its static policy without a nonce", async ({ page }) => {
     const response = await page.goto("/");
@@ -127,6 +142,12 @@ test.describe("signed out", () => {
 
     expect(ran).toBe(false);
     await expect.poll(() => violations.some((violation) => violation.startsWith("enforce script-src-elem"))).toBe(true);
+  });
+
+  test("an unmatched auth path answers 404 with a not-found page that hydrates", async ({ page }) => {
+    const violations = await watchViolations(page);
+    await expectNotFoundPage(page, "/auth/no-such-page");
+    expect(violations).toEqual([]);
   });
 });
 
@@ -176,5 +197,18 @@ ownerTest.describe("signed in", () => {
     await switcher.click();
     await expect(switcher).toHaveAttribute("aria-expanded", "true");
     expect(violations).toEqual([]);
+  });
+
+  ownerTest("unmatched app paths answer 404 with a not-found page that hydrates", async ({ page }) => {
+    const workspace = await createTestWorkspace("Content security policy not found");
+    try {
+      const violations = await watchViolations(page);
+      for (const path of [`/w/${workspace.slug}/no-such-page`, "/app/no-such-page"]) {
+        await ownerTest.step(path, () => expectNotFoundPage(page, path));
+      }
+      expect(violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
   });
 });
