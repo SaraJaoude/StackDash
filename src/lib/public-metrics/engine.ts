@@ -50,11 +50,16 @@ export type SnapshotPoint = Readonly<{
 
 export type StoredEvent = Readonly<{ typeId: string; occurredAt: Date }>;
 
-/** Reads for one project. Implementations scope every query to the project's included accounts. */
+/**
+ * Reads for one project, or for every included account of a workspace (the yearly card #151).
+ * Implementations scope every query to those accounts.
+ */
 export interface PublicMetricStore {
   accounts(): Promise<readonly SourceAccount[]>;
   /** Quantity snapshots of `metricKeys` with `fromDate <= snapshot_date <= toDate`. */
   snapshots(query: Readonly<{ accountIds: readonly string[]; metricKeys: readonly string[]; fromDate: string; toDate: string }>): Promise<readonly SnapshotPoint[]>;
+  /** The UTC day (`YYYY-MM-DD`) of the oldest quantity snapshot of `metricKey`, or null. */
+  earliestSnapshotDate(query: Readonly<{ accountIds: readonly string[]; metricKey: string }>): Promise<string | null>;
   /** Events of `typeIds` with `from <= occurred_at < to`. */
   countEvents(query: Readonly<{ accountIds: readonly string[]; typeIds: readonly string[]; from: Date; to: Date }>): Promise<number>;
   /** The oldest stored event of `typeIds`, or null. */
@@ -262,20 +267,24 @@ function accountSyncTimes(accounts: readonly SourceAccount[], asOf: Date): Date[
   return times;
 }
 
+/**
+ * Where an event count's history starts: the oldest connection or the oldest stored event,
+ * whichever is earlier (adapters backfill some history on the first sync).
+ */
+async function eventHistoryStart(store: PublicMetricStore, accounts: readonly SourceAccount[], typeIds: readonly string[]): Promise<Date> {
+  const earliest = await store.earliestEvent({ accountIds: accounts.map((account) => account.accountId), typeIds });
+  const connected = minDate(accounts.map((account) => account.connectionCreatedAt));
+  return earliest === null ? connected : minDate([connected, earliest]);
+}
+
 async function eventCount(ctx: Context, typeIds: readonly string[]): Promise<MetricValue> {
   const { store, asOf, from, accounts } = ctx;
   const syncTimes = accountSyncTimes(accounts, asOf);
   if (typeof syncTimes === "string") return unavailable(syncTimes);
-  const accountIds = accounts.map((account) => account.accountId);
 
-  // History starts at the oldest connection or the oldest stored event, whichever is earlier
-  // (adapters backfill some history on the first sync).
-  const earliest = await store.earliestEvent({ accountIds, typeIds });
-  const connected = minDate(accounts.map((account) => account.connectionCreatedAt));
-  const historyStart = earliest === null ? connected : minDate([connected, earliest]);
-  if (historyStart.getTime() > from.getTime()) return unavailable("not_enough_history");
+  if ((await eventHistoryStart(store, accounts, typeIds)).getTime() > from.getTime()) return unavailable("not_enough_history");
 
-  const count = await store.countEvents({ accountIds, typeIds, from, to: asOf });
+  const count = await store.countEvents({ accountIds: accounts.map((account) => account.accountId), typeIds, from, to: asOf });
   return available(count, syncTimes, accounts);
 }
 
@@ -335,4 +344,31 @@ export async function computePublicMetrics(
   if (requests.length === 0) return [];
   const accounts = await store.accounts();
   return Promise.all(requests.map((request) => computeOne(store, request, accounts)));
+}
+
+/**
+ * When the stored history behind a change or count metric starts. Null when the project has no
+ * account of its provider, or, for a snapshot metric, nothing stored yet; the engine then says
+ * which. Events: as `eventCount` decides it. Snapshots: the start of the
+ * oldest stored day, whose row is the first baseline a change can read. The yearly card (#151)
+ * starts its window here when that is after 1 January, so a workspace connected in August reads
+ * "since August" instead of "not enough history". Totals, percents, and streaks take no window.
+ */
+export async function historyStart(store: PublicMetricStore, metricId: PublicMetricId): Promise<Date | null> {
+  const definition = publicMetricDefinition(metricId);
+  const accounts = (await store.accounts()).filter((account) => account.provider === definition.provider);
+  if (accounts.length === 0) return null;
+  const { source } = definition;
+  switch (source.type) {
+    case "event_count":
+      return eventHistoryStart(store, accounts, source.typeIds);
+    case "snapshot_change": {
+      const day = await store.earliestSnapshotDate({ accountIds: accounts.map((account) => account.accountId), metricKey: source.metricKey });
+      return day === null ? null : new Date(`${day}T00:00:00Z`);
+    }
+    case "snapshot_total":
+    case "snapshot_percent":
+    case "event_streak":
+      throw new RangeError(`${metricId} has no window, so it has no history start`);
+  }
 }

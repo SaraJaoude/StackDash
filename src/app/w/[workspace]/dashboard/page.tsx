@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
@@ -22,8 +24,9 @@ import {
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
+import { latestOpenYear } from "@/lib/public-metrics/yearly";
 import { requireWorkspace, type WorkspaceAccess } from "@/lib/workspaces/access";
-import { workspacePath } from "@/lib/workspaces/paths";
+import { workspacePath, yearInReviewPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -59,12 +62,19 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const access = await requireWorkspace(slug, "viewer");
   const parsed = searchParamsSchema.parse(await searchParams);
   const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
+  // Read after the request data above, so the clock never runs during prerendering.
+  const reviewYear = latestOpenYear(new Date());
 
   return (
     <>
       <PageHeader
         title="Dashboard"
         description="Spend, usage, and allowances across every provider this workspace connects."
+        actions={
+          <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={secondaryButtonClass}>
+            Your {reviewYear} in review
+          </Link>
+        }
       />
       <Suspense fallback={<DashboardSkeleton />}>
         <DashboardContent access={access} scope={scope} trend={parsed.trend} />

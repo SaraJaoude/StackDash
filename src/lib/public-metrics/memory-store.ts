@@ -32,6 +32,15 @@ export class MemoryMetricStore implements PublicMetricStore {
     );
   }
 
+  async earliestSnapshotDate({ accountIds, metricKey }: Parameters<PublicMetricStore["earliestSnapshotDate"]>[0]) {
+    let earliest: string | null = null;
+    for (const point of this.points) {
+      if (!accountIds.includes(point.accountId) || point.metricKey !== metricKey) continue;
+      if (earliest === null || point.snapshotDate < earliest) earliest = point.snapshotDate;
+    }
+    return earliest;
+  }
+
   private matching(accountIds: readonly string[], typeIds: readonly string[]): MemoryEvent[] {
     return this.events.filter((event) => accountIds.includes(event.accountId) && typeIds.includes(event.typeId));
   }
