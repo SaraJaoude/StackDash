@@ -389,7 +389,12 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "claim_sync_jobs":
+            "activity_event_daily_counts":
+{ Args: { "p_account_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
+              "day": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
+            }[]
+                           },
+"claim_sync_jobs":
 { Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
               "attempts": number,
 "connection_id": string | null,
