@@ -33,7 +33,8 @@ import {
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
-import { requireWorkspace, workspacePath, type WorkspaceAccess } from "@/lib/workspaces/access";
+import { requireWorkspace, type WorkspaceAccess } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };

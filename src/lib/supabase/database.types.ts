@@ -477,7 +477,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake","sync_job_kind": "sync"|"daily_summary"|"retention","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean","sync_job_kind": "sync"|"daily_summary"|"retention","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -593,7 +593,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake"],"sync_job_kind": ["sync", "daily_summary", "retention"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean"],"sync_job_kind": ["sync", "daily_summary", "retention"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const
