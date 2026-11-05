@@ -39,7 +39,7 @@ const stages: readonly Stage[] = [
   },
   {
     name: "Badges and cards",
-    body: "A README badge or a card image to post on X, LinkedIn, or Reddit, for any metric you have published. A yearly card sums up your whole stack's year so far.",
+    body: "A README badge or a card image to post on X, LinkedIn, or Reddit, for any metric you have published from a connected account. Self-reported values stay on the project page. A yearly card sums up your whole stack's year so far.",
   },
 ];
 
