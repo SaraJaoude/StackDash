@@ -11,7 +11,7 @@ export const site = {
   },
 } as const;
 
-/** Every platform the landing page names, shared by the hero preview and the live feed. */
+/** Every platform with a brand mark: the landing page's hero preview and live feed, and each provider. */
 export type Platform =
   | "Vercel"
   | "GitHub"
@@ -22,6 +22,7 @@ export type Platform =
   | "Supabase"
   | "DigitalOcean"
   | "PostHog"
+  | "Polar"
   | "Sentry";
 
 export interface NavLink {

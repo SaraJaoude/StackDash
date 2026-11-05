@@ -7,6 +7,7 @@ import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { postHogAdapter } from "./posthog";
 import { resendAdapter } from "./resend";
+import { polarAdapter } from "./polar";
 import { sentryAdapter } from "./sentry";
 import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
@@ -38,6 +39,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   supabase: supabaseAdapter,
   digitalocean: digitaloceanAdapter,
   posthog: postHogAdapter,
+  polar: polarAdapter,
   sentry: sentryAdapter,
 };
 

@@ -119,6 +119,13 @@ export type Allowance = Readonly<{
   resetsAt: string | null;
 }>;
 
+/**
+ * One run rate (MRR, ARR) per metric, currency, and provenance, summed over the connection's
+ * accounts. A rate is not money earned in a period, so it is never added into revenue or spend,
+ * and two rates (MRR and ARR) are never added to each other.
+ */
+export type RecurringRevenue = Readonly<{ key: string; label: string; value: MoneyValue }>;
+
 export type ProviderSummary = Readonly<{
   connectionId: string;
   provider: ProviderId;
@@ -131,6 +138,7 @@ export type ProviderSummary = Readonly<{
   stale: boolean;
   spend: readonly CurrencyAmounts[];
   revenue: readonly CurrencyAmounts[];
+  recurringRevenue: readonly RecurringRevenue[];
   credits: readonly MoneyValue[];
   allowances: readonly Allowance[];
   billingPeriod: Period | null;
@@ -422,6 +430,25 @@ function earliestFutureReset(entries: readonly Entry[], now: Date): string | nul
   return earliest;
 }
 
+function recurringRevenueOf(entries: readonly Entry[], now: Date): RecurringRevenue[] {
+  const byMetric = new Map<string, { label: string; estimated: boolean; entries: Entry[] }>();
+  for (const entry of entries) {
+    const { row } = entry;
+    if (row.kind !== "recurring_revenue" || row.currency === null || row.amount_minor === null) continue;
+    const estimated = isEstimated(row);
+    const key = `${row.metric_key} ${row.currency} ${estimated ? "estimated" : "verified"}`;
+    const group = byMetric.get(key);
+    if (group === undefined) byMetric.set(key, { label: row.label, estimated, entries: [entry] });
+    else group.entries.push(entry);
+  }
+  const rates: RecurringRevenue[] = [];
+  for (const [key, group] of byMetric) {
+    const value = moneyValue(group.entries, group.estimated, now);
+    if (value !== null) rates.push({ key, label: group.label, value });
+  }
+  return rates.sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
 function providerSummary(
   connection: ConnectionInput,
   entries: readonly Entry[],
@@ -452,6 +479,7 @@ function providerSummary(
       currentMoney.filter(({ row }) => row.kind === "revenue"),
       now,
     ),
+    recurringRevenue: recurringRevenueOf(currentMoney, now),
     credits: sumByCurrency(
       entries.filter(({ row }) => row.kind === "credit_balance"),
       now,
