@@ -11,6 +11,7 @@ import type {
   ProviderId,
 } from "@/lib/adapters/types";
 import type { LogFields, Logger } from "@/lib/log/logger";
+import type { NotificationDeps } from "@/lib/notifications/dispatch";
 import { providerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -46,6 +47,9 @@ export type SyncDeps = Readonly<{
   log: Logger;
   // evaluateWorkspaceAlerts from src/lib/alerts/run.ts in production; injected so tests stub it.
   evaluateAlerts: (workspaceId: string, now: Date) => Promise<unknown>;
+  // Built per alert_dispatch or digest job (createNotificationDeps in production), so a broken
+  // email configuration fails that job only.
+  notifications: () => NotificationDeps;
 }>;
 
 /** A failure that is ours or the instance's, not the provider's. */
