@@ -3,6 +3,7 @@
 import { useActionState, useId, useState, type KeyboardEvent } from "react";
 
 import { renameProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { FormErrorSummary, ProjectNameField, failureOf } from "@/components/projects/project-form-parts";
 
 /**
@@ -55,21 +56,21 @@ export function RenameProjectForm({
           autoFocus
         />
         <div className="flex shrink-0 gap-2">
-          <button
+          <GuardedButton
             type="submit"
-            disabled={pending}
-            className="inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60"
+            unavailable={pending}
+            className="inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
           >
             {pending ? "Saving" : "Save name"}
-          </button>
-          <button
+          </GuardedButton>
+          <GuardedButton
             type="button"
-            disabled={pending}
+            unavailable={pending}
             onClick={() => onClose(null)}
-            className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-60"
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
           >
             Cancel
-          </button>
+          </GuardedButton>
         </div>
       </div>
       <FormErrorSummary failure={failure} fieldId={inputId} />

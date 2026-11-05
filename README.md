@@ -3,10 +3,10 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, and Sentry over OAuth
-(never with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace
-and project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a
-problem.
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, and
+Sentry over OAuth (never with pasted API keys), and DevMacro syncs their usage on a schedule, shows
+it per workspace and project, keeps a timeline of activity, and raises alerts before a limit or
+budget becomes a problem.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Webhooks come after the MVP. Sentry is built from Sentry's documentation and not yet tried
@@ -174,7 +174,7 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, and Sentry
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, and Sentry
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -318,6 +318,8 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `STRIPE_APP_TEST_SECRET_KEY` | Test mode secret key for test mode installs | Secret | Optional |
 | `SUPABASE_OAUTH_CLIENT_ID` | Supabase OAuth app client ID | Server only | Optional (enables Supabase) |
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Supabase OAuth app client secret | Secret | Optional (enables Supabase) |
+| `DIGITALOCEAN_CLIENT_ID` | DigitalOcean OAuth app client ID | Server only | Optional (enables DigitalOcean) |
+| `DIGITALOCEAN_CLIENT_SECRET` | DigitalOcean OAuth app client secret | Secret | Optional (enables DigitalOcean) |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
 | `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
@@ -388,7 +390,7 @@ src/
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
   components/
     sections/                  landing page sections
-    app/                       app shell: navigation, workspace switcher, page states
+    app/                       app shell: navigation, workspace switcher, command palette, page states
     account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
@@ -398,11 +400,12 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, sentry, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, sentry, fake, simulated) and registry
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
     dashboard/, timeline/      dashboard aggregation and timeline queries
+    palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion

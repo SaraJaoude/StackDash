@@ -143,6 +143,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `DIGITALOCEAN_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, DigitalOcean OAuth app](oauth-apps.md#digitalocean-oauth-app) |
+| `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `SENTRY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Sentry integration](oauth-apps.md#sentry-integration) |
 | `SENTRY_CLIENT_SECRET` | Secret | Yes | Optional | Same. Also signs the token refresh |
 | `SENTRY_INTEGRATION_SLUG` | Server only | Yes | Optional | Same |

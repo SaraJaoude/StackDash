@@ -10,7 +10,7 @@ import type { AdapterMetric } from "./metrics";
  * on provider id).
  */
 
-export const liveProviderIds = ["vercel", "github", "resend", "stripe", "supabase", "sentry"] as const;
+export const liveProviderIds = ["vercel", "github", "resend", "stripe", "supabase", "digitalocean", "sentry"] as const;
 
 /**
  * `fake` is an in-memory adapter for unit tests and Playwright e2e: it lets the

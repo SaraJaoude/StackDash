@@ -1,5 +1,6 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
@@ -34,6 +35,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  digitalocean: digitaloceanAdapter,
   sentry: sentryAdapter,
 };
 
@@ -477,6 +479,46 @@ describe("simulated numbers", () => {
     expect(quantity(metric(metrics, "github.usage.actions.minutes"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions.actions_linux"))).toBe(amount(metric(metrics, "github.spend.actions")));
+  });
+
+  it("grows DigitalOcean usage through the month, splits yesterday by SKU, and resets on the 1st", async () => {
+    const samples = await metricsAt(simulatedAdapters.digitalocean, [
+      new Date("2026-11-20T09:00:00Z"),
+      new Date("2026-11-20T15:00:00Z"),
+      new Date("2026-12-01T00:10:00Z"),
+    ]);
+    const usage = samples.map((metrics) => amount(metric(metrics, "digitalocean.spend.month_to_date")));
+    expect(usage[0]).toBeLessThan(usage[1] ?? 0);
+    expect(usage[2]).toBeLessThan(usage[1] ?? 0);
+    const [morning] = samples;
+    if (morning === undefined) throw new Error("expected metrics");
+    const daily = morning.filter((item) => item.metricKey.startsWith("digitalocean.daily_spend.sku_"));
+    expect(daily).toHaveLength(5);
+    for (const item of daily) {
+      expect(item.kind).toBe("estimated_spend");
+      expect(item.timeframe).toEqual({ type: "period", start: new Date("2026-11-19T00:00:00Z"), end: new Date("2026-11-20T00:00:00Z") });
+      expect(item.provenance.endpoint).toMatch(/^simulated:digitalocean\//);
+    }
+    expect(metric(morning, "digitalocean.invoice.latest").timeframe).toEqual({
+      type: "period",
+      start: new Date("2026-10-01T00:00:00Z"),
+      end: new Date("2026-11-01T00:00:00Z"),
+    });
+    expect(amount(metric(morning, "digitalocean.credit.balance"))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("issues the DigitalOcean invoice for the month before at 00:00 UTC on the 1st, and only then", async () => {
+    const credential = await connect(simulatedAdapters.digitalocean);
+    const [account] = await simulatedAdapters.digitalocean.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected an account");
+    const sync = (now: string) =>
+      simulatedAdapters.digitalocean.sync({ credential, externalAccountId: account.externalId }, makeCtx(new Date(now)));
+    const invoices = (await sync("2026-12-01T00:00:15Z")).events.filter((event) => event.typeId === "digitalocean.invoice.issued");
+    expect(invoices).toHaveLength(1);
+    expect(invoices[0]?.title).toMatch(/^Invoice for 2026-11 issued: \$\d+\.\d{2}$/);
+    expect(invoices[0]?.occurredAt).toEqual(new Date("2026-12-01T00:00:00Z"));
+    const before = (await sync("2026-11-30T23:59:50Z")).events.filter((event) => event.typeId === "digitalocean.invoice.issued");
+    expect(before).toEqual([]);
   });
 
   it("reports Supabase plan limits and yesterday's daily active users", async () => {

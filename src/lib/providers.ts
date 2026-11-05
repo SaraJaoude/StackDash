@@ -14,6 +14,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  digitalocean: "DigitalOcean",
   sentry: "Sentry",
   fake: "Example provider",
 };
@@ -25,6 +26,7 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  digitalocean: "DigitalOcean",
   sentry: "Sentry",
   fake: null,
 };

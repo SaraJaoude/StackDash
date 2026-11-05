@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
+Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs eight registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -25,6 +25,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Stripe App | Stripe CLI (`stripe apps`) and Dashboard | `<SITE_URL>/api/connections/stripe/callback` | `event_read`, `charge_read`, `customer_read`, `subscription_read`, `invoice_read`, `balance_read`, `payout_read` | `STRIPE_APP_CLIENT_ID`, `STRIPE_APP_SECRET_KEY`, `STRIPE_APP_TEST_SECRET_KEY` (optional) |
 | Supabase OAuth app | Supabase, organization settings, OAuth Apps | `<SITE_URL>/api/connections/supabase/callback` | `organizations:read`, `projects:read`, `analytics:read` | `SUPABASE_OAUTH_CLIENT_ID`, `SUPABASE_OAUTH_CLIENT_SECRET` |
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
+| DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
@@ -109,6 +110,18 @@ Settings that must match the code:
 - `token_endpoint_auth_method`: `client_secret_basic`. `grant_types`: `authorization_code`, `refresh_token`. `scope`: `full_access`, the only scope that can read usage. It is **not** read-only; the connect flow tells users so before redirecting.
 
 Variables: `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET`. The secret is shown once in the registration response. Clients cannot be updated, so a new callback URL or a lost secret means registering a new client.
+
+## DigitalOcean OAuth app
+
+Reads the balance, month-to-date usage, invoices, daily spend by SKU, Droplet actions, and App Platform deployments. Full steps: [DigitalOcean, Self-hosted registration](../providers/digitalocean.md#self-hosted-registration). Scopes and what they also allow: [DigitalOcean, Permissions](../providers/digitalocean.md#permissions) and [Permission risks](../providers/digitalocean.md#permission-risks). Not yet tried with a real account (#141).
+
+Settings that must match the code:
+
+- DigitalOcean control panel, **API**, **OAuth Applications**, **Register OAuth application** ([link](https://cloud.digitalocean.com/account/api/applications/new)), signed in with the team that should own the app.
+- **Callback URL**: `<SITE_URL>/api/connections/digitalocean/callback`.
+- Scopes are not set on the app: DevMacro sends `billing:read actions:read app:read droplet:read account:read` with every authorize request, so the consent screen never offers more.
+
+Variables: `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` (from the app's **View** dialog).
 
 ## Sentry integration
 

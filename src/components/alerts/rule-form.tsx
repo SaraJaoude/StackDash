@@ -3,6 +3,7 @@
 import { useActionState, useId, useState } from "react";
 
 import { saveAlertRule, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { AMOUNT_PRESETS, PERCENT_MAX, PERCENT_MIN, PERCENT_PRESETS } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -208,9 +209,9 @@ export function RuleForm({
       <ScopeFields idPrefix={id} values={values} onChange={update} errors={errors} options={options} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add alert rule"}
-        </button>
+        </GuardedButton>
         {onCancel === undefined ? null : (
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
             Cancel
