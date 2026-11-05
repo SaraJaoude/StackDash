@@ -9,7 +9,8 @@ import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/l
 import { enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
-import { requireWorkspaceAction, workspacePath, type WorkspaceAccess } from "@/lib/workspaces/access";
+import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions";
 
 /*

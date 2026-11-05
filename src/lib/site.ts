@@ -12,7 +12,7 @@ export const site = {
 } as const;
 
 /** Every platform with a brand mark: the landing page's hero preview and live feed, and each provider. */
-export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase" | "DigitalOcean" | "Polar";
+export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase" | "DigitalOcean" | "PostHog" | "Polar";
 
 export interface NavLink {
   label: string;

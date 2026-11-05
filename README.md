@@ -3,7 +3,7 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer
-services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, and Polar over OAuth (never
+services you build on. You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, and Polar over OAuth (never
 with pasted API keys), and DevMacro syncs their usage on a schedule, shows it per workspace and
 project, keeps a timeline of activity, and raises alerts before a limit or budget becomes a problem.
 
@@ -170,7 +170,7 @@ minute instead, see [Jobs](docs/operations/jobs.md).
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, and Polar
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, and Polar
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -212,6 +212,40 @@ marked failed with one timeline event, and syncs again on its hourly retry once 
 removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_PROVIDERS` is
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
+
+### 11. Seed a demo workspace with 90 days of history (optional)
+
+For a demo that is not mostly empty charts, one command builds a whole workspace on your local
+stack with every simulated provider connected and 90 days behind it:
+
+```bash
+npm run demo:seed -- --member you@example.com
+```
+
+- It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
+  by it, connects every simulated provider through the same code as the connect flow, spreads their
+  accounts over three projects, and adds a Vercel budget alert and a Resend monthly quota alert.
+- It then replays the 90 days before today one at a time, counting days in London (the timeline's
+  time zone), then today up to now: each day runs the real sync (with its validation and alert
+  checks) and the daily summary job with the clock set to that day, so the history is exactly what
+  a live tick would have stored. Each day keeps the last 30 minutes of events before midnight in
+  London, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day in
+  every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
+  limit, and the budget alert triggers in the third week of each full month.
+- `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
+  demo workspace; repeat it for more people (an email given twice counts once, and
+  `demo@example.com` is refused because it already owns the workspace). The demo account has no
+  sign-in of its own, because sign-in is GitHub only. `--seed <text>` picks different simulated
+  accounts; the same seed rehearses the same demo (default `devmacro-demo`).
+- Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
+  changes nothing outside the demo account's workspaces.
+- It refuses to run unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL`
+  points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it can never write to a
+  hosted project.
+
+It prints the dashboard and timeline links when it finishes, which takes seconds (7 on a local
+stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
+carries on from the replay's last sync without a gap or a repeat.
 
 ## Checks
 
@@ -315,6 +349,8 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Supabase OAuth app client secret | Secret | Optional (enables Supabase) |
 | `DIGITALOCEAN_CLIENT_ID` | DigitalOcean OAuth app client ID | Server only | Optional (enables DigitalOcean) |
 | `DIGITALOCEAN_CLIENT_SECRET` | DigitalOcean OAuth app client secret | Secret | Optional (enables DigitalOcean) |
+| `POSTHOG_OAUTH_CLIENT_ID` | URL of PostHog's client ID metadata document, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Server only | Optional (enables PostHog) |
+| `POSTHOG_OAUTH_PRIVATE_KEY` | Private key that signs PostHog token requests, PEM with `\n` newlines | Secret | Optional (enables PostHog) |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
 | `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
@@ -395,7 +431,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, fake, simulated) and registry
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
@@ -404,6 +440,7 @@ src/
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
+    demo/                      the demo workspace and its replayed history (npm run demo:seed)
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
@@ -414,7 +451,7 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for

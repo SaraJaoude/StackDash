@@ -28,13 +28,16 @@ const signedMoneyShape = {
   currency: CurrencySchema,
 };
 
+// Exported so an adapter that maps a provider's unit can test it against the same rule.
+export const UnitSchema = z
+  .string()
+  .max(32)
+  .regex(/^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/, "must be a unit like emails, minutes, GB");
+
 const quantityShape = {
   // z.number() already rejects NaN and Infinity.
   value: z.number().nonnegative(),
-  unit: z
-    .string()
-    .max(32)
-    .regex(/^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/, "must be a unit like emails, minutes, GB"),
+  unit: UnitSchema,
 };
 
 export const TimeframeSchema = z.discriminatedUnion("type", [
