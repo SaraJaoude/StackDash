@@ -1,15 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublishedProjectMetrics } from "@/lib/public-metrics/published";
+import type * as RequestsModule from "@/lib/public-metrics/requests";
+import type { RateLimitDecision } from "@/lib/public-metrics/requests";
 
 import { GET } from "./route";
 
-// vi.mock factories run before the imports above, so the mock they share is hoisted with them.
-const { loadPublishedProjectMetrics } = vi.hoisted(() => ({
+// vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
+const { loadPublishedProjectMetrics, checkPublicRateLimit } = vi.hoisted(() => ({
   loadPublishedProjectMetrics: vi.fn<(projectId: string, now: Date) => Promise<PublishedProjectMetrics | null>>(),
+  checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
 }));
 
 vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedProjectMetrics }));
+vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
+  ...(await importOriginal<typeof RequestsModule>()),
+  checkPublicRateLimit,
+}));
 vi.mock("@/lib/log/logger", () => ({ logError: () => "ref-123" }));
 // Outside a Next.js request there is no request scope to wait for.
 vi.mock("next/server", () => ({ connection: async () => {} }));
@@ -25,10 +32,12 @@ function get(projectId: string): Promise<Response> {
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+  checkPublicRateLimit.mockResolvedValue({ allowed: true });
 });
 
 afterEach(() => {
   loadPublishedProjectMetrics.mockReset();
+  checkPublicRateLimit.mockReset();
   vi.unstubAllEnvs();
 });
 
@@ -149,5 +158,27 @@ describe("GET /api/public/projects/[projectId]/metrics", () => {
     expect(response.headers.get("cache-control")).toBe("no-store");
     const body = await response.json();
     expect(body).toEqual({ error: "unavailable", message: "Published metrics could not be read. Try again in a moment.", referenceId: "ref-123" });
+  });
+
+  it("answers 429 with Retry-After and no cache once the client is over the limit, before reading anything", async () => {
+    checkPublicRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 17 });
+    const response = await get(PROJECT_ID);
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("17");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ error: "rate_limited", message: "Too many requests from this address. Try again in a minute." });
+    expect(loadPublishedProjectMetrics).not.toHaveBeenCalled();
+  });
+
+  it("counts a malformed id against the limit too (boundary: probing ids is not free)", async () => {
+    await get("not-a-uuid");
+    expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers 503 when the rate limit cannot be counted (boundary: the counter fails)", async () => {
+    checkPublicRateLimit.mockRejectedValue(new Error("counter down"));
+    const response = await get(PROJECT_ID);
+    expect(response.status).toBe(503);
+    expect(loadPublishedProjectMetrics).not.toHaveBeenCalled();
   });
 });

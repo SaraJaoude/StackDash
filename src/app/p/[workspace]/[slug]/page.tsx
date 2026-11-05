@@ -19,6 +19,7 @@ import {
   type PublishedMetric,
   type PublishedSelfReportedMetric,
 } from "@/lib/public-metrics/published";
+import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
 
 /*
@@ -37,9 +38,6 @@ import { site } from "@/lib/site";
  */
 export const instant = false;
 
-// Badges and cards (#149) render each published metric as a 1200 by 630 card at this path.
-const CARD_WIDTH = 1200;
-const CARD_HEIGHT = 630;
 const HISTORY_WINDOWS = [
   { days: 30, period: "last 30 days" },
   { days: 90, period: "last 90 days" },
@@ -66,10 +64,11 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
   const path = projectPagePath(page.workspaceSlug, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
+  // The preview image is the badges and cards (#149) card of the first published engine metric.
   const images =
     card === undefined
       ? []
-      : [{ url: `/card/${page.published.projectId}/${card.metricId}.png`, width: CARD_WIDTH, height: CARD_HEIGHT, alt: `${card.label} for ${page.projectName}` }];
+      : [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }];
 
   return {
     title,

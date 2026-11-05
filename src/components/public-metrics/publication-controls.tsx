@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, use, useActionState, useId, useRef, useState, type ReactNode } from "react";
+import { createContext, startTransition, use, useActionState, useEffect, useId, useRef, useState, type ReactNode } from "react";
 
 import {
   disableProjectPage,
@@ -26,19 +26,24 @@ import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField
  */
 
 type Announce = (message: string, focusId: string) => void;
+type Announcement = Readonly<{ message: string; focusId: string }>;
 
 const AnnounceContext = createContext<Announce | null>(null);
 
 export function PublicationAnnouncer({ children }: { children: ReactNode }) {
-  const [message, setMessage] = useState("");
-  const announce: Announce = (next, focusId) => {
-    setMessage(next);
-    document.getElementById(focusId)?.focus();
-  };
+  const [announcement, setAnnouncement] = useState<Announcement | null>(null);
+  // Set in a transition, which React batches with the action's own (https://react.dev/reference/
+  // react/startTransition#caveats), so the message and the focus move commit with the server's new
+  // tree. Focusing straight away left focus on a form that a slower commit (a client chunk still
+  // loading, such as the share dialog's) then removed, dropping a keyboard user to the page body.
+  const announce: Announce = (message, focusId) => startTransition(() => setAnnouncement({ message, focusId }));
+  useEffect(() => {
+    if (announcement !== null) document.getElementById(announcement.focusId)?.focus();
+  }, [announcement]);
   return (
     <AnnounceContext value={announce}>
       <div role="status" aria-live="polite" className="text-sm">
-        {message === "" ? null : <p className="mt-6 text-success">{message}</p>}
+        {announcement === null ? null : <p className="mt-6 text-success">{announcement.message}</p>}
       </div>
       {children}
     </AnnounceContext>

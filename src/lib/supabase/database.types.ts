@@ -115,6 +115,46 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"api_key_request_windows": {
+                  Row: {
+                    "key_id": string,"request_count": number,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "key_id": string,"request_count"?: number,"window_start": string
+                  }
+                  Update: {
+                    "key_id"?: string,"request_count"?: number,"window_start"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "api_key_request_windows_key_id_fkey"
+      columns: ["key_id"]
+isOneToOne: false
+      referencedRelation: "api_keys"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"api_keys": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"id": string,"last_used_at": string | null,"name": string,"revoked_at": string | null,"revoked_by": string | null,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"token_hash": string,"token_prefix": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"last_used_at"?: string | null,"name": string,"revoked_at"?: string | null,"revoked_by"?: string | null,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"token_hash": string,"token_prefix": string,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"last_used_at"?: string | null,"name"?: string,"revoked_at"?: string | null,"revoked_by"?: string | null,"scopes"?: (Database["public"]['Enums']["api_key_scope"])[],"token_hash"?: string,"token_prefix"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "api_keys_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"budgets": {
                   Row: {
                     "amount_minor": number,"connection_id": string | null,"created_at": string,"created_by": string | null,"currency": string,"id": string,"name": string,"period": string,"project_id": string | null,"provider": Database["public"]['Enums']["provider_id"] | null,"scope": Database["public"]['Enums']["alert_scope"],"updated_at": string,"updated_by": string | null,"workspace_id": string
@@ -415,6 +455,46 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"public_rate_limit_counters": {
+                  Row: {
+                    "count": number,"ip_hash": string,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "count"?: number,"ip_hash": string,"window_start": string
+                  }
+                  Update: {
+                    "count"?: number,"ip_hash"?: string,"window_start"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"published_metric_views": {
+                  Row: {
+                    "metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"surface": Database["public"]['Enums']["share_surface"],"view_date": string,"views": number,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"surface": Database["public"]['Enums']["share_surface"],"view_date": string,"views"?: number,"workspace_id": string
+                  }
+                  Update: {
+                    "metric_id"?: Database["public"]['Enums']["public_metric_id"],"project_id"?: string,"surface"?: Database["public"]['Enums']["share_surface"],"view_date"?: string,"views"?: number,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "published_metric_views_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "published_metric_views_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"published_metrics": {
                   Row: {
                     "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"] | null,"project_id": string,"published_at": string,"published_by": string,"revoked_at": string | null,"revoked_by": string | null,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string | null,"self_reported_unit": string | null,"self_reported_value": number | null,"workspace_id": string
@@ -571,7 +651,48 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "claim_sync_jobs":
+            "api_activity_events":
+{ Args: { "p_after_id"?: string,"p_after_occurred_at"?: string,"p_from"?: string,"p_limit"?: number,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_severity"?: Database["public"]['Enums']["event_severity"],"p_to"?: string,"p_token_hash": string,"p_type_id"?: string }; Returns: {
+              "account_name": string,"body": string,"connection_id": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"occurred_at": string,"provider": Database["public"]['Enums']["provider_id"],"severity": Database["public"]['Enums']["event_severity"],"title": string,"type_id": string,"url": string
+            }[]
+                           },
+"api_connections":
+{ Args: { "p_after_created_at"?: string,"p_after_id"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "authorized_account_label": string,"created_at": string,"display_name": string,"granted_scopes": (string)[],"id": string,"last_synced_at": string,"provider": Database["public"]['Enums']["provider_id"],"status": Database["public"]['Enums']["connection_status"]
+            }[]
+                           },
+"api_key_workspace":
+{ Args: { "p_scope": Database["public"]['Enums']["api_key_scope"],"p_token_hash": string }; Returns: string
+                           },
+"api_projects":
+{ Args: { "p_after_created_at"?: string,"p_after_id"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "created_at": string,"id": string,"name": string
+            }[]
+                           },
+"api_triggered_alerts":
+{ Args: { "p_acknowledged"?: boolean,"p_after_id"?: string,"p_after_triggered_at"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "acknowledged_at": string,"currency": string,"cycle_key": string,"id": string,"is_estimated": boolean,"message": string,"observed_amount_minor": number,"observed_value": number,"rule_id": string,"threshold_label": string,"threshold_percent": number,"triggered_at": string
+            }[]
+                           },
+"api_usage_snapshots":
+{ Args: { "p_after_date"?: string,"p_after_id"?: string,"p_connection_id"?: string,"p_from"?: string,"p_kind"?: Database["public"]['Enums']["metric_kind"],"p_limit"?: number,"p_metric_key"?: string,"p_project_id"?: string,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_to"?: string,"p_token_hash": string }; Returns: {
+              "account_name": string,"amount_minor": number,"connection_id": string,"currency": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"kind": Database["public"]['Enums']["metric_kind"],"label": string,"metric_key": string,"period_end": string,"period_start": string,"point_at": string,"pricing_source": string,"project_id": string,"provenance_source": string,"provider": Database["public"]['Enums']["provider_id"],"resets_at": string,"retrieved_at": string,"snapshot_date": string,"unit": string,"value": number
+            }[]
+                           },
+"api_workspaces":
+{ Args: { "p_token_hash": string }; Returns: {
+              "created_at": string,"id": string,"is_personal": boolean,"name": string,"slug": string
+            }[]
+                           },
+"authenticate_api_key":
+{ Args: { "p_token_hash": string }; Returns: {
+              "key_id": string,"request_count": number,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"status": string,"window_resets_at": string,"workspace_id": string
+            }[]
+                           },
+"bump_public_rate_limit":
+{ Args: { "p_ip_hash": string }; Returns: number
+                           },
+"claim_sync_jobs":
 { Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
               "attempts": number,
 "connection_id": string | null,
@@ -681,6 +802,12 @@ isOneToOne: false
 "purge_oauth_states":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"purge_public_rate_limit_counters":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_published_metric_views":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
 "purge_sync_jobs":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
@@ -689,6 +816,9 @@ isOneToOne: false
                            },
 "record_publication_event":
 { Args: { "p_body": string,"p_dedupe_key": string,"p_title": string,"p_type_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"record_published_metric_view":
+{ Args: { "p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_surface": Database["public"]['Enums']["share_surface"] }; Returns: undefined
                            },
 "request_manual_sync":
 { Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
@@ -710,7 +840,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -826,7 +956,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const

@@ -28,6 +28,7 @@ export const WORKSPACE_ACTIONS = [
   "publish_metrics",
   "manage_members",
   "rename_workspace",
+  "manage_api_keys",
   "manage_billing",
   "delete_workspace",
 ] as const;
@@ -48,6 +49,7 @@ const REQUIRED_ROLE: Record<WorkspaceAction, WorkspaceRole> = {
   // Admins manage members too, except owners: see canManageMember.
   manage_members: "admin",
   rename_workspace: "admin",
+  manage_api_keys: "admin",
   manage_billing: "owner",
   delete_workspace: "owner",
 };
@@ -63,6 +65,7 @@ const DENIED_REASON: Record<WorkspaceAction, string> = {
   publish_metrics: "Only owners and admins can publish or unpublish metrics.",
   manage_members: "Only owners and admins can invite, remove, or change members.",
   rename_workspace: "Only owners and admins can rename this workspace.",
+  manage_api_keys: "Only owners and admins can create, see, or revoke API keys.",
   manage_billing: "Only owners can manage billing.",
   delete_workspace: "Only owners can delete this workspace.",
 };
