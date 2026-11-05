@@ -12,6 +12,8 @@
  *   change in a running total since the previous reading of the same period; the first reading of
  *   a period counts everything since the period started. A change that spans a window edge cannot
  *   be split, so it makes its connection unavailable for that window instead of counting a part.
+ *   A total read after its period ended (an invoice) and an estimate for a whole period (a
+ *   projection) are not running totals and do not count.
  * - A connection is available for a figure in a window only when every series it reports covers
  *   every day of the window up to the last required day (yesterday for the current window, since
  *   today is still running). Otherwise it is named unavailable and none of its amounts count.
@@ -174,10 +176,16 @@ function moneyMeasure(kind: SnapshotInput["kind"]): MoneyMeasure | null {
   return null;
 }
 
-/** A row of a running total over a period that starts on a UTC day boundary. */
+/**
+ * A row of a running total over a period that starts on a UTC day boundary and was still open
+ * when it was read, as `isCurrentPeriod` decides for the dashboard's current values.
+ */
 function isRunningTotal(row: SnapshotInput): boolean {
   if (moneyMeasure(row.kind) === null || row.currency === null || row.amount_minor === null) return false;
   if (row.period_start === null || row.period_end === null) return false;
+  // A period that had ended when it was read is a final total, such as DigitalOcean's last
+  // invoice or one day's estimated spend read the next day, not a total still running.
+  if (Date.parse(row.period_end) < Date.parse(row.retrieved_at)) return false;
   // Rolling windows such as Stripe's last 30 days start at an arbitrary instant and are skipped.
   return Date.parse(row.period_start) % DAY_MS === 0;
 }
@@ -207,15 +215,24 @@ function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string
 }
 
 function buildMoneySeries(rows: readonly SnapshotInput[]): MoneySeries[] {
-  const byDay = groupBy(rows.filter(isRunningTotal), (row) => row.snapshot_date);
+  const seriesKey = (row: SnapshotInput) => `${row.connection_id} ${row.external_account_id} ${row.kind} ${row.metric_key} ${row.currency ?? ""}`;
+  const running = rows.filter(isRunningTotal);
+  // An estimate whose period ran past the day it was read is a projection for the whole period
+  // (PostHog's projected spend, the Example provider's month estimate), not money spent so far.
+  // None of that period's readings count, the one on its last day included, and they are left out
+  // before a projection's long window could hide a day's estimate inside it.
+  const projections = new Set(
+    running
+      .filter((row) => row.kind === "estimated_spend" && Date.parse(row.period_end ?? "") > Math.floor(Date.parse(row.retrieved_at) / DAY_MS) * DAY_MS + DAY_MS)
+      .map((row) => `${seriesKey(row)} ${row.period_start ?? ""}`),
+  );
+  const spent = running.filter((row) => !projections.has(`${seriesKey(row)} ${row.period_start ?? ""}`));
+  const byDay = groupBy(spent, (row) => row.snapshot_date);
   // Each day's amounts once, by the rules of the dashboard's current values (`countedSnapshots`):
   // a total supersedes its breakdowns, and a longer window supersedes a day inside it, such as
   // GitHub's daily spend inside its month.
   const counted = [...byDay.values()].flatMap((day) => dropSubWindows(dropSupersededBreakdowns(day)));
-  const bySeries = groupBy(
-    counted,
-    (row) => `${row.connection_id} ${row.external_account_id} ${row.kind} ${row.metric_key} ${row.currency ?? ""}`,
-  );
+  const bySeries = groupBy(counted, seriesKey);
   const series: MoneySeries[] = [];
   for (const list of bySeries.values()) {
     list.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));

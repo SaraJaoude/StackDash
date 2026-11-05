@@ -347,6 +347,32 @@ describe("buildHeadline money", () => {
     expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(200);
   });
 
+  it("leaves out a final total read after its period ended, such as DigitalOcean's last invoice", () => {
+    const monthToDate = runningTotal({ connectionId: digitalocean.id, metricKey: "digitalocean.spend.month_to_date", perDay: 100, from: "2026-10-01", to: "2026-11-05" });
+    // October's invoice, read every day of November: its period ended before each reading.
+    const invoice = runningTotal({ connectionId: digitalocean.id, metricKey: "digitalocean.invoice.latest", perDay: 0, from: "2026-11-01", to: "2026-11-05" }).map(
+      (row) => ({ ...row, amount_minor: 3_100, period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" }),
+    );
+    const strip = headline({ snapshots: [...monthToDate, ...invoice], connections: [digitalocean] });
+    expect(strip.spend).toMatchObject({ included: ["DigitalOcean"], unavailable: [], previousUnavailable: [] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
+  });
+
+  it("leaves out an estimate for the whole period, a projection, on every day of the period, its last included", () => {
+    // The month's projected spend, read daily: its period runs to the end of the month.
+    const projection = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.projected", perDay: 50, from: "2026-10-01", to: "2026-11-05", estimated: true }).map(
+      (row) => ({ ...row, kind: "estimated_spend" as const, amount_minor: 155_000, period_end: nextMonthStart(row.snapshot_date) }),
+    );
+    const strip = headline({ snapshots: [...vercelSpend, ...projection], connections: [vercel] });
+    // The reading on 2026-10-31 ends with its day, but the rest of October's readings show it is a projection.
+    expect(strip.spend).toMatchObject({ included: ["Vercel"], previousUnavailable: [] });
+    expect(line(strip.spend.lines, "USD")).toEqual({
+      currency: "USD",
+      verified: { value: 400, comparison: { status: "change", direction: "same", percent: 0, previous: 400 } },
+      estimated: null,
+    });
+  });
+
   it("ignores rows of connections outside the scope", () => {
     const strip = headline({ snapshots: vercelSpend, connections: [stripe] });
     expect(strip.spend).toMatchObject({ lines: null, unavailable: ["Stripe"] });
