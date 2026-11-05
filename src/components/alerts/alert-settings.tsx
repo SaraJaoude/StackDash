@@ -14,7 +14,7 @@ import { listBudgetOptions, listBudgets, listSnapshotCurrencies } from "@/lib/da
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
-import { workspacePath } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AddSuggestedAlerts } from "./add-suggested-alerts";

@@ -10,6 +10,7 @@ import {
   chance,
   DAY_MS,
   instantInSlot,
+  isWeekend,
   SLOT_MS,
   simulatedEndpoint,
   utcDayStart,
@@ -22,12 +23,13 @@ import {
  * Simulated GitHub organization with three repositories: stars grow at a steady rate per
  * repository (so the 100, 500, and 1,000 milestones are crossed now and then), forks trickle in
  * (about 65 a day across the three), and a daily stars event lands at UTC midnight for the day
- * before. Actions minutes and spend accrue hour by hour. Keys and milestones come from the real
- * adapter's modules.
+ * before. Actions minutes and spend accrue hour by hour, at under a third of the pace on weekends
+ * (#166). Keys and milestones come from the real adapter's modules.
  */
 
 const ORGANIZATION = "example-org";
 const CURRENCY = "USD";
+const WEEKEND_ACTIONS_PERCENT = 30;
 const PRODUCT = "Actions";
 const SKU = "actions_linux";
 const UNIT_TYPE = "Minutes";
@@ -63,7 +65,8 @@ function starsAt(repo: SimulatedRepo, atMs: number): number {
 function actionsMinutesPerHour(accountId: string): (hourStartMs: number) => number {
   return (hourStartMs) => {
     const hourOfDay = new Date(hourStartMs).getUTCHours();
-    return (hourOfDay >= 7 && hourOfDay < 21 ? 60 : 10) + between(0, 60, accountId, "actions", hourStartMs);
+    const weekday = (hourOfDay >= 7 && hourOfDay < 21 ? 60 : 10) + between(0, 60, accountId, "actions", hourStartMs);
+    return isWeekend(hourStartMs) ? Math.floor((weekday * WEEKEND_ACTIONS_PERCENT) / 100) : weekday;
   };
 }
 

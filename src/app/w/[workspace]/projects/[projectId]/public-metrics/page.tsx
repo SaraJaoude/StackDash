@@ -26,7 +26,8 @@ import {
 } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import type { PublishedValue } from "@/lib/public-metrics/published";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Public metrics" };

@@ -7,7 +7,7 @@ import { SignOutButton } from "@/components/app/sign-out-button";
 import { Wordmark } from "@/components/wordmark";
 import { requireUser } from "@/lib/auth/session";
 import { getLastWorkspaceSlug, listMyWorkspaces } from "@/lib/data/workspaces";
-import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Your workspace" };
 

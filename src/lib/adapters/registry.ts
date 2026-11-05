@@ -2,8 +2,10 @@ import "server-only";
 
 import { log } from "@/lib/log/logger";
 
+import { digitaloceanAdapter } from "./digitalocean";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
+import { postHogAdapter } from "./posthog";
 import { resendAdapter } from "./resend";
 import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
@@ -33,6 +35,8 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  digitalocean: digitaloceanAdapter,
+  posthog: postHogAdapter,
 };
 
 /** Read on every call, not at module load, so the flag can never be baked into a build. */

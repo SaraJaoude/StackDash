@@ -9,7 +9,7 @@ import { Constants, type Database } from "@/lib/supabase/database.types";
  * needs. Badges, cards, public project pages, the weekly email, and the leaderboard all read
  * these, so a metric is defined once.
  *
- * The ids are the database enum `public_metric_id` (20261105002312_published_metrics.sql), so
+ * The ids are the database enum `public_metric_id` (20261105023129_published_metrics.sql), so
  * `published_metrics` can only ever hold an id defined here. Spend, budgets, and alert thresholds
  * have no id and can never be published. Values come only from stored snapshots and events, never
  * from a provider call, and never include money, account names, or repository names.

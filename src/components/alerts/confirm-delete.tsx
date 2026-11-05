@@ -3,11 +3,12 @@
 import { useActionState, useId, useRef } from "react";
 
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
 
 const dangerButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
+  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 type Action = (previous: AlertActionResult | null, formData: FormData) => Promise<AlertActionResult>;
 
@@ -102,9 +103,9 @@ export function ConfirmDelete({
             <button type="button" onClick={() => dialogRef.current?.close()} className={secondaryButtonClass}>
               Cancel
             </button>
-            <button type="submit" disabled={pending} className={dangerButtonClass}>
+            <GuardedButton type="submit" unavailable={pending} className={dangerButtonClass}>
               {pending ? "Deleting" : confirmLabel}
-            </button>
+            </GuardedButton>
           </div>
         </form>
       </dialog>
