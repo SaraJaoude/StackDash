@@ -22,7 +22,7 @@ OAuth 2.0 authorization code flow with PKCE (S256), as a confidential client. Po
 | Discovery | `https://api.polar.sh/.well-known/openid-configuration` (issuer `https://api.polar.sh`) |
 | Callback URL | `<SITE_URL>/api/connections/polar/callback` |
 | API base URL | `https://api.polar.sh/v1` |
-| API version header | `Polar-Version: 2026-10`, the Current version on 2026-11-05. Without it Polar uses Current, which changes every quarter |
+| API version header | `Polar-Version: 2026-10`, the Current version on 2026-11-05. Without it Polar uses Current, which changes every quarter. `2026-10` is removed in the first week of April 2027; see [Limitations](#limitations) |
 | Client authentication | `client_id` and `client_secret` in the form body (`client_secret_post`, as in Polar's token request reference). `client_secret_basic` is also advertised |
 | PKCE | `S256`, advertised in the discovery document. DevMacro always sends it |
 | Access token | 864000 seconds (10 days) in Polar's example; DevMacro reads `expires_in` from each response. Prefix `polar_at_` |
@@ -163,6 +163,7 @@ Disclose these on the connect screen before redirecting:
 - One connection covers every organization the grant reaches; each organization is an external account that can be excluded.
 - Refunds, customers, and new orders are read newest first with a cap of 10 pages of 100 per sync. A larger month leaves new customers unreported and logs a warning.
 - A pending order that is paid more than a day after it was created, and a refund that succeeds more than a day after it was created, never reach the timeline.
+- Polar API version `2026-10` is removed in the first week of April 2027 ([API versioning](https://polar.sh/docs/api-reference/2026-10/versioning): about nine months per version, then "a malformed, unknown, or removed version returns `404 Not Found`"). From then every Polar sync fails with `invalid_response`. Before then: set `POLAR_API_VERSION` in `src/lib/adapters/polar/index.ts` to the then Current version, re-read every endpoint this page lists in that version's reference, and refresh the fixtures and sample responses.
 
 ## Self-hosted registration
 

@@ -64,6 +64,8 @@ const REFUNDS_URL = `${API_BASE}/v1/refunds/`;
 // RFC 9207: Polar's discovery document sets `authorization_response_iss_parameter_supported`.
 const POLAR_ISSUER = "https://api.polar.sh";
 // Pinned: without the header Polar uses its Current version, which changes every quarter.
+// 2026-10 is removed in the first week of April 2027, then every call answers 404: bump it first
+// (docs/providers/polar.md, Limitations).
 const POLAR_API_VERSION = "2026-10";
 
 // Polar's metrics endpoint has no currency field; amounts are cents in Polar's settlement
