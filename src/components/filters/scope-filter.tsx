@@ -88,26 +88,28 @@ export function ScopeFilter({
   // leave the old boxes ticked and the form open over the new result.
   const formKey = JSON.stringify([scope.providers, scope.projects, scope.accounts, resetKey ?? ""]);
   return (
-    <section aria-labelledby={titleId} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-line bg-panel">
+    <section aria-labelledby={titleId} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] rounded-xl border border-line bg-panel">
       {/* The status sits outside the disclosure so it is announced as a live region and does not
           become part of the toggle's accessible name (a summary's children are presentational).
-          The status and the details both sit in row 1 on purpose: the details spans both columns
-          (a subgrid) so its form opens full width below, and its summary sits in column 2 beside
-          the status. `self-start` keeps the status on the summary's line while the form is open.
-          Browsers that grid a `details` wrap its content in `::details-content`, so the span goes
-          on that box too; without it the open form lands in column 1 beside the summary. */}
+          The details spans both columns and both rows as a subgrid: its summary sits in row 1,
+          column 2, beside the status, and its form opens full width in row 2. Sharing the rows
+          means row 1 grows with a status that wraps, so the open form always starts below the
+          status's last line (#164); both row 1 items stretch, and `items-center` keeps "Filters"
+          level with the status. Browsers that grid a `details` wrap its content in
+          `::details-content`, so the span goes on that box too; without it the open form lands in
+          column 1 beside the summary. */}
       <p
         role="status"
         aria-live="polite"
-        className="col-start-1 row-start-1 flex min-h-12 items-center self-start break-words px-4 py-2 text-sm text-muted"
+        className="col-start-1 row-start-1 flex min-h-12 items-center break-words px-4 py-2 text-sm text-muted"
       >
         {status}
       </p>
       <details
         key={formKey}
-        className="group col-span-2 col-start-1 row-start-1 grid grid-cols-subgrid details-content:col-span-2"
+        className="group col-span-2 col-start-1 row-span-2 row-start-1 grid grid-cols-subgrid grid-rows-subgrid details-content:col-span-2"
       >
-        <summary className="col-start-2 flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm [&::-webkit-details-marker]:hidden">
+        <summary className="col-start-2 row-start-1 flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm [&::-webkit-details-marker]:hidden">
           <FilterIcon className="size-4 text-muted" />
           <span id={titleId} className="font-semibold">
             Filters

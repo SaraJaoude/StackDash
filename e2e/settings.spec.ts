@@ -1,3 +1,5 @@
+import AxeBuilder from "@axe-core/playwright";
+
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
@@ -51,6 +53,43 @@ ownerTest.describe("renaming a workspace as the owner", () => {
       await save.click();
       await expect(page.getByRole("status").filter({ hasText: "Workspace renamed." })).toBeVisible();
       await expect(field).not.toHaveAttribute("aria-invalid", "true");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps focus on Save name through a keyboard save and blocks a second save while pending", async ({ page }) => {
+    const workspace = await createTestWorkspace("Rename focus");
+    try {
+      const settingsUrl = `/w/${workspace.slug}/settings`;
+      // Hold the Server Action request, so the pending state can be checked before it settles.
+      const { promise: held, resolve: release } = Promise.withResolvers<void>();
+      let saves = 0;
+      await page.route(new RegExp(`${settingsUrl}$`), async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        saves += 1;
+        await held;
+        return route.fallback();
+      });
+      await page.goto(settingsUrl);
+      await page.getByLabel("Workspace name").fill(`Kept focus ${workspace.slug}`);
+      const save = page.getByRole("button", { name: "Save name" });
+      await save.focus();
+      await page.keyboard.press("Enter");
+
+      // Pending: announced as unavailable, still focused, and a second Enter sends nothing.
+      const saving = page.getByRole("button", { name: "Saving" });
+      await expect(saving).toHaveAttribute("aria-disabled", "true");
+      await expect(saving).toBeFocused();
+      await page.keyboard.press("Enter");
+      release();
+
+      await expect(page.getByRole("status").filter({ hasText: "Workspace renamed." })).toBeVisible();
+      await expect(save).not.toHaveAttribute("aria-disabled");
+      await expect(save).toBeFocused();
+      expect(saves).toBe(1);
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }
