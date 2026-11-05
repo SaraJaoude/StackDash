@@ -136,9 +136,10 @@ export function createSupabaseJobStore(): JobStore {
 
     async markSimulatedSyncsDue(at) {
       const due = at.toISOString();
-      // Every active simulated connection, including ones already due or never scheduled: setting
-      // those to `at` changes nothing that matters, and the count then answers "is there anything
-      // to stream", which the watch loop reports when the answer is no.
+      // Every active simulated connection, including ones already due or never scheduled. Moving
+      // those to `at` keeps them due as long as the watcher's clock is not ahead of the database's
+      // now() (both are this machine locally); the count then answers "is anything active to
+      // stream", which the watch loop reports when the answer is no.
       const { data, error } = await db
         .from("connections")
         .update({ next_sync_at: due })

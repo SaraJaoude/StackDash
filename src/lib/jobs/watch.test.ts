@@ -12,11 +12,9 @@ import {
   abortableSleep,
   countingEventWrites,
   formatTickLine,
-  NO_SIMULATED_CONNECTIONS_HINT,
   parseTickArgs,
   runWatch,
   runWatchTick,
-  SIMULATION_OFF_HINT,
   WATCH_CLAIM_LIMIT,
   WATCH_DEFAULT_INTERVAL_SECONDS,
   type WatchDeps,
@@ -130,20 +128,21 @@ describe("runWatch", () => {
     await runWatch(deps, 10);
     expect(calls).toEqual(["tick", "sleep 10000", "tick"]);
     expect(lines.filter((line) => line.includes("Provider simulation is off"))).toHaveLength(1);
-    expect(lines.filter((line) => line === SIMULATION_OFF_HINT)).toHaveLength(1);
+    // The one setting that turns streaming on, and that a running watcher must be restarted.
+    expect(lines.filter((line) => line.includes("add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher"))).toHaveLength(1);
   });
 
-  it("with simulation on but no simulated connection, says how to connect one, once", async () => {
+  it("with simulation on but no active simulated connection, says how to connect one, once", async () => {
     const { deps, lines } = harness({ simulating: true, ticks: 3, dueCounts: [0] });
     await runWatch(deps, 10);
-    expect(lines.filter((line) => line === NO_SIMULATED_CONNECTIONS_HINT)).toHaveLength(1);
-    expect(lines).not.toContain(SIMULATION_OFF_HINT);
+    expect(lines.filter((line) => line.startsWith("No active simulated connection"))).toHaveLength(1);
+    expect(lines.some((line) => line.includes("DEVMACRO_SIMULATE_PROVIDERS=1"))).toBe(false);
   });
 
-  it("stays quiet once a simulated connection exists, and says it again only if they all go away", async () => {
+  it("stays quiet once a simulated connection is active, and says it again only if none is", async () => {
     const { deps, lines } = harness({ simulating: true, ticks: 4, dueCounts: [0, 2, 2, 0] });
     await runWatch(deps, 10);
-    expect(lines.filter((line) => line === NO_SIMULATED_CONNECTIONS_HINT)).toHaveLength(2);
+    expect(lines.filter((line) => line.startsWith("No active simulated connection"))).toHaveLength(2);
   });
 
   it("prints a failed tick and keeps going", async () => {
