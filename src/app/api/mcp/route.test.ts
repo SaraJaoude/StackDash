@@ -566,7 +566,7 @@ describe("the HTTP endpoint", () => {
     expect(readCalls()).toEqual([]);
   });
 
-  it.each(["2025-03-26", "2025-11-25"])(
+  it.each(["2025-03-26", "2025-11-25", "2026-07-28"])(
     "refuses a JSON-RPC batch of two tool calls with 400 and reads no workspace data (protocol %s)",
     async (version) => {
       const { key } = generateApiKey();
