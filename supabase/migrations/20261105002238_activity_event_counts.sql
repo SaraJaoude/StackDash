@@ -8,16 +8,19 @@
 --   events its timeline link lists: p_providers empty means any provider, otherwise events with no
 --   provider (DevMacro's own, such as devmacro.alert_triggered) are left out; p_account_ids null
 --   means any account, otherwise events with no account are left out.
--- * security definer with one membership check up front, so a non-member counts nothing. As
---   security invoker, the activity_events select policy called public.has_workspace_role (security
---   definer, so never inlined) once per scanned row: measured with explain (analyze, buffers) on
---   #191, that call was most of the run time over a window of thousands of events a day.
+-- * security definer with one membership check up front, so a non-member counts nothing and no
+--   row is read for them. As security invoker, the activity_events select policy called
+--   public.has_workspace_role (security definer, so never inlined) once per scanned row. Measured
+--   with explain (analyze, buffers) on #191 over 2.3 million synthetic events in one workspace:
+--   30 days went from 3.1 s to about 45 ms, 13 months from 35.7 s per page to about 0.55 s.
 -- * Grouping by month here keeps the result at most one row per bucket, provider, and type, so it
 --   fits one PostgREST response and the caller never pages: an offset page would run the whole
 --   aggregate again.
--- * The planner reads the window from activity_events_workspace_timeline_idx
---   (workspace_id, occurred_at desc, id desc) and filters the types on the heap rows; the plans are
---   quoted on #191.
+-- * No index serves the type filter. The planner reads the window through
+--   activity_events_workspace_timeline_idx or activity_events_occurred_at_idx and filters the types
+--   on the heap rows, or scans the table when the window is most of it. One generic plan cannot
+--   fit both a 30 day and a 13 month window (after five calls it chose the index for 13 months and
+--   ran about a third slower), so every call is planned for its own arguments.
 
 create function public.activity_event_counts(
   p_workspace_id uuid,
@@ -32,6 +35,7 @@ create function public.activity_event_counts(
   stable
   security definer
   set search_path = ''
+  set plan_cache_mode = force_custom_plan
 as $$
 begin
   if p_bucket is null or p_bucket not in ('day', 'month') then
