@@ -167,9 +167,11 @@ describe("daily summary (#64)", () => {
     const { store, deps } = setup();
     const github = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "github", status: "needs_attention" });
     const common = { connection_id: github.id, kind: "verified_spend", currency: "USD", point_at: null } as const;
+    const monthAccount = crypto.randomUUID();
+    const dayAccount = crypto.randomUUID();
     store.snapshots.push(
-      snapshot({ ...common, metric_key: "github.spend.actions", amount_minor: 5175, period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" }),
-      snapshot({ ...common, metric_key: "github.daily_spend.actions", amount_minor: 1252, period_start: "2026-10-14T00:00:00.000Z", period_end: "2026-10-15T00:00:00.000Z" }),
+      snapshot({ ...common, external_account_id: monthAccount, metric_key: "github.spend.actions", amount_minor: 5175, period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" }),
+      snapshot({ ...common, external_account_id: dayAccount, metric_key: "github.daily_spend.actions", amount_minor: 1252, period_start: "2026-10-14T00:00:00.000Z", period_end: "2026-10-15T00:00:00.000Z" }),
     );
 
     await runTick(deps);
