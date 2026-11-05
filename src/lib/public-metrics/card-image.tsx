@@ -65,8 +65,9 @@ function Frame({ tag, children, footer }: { tag: ReactNode; children: ReactNode;
   return (
     <div
       style={{
-        width: "100%",
-        height: "100%",
+        // In pixels: with height 100% the frame took its content's height, leaving a white band under short cards.
+        width: CARD_SIZE.width,
+        height: CARD_SIZE.height,
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
