@@ -206,6 +206,57 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
+  ownerTest("keeps the keyboard's selection when the list scrolls under a resting pointer", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette pointer");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      const options = palette(page).getByRole("option");
+      await expect(options.nth(2)).toBeVisible();
+
+      // Moving over a row selects it. Entering only records where the pointer is, so move twice.
+      const box = await options.nth(2).boundingBox();
+      if (box === null) throw new Error("The third result has no layout box.");
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x - 8, y);
+      await page.mouse.move(x, y);
+      await expect(options.nth(2)).toHaveAttribute("aria-selected", "true");
+
+      // Down to the last result scrolls the list, which slides other rows under the resting pointer.
+      const total = await options.count();
+      for (let index = 2; index < total - 1; index += 1) await page.keyboard.press("ArrowDown");
+      const last = options.nth(total - 1);
+      await expect(last).toHaveAttribute("aria-selected", "true");
+      expect(await palette(page).getByRole("listbox").evaluate((list) => list.scrollTop)).toBeGreaterThan(0);
+
+      // What a browser sends after that scroll (Firefox always does): the row now under the
+      // pointer gets an enter and a move at the same position. The selection stays.
+      const underId = await page.evaluate(
+        ({ x, y }) => {
+          const row = document.elementFromPoint(x, y)?.closest('[role="option"]');
+          if (!(row instanceof HTMLElement)) return null;
+          for (const type of ["pointerover", "pointermove"]) {
+            row.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerType: "mouse" }));
+          }
+          return row.id;
+        },
+        { x, y },
+      );
+      if (underId === null) throw new Error("No result is under the pointer.");
+      expect(underId).not.toBe(await last.getAttribute("id"));
+      await expect(last).toHaveAttribute("aria-selected", "true");
+      await expect(palette(page).getByRole("option", { selected: true })).toHaveCount(1);
+
+      // Real movement selects the row under the pointer again.
+      await page.mouse.move(x + 8, y, { steps: 2 });
+      await expect(palette(page).locator(`[id="${underId}"]`)).toHaveAttribute("aria-selected", "true");
+      await expect(last).toHaveAttribute("aria-selected", "false");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("opens with the shortcut, keeps focus inside, and Escape returns focus", async ({ page }) => {
     const workspace = await seedPaletteWorkspace("Palette shortcut");
     try {

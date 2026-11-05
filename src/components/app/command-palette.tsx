@@ -10,6 +10,7 @@ import {
   useState,
   useSyncExternalStore,
   type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
@@ -21,9 +22,11 @@ import {
   matchShortcut,
   MAX_QUERY_LENGTH,
   paletteShortcut,
+  pointerMoved,
   searchCommands,
   type PaletteCommand,
   type PaletteSearch,
+  type PointerPosition,
 } from "@/lib/palette/search";
 
 const noSubscribe = () => () => {};
@@ -120,6 +123,9 @@ export function CommandPalette({
   const returnFocusRef = useRef<HTMLElement | null>(null);
   // "Show keyboard shortcuts" closes the palette and opens the list without returning focus first.
   const shortcutsNextRef = useRef(false);
+  // Where the pointer last was over the results, so a row scrolling under a resting pointer does
+  // not take the selection from the arrow keys.
+  const pointerRef = useRef<PointerPosition | null>(null);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -187,6 +193,20 @@ export function CommandPalette({
       event.preventDefault();
       choose(command);
     }
+  }
+
+  // A row selects on hover only when the pointer moves over it. Entering records the position
+  // without selecting, so a row that scrolls under a resting pointer (the arrow keys scrolled the
+  // list) keeps the keyboard's selection; the next real movement selects it.
+  function onOptionPointerEnter(event: ReactPointerEvent<HTMLLIElement>): void {
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+  }
+
+  function onOptionPointerMove(event: ReactPointerEvent<HTMLLIElement>, index: number): void {
+    const next = { x: event.clientX, y: event.clientY };
+    const moved = pointerMoved(pointerRef.current, next);
+    pointerRef.current = next;
+    if (moved) setActive(index);
   }
 
   const onDocumentKeyDown = useEffectEvent((event: KeyboardEvent) => {
@@ -303,7 +323,8 @@ export function CommandPalette({
                   role="option"
                   aria-selected={selected}
                   onClick={() => choose(command)}
-                  onPointerMove={() => setActive(index)}
+                  onPointerEnter={onOptionPointerEnter}
+                  onPointerMove={(event) => onOptionPointerMove(event, index)}
                   className={`flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm ${
                     selected ? "border-line-strong bg-panel-raised text-foreground" : "border-transparent text-muted"
                   }`}

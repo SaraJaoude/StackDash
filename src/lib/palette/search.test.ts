@@ -9,6 +9,7 @@ import {
   MAX_PALETTE_RESULTS,
   MAX_QUERY_LENGTH,
   paletteShortcut,
+  pointerMoved,
   searchCommands,
   type PaletteCommand,
   type PaletteKey,
@@ -164,6 +165,29 @@ describe("matchPaletteKey", () => {
     ["Tab, which the dialog handles", { key: "Tab", keyCode: 9, isComposing: false }],
   ])("leaves %s to the field", (_name, event) => {
     expect(matchPaletteKey(event)).toBeNull();
+  });
+});
+
+describe("pointerMoved", () => {
+  it("is true for the first pointer event", () => {
+    expect(pointerMoved(null, { x: 0, y: 0 })).toBe(true);
+  });
+
+  it.each([
+    ["across", { x: 101, y: 200 }],
+    ["down", { x: 100, y: 201 }],
+    ["to the origin", { x: 0, y: 0 }],
+  ])("is true when the pointer moves %s", (_name, next) => {
+    expect(pointerMoved({ x: 100, y: 200 }, next)).toBe(true);
+  });
+
+  it("is false when content scrolls under a resting pointer (same position)", () => {
+    expect(pointerMoved({ x: 100, y: 200 }, { x: 100, y: 200 })).toBe(false);
+  });
+
+  it("compares fractional positions exactly", () => {
+    expect(pointerMoved({ x: 100.5, y: 200.25 }, { x: 100.5, y: 200.25 })).toBe(false);
+    expect(pointerMoved({ x: 100.5, y: 200.25 }, { x: 100.5, y: 200.5 })).toBe(true);
   });
 });
 

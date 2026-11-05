@@ -1,8 +1,8 @@
 /**
  * The command palette's client-side half (#170): what a command is, how a query narrows the list,
- * which key presses open the palette or the shortcut list or move through the results. Pure
- * and client-safe, so every rule is unit tested and the palette searches in memory: typing never
- * reaches the server.
+ * which key presses open the palette or the shortcut list or move through the results, and when
+ * the pointer selects a result. Pure and client-safe, so every rule is unit tested and the palette
+ * searches in memory: typing never reaches the server.
  */
 
 export type PaletteAction = Readonly<{ kind: "navigate"; href: string }> | Readonly<{ kind: "shortcuts" }>;
@@ -109,6 +109,18 @@ export function matchPaletteKey(event: Readonly<Pick<KeyboardEvent, "key">> & Co
   if (event.key === "ArrowUp") return "previous";
   if (event.key === "Enter") return "choose";
   return null;
+}
+
+/** A pointer position in CSS pixels from the viewport's top left, as `clientX` and `clientY`. */
+export type PointerPosition = Readonly<{ x: number; y: number }>;
+
+/**
+ * True when the pointer really moved since `last`. Browsers also send pointer events when content
+ * scrolls under a pointer that is resting (Firefox sends a move after every scroll), and those
+ * keep the position, so comparing it tells the two apart. `last` is null before any pointer event.
+ */
+export function pointerMoved(last: PointerPosition | null, next: PointerPosition): boolean {
+  return last === null || last.x !== next.x || last.y !== next.y;
 }
 
 /**
