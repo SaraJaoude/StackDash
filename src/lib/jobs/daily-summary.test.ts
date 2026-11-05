@@ -210,4 +210,34 @@ describe("daily summary (#64)", () => {
       expect(summaries(store)[0]?.body).toContain("Example provider: Spending projection in USD unavailable (fewer than 3 days of data)");
     });
   });
+
+  it("counts GitHub spend once, not again per SKU and per day (#137)", async () => {
+    const { store, deps } = setup();
+    const github = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "github", status: "needs_attention" });
+    const account = { connection_id: github.id, external_account_id: crypto.randomUUID(), kind: "verified_spend", currency: "USD", point_at: null } as const;
+    const month = { period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" };
+    store.snapshots.push(
+      snapshot({ ...account, metric_key: "github.spend.actions", amount_minor: 5175, ...month }),
+      snapshot({ ...account, metric_key: "github.spend.actions.actions_linux", amount_minor: 5175, ...month }),
+      snapshot({ ...account, metric_key: "github.daily_spend.actions", amount_minor: 1252, period_start: "2026-10-14T00:00:00.000Z", period_end: "2026-10-15T00:00:00.000Z" }),
+    );
+
+    await runTick(deps);
+    expect(summaries(store)[0]?.body?.split("\n")).toEqual(["GitHub: Spending $51.75 (verified)", "GitHub: Usage unavailable"]);
+  });
+
+  it("still counts a GitHub day when another account reports the month (#137)", async () => {
+    const { store, deps } = setup();
+    const github = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "github", status: "needs_attention" });
+    const common = { connection_id: github.id, kind: "verified_spend", currency: "USD", point_at: null } as const;
+    const monthAccount = crypto.randomUUID();
+    const dayAccount = crypto.randomUUID();
+    store.snapshots.push(
+      snapshot({ ...common, external_account_id: monthAccount, metric_key: "github.spend.actions", amount_minor: 5175, period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" }),
+      snapshot({ ...common, external_account_id: dayAccount, metric_key: "github.daily_spend.actions", amount_minor: 1252, period_start: "2026-10-14T00:00:00.000Z", period_end: "2026-10-15T00:00:00.000Z" }),
+    );
+
+    await runTick(deps);
+    expect(summaries(store)[0]?.body).toContain("GitHub: Spending $64.27 (verified)");
+  });
 });

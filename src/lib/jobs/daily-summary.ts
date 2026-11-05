@@ -1,5 +1,5 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
-import { dropSupersededBreakdowns, type ProviderId } from "@/lib/dashboard/aggregate";
+import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
 import { projectAllowances, projectSpend, quotaProjectionLine, spendProjectionLine } from "@/lib/dashboard/projection";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
@@ -14,7 +14,9 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *
  * - Each value is labeled verified (reported by the provider), estimated (calculated by DevMacro),
  *   or unavailable (no snapshot that day), never shown as 0 when missing.
- * - Money is summed per provider and currency only, never across currencies.
+ * - Money is summed per provider and currency only, never across currencies, and each amount
+ *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
+ *   is not added to its product's month again.
  * - Each provider's spend projected to the end of its billing period follows its values (#167),
  *   labeled as an estimate by DevMacro, or says why there is none; a quota projected to run out
  *   before its reset, or already used up, gets a line too. Projections are as of the end of the
@@ -113,7 +115,7 @@ export function buildDailySummary(input: {
     if (provider === undefined || row.snapshot_date > input.date) continue;
     byProvider.get(provider)?.history.push(row);
   }
-  for (const row of dropSupersededBreakdowns(input.snapshots.filter((candidate) => candidate.snapshot_date === input.date))) {
+  for (const row of countedSnapshots(input.snapshots.filter((candidate) => candidate.snapshot_date === input.date))) {
     const provider = providerOf.get(row.connection_id);
     if (provider !== undefined) byProvider.get(provider)?.day.push(row);
   }
