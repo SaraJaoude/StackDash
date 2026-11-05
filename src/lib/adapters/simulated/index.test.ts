@@ -77,6 +77,14 @@ async function connect(adapter: ProviderAdapter): Promise<OAuthCredential> {
 
 type SpanSync = { accountId: string; at: Date; result: SyncResult };
 
+// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so its 721 chained syncs are
+// the slowest work in this file, and two places run them: Stripe's `beforeAll` in "simulated %s over
+// a two hour span" and the group test at the end. Each takes about 1.5 s on a laptop on the merged
+// base, and the group test took 2.5 s on CI (run 41960569995). Vitest's defaults are 5 s for a test
+// and 10 s for a hook, and the all-provider shape this replaced ran past 5 s on CI (run 41959212551).
+// 20 s is eight times the CI measurement, for both.
+const WATCH_TIMEOUT_MS = 20_000;
+
 /** Syncs every account once per 10 second slot across the span, chaining cursors like the runner. */
 async function syncSpan(adapter: ProviderAdapter, credential: OAuthCredential): Promise<SpanSync[]> {
   const accounts = await adapter.listAccounts(credential, makeCtx(SPAN_START));
@@ -247,10 +255,11 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
   let results: SpanSync[];
   let allEvents: ActivityEvent[];
 
+  // Carries the Stripe cost described at WATCH_TIMEOUT_MS, so it states the same timeout.
   beforeAll(async () => {
     results = await syncSpan(adapter, await connect(adapter));
     allEvents = results.flatMap(({ result }) => result.events);
-  });
+  }, WATCH_TIMEOUT_MS);
 
   it("passes validateAdapterMetrics and validateAdapterEvents on every sync", () => {
     for (const { result } of results) {
@@ -374,12 +383,9 @@ describe("simulated sync boundaries", () => {
 
 // The five providers simulated since #131, the group the watch bounds below were set for. Fixed, so
 // these aggregate bounds and this test's cost stay the same as providers are added; every provider's
-// own silence and flood bounds are in "simulated %s over a two hour span" above.
+// own silence and flood bounds are in "simulated %s over a two hour span" above. Its timeout is
+// explained at WATCH_TIMEOUT_MS.
 const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
-// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so this group is the slowest
-// test in the file: 1.4 s on a laptop, 2.5 s on CI (run 41960569995). The all-provider shape it
-// replaced ran past the 5 s default on CI (run 41959212551). 20 s is eight times the CI measurement.
-const WATCH_TIMEOUT_MS = 20_000;
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
   it("bring new events on most ticks across the #131 providers, and keep Stripe revenue moving", async () => {
