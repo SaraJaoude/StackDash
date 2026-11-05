@@ -154,6 +154,7 @@ The first sync looks back 7 days. The cursor is the latest status time seen; eac
 | Value | Status |
 |---|---|
 | Deployment status, times, service, and environment | Verified (Railway's records) |
+| That a removed deployment had succeeded | Inferred from `canRollback` (Unverified 14); only the title of its removal says so, no success time is invented |
 | CPU, memory, egress, and volume used this billing period | Verified quantities; units unverified |
 | Usage cost so far (`currentUsage`) | Verified, but cached by Railway and possibly behind |
 | Credit balance and billing period | Verified |
