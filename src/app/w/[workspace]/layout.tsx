@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
@@ -123,6 +124,8 @@ async function HeaderPalette({ membership }: { membership: WorkspaceMembership }
   try {
     scopeOptions = buildScopeOptions(await getWorkspaceScope(workspace.id), EMPTY_SCOPE);
   } catch (error) {
+    // notFound(), redirect(), and a postponed request-time read signal through throws; let Next.js handle them.
+    unstable_rethrow(error);
     const referenceId = logError("palette.scope_load_failed", error, { workspaceId: workspace.id });
     notice = `Providers, projects, and accounts could not be loaded, so only pages are listed. Reload the page to try again, and quote reference ${referenceId} if it keeps happening.`;
   }
