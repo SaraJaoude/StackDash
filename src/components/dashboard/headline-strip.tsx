@@ -10,6 +10,7 @@ import {
   headlineComparisonText,
   headlineTitle,
   moneyFormatter,
+  wholeDaysNote,
   windowDescription,
   type ComparisonGap,
   type CostPerSignupFigure,
@@ -144,7 +145,14 @@ function CountFigureBody({
   singular: string;
   children?: ReactNode;
 }) {
-  if (figure.value === null) return <UnavailableFigure reason={sourcesUnavailable(figure, noun)} />;
+  if (figure.value === null) {
+    return (
+      <>
+        <UnavailableFigure reason={sourcesUnavailable(figure, noun)} />
+        {children}
+      </>
+    );
+  }
   return (
     <>
       <Value
@@ -174,6 +182,12 @@ function LeftOut({ side, names }: { side: string; names: readonly string[] }) {
 function DeploysExtra({ figure }: { figure: DeploysFigure }) {
   if (figure.failed === null || figure.failed === 0) return null;
   return <p className="text-xs leading-5 text-muted">{`Including ${formatQuantity(figure.failed, "failed")}.`}</p>;
+}
+
+/** Why a source that reports whole UTC days leaves today out, shown whether or not it could report. */
+function WholeDays({ names }: { names: readonly string[] }) {
+  if (names.length === 0) return null;
+  return <p className="text-xs leading-5 text-muted">{wholeDaysNote(names)}</p>;
 }
 
 export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<Record<HeadlineWindowKind, string>> }) {
@@ -230,7 +244,9 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
           )}
         </Figure>
         <Figure label="Signups">
-          <CountFigureBody figure={strip.signups} kind={kind} noun="signups" singular="signup" />
+          <CountFigureBody figure={strip.signups} kind={kind} noun="signups" singular="signup">
+            <WholeDays names={strip.signups.wholeDays} />
+          </CountFigureBody>
         </Figure>
         <Figure
           label="Cost per signup"

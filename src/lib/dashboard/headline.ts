@@ -20,6 +20,11 @@
  * - Signups and deploys are counts of synced events of the types adapters declare in that
  *   category. A connection counts in a window when it had reported by the window's first day (its
  *   oldest reading, read on its own) and has synced since the start of the last required day.
+ * - A provider that reports signups only as one total per UTC day (PostHog) declares the usage
+ *   metric holding it, and its signups are the sum of those daily readings. A day's total exists
+ *   once the day has ended, so such a provider counts the current window's whole days, up to
+ *   yesterday, and the same number of days of the previous window. Every one of those days needs
+ *   a reading, or the provider is unavailable for the window.
  * - A comparison needs every connection behind the current figure to be available in the previous
  *   window as well, and the previous figure is taken over those same connections.
  */
@@ -46,27 +51,33 @@ export type HeadlineWindows = Readonly<{
   previous: DateRange;
 }>;
 
-/** A window plus the last day every source must have reported for it to be complete. */
-type WindowSpec = DateRange & Readonly<{ requiredEnd: string }>;
+/**
+ * A window plus the last day every source must have reported for it to be complete, and the last
+ * day a source that reports whole UTC days counts (before `start` when there is none).
+ */
+type WindowSpec = DateRange & Readonly<{ requiredEnd: string; wholeDaysEnd: string }>;
 
 /**
- * The event type ids the strip counts, as the adapters declare them (`EventType.category`), so a
- * new provider's signups and deploys count without a list here. The provider is the type id's
- * prefix. `deploys` holds every outcome; `failedDeploys` the failed ones among them.
+ * What the strip counts, as the adapters declare it, so a new provider's signups and deploys count
+ * without a list here: the event type ids of each category (`EventType.category`), and the usage
+ * metric keys that hold a day's signups (`ProviderAdapter.signupDailyTotals`). The provider is the
+ * id's or key's prefix. `deploys` holds every outcome; `failedDeploys` the failed ones among them.
  */
 export type HeadlineEventTypes = Readonly<{
   signups: readonly string[];
   deploys: readonly string[];
   failedDeploys: readonly string[];
+  signupDailyTotals: readonly string[];
 }>;
 
-export function headlineEventTypes(declared: readonly EventType[]): HeadlineEventTypes {
+export function headlineEventTypes(declared: readonly EventType[], signupDailyTotals: readonly string[]): HeadlineEventTypes {
   const ofCategory = (...categories: readonly EventCategory[]) =>
     declared.filter((type) => type.category !== undefined && categories.includes(type.category)).map((type) => type.id);
   return {
     signups: ofCategory("signup"),
     deploys: ofCategory("deploy_succeeded", "deploy_failed"),
     failedDeploys: ofCategory("deploy_failed"),
+    signupDailyTotals,
   };
 }
 
@@ -103,6 +114,13 @@ function maxDate(a: string, b: string): string {
   return a > b ? a : b;
 }
 
+/** Every UTC date from `from` to `to`, both inclusive; none when `to` is before `from`. */
+function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let date = from; date <= to; date = addDays(date, 1)) out.push(date);
+  return out;
+}
+
 /** The current window to date and the same days of the window before it, in UTC. */
 export function headlineWindows(kind: HeadlineWindowKind, now: Date): HeadlineWindows {
   const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
@@ -126,11 +144,26 @@ export function headlineWindows(kind: HeadlineWindowKind, now: Date): HeadlineWi
   };
 }
 
-/** Today is still running, so the current window must be complete up to yesterday (or its first day). */
+/**
+ * Today is still running, so the current window must be complete up to yesterday (or its first
+ * day). A daily total exists only once its day has ended, so a source that reports whole days
+ * counts the current window up to yesterday and the previous window over as many days.
+ */
 function windowSpecs(windows: HeadlineWindows): Readonly<{ current: WindowSpec; previous: WindowSpec }> {
+  const wholeDays = (dayStart(windows.current.end) - dayStart(windows.current.start)) / DAY_MS;
+  const previousWholeDaysEnd = addDays(windows.previous.start, wholeDays - 1);
   return {
-    current: { ...windows.current, requiredEnd: maxDate(windows.current.start, addDays(windows.current.end, -1)) },
-    previous: { ...windows.previous, requiredEnd: windows.previous.end },
+    current: {
+      ...windows.current,
+      requiredEnd: maxDate(windows.current.start, addDays(windows.current.end, -1)),
+      wholeDaysEnd: addDays(windows.current.end, -1),
+    },
+    previous: {
+      ...windows.previous,
+      requiredEnd: windows.previous.end,
+      // A shorter previous month ends before as many days have passed.
+      wholeDaysEnd: previousWholeDaysEnd < windows.previous.end ? previousWholeDaysEnd : windows.previous.end,
+    },
   };
 }
 
@@ -278,6 +311,57 @@ function moneySource(series: readonly MoneySeries[], window: WindowSpec): Totals
   return reported ? totals : null;
 }
 
+// Signups reported as one total per UTC day.
+
+/** One account's readings of one daily total metric: the total for each UTC day, keyed by the day. */
+type DailySeries = ReadonlyMap<string, number>;
+
+/** A `usage` reading of a declared daily total whose period is exactly one UTC day. */
+function isDailyTotal(row: SnapshotInput, metricKeys: readonly string[]): boolean {
+  if (row.kind !== "usage" || row.value === null || !metricKeys.includes(row.metric_key)) return false;
+  if (row.period_start === null || row.period_end === null) return false;
+  const start = Date.parse(row.period_start);
+  return start % DAY_MS === 0 && Date.parse(row.period_end) - start === DAY_MS;
+}
+
+/** Each connection's daily total series, one per account and metric; a later reading of a day wins. */
+function buildDailySeries(rows: readonly SnapshotInput[], metricKeys: readonly string[]): Map<string, DailySeries[]> {
+  const byConnection = new Map<string, DailySeries[]>();
+  const totals = rows.filter((row) => isDailyTotal(row, metricKeys));
+  for (const list of groupBy(totals, (row) => `${row.connection_id} ${row.external_account_id} ${row.metric_key}`).values()) {
+    list.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+    const days = new Map(list.map((row) => [isoDate(Date.parse(row.period_start ?? "")), row.value ?? 0]));
+    const connectionId = list[0]?.connection_id ?? "";
+    byConnection.set(connectionId, [...(byConnection.get(connectionId) ?? []), days]);
+  }
+  return byConnection;
+}
+
+/**
+ * One connection's signups over the window's whole days, or null when it is unavailable: the
+ * window has no whole day yet, or a series misses one of the days. A series that stopped before
+ * the window or started after its last whole day is absent, as a money series is.
+ */
+function dailyTotalsInWindow(series: readonly DailySeries[], window: WindowSpec): number | null {
+  const days = datesBetween(window.start, window.wholeDaysEnd);
+  if (days.length === 0) return null;
+  let total = 0;
+  let reported = false;
+  for (const entry of series) {
+    const known = [...entry.keys()].sort();
+    const first = known[0];
+    const last = known.at(-1);
+    if (first === undefined || last === undefined || first > window.wholeDaysEnd || last < window.start) continue;
+    reported = true;
+    for (const day of days) {
+      const value = entry.get(day);
+      if (value === undefined) return null;
+      total += value;
+    }
+  }
+  return reported ? total : null;
+}
+
 // Figures.
 
 export type FigureValue = Readonly<{ value: number; comparison: TrendComparison }>;
@@ -302,6 +386,9 @@ export type CountFigure = FigureSources & Readonly<{ value: FigureValue | null }
 
 export type DeploysFigure = CountFigure & Readonly<{ failed: number | null }>;
 
+/** `wholeDays`: the signup sources that report whole UTC days, so today is not in their count. */
+export type SignupsFigure = CountFigure & Readonly<{ wholeDays: readonly string[] }>;
+
 /**
  * Revenue minus spend, per currency and provenance. `lines` is null unless both revenue and spend
  * have a source; the providers left out on each side are the revenue and spend figures' own.
@@ -318,6 +405,8 @@ export type CostPerSignupSources = Readonly<{
   signupsFrom: readonly string[];
   spendUnavailable: readonly string[];
   signupsUnavailable: readonly string[];
+  /** Of `signupsFrom`, the ones that report whole UTC days, so today is not in their count. */
+  signupsWholeDays: readonly string[];
 }>;
 
 /** Lines only when spend and signups both have a source and there was at least one signup. */
@@ -332,7 +421,7 @@ export type HeadlineStrip = Readonly<{
   revenue: MoneyFigure;
   spend: MoneyFigure;
   net: NetFigure;
-  signups: CountFigure;
+  signups: SignupsFigure;
   costPerSignup: CostPerSignupFigure;
   deploys: DeploysFigure;
   /** Providers in the money figures whose own billing period is not this window. */
@@ -475,10 +564,29 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   };
   const ownsAny = (typeIds: readonly string[]) => (connection: ConnectionInput) =>
     typeIds.some((typeId) => typeId.split(".")[0] === connection.provider);
-  const { signups: signupTypes, deploys: deployTypes, failedDeploys: failedTypes } = input.eventTypes;
-  const signups = assemble(connections.filter(ownsAny(signupTypes)), eventsOf(signupTypes), specs);
+  const { signups: signupTypes, deploys: deployTypes, failedDeploys: failedTypes, signupDailyTotals } = input.eventTypes;
+  const countsSignupEvents = ownsAny(signupTypes);
+  const reportsDailyTotals = ownsAny(signupDailyTotals);
+  const dailySeries = buildDailySeries(input.snapshots.filter((row) => inScope.has(row.connection_id)), signupDailyTotals);
+  // A connection's signup events and daily totals, each of which must be able to report the window.
+  const signupsOf = (connection: ConnectionInput, window: WindowSpec): Totals | null => {
+    let count = 0;
+    if (countsSignupEvents(connection)) {
+      const events = eventsOf(signupTypes)(connection, window);
+      if (events === null) return null;
+      count += events.get("count") ?? 0;
+    }
+    if (reportsDailyTotals(connection)) {
+      const total = dailyTotalsInWindow(dailySeries.get(connection.id) ?? [], window);
+      if (total === null) return null;
+      count += total;
+    }
+    return new Map([["count", count]]);
+  };
+  const signupCandidates = connections.filter((connection) => countsSignupEvents(connection) || reportsDailyTotals(connection));
+  const signups = assemble(signupCandidates, signupsOf, specs);
   const deploys = assemble(connections.filter(ownsAny(deployTypes)), eventsOf(deployTypes), specs);
-  const signupsFigure = countFigure(signups);
+  const signupsFigure: SignupsFigure = { ...countFigure(signups), wholeDays: names(signupCandidates.filter(reportsDailyTotals)) };
   const deploysFigure = countFigure(deploys);
   const failed = deploysFigure.value === null ? null : deploys.included.reduce((sum, connection) => {
     return sum + (eventsOf(failedTypes)(connection, specs.current)?.get("count") ?? 0);
@@ -506,6 +614,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     signupsFrom: names(signups.included),
     spendUnavailable: names(spend.unavailable),
     signupsUnavailable: names(signups.unavailable),
+    signupsWholeDays: names(signups.included.filter(reportsDailyTotals)),
   };
   let costPerSignup: CostPerSignupFigure;
   if (spend.current === null) costPerSignup = { ...costSources, missing: "spend", lines: null };
@@ -620,12 +729,19 @@ export function moneyFormatter(currency: string): (value: number) => string {
   return (value) => formatMoney(value, currency);
 }
 
+/** "PostHog counts signups by whole UTC day, so today is not in its count yet." */
+export function wholeDaysNote(names: readonly string[]): string {
+  const one = names.length === 1;
+  return `${formatList(names)} ${one ? "counts" : "count"} signups by whole UTC day, so today is not in ${one ? "its" : "their"} count yet.`;
+}
+
 /** The cost per signup explanation: exactly which providers went into it. */
 export function costPerSignupExplanation(figure: CostPerSignupSources): string {
   const parts: string[] = [];
   if (figure.spendFrom.length > 0 && figure.signupsFrom.length > 0) {
     parts.push(`Spend from ${formatList(figure.spendFrom)}, divided by signups from ${formatList(figure.signupsFrom)}.`);
   }
+  if (figure.signupsWholeDays.length > 0) parts.push(wholeDaysNote(figure.signupsWholeDays));
   if (figure.spendUnavailable.length > 0) {
     parts.push(`Leaves out spend from ${formatList(figure.spendUnavailable)}, unavailable for this window.`);
   }

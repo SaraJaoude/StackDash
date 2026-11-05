@@ -11,7 +11,9 @@ import {
  * dashboard headline's signups and deploys, #173). Declared by the adapter, so a new provider's
  * events are counted without a second list to keep in step. Only for one event per signup or
  * deploy: the figures count events, so a daily summary (`supabase.auth.daily_summary`,
- * `posthog.signups.daily`) has no category.
+ * `posthog.signups.daily`) has no category. A provider that reports signups only as a daily total
+ * declares the usage metric holding it instead (`ProviderAdapter.signupDailyTotals`), and the
+ * headline sums that metric's daily readings.
  */
 export const EventCategorySchema = z.enum(["signup", "deploy_succeeded", "deploy_failed"]);
 

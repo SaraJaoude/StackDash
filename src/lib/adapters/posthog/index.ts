@@ -477,6 +477,9 @@ export function signupEvents(days: readonly SignupDay[], externalAccountId: stri
     }));
 }
 
+/** The usage metric holding the organization's signups for one UTC day, which the headline counts. */
+const SIGNUP_METRIC_KEY = "posthog.signups.daily";
+
 /** The organization's signups on its latest reported day, summed across the queried projects. */
 export function signupMetric(
   days: readonly SignupDay[],
@@ -488,7 +491,7 @@ export function signupMetric(
   const start = Date.parse(`${date}T00:00:00.000Z`);
   return {
     kind: "usage",
-    metricKey: "posthog.signups.daily",
+    metricKey: SIGNUP_METRIC_KEY,
     // The timeframe carries the day, so the label holds on any day the dashboard shows.
     label: "Daily signups",
     value: days.filter((day) => day.date === date).reduce((sum, day) => sum + day.signups, 0),
@@ -617,6 +620,7 @@ export const postHogAdapter: ProviderAdapter = {
     "Organization and project names",
   ],
   eventTypes,
+  signupDailyTotals: [SIGNUP_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

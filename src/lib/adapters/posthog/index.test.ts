@@ -444,6 +444,8 @@ describe("sync", () => {
       unit: "signups",
       timeframe: { type: "period", start: new Date("2026-11-04T00:00:00.000Z"), end: new Date("2026-11-05T00:00:00.000Z") },
     });
+    // Declared as a daily signup total, so the dashboard headline counts it as PostHog's signups (#173).
+    expect(postHogAdapter.signupDailyTotals).toEqual(["posthog.signups.daily"]);
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
   });
 

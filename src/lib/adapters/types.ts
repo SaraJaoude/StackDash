@@ -210,6 +210,10 @@ export interface ProviderAdapter {
   // Plain-language list for the connect screen, e.g. "Emails sent per day".
   readonly dataCollected: readonly string[];
   readonly eventTypes: readonly EventType[];
+  // Usage metric keys whose reading is the signups of one whole UTC day (its timeframe is that
+  // day), for a provider that reports a daily total rather than one event per signup. The
+  // dashboard headline (#173) sums these readings as the provider's signups. Omitted when none.
+  readonly signupDailyTotals?: readonly string[];
   readonly oauth: OAuthDescriptor;
   // Decided on #37: each adapter declares how often it polls, hourly unless its provider's
   // limits or retention need otherwise. Must be at least 60.

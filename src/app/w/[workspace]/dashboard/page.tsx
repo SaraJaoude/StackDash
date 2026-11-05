@@ -10,7 +10,7 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
-import { declaredEventTypes } from "@/lib/adapters/registry";
+import { declaredEventTypes, declaredSignupDailyTotals } from "@/lib/adapters/registry";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
@@ -104,7 +104,7 @@ async function DashboardContent({
   await connection();
   const now = new Date();
   const windows = headlineWindows(view.window, now);
-  const eventTypes = headlineEventTypes(declaredEventTypes);
+  const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const [workspaceScope, data, trendData, alertsSummary, headlineEvents] = await Promise.all([
     getWorkspaceScope(workspace.id),

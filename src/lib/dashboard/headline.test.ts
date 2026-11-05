@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventType } from "@/lib/adapters/events";
-import { declaredEventTypes } from "@/lib/adapters/registry";
+import { signupMetric } from "@/lib/adapters/posthog";
+import { declaredEventTypes, declaredSignupDailyTotals } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
@@ -12,6 +13,7 @@ import {
   headlineEventTypes,
   headlineWindows,
   moneyFormatter,
+  wholeDaysNote,
   windowDescription,
   type EventCount,
   type HeadlineEvents,
@@ -44,6 +46,7 @@ const supabase = connection("c-supabase", "supabase");
 const github = connection("c-github", "github");
 const fake = connection("c-fake", "fake");
 const digitalocean = connection("c-digitalocean", "digitalocean");
+const posthog = connection("c-posthog", "posthog");
 
 function dates(from: string, to: string): string[] {
   const out: string[] = [];
@@ -123,8 +126,44 @@ function allowance(connectionId: string, date: string): SnapshotInput {
   };
 }
 
+/**
+ * PostHog's daily signup totals, one per day, read the next morning: the real adapter's
+ * `signupMetric` as the sync stores it (`toSnapshotRow`, dated by when it was retrieved).
+ */
+function postHogTotals(
+  options: Readonly<{ from: string; to: string; signupsOn: (date: string) => number; skip?: readonly string[]; account?: string }>,
+): SnapshotInput[] {
+  return dates(options.from, options.to)
+    .filter((date) => !(options.skip ?? []).includes(date))
+    .map((date) => {
+      const retrievedAt = new Date(Date.parse(`${date}T01:00:00.000Z`) + DAY_MS);
+      const day = { project: { id: 1, name: "Web" }, date, signups: options.signupsOn(date) };
+      const metric = signupMetric([day], date, "org", retrievedAt, "us");
+      if (metric.kind !== "usage" || metric.timeframe.type !== "period") throw new Error("A daily signup total is usage over one day.");
+      return {
+        connection_id: posthog.id,
+        external_account_id: options.account ?? `${posthog.id}-account`,
+        metric_key: metric.metricKey,
+        kind: metric.kind,
+        label: metric.label,
+        snapshot_date: retrievedAt.toISOString().slice(0, 10),
+        value: metric.value,
+        unit: metric.unit,
+        amount_minor: null,
+        currency: null,
+        period_start: metric.timeframe.start.toISOString(),
+        period_end: metric.timeframe.end.toISOString(),
+        point_at: null,
+        resets_at: null,
+        retrieved_at: retrievedAt.toISOString(),
+        provenance_source: metric.provenance.source,
+        pricing_source: null,
+      };
+    });
+}
+
 const NO_EVENTS = { current: [], previous: [] } as const;
-const EVENT_TYPES = headlineEventTypes(declaredEventTypes);
+const EVENT_TYPES = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
 
 /** What `getHeadlineEvents` reads on its own: each connection's oldest reading. */
 function firstReadings(snapshots: readonly SnapshotInput[]): Map<string, string> {
@@ -450,6 +489,92 @@ describe("buildHeadline counts", () => {
   });
 });
 
+describe("buildHeadline daily signup totals", () => {
+  // This week's whole days are 2026-11-02 to 2026-11-04; last week's as many, 2026-10-26 to 2026-10-28.
+  const history = [allowance(supabase.id, "2026-10-01")];
+  const spend = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 125, from: "2026-10-01", to: "2026-11-05" });
+  const totals = (overrides: Partial<Parameters<typeof postHogTotals>[0]> = {}) =>
+    postHogTotals({
+      from: "2026-10-01",
+      to: "2026-11-04",
+      // 2026-10-29 is in last week's window but is the same weekday as today, so it never counts.
+      signupsOn: (date) => (date >= "2026-11-02" ? 40 : date === "2026-10-29" ? 900 : 20),
+      ...overrides,
+    });
+
+  it("counts PostHog's signups from its daily totals over the whole days, against as many days last week", () => {
+    const strip = headline({
+      snapshots: [...history, ...spend, ...totals()],
+      connections: [vercel, supabase, posthog],
+      events: {
+        current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 4 }],
+        previous: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 2 }],
+      },
+    });
+    // 4 events and 3 days of 40 now; 2 events and 3 days of 20 before.
+    expect(strip.signups).toMatchObject({
+      value: { value: 124, comparison: { status: "change", direction: "up", percent: 100, previous: 62 } },
+      included: ["PostHog", "Supabase"],
+      unavailable: [],
+      wholeDays: ["PostHog"],
+    });
+    // 500 cents over 124 signups now, against 500 over 62 before.
+    expect(line(strip.costPerSignup.lines, "USD")?.verified).toEqual({
+      value: 4,
+      comparison: { status: "change", direction: "down", percent: 50, previous: 8 },
+    });
+    expect(strip.costPerSignup).toMatchObject({
+      signupsFrom: ["PostHog", "Supabase"],
+      signupsWholeDays: ["PostHog"],
+      spendUnavailable: ["PostHog", "Supabase"],
+    });
+  });
+
+  it("names PostHog unavailable when a whole day has no reading, and gives no comparison when last week misses one", () => {
+    const missingNow = headline({ snapshots: totals({ skip: ["2026-11-03"] }), connections: [posthog] });
+    expect(missingNow.signups).toMatchObject({ value: null, included: [], unavailable: ["PostHog"], wholeDays: ["PostHog"] });
+    const missingBefore = headline({ snapshots: totals({ skip: ["2026-10-27"] }), connections: [posthog] });
+    expect(missingBefore.signups).toMatchObject({
+      value: { value: 120, comparison: { status: "unavailable", missing: "previous" } },
+      previousUnavailable: ["PostHog"],
+    });
+  });
+
+  it("has no whole day on a window's first day, so PostHog is unavailable rather than zero", () => {
+    const monday = new Date("2026-11-02T08:00:00.000Z");
+    const synced = connection(supabase.id, "supabase", { last_synced_at: "2026-11-02T07:00:00.000Z" });
+    const strip = headline({
+      now: monday,
+      snapshots: [...history, ...totals({ to: "2026-11-01" })],
+      connections: [synced, posthog],
+      events: { current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 3 }], previous: [] },
+    });
+    expect(strip.signups).toMatchObject({ value: { value: 3 }, included: ["Supabase"], unavailable: ["PostHog"], wholeDays: ["PostHog"] });
+    expect(strip.costPerSignup).toMatchObject({ signupsUnavailable: ["PostHog"], signupsWholeDays: [] });
+  });
+
+  it("counts as many days of a shorter previous month", () => {
+    // 2026-03-01 to 2026-03-30 against all 28 days of February.
+    const strip = headline({
+      kind: "month",
+      now: new Date("2026-03-31T12:00:00.000Z"),
+      snapshots: totals({ from: "2026-01-31", to: "2026-03-30", signupsOn: () => 1 }),
+      connections: [posthog],
+    });
+    expect(strip.signups.value).toMatchObject({ value: 30, comparison: { status: "change", direction: "up", previous: 28 } });
+  });
+
+  it("skips a series that stopped before the window, and a reading that is not one whole UTC day", () => {
+    const stopped = totals({ to: "2026-10-15", account: "c-posthog-old-account", signupsOn: () => 1_000 });
+    expect(headline({ snapshots: [...totals(), ...stopped], connections: [posthog] }).signups.value).toMatchObject({ value: 120, comparison: { previous: 60 } });
+    // Two days in one reading cannot be split, so 2026-11-03 has no reading of its own.
+    const twoDays = totals().map((row) =>
+      row.period_start === "2026-11-03T00:00:00.000Z" ? { ...row, period_end: "2026-11-05T00:00:00.000Z" } : row,
+    );
+    expect(headline({ snapshots: twoDays, connections: [posthog] }).signups).toMatchObject({ value: null, unavailable: ["PostHog"] });
+  });
+});
+
 describe("headline copy", () => {
   const usd = moneyFormatter("USD");
 
@@ -484,17 +609,34 @@ describe("headline copy", () => {
         signupsFrom: ["Supabase"],
         spendUnavailable: ["Resend", "Supabase"],
         signupsUnavailable: ["Example provider"],
+        signupsWholeDays: [],
       }),
     ).toBe(
       "Spend from GitHub and Vercel, divided by signups from Supabase. Leaves out spend from Resend and Supabase, unavailable for this window. Leaves out signups from Example provider, unavailable for this window. Each currency on its own, verified and estimated spend apart, rounded once to the currency's smallest unit.",
     );
   });
 
+  it("says which signup sources count whole UTC days, so today is not in their count", () => {
+    expect(
+      costPerSignupExplanation({
+        spendFrom: ["Vercel"],
+        signupsFrom: ["PostHog", "Supabase"],
+        spendUnavailable: [],
+        signupsUnavailable: [],
+        signupsWholeDays: ["PostHog"],
+      }),
+    ).toBe(
+      "Spend from Vercel, divided by signups from PostHog and Supabase. PostHog counts signups by whole UTC day, so today is not in its count yet. Each currency on its own, verified and estimated spend apart, rounded once to the currency's smallest unit.",
+    );
+    expect(wholeDaysNote(["Acme", "PostHog"])).toBe("Acme and PostHog count signups by whole UTC day, so today is not in their count yet.");
+  });
+
   it("never prints a dash or an exclamation mark", () => {
     const texts = [
       headlineComparisonText({ status: "change", direction: "down", percent: 50, previous: -500 }, usd, "week"),
       windowDescription(headlineWindows("month", NOW)),
-      costPerSignupExplanation({ spendFrom: ["Vercel"], signupsFrom: ["Supabase"], spendUnavailable: [], signupsUnavailable: [] }),
+      costPerSignupExplanation({ spendFrom: ["Vercel"], signupsFrom: ["PostHog"], spendUnavailable: [], signupsUnavailable: [], signupsWholeDays: ["PostHog"] }),
+      wholeDaysNote(["PostHog"]),
     ];
     for (const text of texts) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });
@@ -511,23 +653,28 @@ describe("headlineEventTypes", () => {
 
   it("counts what adapters declare, so a new provider's signups and deploys need no list here", () => {
     expect(
-      headlineEventTypes([
-        declaration("acme.user.created", "signup"),
-        declaration("acme.release.done", "deploy_succeeded"),
-        declaration("acme.release.broke", "deploy_failed"),
-      ]),
+      headlineEventTypes(
+        [
+          declaration("acme.user.created", "signup"),
+          declaration("acme.release.done", "deploy_succeeded"),
+          declaration("acme.release.broke", "deploy_failed"),
+        ],
+        ["acme.signups.day"],
+      ),
     ).toEqual({
       signups: ["acme.user.created"],
       deploys: ["acme.release.done", "acme.release.broke"],
       failedDeploys: ["acme.release.broke"],
+      signupDailyTotals: ["acme.signups.day"],
     });
   });
 
   it("leaves out event types declared with no category", () => {
-    expect(headlineEventTypes([declaration("acme.domain.verified"), declaration("acme.invoice.issued")])).toEqual({
+    expect(headlineEventTypes([declaration("acme.domain.verified"), declaration("acme.invoice.issued")], [])).toEqual({
       signups: [],
       deploys: [],
       failedDeploys: [],
+      signupDailyTotals: [],
     });
   });
 
@@ -544,8 +691,10 @@ describe("headlineEventTypes", () => {
     );
     expect(EVENT_TYPES.failedDeploys).toEqual(expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed"]));
     expect(EVENT_TYPES.deploys).not.toContain("digitalocean.deployment.started");
-    // Daily summaries are one event a day, not one per signup, so they are not counted as signups.
+    // Daily summaries are one event a day, not one per signup, so they are not counted as signups;
+    // PostHog's signups come from its declared daily total instead.
     expect(EVENT_TYPES.signups).not.toContain("supabase.auth.daily_summary");
     expect(EVENT_TYPES.signups).not.toContain("posthog.signups.daily");
+    expect(EVENT_TYPES.signupDailyTotals).toEqual(expect.arrayContaining(["posthog.signups.daily"]));
   });
 });
