@@ -15,6 +15,7 @@ import {
   POST_MAX_ATTEMPTS,
   postToChannel,
   PrivateAddressError,
+  repairStep,
   signWebhook,
   slackPayload,
   urlPolicyFromEnv,
@@ -473,7 +474,20 @@ describe("describeFailure", () => {
     ["http_503", "The service had an error"],
     ["http_302", "The webhook URL redirects somewhere else, which DevMacro does not follow"],
     ["something_else", "The service rejected the message"],
+    ["secret_missing", "The webhook URL can no longer be read"],
   ])("explains %s in plain words", (code, words) => {
     expect(describeFailure(code)).toBe(words);
+  });
+});
+
+describe("repairStep", () => {
+  it("asks for the URL again when it can no longer be read, since a test message cannot fix that", () => {
+    expect(repairStep("secret_missing", false)).toBe("Remove the channel on the alerts page and add it again with its URL");
+    expect(repairStep("secret_missing", true)).toBe("Remove the channel and add it again with its URL");
+  });
+
+  it("asks for a fixed webhook and a test message for every other failure", () => {
+    expect(repairStep("http_404", false)).toBe("Fix the webhook, then send a test message from the alerts page to turn it back on, or remove it");
+    expect(repairStep("http_503", true)).toBe("Fix the webhook, then send a test message to turn it back on, or remove it");
   });
 });

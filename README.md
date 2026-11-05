@@ -403,7 +403,8 @@ full procedure is in the header of `scripts/rotate-encryption-key.ts`:
    `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
 
 Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1); those
-connections need reconnecting.
+connections need reconnecting, and those alert channels need removing and adding again with their
+URL (the alerts page marks them as needing attention after their next message).
 
 ## Project layout
 

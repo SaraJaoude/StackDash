@@ -7,7 +7,15 @@ import type { ClaimedJob, EventRow } from "@/lib/jobs/store";
 import type { JobOutcome } from "@/lib/jobs/sync-connection";
 import type { LogFields, Logger } from "@/lib/log/logger";
 
-import { channelRequest, describeFailure, type ChannelRequest, type ChannelSecret, type PostOutcome } from "./channels";
+import {
+  channelRequest,
+  describeFailure,
+  repairStep,
+  SECRET_MISSING_CODE,
+  type ChannelRequest,
+  type ChannelSecret,
+  type PostOutcome,
+} from "./channels";
 import { renderNoticeEmail } from "./email";
 import { emailPreferenceUrl, unsubscribeUrls, workspaceLinks } from "./links";
 import {
@@ -168,17 +176,18 @@ async function sendToTarget(
   const { destination } = target;
   const secret = await deps.store.loadDestinationSecret(workspace.id, destination.id);
   if (secret === null) {
-    const referenceId = deps.logError("notifications.channel_secret_missing", new DeliveryFailure("No sealed URL for the channel"), {
+    // No sealed URL, or one this instance cannot decrypt (sealed under a key it no longer has, see
+    // scripts/rotate-encryption-key.ts). Retrying cannot bring it back: the channel needs its URL again.
+    const referenceId = deps.logError("notifications.channel_secret_missing", new DeliveryFailure("No readable sealed URL for the channel"), {
       workspaceId: workspace.id,
       destinationId: destination.id,
     });
-    return { ok: false, retryable: false, code: "secret_missing", referenceId };
+    return recordChannelFailure(deps, workspace, destination, { code: SECRET_MISSING_CODE, retryable: false }, referenceId);
   }
   const outcome = await deps.post(channelRequest(destination.kind, secret, notice, deps));
-  const health = nextDestinationHealth(destination, outcome.ok ? "delivered" : outcome.retryable ? "transient_failure" : "permanent_failure");
   if (outcome.ok) {
     await deps.store.updateDestinationHealth(workspace.id, destination.id, {
-      status: health.status,
+      status: nextDestinationHealth(destination, "delivered").status,
       consecutive_failures: 0,
       last_error_code: null,
       last_error_reference: null,
@@ -194,10 +203,26 @@ async function sendToTarget(
     code: outcome.code,
     attempts: outcome.attempts,
   });
+  return recordChannelFailure(deps, workspace, destination, outcome, referenceId);
+}
+
+/**
+ * Writes a failed delivery onto the channel: its failure count, error code, and reference id, so
+ * the alerts page shows the problem. A permanent failure, or the one that reaches the limit, makes
+ * the channel "needs attention" and writes one `devmacro.channel_needs_attention` event.
+ */
+async function recordChannelFailure(
+  deps: NotificationDeps,
+  workspace: WorkspaceInfo,
+  destination: DeliveryDestination,
+  failure: Readonly<{ code: string; retryable: boolean }>,
+  referenceId: string,
+): Promise<SendResult> {
+  const health = nextDestinationHealth(destination, failure.retryable ? "transient_failure" : "permanent_failure");
   await deps.store.updateDestinationHealth(workspace.id, destination.id, {
     status: health.status,
     consecutive_failures: health.consecutiveFailures,
-    last_error_code: outcome.code,
+    last_error_code: failure.code,
     last_error_reference: referenceId,
   });
   if (health.becameNeedsAttention) {
@@ -210,14 +235,14 @@ async function sendToTarget(
         type_id: CHANNEL_NEEDS_ATTENTION_TYPE_ID,
         severity: "critical",
         title: `The channel ${destination.name} needs attention`,
-        body: `${describeFailure(outcome.code)}, so DevMacro stopped posting alerts to ${destination.name}. Fix the webhook, then send a test message from the alerts page to turn it back on, or remove it. Reference ${referenceId}.`,
+        body: `${describeFailure(failure.code)}, so DevMacro stopped posting alerts to ${destination.name}. ${repairStep(failure.code, false)}. Reference ${referenceId}.`,
         url: null,
         occurred_at: deps.now().toISOString(),
         dedupe_key: `channel_needs_attention:${destination.id}:${deps.now().toISOString()}`,
       },
     ]);
   }
-  return { ok: false, retryable: outcome.retryable && !health.becameNeedsAttention, code: outcome.code, referenceId };
+  return { ok: false, retryable: failure.retryable && !health.becameNeedsAttention, code: failure.code, referenceId };
 }
 
 function failureEvent(input: {

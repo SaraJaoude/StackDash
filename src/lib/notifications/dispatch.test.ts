@@ -321,12 +321,40 @@ describe("runAlertDispatchJob: channel needs attention", () => {
     expect(store.destinations[0]).toMatchObject({ status: "active", consecutiveFailures: 0, lastErrorCode: null, lastDeliveredAt: NOW.toISOString() });
   });
 
-  it("fails a channel whose sealed URL is missing without retrying", async () => {
+  it("marks a channel whose sealed URL cannot be read as needing attention, without retrying", async () => {
     const { store, deps } = setup({ recipients: [] });
     store.destinations.push(channel("a", { secret: null }));
     store.alerts.push(alert("10"));
     expect(await runAlertDispatchJob(job(), deps)).toEqual({ status: "succeeded" });
-    expect(store.events[0]?.type_id).toBe(NOTIFICATION_FAILED_TYPE_ID);
+
+    // The alerts page reads these: the channel shows as needing attention, with the reason.
+    const [destination] = store.destinations;
+    expect(destination).toMatchObject({
+      status: "needs_attention",
+      consecutiveFailures: 1,
+      lastErrorCode: "secret_missing",
+      lastErrorReference: "REF-TEST0000",
+    });
+    expect(store.events.map((event) => event.type_id).sort()).toEqual([CHANNEL_NEEDS_ATTENTION_TYPE_ID, NOTIFICATION_FAILED_TYPE_ID].sort());
+    const attention = store.events.find((event) => event.type_id === CHANNEL_NEEDS_ATTENTION_TYPE_ID);
+    expect(attention?.body).toContain("The webhook URL can no longer be read, so DevMacro stopped posting alerts to #alerts-a.");
+    expect(attention?.body).toContain("Remove the channel on the alerts page and add it again with its URL.");
+    expect(attention?.body).toContain("Reference REF-TEST0000.");
+  });
+
+  it("posts nothing more to an unreadable channel once it needs attention", async () => {
+    const { store, deps } = setup({ recipients: [] });
+    store.destinations.push(channel("a", { secret: null }));
+    store.alerts.push(alert("10"));
+    await runAlertDispatchJob(job(), deps);
+    store.alerts.push(alert("11"));
+    await runAlertDispatchJob(job({ id: "job-2" }), deps);
+
+    // One failure, one needs attention event: the second dispatch skips the channel.
+    expect(store.events.filter((event) => event.type_id === NOTIFICATION_FAILED_TYPE_ID)).toHaveLength(1);
+    expect(store.events.filter((event) => event.type_id === CHANNEL_NEEDS_ATTENTION_TYPE_ID)).toHaveLength(1);
+    expect(store.destinations[0]?.consecutiveFailures).toBe(1);
+    expect(store.alerts.map((row) => row.dispatchedAt)).toEqual([NOW.toISOString(), NOW.toISOString()]);
   });
 });
 

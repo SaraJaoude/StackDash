@@ -4,7 +4,7 @@ import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { emailEnv } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { logError } from "@/lib/log/logger";
-import { describeFailure } from "@/lib/notifications/channels";
+import { describeFailure, repairStep } from "@/lib/notifications/channels";
 import { ALERT_EMAILS_SECTION_ID } from "@/lib/notifications/links";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
@@ -62,7 +62,7 @@ export async function AlertDelivery({
       destination.last_error_code === null
         ? null
         : `${describeFailure(destination.last_error_code)}.${destination.last_error_reference === null ? "" : ` Reference ${destination.last_error_reference}.`}${
-            destination.status === "needs_attention" ? " Fix the webhook, then send a test message to turn it back on." : ""
+            destination.status === "needs_attention" ? ` ${repairStep(destination.last_error_code, true)}.` : ""
           }`,
     lastDelivered: destination.last_delivered_at === null ? null : formatDateTime(destination.last_delivered_at),
   }));

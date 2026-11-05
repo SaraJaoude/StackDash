@@ -511,8 +511,12 @@ export function pinnedFetch(policy: UrlPolicy, resolveHost: ResolveHost = (hostn
   };
 }
 
+/** The failure code of a channel whose sealed URL is gone or cannot be decrypted (dispatch.ts). */
+export const SECRET_MISSING_CODE = "secret_missing";
+
 /** Plain words for a failure code, for the timeline and the channel's status line. */
 export function describeFailure(code: string): string {
+  if (code === SECRET_MISSING_CODE) return "The webhook URL can no longer be read";
   if (code === "rate_limited") return "The service kept asking DevMacro to slow down";
   if (code === "timeout") return "The service did not answer in time";
   if (code === "network_error") return "DevMacro could not reach the service";
@@ -523,4 +527,14 @@ export function describeFailure(code: string): string {
   if (/^http_3\d\d$/.test(code)) return "The webhook URL redirects somewhere else, which DevMacro does not follow";
   if (/^http_5\d\d$/.test(code)) return "The service had an error";
   return "The service rejected the message";
+}
+
+/**
+ * What an admin does about a channel that needs attention after this failure. A test message
+ * cannot repair an unreadable URL, so that one asks for the URL again. `onAlertsPage` drops the
+ * pointer to the page the reader is already on.
+ */
+export function repairStep(code: string, onAlertsPage: boolean): string {
+  if (code === SECRET_MISSING_CODE) return `Remove the channel${onAlertsPage ? "" : " on the alerts page"} and add it again with its URL`;
+  return `Fix the webhook, then send a test message${onAlertsPage ? "" : " from the alerts page"} to turn it back on, or remove it`;
 }
