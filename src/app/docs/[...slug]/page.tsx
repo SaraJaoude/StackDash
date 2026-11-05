@@ -37,7 +37,7 @@ export default async function DocRoute({ params }: PageProps<"/docs/[...slug]">)
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-10 px-6 py-12 lg:flex-row lg:gap-12 lg:py-16">
       <DocsNav groups={groupDocs(listDocs())} currentHref={doc.href} />
-      <main id="main" tabIndex={-1} className="min-w-0 max-w-3xl flex-1">
+      <main id="main" className="min-w-0 max-w-3xl flex-1">
         <article>
           <DocMarkdown doc={doc} />
         </article>

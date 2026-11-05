@@ -18,7 +18,7 @@ export const metadata: Metadata = { title: "Your workspace" };
  */
 export default function AppEntryPage() {
   return (
-    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-6 py-16">
+    <main id="main" className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-6 py-16">
       <Suspense fallback={<OpeningWorkspace />}>
         <OpenWorkspace />
       </Suspense>

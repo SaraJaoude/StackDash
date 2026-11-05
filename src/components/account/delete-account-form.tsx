@@ -7,7 +7,7 @@ import { GuardedButton } from "@/components/guarded-button";
 import { confirmationMatches, type AccountIdentity } from "@/lib/account/delete-account";
 
 const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
 /**
  * The last step of account deletion: typing the account email or GitHub username enables the

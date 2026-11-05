@@ -248,12 +248,15 @@ test.describe("deleting an account", () => {
       const confirmation = page.getByRole("textbox", { name: "Type your email address or GitHub username to confirm" });
       const button = page.getByRole("button", { name: "Delete my account" });
       await expect(button).toBeDisabled();
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
       await confirmation.fill("someone-else@example.com");
       await expect(button).toBeDisabled();
       await confirmation.fill(user.email.toUpperCase());
       await expect(button).toBeEnabled();
+      // axe's color-contrast rule skips disabled controls, so the scan waits for the enabled
+      // button to finish its fade in and checks the state a person is about to press.
+      await expect(button).toHaveCSS("opacity", "1");
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
       await button.click();
 
       await expect(page).toHaveURL(/\/account\/deleted\?manual=fake$/);

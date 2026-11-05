@@ -3,7 +3,7 @@ import Link from "next/link";
 // Shown for any /docs address with no doc behind it, inside the docs layout.
 export default function DocNotFound() {
   return (
-    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-16 sm:py-24">
+    <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-6 py-16 sm:py-24">
       <div className="max-w-xl rounded-xl border border-line bg-panel px-6 py-10 sm:px-10">
         <p className="font-mono text-[11px] font-medium text-muted">Not found</p>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">We could not find that doc</h1>
