@@ -128,7 +128,8 @@ function cyclePhrase(cycleKey: string): string {
     : `for the billing period starting ${cycleKey}`;
 }
 
-function inScope(target: ScopeTarget, item: ScopedItem): boolean {
+/** Whether a rule's or budget's scope covers an item. Also used for budget projections (#167). */
+export function inScope(target: ScopeTarget, item: ScopedItem): boolean {
   switch (target.scope) {
     case "workspace":
       return true;
@@ -141,7 +142,7 @@ function inScope(target: ScopeTarget, item: ScopedItem): boolean {
   }
 }
 
-function scopedItem(row: AlertSnapshotInput): ScopedItem {
+export function scopedItem(row: AlertSnapshotInput): ScopedItem {
   return { provider: row.provider, projectId: row.projectId, connectionId: row.connection_id };
 }
 

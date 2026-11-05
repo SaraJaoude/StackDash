@@ -2,8 +2,11 @@ import "server-only";
 
 import { cache } from "react";
 
+import type { AlertSnapshotInput } from "@/lib/alerts/evaluate";
 import type { BudgetValues } from "@/lib/alerts/rule-schema";
 import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
+import { getDashboardData, snapshotWindowStart } from "@/lib/data/dashboard";
+import { EMPTY_SCOPE } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -77,6 +80,26 @@ export const listSnapshotCurrencies = cache(async (workspaceId: string): Promise
   for (const row of data) if (row.currency !== null) currencies.add(row.currency);
   return [...currencies].sort();
 });
+
+/**
+ * Snapshot rows for budget projections (#167): the dashboard's snapshot window for the whole
+ * workspace, each row joined to its connection's provider and its account's project the way alert
+ * evaluation joins them (`src/lib/alerts/run.ts`). Rows of excluded accounts, or of an account that
+ * moved connection, are skipped. Call only after `requireWorkspace` has confirmed membership.
+ */
+export async function getBudgetSpendRows(workspaceId: string, now: Date): Promise<AlertSnapshotInput[]> {
+  const data = await getDashboardData(workspaceId, snapshotWindowStart(now), EMPTY_SCOPE);
+  const providerOf = new Map(data.connections.map((connection) => [connection.id, connection.provider]));
+  const accountById = new Map(data.accounts.map((account) => [account.id, account]));
+  const rows: AlertSnapshotInput[] = [];
+  for (const row of data.snapshots) {
+    const account = accountById.get(row.external_account_id);
+    const provider = providerOf.get(row.connection_id);
+    if (account === undefined || provider === undefined || account.connection_id !== row.connection_id) continue;
+    rows.push({ ...row, provider, projectId: account.project_id });
+  }
+  return rows;
+}
 
 export async function insertBudget(workspaceId: string, values: BudgetValues): Promise<void> {
   const supabase = await createClient();
