@@ -13,6 +13,10 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100200_daily_summary_jobs.sql` | `daily_summary` jobs and `enqueue_daily_summaries` |
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
+| `20261105002354_digitalocean_provider.sql` | `provider_id` gains `digitalocean` |
+| `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
+| `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
+| `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -147,7 +151,7 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 | Table | Why it is published |
 |---|---|
 | `activity_events` | New events on the timeline and the dashboard |
-| `usage_snapshots` | Spend, usage, and allowances on the dashboard and its trends |
+| `usage_snapshots` | Spend, revenue, recurring revenue, usage, and allowances on the dashboard and its trends |
 | `connections` | Sync status, last synced time, and errors on the connection pages and the dashboard |
 | `triggered_alerts` | The alerts page and the dashboard alerts summary |
 
