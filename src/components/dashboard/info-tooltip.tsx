@@ -1,16 +1,25 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 /**
  * A small "how is this worked out" button with a tooltip. The text is the button's accessible
  * description, so a screen reader announces it on focus whether or not it is shown. It opens on
- * hover, focus, or a tap, stays open while the pointer is over it, and closes on Escape (WCAG
+ * hover, focus, or a tap, stays open while the pointer is over it, and closes on Escape wherever
+ * focus is, so a tooltip opened by hover can be dismissed without moving the pointer (WCAG
  * 1.4.13, content on hover or focus).
  */
 export function InfoTooltip({ label, text }: { label: string; text: string }) {
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
+  useEffect(() => {
+    if (!open) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => document.removeEventListener("keydown", closeOnEscape);
+  }, [open]);
   return (
     <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
       <button

@@ -188,6 +188,13 @@ ownerTest.describe("dashboard headline strip", () => {
       await expect(explain).toHaveAccessibleDescription(/^Spend from Example provider, divided by signups/);
       await page.keyboard.press("Escape");
       await expect(tooltip).toBeHidden();
+      // Opened by hover with focus elsewhere, Escape still dismisses it (WCAG 1.4.13).
+      await strip.getByRole("link", { name: "This month" }).focus();
+      await explain.hover();
+      await expect(tooltip).toBeVisible();
+      await expect(explain).not.toBeFocused();
+      await page.keyboard.press("Escape");
+      await expect(tooltip).toBeHidden();
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
