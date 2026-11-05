@@ -78,11 +78,7 @@ const TIME_OF_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
  * "London time" in words. For text rendered in the browser.
  */
 export function formatLondonTime(at: Instant): string {
-  const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
-  for (const part of TIME_OF_DAY_FORMAT.formatToParts(typeof at === "string" ? new Date(at) : at)) {
-    parts[part.type] = part.value;
-  }
-  return `${parts.hour}:${parts.minute}:${parts.second}`;
+  return TIME_OF_DAY_FORMAT.format(typeof at === "string" ? new Date(at) : at);
 }
 
 /**
