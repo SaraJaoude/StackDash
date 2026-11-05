@@ -244,19 +244,23 @@ function ShareMetric({ metric, publication, projectId, origin }: {
   origin: string;
 }) {
   const shareable = shareableMetric(publication);
-  const badgeUrl = new URL(badgePath(projectId, metric.metricId), origin).href;
-  const cardUrl = new URL(cardPath(projectId, metric.metricId), origin).href;
+  // The previews load from this page's own origin, which the app's img-src 'self' allows even when
+  // NEXT_PUBLIC_SITE_URL names another host; the copied links use the public origin.
+  const badgeSrc = badgePath(projectId, metric.metricId);
+  const cardSrc = cardPath(projectId, metric.metricId);
+  const badgeUrl = new URL(badgeSrc, origin).href;
+  const cardUrl = new URL(cardSrc, origin).href;
   return (
     <ShareDialog
       title={`Share ${metric.label}`}
       triggerText="Share"
       subject={metric.label}
       badge={{
-        src: badgeUrl,
+        src: badgeSrc,
         alt: badgeAltText(shareable),
         markdown: badgeMarkdown({ badgeUrl, formulaUrl: new URL(metric.formulaPath, origin).href, label: metric.label }),
       }}
-      card={{ src: cardUrl, alt: cardAltText(shareable), ...CARD_SIZE, publicUrl: cardUrl }}
+      card={{ src: cardSrc, alt: cardAltText(shareable), ...CARD_SIZE, publicUrl: cardUrl }}
       xIntentUrl={shareToXUrl(shareText(shareable), cardUrl)}
       notes={[
         "Anyone with these links sees the published value, and nothing else. Unpublishing turns both into an Unpublished image within a minute.",
