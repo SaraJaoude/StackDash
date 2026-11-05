@@ -21,7 +21,7 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 type HeldReveals = Readonly<{
   /** Streamed boundaries inside #main that were held. */
   held: number;
-  /** Held boundaries React had already replaced with a client render. */
+  /** Streamed boundaries React replaced with a client render before their content was revealed. */
   clientRendered: number;
 }>;
 
@@ -41,6 +41,9 @@ async function holdPageReveals(page: Page): Promise<void> {
     type Reveal = (batch: Element[]) => void;
     let reveal: Reveal | undefined;
     const held: Element[] = [];
+    // React deletes a boundary's server markup, the `<template id="B:n">` included, when it gives
+    // up hydrating the boundary and renders it on the client.
+    let clientRendered = 0;
     const hold: Reveal = (batch) => {
       // React empties the batch after revealing it and schedules the next one when it refills.
       const pairs = batch.splice(0);
@@ -49,6 +52,7 @@ async function holdPageReveals(page: Page): Promise<void> {
         const boundary = pairs[index];
         const segment = pairs[index + 1];
         if (boundary === undefined || segment === undefined) continue;
+        if (!boundary.isConnected) clientRendered += 1;
         (boundary.closest("#main") === null ? now : held).push(boundary, segment);
       }
       if (now.length > 0) reveal?.(now);
@@ -62,14 +66,13 @@ async function holdPageReveals(page: Page): Promise<void> {
     });
     window.releaseHeldReveals = () => {
       const pairs = held.splice(0);
-      let clientRendered = 0;
       for (let index = 0; index < pairs.length; index += 2) {
-        // React deletes a boundary's server markup, the `<template id="B:n">` included, when it
-        // gives up hydrating and renders the boundary on the client.
         if (pairs[index]?.isConnected === false) clientRendered += 1;
       }
+      // Counted first: React's reveal empties the array it is given.
+      const reveals = { held: pairs.length / 2, clientRendered };
       if (pairs.length > 0) reveal?.(pairs);
-      return { held: pairs.length / 2, clientRendered };
+      return reveals;
     };
   });
 }
