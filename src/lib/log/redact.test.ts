@@ -37,6 +37,8 @@ const JWT = join(
   ".eyJzdWIiOiIxMjM0NTY3ODkwIiwicm9sZSI6ImF1dGhlbnRpY2F0ZWQifQ",
   ".SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c",
 );
+const DISCORD_TOKEN = join("abcDEF", "123_ghi-JKL456");
+const SLACK_SECRET = join("XXXX", "YYYY", "zzzz1234");
 
 describe("redactString", () => {
   const masked: readonly { name: string; input: string; secret: string }[] = [
@@ -65,6 +67,21 @@ describe("redactString", () => {
     { name: "password in connection string", input: "postgres://app:hunter2pass@db.example.com:5432/app", secret: "hunter2pass" },
     { name: "access_token query parameter", input: "https://x.example.com/?access_token=short123&a=1", secret: "short123" },
     { name: "OAuth code query parameter", input: "https://x.example.com/callback?code=abc123&state=s", secret: "abc123" },
+    {
+      name: "Discord webhook URL token",
+      input: `post to https://discord.com/api/webhooks/123456789/${DISCORD_TOKEN} failed`,
+      secret: DISCORD_TOKEN,
+    },
+    {
+      name: "Discord webhook URL on a versioned path",
+      input: `https://canary.discord.com/api/v10/webhooks/123456789/${DISCORD_TOKEN}`,
+      secret: DISCORD_TOKEN,
+    },
+    {
+      name: "Slack incoming webhook URL",
+      input: `"https://hooks.slack.com/services/T0001/B0002/${SLACK_SECRET}"`,
+      secret: SLACK_SECRET,
+    },
   ];
 
   it.each(masked)("masks $name", ({ input, secret }) => {

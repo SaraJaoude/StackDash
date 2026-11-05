@@ -3,7 +3,8 @@ import { utcDate } from "./ingest";
 
 /*
  * Retention (#37 decision): daily snapshots and activity events are kept 13 months, sync job rows
- * 30 days. Triggered alerts are kept while their rule exists, so they are not touched here. OAuth
+ * and digest delivery records (#152) 30 days. Triggered alerts are kept while their rule exists, so
+ * they are not touched here, and their delivery records go with them. OAuth
  * states go once expired: a finished connect flow deletes its own state, so an expired one belongs
  * to an abandoned flow and still holds a sealed PKCE verifier bound to a user.
  * Share surfaces (#149): the per IP rate limit counters of the public routes are kept one day
@@ -71,6 +72,7 @@ export type RetentionResult = {
   jobs: number;
   rateLimitCounters: number;
   metricViews: number;
+  deliveries: number;
   // False when the time budget ran out first; the next run continues.
   complete: boolean;
 };
@@ -97,6 +99,9 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
     hasTime,
   );
   const metricViews = await purgeAll(() => store.purgeMetricViews(cutoffs.metricViewsBeforeDate, RETENTION_BATCH_SIZE), hasTime);
+  // Digest delivery records only stop a retried digest job from sending twice, so they share the
+  // job rows' 30 days.
+  const deliveries = await purgeAll(() => store.purgeNotificationDeliveries(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
   return {
     oauthStates: oauthStates.deleted,
     snapshots: snapshots.deleted,
@@ -104,6 +109,7 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
     jobs: jobs.deleted,
     rateLimitCounters: rateLimitCounters.deleted,
     metricViews: metricViews.deleted,
-    complete: [oauthStates, snapshots, events, jobs, rateLimitCounters, metricViews].every((purge) => purge.complete),
+    deliveries: deliveries.deleted,
+    complete: [oauthStates, snapshots, events, jobs, rateLimitCounters, metricViews, deliveries].every((purge) => purge.complete),
   };
 }

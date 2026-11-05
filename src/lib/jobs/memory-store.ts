@@ -1,5 +1,6 @@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import { digestJobKey } from "@/lib/notifications/model";
 import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
@@ -46,6 +47,9 @@ export class MemoryJobStore implements JobStore {
   metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
   savedCredentials: OAuthCredential[] = [];
+  /** Workspaces with a triggered alert not dispatched yet, as triggered_alerts would answer. */
+  undispatchedAlertWorkspaces: string[] = [];
+  notificationDeliveries: Array<{ id: string; triggered_alert_id: string | null; delivered_at: string }> = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -404,6 +408,41 @@ export class MemoryJobStore implements JobStore {
     );
     this.metricViews = this.metricViews.filter((row) => !doomed.has(row));
     return doomed.size;
+  }
+
+  async purgeNotificationDeliveries(before: Date, limit: number): Promise<number> {
+    const { kept, deleted } = this.#purge(
+      this.notificationDeliveries,
+      (row) => row.triggered_alert_id === null && new Date(row.delivered_at).getTime() < before.getTime(),
+      limit,
+    );
+    this.notificationDeliveries = kept;
+    return deleted;
+  }
+
+  async enqueueAlertDispatches(): Promise<number> {
+    let queued = 0;
+    for (const workspaceId of new Set(this.undispatchedAlertWorkspaces)) {
+      const open = this.jobs.some(
+        (job) => job.kind === "alert_dispatch" && job.workspace_id === workspaceId && (job.status === "queued" || job.status === "running"),
+      );
+      if (open) continue;
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "alert_dispatch" }));
+      queued += 1;
+    }
+    return queued;
+  }
+
+  async enqueueDigests(date: string): Promise<number> {
+    const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
+    let queued = 0;
+    for (const workspaceId of workspaceIds) {
+      const dedupeKey = digestJobKey(workspaceId, date);
+      if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) continue;
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "digest", dedupe_key: dedupeKey }));
+      queued += 1;
+    }
+    return queued;
   }
 
   async enqueueDailySummaries(date: string): Promise<number> {

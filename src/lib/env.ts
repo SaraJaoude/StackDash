@@ -19,9 +19,26 @@ const encryptionEnvSchema = z.object({
   DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: z.string().min(1).optional(),
 });
 
+// Alert email (#152). Exactly one transport: SMTP for local and self-hosted installs (the local
+// Supabase mail catcher listens on SMTP), or Resend's HTTP API for the hosted instance. Neither set
+// means email is not set up on this instance; alerts still reach the app and the channels.
+const emailEnvSchema = z
+  .object({
+    DEVMACRO_EMAIL_FROM: z.string().trim().min(3),
+    DEVMACRO_SMTP_URL: z.url({ protocol: /^smtps?$/, error: "use smtp://host:port or smtps://user:password@host:port" }).optional(),
+    DEVMACRO_RESEND_API_KEY: z.string().min(1).optional(),
+  })
+  .refine((env) => env.DEVMACRO_SMTP_URL === undefined || env.DEVMACRO_RESEND_API_KEY === undefined, {
+    path: ["DEVMACRO_RESEND_API_KEY"],
+    error: "set either DEVMACRO_SMTP_URL or DEVMACRO_RESEND_API_KEY, not both",
+  });
+
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
+export type EmailEnv =
+  | Readonly<{ transport: "smtp"; from: string; smtpUrl: string }>
+  | Readonly<{ transport: "resend"; from: string; resendApiKey: string }>;
 
 function parseEnv<Schema extends z.ZodType>(
   schema: Schema,
@@ -85,4 +102,29 @@ export function encryptionEnv(): EncryptionEnv {
     DEVMACRO_ENCRYPTION_KEY: process.env.DEVMACRO_ENCRYPTION_KEY,
     DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: process.env.DEVMACRO_ENCRYPTION_KEYS_PREVIOUS,
   });
+}
+
+/**
+ * The alert email transport, or null when neither DEVMACRO_SMTP_URL nor DEVMACRO_RESEND_API_KEY is
+ * set. A transport without DEVMACRO_EMAIL_FROM, or both transports at once, is a configuration
+ * error rather than a silent "off".
+ */
+export function emailEnv(): EmailEnv | null {
+  if (typeof window !== "undefined") {
+    throw new Error("emailEnv() was called in the browser. Secret variables are server only.");
+  }
+  const input = {
+    DEVMACRO_EMAIL_FROM: process.env.DEVMACRO_EMAIL_FROM,
+    DEVMACRO_SMTP_URL: process.env.DEVMACRO_SMTP_URL,
+    DEVMACRO_RESEND_API_KEY: process.env.DEVMACRO_RESEND_API_KEY,
+  };
+  if (!input.DEVMACRO_SMTP_URL && !input.DEVMACRO_RESEND_API_KEY) return null;
+  const env = parseEnv(emailEnvSchema, input);
+  if (env.DEVMACRO_SMTP_URL !== undefined) {
+    return { transport: "smtp", from: env.DEVMACRO_EMAIL_FROM, smtpUrl: env.DEVMACRO_SMTP_URL };
+  }
+  if (env.DEVMACRO_RESEND_API_KEY !== undefined) {
+    return { transport: "resend", from: env.DEVMACRO_EMAIL_FROM, resendApiKey: env.DEVMACRO_RESEND_API_KEY };
+  }
+  return null;
 }
