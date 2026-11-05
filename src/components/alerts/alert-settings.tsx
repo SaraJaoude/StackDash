@@ -3,6 +3,7 @@ import Link from "next/link";
 import { liveProviderIds } from "@/lib/adapters/types";
 import { DEFAULT_CURRENCIES, minorUnitsToDecimalString, type AlertScope, type ProviderId } from "@/lib/alerts/rule-schema";
 import {
+  listAlertRuleChoices,
   listAlertRules,
   listAllowanceMetrics,
   listAllowanceRuleCoverage,
@@ -18,6 +19,7 @@ import { workspacePath } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AddSuggestedAlerts } from "./add-suggested-alerts";
+import { AlertDelivery } from "./alert-delivery";
 import { BudgetForm } from "./budget-form";
 import { DeniedReason } from "./form-controls";
 import {
@@ -31,8 +33,9 @@ import { BudgetListItem, RuleListItem } from "./list-items";
 import { RuleForm } from "./rule-form";
 
 /**
- * The configuration part of the alerts page: suggested alerts, alert rules, and budgets. Exported
- * as one body so the page can place the triggered alerts list above it.
+ * The configuration part of the alerts page: suggested alerts, alert rules, budgets, and where
+ * alerts go (alert emails and channels). Exported as one body so the page can place the triggered
+ * alerts list above it.
  */
 
 const RULES_HEADING_ID = "alert-rules-title";
@@ -51,16 +54,18 @@ type Scoped = {
 export async function AlertSettings({
   workspace,
   role,
+  userId,
   rulesAfter,
   budgetsAfter,
 }: {
   workspace: WorkspaceRef;
   role: WorkspaceRole;
+  userId: string;
   rulesAfter: string | null;
   budgetsAfter: string | null;
 }) {
   const canManage = canPerform(role, "manage_budgets");
-  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies] = await Promise.all([
+  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies, ruleChoices] = await Promise.all([
     listAlertRules(workspace.id, rulesAfter),
     listBudgets(workspace.id, budgetsAfter),
     listScopeTargets(workspace.id),
@@ -68,6 +73,7 @@ export async function AlertSettings({
     listAllowanceRuleCoverage(workspace.id),
     listBudgetOptions(workspace.id),
     listSnapshotCurrencies(workspace.id),
+    listAlertRuleChoices(workspace.id),
   ]);
 
   const projectNames = new Map(targets.projects.map((project) => [project.id, project.name]));
@@ -382,6 +388,13 @@ export async function AlertSettings({
           </div>
         )}
       </section>
+
+      <AlertDelivery
+        workspace={workspace}
+        role={role}
+        userId={userId}
+        ruleOptions={ruleChoices.map((rule) => ({ value: rule.id, label: `${ruleSummary(rule)}, for ${scopeLabel(rule)}` }))}
+      />
     </>
   );
 }
