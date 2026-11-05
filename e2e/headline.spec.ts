@@ -197,6 +197,10 @@ ownerTest.describe("dashboard headline strip", () => {
       const month = page.getByRole("region", { name: "This month so far" });
       await expect(month.getByRole("link", { name: "This month" })).toHaveAttribute("aria-current", "page");
       await expect(month.getByRole("definition").first()).toContainText("on the same days last month");
+      // The seeded signups fall after the same days last month, so there is nothing to divide by then.
+      await expect(month.getByRole("definition").nth(labels.indexOf("Cost per signup"))).toContainText(
+        "No comparison: there were no signups on the same days last month",
+      );
 
       // The scope filter narrows the strip: without Stripe there is no revenue to show.
       await page.goto(`/w/${workspace.slug}/dashboard?provider=fake`);

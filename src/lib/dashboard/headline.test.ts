@@ -337,6 +337,7 @@ describe("buildHeadline counts", () => {
       signupsFrom: ["Supabase"],
       spendUnavailable: ["Supabase"],
       signupsUnavailable: [],
+      comparisonGap: null,
     });
   });
 
@@ -345,6 +346,23 @@ describe("buildHeadline counts", () => {
     // 500 over 8 is 62.5, rounded to the even 62; 500 over 3 is 166.67, rounded to 167.
     expect(line(headline({ snapshots: [...history, ...spend], connections: [vercel, supabase], events: events(8) }).costPerSignup.lines, "USD")?.verified?.value).toBe(62);
     expect(line(headline({ snapshots: [...history, ...spend], connections: [vercel, supabase], events: events(3) }).costPerSignup.lines, "USD")?.verified?.value).toBe(167);
+  });
+
+  it("says the previous window had no signups rather than calling cost per signup unavailable", () => {
+    const strip = headline({
+      snapshots: [...history, ...spend],
+      connections: [vercel, supabase],
+      events: { current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 4 }], previous: [] },
+    });
+    expect(strip.costPerSignup).toMatchObject({ missing: null, comparisonGap: { reason: "no_signups" } });
+    expect(line(strip.costPerSignup.lines, "USD")?.verified).toEqual({ value: 125, comparison: { status: "unavailable", missing: "previous" } });
+    // A source that could not report the previous window is the reason instead.
+    const late = headline({
+      snapshots: [allowance(supabase.id, "2026-10-28"), ...spend],
+      connections: [vercel, supabase],
+      events: { current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 4 }], previous: [] },
+    });
+    expect(late.costPerSignup).toMatchObject({ missing: null, comparisonGap: { reason: "providers", names: ["Supabase"] } });
   });
 
   it("shows no cost per signup with zero signups, without signups, or without spend", () => {
@@ -395,8 +413,11 @@ describe("headline copy", () => {
   });
 
   it("names the providers that could not report the previous window", () => {
-    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "month", ["Stripe", "Vercel"])).toBe(
-      "No comparison: Stripe and Vercel could not report the same days last month",
+    expect(
+      headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "month", { reason: "providers", names: ["Stripe", "Vercel"] }),
+    ).toBe("No comparison: Stripe and Vercel could not report the same days last month");
+    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "week", { reason: "no_signups" })).toBe(
+      "No comparison: there were no signups on the same days last week",
     );
   });
 

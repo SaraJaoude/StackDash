@@ -329,7 +329,7 @@ export type CostPerSignupSources = Readonly<{
 /** Lines only when spend and signups both have a source and there was at least one signup. */
 export type CostPerSignupFigure = CostPerSignupSources &
   (
-    | Readonly<{ missing: null; lines: readonly MoneyLine[] }>
+    | Readonly<{ missing: null; lines: readonly MoneyLine[]; comparisonGap: ComparisonGap | null }>
     | Readonly<{ missing: "spend" | "signups" | "no_signups"; lines: null }>
   );
 
@@ -522,11 +522,23 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   else if (signupCount === null) costPerSignup = { ...costSources, missing: "signups", lines: null };
   else if (signupCount === 0) costPerSignup = { ...costSources, missing: "no_signups", lines: null };
   else {
+    const unavailableBefore = names([...spend.previousUnavailable, ...signups.previousUnavailable]);
+    const comparisonGap: ComparisonGap | null =
+      unavailableBefore.length > 0
+        ? { reason: "providers", names: unavailableBefore }
+        : previousSignups === 0
+          ? { reason: "no_signups" }
+          : null;
     const previousCost =
       spend.previous === null || previousSignups === null || previousSignups === 0
         ? null
         : divideTotals(spend.previous, previousSignups);
-    costPerSignup = { ...costSources, missing: null, lines: toLines(divideTotals(spend.current, signupCount), previousCost) };
+    costPerSignup = {
+      ...costSources,
+      missing: null,
+      lines: toLines(divideTotals(spend.current, signupCount), previousCost),
+      comparisonGap,
+    };
   }
 
   // A provider's billing period differs from the window unless it starts on the window's first day.
@@ -585,6 +597,11 @@ export function listNames(values: readonly string[]): string {
   return `${values.slice(0, -1).join(", ")}, and ${values.at(-1) ?? ""}`;
 }
 
+/** Why there is no comparison, when the figure knows more than "unavailable". */
+export type ComparisonGap =
+  | Readonly<{ reason: "providers"; names: readonly string[] }>
+  | Readonly<{ reason: "no_signups" }>;
+
 /**
  * "Up 12 percent from $1,100.00 on the same days last week", or why there is no comparison.
  * Direction is always a word, never only a color.
@@ -593,13 +610,15 @@ export function headlineComparisonText(
   comparison: TrendComparison,
   format: (value: number) => string,
   kind: HeadlineWindowKind,
-  previousUnavailable: readonly string[] = [],
+  gap: ComparisonGap | null = null,
 ): string {
   const previous = WINDOW_WORDS[kind].previous;
   if (comparison.status === "unavailable") {
-    return previousUnavailable.length > 0
-      ? `No comparison: ${listNames(previousUnavailable)} could not report ${previous}`
-      : `No comparison: ${previous} are unavailable`;
+    if (gap?.reason === "providers" && gap.names.length > 0) {
+      return `No comparison: ${listNames(gap.names)} could not report ${previous}`;
+    }
+    if (gap?.reason === "no_signups") return `No comparison: there were no signups on ${previous}`;
+    return `No comparison: ${previous} are unavailable`;
   }
   const from = `${format(comparison.previous)} on ${previous}`;
   if (comparison.direction === "same") return `No change from ${from}`;

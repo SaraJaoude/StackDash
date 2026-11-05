@@ -12,6 +12,7 @@ import {
   listNames,
   moneyFormatter,
   windowDescription,
+  type ComparisonGap,
   type CostPerSignupFigure,
   type CountFigure,
   type DeploysFigure,
@@ -68,18 +69,23 @@ function SourcesLine({ sources }: { sources: FigureSources }) {
   return <p className="text-xs leading-5 text-muted">{parts.join(" ")}</p>;
 }
 
+/** The providers that could not report the previous window, as the reason for no comparison. */
+function providersGap(names: readonly string[]): ComparisonGap | null {
+  return names.length === 0 ? null : { reason: "providers", names };
+}
+
 function Value({
   value,
   format,
   kind,
-  previousUnavailable,
+  gap,
   estimated,
   currency,
 }: {
   value: FigureValue;
   format: (value: number) => string;
   kind: HeadlineWindowKind;
-  previousUnavailable: readonly string[];
+  gap: ComparisonGap | null;
   estimated?: boolean | undefined;
   currency?: string | undefined;
 }) {
@@ -90,23 +96,13 @@ function Value({
         {currency === undefined ? null : <span className="font-mono text-xs text-muted">{currency}</span>}
         {estimated === undefined ? null : <ProvenanceBadge provenance={estimated ? ESTIMATED : VERIFIED} />}
       </p>
-      <p className="mt-1 text-xs leading-5 text-muted">
-        {headlineComparisonText(value.comparison, format, kind, previousUnavailable)}
-      </p>
+      <p className="mt-1 text-xs leading-5 text-muted">{headlineComparisonText(value.comparison, format, kind, gap)}</p>
     </div>
   );
 }
 
 /** Each currency on its own line, verified and estimated side by side, never added together. */
-function MoneyLines({
-  lines,
-  previousUnavailable = [],
-  kind,
-}: {
-  lines: readonly MoneyLine[];
-  previousUnavailable?: readonly string[] | undefined;
-  kind: HeadlineWindowKind;
-}) {
+function MoneyLines({ lines, gap, kind }: { lines: readonly MoneyLine[]; gap: ComparisonGap | null; kind: HeadlineWindowKind }) {
   return (
     <ul className="space-y-3">
       {lines.map((line) => {
@@ -114,10 +110,10 @@ function MoneyLines({
         return (
           <li key={line.currency} className="space-y-2">
             {line.verified === null ? null : (
-              <Value value={line.verified} format={format} kind={kind} previousUnavailable={previousUnavailable} estimated={false} currency={line.currency} />
+              <Value value={line.verified} format={format} kind={kind} gap={gap} estimated={false} currency={line.currency} />
             )}
             {line.estimated === null ? null : (
-              <Value value={line.estimated} format={format} kind={kind} previousUnavailable={previousUnavailable} estimated currency={line.currency} />
+              <Value value={line.estimated} format={format} kind={kind} gap={gap} estimated currency={line.currency} />
             )}
           </li>
         );
@@ -130,7 +126,7 @@ function MoneyFigureBody({ figure, kind, noun }: { figure: MoneyFigure; kind: He
   if (figure.lines === null) return <UnavailableFigure reason={sourcesUnavailable(figure, noun)} />;
   return (
     <>
-      <MoneyLines lines={figure.lines} previousUnavailable={figure.previousUnavailable} kind={kind} />
+      <MoneyLines lines={figure.lines} gap={providersGap(figure.previousUnavailable)} kind={kind} />
       <SourcesLine sources={figure} />
     </>
   );
@@ -156,7 +152,7 @@ function CountFigureBody({
         value={figure.value}
         format={(value) => formatCount(value, singular, noun)}
         kind={kind}
-        previousUnavailable={figure.previousUnavailable}
+        gap={providersGap(figure.previousUnavailable)}
       />
       {children}
       <SourcesLine sources={figure} />
@@ -228,7 +224,7 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
             <UnavailableFigure reason="Needs both revenue and spend for this window." />
           ) : (
             <>
-              <MoneyLines lines={net.lines} previousUnavailable={net.previousUnavailable} kind={kind} />
+              <MoneyLines lines={net.lines} gap={providersGap(net.previousUnavailable)} kind={kind} />
               <LeftOut side="revenue" names={strip.revenue.unavailable} />
               <LeftOut side="spend" names={strip.spend.unavailable} />
             </>
@@ -242,7 +238,7 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
           extra={<InfoTooltip label="How cost per signup is worked out" text={costPerSignupExplanation(costPerSignup)} />}
         >
           {costPerSignup.missing === null ? (
-            <MoneyLines lines={costPerSignup.lines} kind={kind} />
+            <MoneyLines lines={costPerSignup.lines} gap={costPerSignup.comparisonGap} kind={kind} />
           ) : (
             <UnavailableFigure reason={COST_PER_SIGNUP_MISSING[costPerSignup.missing]} />
           )}
