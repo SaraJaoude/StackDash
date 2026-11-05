@@ -87,7 +87,7 @@ query DevMacroUsage($fullPath: ID!, $namespaceId: NamespaceID!, $month: Date!, $
 - `rootStorageStatistics.storageSize`: total storage of the namespace in bytes (repositories, LFS, artifacts, packages, registry, wiki, snippets, uploads). GitLab builds these statistics in the background, so a namespace with nothing stored yet can have none. Then the storage used and limit are left out, with no permission error.
 - `actualSizeLimit`: the storage limit in bytes for the namespace, whichever kind of enforcement applies. Zero or null means no limit is shown.
 
-`read_api` is enough for GraphQL queries. A field the user may not read comes back `null` with no error, so a `null` usage field is reported as unavailable, not as zero. Only a `null` `ciMinutesUsage` is reported as a missing permission.
+`read_api` is enough for GraphQL queries. A query field the user may not read comes back `null` with no error, and a refused connection field is `null` while an allowed one with no data is `{ "nodes": [] }` ([GraphQL API, "Authorization"](https://docs.gitlab.com/api/graphql/#authorization), checked 2026-11-05). So a `null` usage field is reported as unavailable, not as zero, and only a `null` `ciMinutesUsage` is reported as a missing permission. A response that carries `errors` is not a permission answer: it means a parse, validation, complexity, or server failure, so it fails the sync with an error reference (only the number of errors is logged) and the next sync retries.
 
 The REST `ci_minutes_usage` attribute on `GET /namespaces/:id` (GitLab 19.4) was not used: it is documented for top-level groups only, so personal namespaces would have no minutes at all.
 
@@ -273,7 +273,7 @@ Confirm with a real GitLab.com account and a test group once the application is 
 - That revoking the refresh token also ends its access token and removes DevMacro from **Authorized applications**.
 - That OAuth tokens with `read_api` are accepted by the releases endpoints (their page only names personal access tokens and job tokens).
 - That `owned_only=true` lists every top-level group where the user has the Owner role, and not only groups the user created.
-- Who may read `ciMinutesUsage`, `ciMinutesProjectMonthlyUsage`, and `rootStorageStatistics` (Owner is assumed, from the Usage Quotas page), and whether a refused field is `null` (assumed) or an error.
+- Who may read `ciMinutesUsage`, `ciMinutesProjectMonthlyUsage`, and `rootStorageStatistics` (Owner is assumed, from the Usage Quotas page). That a refused field is `null` with no error is documented ([GraphQL API, "Authorization"](https://docs.gitlab.com/api/graphql/#authorization)); which role GitLab checks for these three fields is not.
 - That `rootStorageStatistics` is `null` for a namespace whose statistics GitLab has not built yet, and not only when the role is missing (assumed from the field being nullable).
 - That the token request may send `client_secret` and `code_verifier` together. The OAuth guide shows PKCE for public clients without the secret, and the confidential flow without PKCE. Doorkeeper, which GitLab uses, is expected to accept both for a confidential application, but the guide does not show the combination.
 - That a month without usage returns an empty `ciMinutesUsage` list rather than a row with `0`.
