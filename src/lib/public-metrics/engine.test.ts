@@ -129,6 +129,25 @@ describe("computePublicMetrics: current snapshot totals (github-stars, resend-em
     expect(valueOf(await compute("github-stars", { points: [point({ value: 9, retrievedAt })] }))).toBe(expected);
   });
 
+  it("is stale when the newest reading and the last sync are three days old, older than the rows read", async () => {
+    const threeDaysAgo = new Date(AS_OF.getTime() - 3 * DAY_MS);
+    const result = await compute("github-stars", {
+      accounts: [account({ lastSyncedAt: threeDaysAgo })],
+      points: [point({ value: 9, retrievedAt: threeDaysAgo })],
+    });
+    expect(valueOf(result)).toBe("stale");
+  });
+
+  it("is no data when a fresh sync stored no recent reading (the provider stopped reporting it)", async () => {
+    const threeDaysAgo = new Date(AS_OF.getTime() - 3 * DAY_MS);
+    expect(valueOf(await compute("github-stars", { points: [point({ value: 9, retrievedAt: threeDaysAgo })] }))).toBe("no_data");
+  });
+
+  it("is stale when no account has a reading and one of them has not synced for two days", async () => {
+    const old = account({ accountId: "acct-2", lastSyncedAt: new Date(AS_OF.getTime() - STALE_AFTER_MS - 1) });
+    expect(valueOf(await compute("github-stars", { accounts: [account(), old] }))).toBe("stale");
+  });
+
   it("ignores readings retrieved after asOf, so a delayed value never sees later data", async () => {
     const asOf = new Date(AS_OF.getTime() - 7 * DAY_MS);
     const result = await compute(
@@ -192,6 +211,14 @@ describe("computePublicMetrics: snapshot change (stars gained)", () => {
       points: [dayPoint(7, 100), point({ value: 110 }), point({ accountId: "acct-new", value: 5000 })],
     });
     expect(valueOf(result)).toBe(10);
+  });
+
+  it("is stale, not short of history, when the last sync is older than the whole window", async () => {
+    const result = await compute("github-stars-gained-7d", {
+      accounts: [account({ lastSyncedAt: new Date(AS_OF.getTime() - 9 * DAY_MS) })],
+      points: [dayPoint(10, 80), dayPoint(9, 90)],
+    });
+    expect(valueOf(result)).toBe("stale");
   });
 });
 
@@ -279,5 +306,56 @@ describe("computePublicMetrics: deployment streak", () => {
       value: STREAK_EVENT_LIMIT,
       lowerBound: true,
     });
+  });
+});
+
+describe("computePublicMetrics: a request's own window start (the yearly card)", () => {
+  const vercel = account({ provider: "vercel", connectionCreatedAt: new Date("2025-12-01T00:00:00Z") });
+  const yearStart = new Date("2026-01-01T00:00:00Z");
+
+  async function computeFrom(metricId: PublicMetricId, data: { accounts: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] }, from: Date) {
+    const store = new MemoryMetricStore(data.accounts, data.points ?? [], data.events ?? []);
+    const [result] = await computePublicMetrics(store, [{ metricId, asOf: AS_OF, from }]);
+    if (result === undefined) throw new Error("no result");
+    return result.result;
+  }
+
+  it("counts events from the requested start instead of the definition's window", async () => {
+    const events = [
+      event("vercel.deployment.succeeded", new Date("2025-12-31T23:59:59Z")),
+      event("vercel.deployment.succeeded", yearStart),
+      event("vercel.deployment.succeeded", new Date("2026-06-01T00:00:00Z")),
+      event("vercel.deployment.succeeded", new Date(AS_OF.getTime() - HOUR_MS)),
+    ];
+    expect(valueOf(await computeFrom("vercel-deployments-7d", { accounts: [vercel], events }, yearStart))).toBe(3);
+    // The same request without a start keeps the 7 day window, as publications do.
+    expect(valueOf(await compute("vercel-deployments-7d", { accounts: [vercel], events }))).toBe(1);
+  });
+
+  it("subtracts the reading of the requested start day for a change", async () => {
+    const points = [point({ value: 400, retrievedAt: new Date("2026-01-01T23:00:00Z"), snapshotDate: "2026-01-01" }), dayPoint(7, 900), point({ value: 1000 })];
+    expect(valueOf(await computeFrom("github-stars-gained-30d", { accounts: [account()], points }, yearStart))).toBe(600);
+  });
+
+  it("reads only the start days and the last two days for a year, never the days in between", async () => {
+    const store = new MemoryMetricStore([account()], [], []);
+    const ranges: string[] = [];
+    const snapshots = store.snapshots.bind(store);
+    store.snapshots = async (query) => {
+      ranges.push(`${query.fromDate}..${query.toDate}`);
+      return snapshots(query);
+    };
+    await computePublicMetrics(store, [{ metricId: "github-stars-gained-30d", asOf: AS_OF, from: yearStart }]);
+    expect(ranges.sort()).toEqual(["2026-01-01..2026-01-02", "2026-11-03..2026-11-05"]);
+  });
+
+  it("is not enough history when the data does not reach back to the requested start", async () => {
+    const lateConnection = account({ provider: "vercel", connectionCreatedAt: new Date("2026-03-01T00:00:00Z") });
+    expect(valueOf(await computeFrom("vercel-deployments-30d", { accounts: [lateConnection] }, yearStart))).toBe("not_enough_history");
+  });
+
+  it("refuses a start for a metric without a window and a start that is not before asOf", async () => {
+    await expect(computeFrom("github-stars", { accounts: [account()] }, yearStart)).rejects.toThrow(RangeError);
+    await expect(computeFrom("vercel-deployments-7d", { accounts: [vercel] }, AS_OF)).rejects.toThrow(RangeError);
   });
 });

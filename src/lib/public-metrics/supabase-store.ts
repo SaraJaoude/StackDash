@@ -19,8 +19,8 @@ type MetricKind = Database["public"]["Enums"]["metric_kind"];
 // Quantities only: even a mistyped metric key in a definition cannot read an amount of money.
 const QUANTITY_KINDS: readonly MetricKind[] = ["usage", "included_allowance", "remaining_allowance"];
 
-// Bounds. A project groups a handful of accounts; a 30 day change reads at most 31 rows per account
-// and key, so these are far above what one metric reads.
+// Bounds. A project groups a handful of accounts; every snapshot read covers at most three days, so
+// a few rows per account and key whatever the window, and these are far above what one metric reads.
 const ACCOUNTS_LIMIT = 200;
 const CONNECTIONS_LIMIT = 200;
 const SNAPSHOTS_LIMIT = 5000;

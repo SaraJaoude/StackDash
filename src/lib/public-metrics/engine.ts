@@ -1,6 +1,6 @@
 import type { ProviderId } from "@/lib/adapters/types";
 
-import { publicMetricDefinition, type PublicMetricDefinition, type PublicMetricId } from "./definitions";
+import { publicMetricDefinition, type PublicMetricId } from "./definitions";
 
 /*
  * Computes public metrics from stored data (#148). Pure apart from the injected store, so every
@@ -83,7 +83,13 @@ export type MetricValue =
     }>
   | Readonly<{ status: "unavailable"; reason: UnavailableReason }>;
 
-export type MetricRequest = Readonly<{ metricId: PublicMetricId; asOf: Date }>;
+/**
+ * One metric at `asOf`. `from` sets the window start for change and count sources instead of the
+ * definition's `windowDays` (the yearly card #151 asks for stars gained since 1 January);
+ * publications never pass it. It must be before `asOf`, and a source without a window (a current
+ * total, a share, a streak) refuses it rather than return a number that ignores it.
+ */
+export type MetricRequest = Readonly<{ metricId: PublicMetricId; asOf: Date; from?: Date }>;
 
 export type ComputedMetric = Readonly<{ metricId: PublicMetricId; asOf: Date; result: MetricValue }>;
 
@@ -124,9 +130,15 @@ function newestByAccount(points: readonly SnapshotPoint[], metricKey: string, as
 type Readings = { status: "ok"; readings: SnapshotPoint[] } | { status: "unavailable"; reason: UnavailableReason };
 
 /** Newest current readings per account, or why there are none. */
-function currentReadings(points: readonly SnapshotPoint[], metricKey: string, asOf: Date): Readings {
+function currentReadings(points: readonly SnapshotPoint[], metricKey: string, ctx: Context): Readings {
+  const { asOf, accounts } = ctx;
   const newest = [...newestByAccount(points, metricKey, asOf).values()];
-  if (newest.length === 0) return { status: "unavailable", reason: "no_data" };
+  // Nothing in the rows read. Rows older than those were read are stale, which the accounts' sync
+  // times tell as they do for events; synced recently means the provider does not report the key.
+  if (newest.length === 0) {
+    const syncTimes = accountSyncTimes(accounts, asOf);
+    return { status: "unavailable", reason: typeof syncTimes === "string" ? syncTimes : "no_data" };
+  }
   const fresh = newest.filter((point) => isFresh(point.retrievedAt, asOf));
   if (fresh.length === 0) return { status: "unavailable", reason: "stale" };
   const current = fresh.filter((point) => isCurrent(point, asOf));
@@ -145,7 +157,13 @@ function available(value: number, syncedAt: readonly Date[], accounts: readonly 
   };
 }
 
-type Context = Readonly<{ store: PublicMetricStore; definition: PublicMetricDefinition; asOf: Date; accounts: readonly SourceAccount[] }>;
+type Context = Readonly<{
+  store: PublicMetricStore;
+  asOf: Date;
+  /** Start of the window for change and count sources. */
+  from: Date;
+  accounts: readonly SourceAccount[];
+}>;
 
 async function snapshotTotal(ctx: Context, metricKey: string): Promise<MetricValue> {
   const { store, asOf, accounts } = ctx;
@@ -155,7 +173,7 @@ async function snapshotTotal(ctx: Context, metricKey: string): Promise<MetricVal
     fromDate: utcDate(new Date(asOf.getTime() - STALE_AFTER_MS)),
     toDate: utcDate(asOf),
   });
-  const readings = currentReadings(points, metricKey, asOf);
+  const readings = currentReadings(points, metricKey, ctx);
   if (readings.status === "unavailable") return unavailable(readings.reason);
   const used = accounts.filter((account) => readings.readings.some((point) => point.accountId === account.accountId));
   return available(
@@ -173,9 +191,9 @@ async function snapshotPercent(ctx: Context, numeratorKey: string, denominatorKe
     fromDate: utcDate(new Date(asOf.getTime() - STALE_AFTER_MS)),
     toDate: utcDate(asOf),
   });
-  const numerators = currentReadings(points, numeratorKey, asOf);
+  const numerators = currentReadings(points, numeratorKey, ctx);
   if (numerators.status === "unavailable") return unavailable(numerators.reason);
-  const denominators = currentReadings(points, denominatorKey, asOf);
+  const denominators = currentReadings(points, denominatorKey, ctx);
   if (denominators.status === "unavailable") return unavailable(denominators.reason);
   // Only accounts with both readings; one with no limit (a paid plan without a cap) has no share.
   const limits = new Map(denominators.readings.map((point) => [point.accountId, point]));
@@ -194,25 +212,31 @@ async function snapshotPercent(ctx: Context, numeratorKey: string, denominatorKe
 }
 
 async function snapshotChange(ctx: Context, metricKey: string): Promise<MetricValue> {
-  const { store, asOf, accounts, definition } = ctx;
-  const startDate = utcDate(new Date(asOf.getTime() - definition.windowDays * DAY_MS));
+  const { store, asOf, from, accounts } = ctx;
+  const startDate = utcDate(from);
   // The window starts at the end of `startDate`, read from that day's row. A missing day may be
   // replaced by the next one (a shorter window, so an understatement), never by an earlier one.
   const nextDate = utcDate(new Date(Date.parse(`${startDate}T00:00:00Z`) + DAY_MS));
-  const points = await store.snapshots({
-    accountIds: accounts.map((account) => account.accountId),
-    metricKeys: [metricKey],
-    fromDate: startDate,
-    toDate: utcDate(asOf),
-  });
-  const readings = currentReadings(points, metricKey, asOf);
+  // Two short reads, so a long window (a year for #151) never loads the days in between: the rows
+  // of the start days, and the recent rows the newest reading comes from, as for a total.
+  const accountIds = accounts.map((account) => account.accountId);
+  const [baselines, recent] = await Promise.all([
+    store.snapshots({ accountIds, metricKeys: [metricKey], fromDate: startDate, toDate: nextDate }),
+    store.snapshots({
+      accountIds,
+      metricKeys: [metricKey],
+      fromDate: utcDate(new Date(asOf.getTime() - STALE_AFTER_MS)),
+      toDate: utcDate(asOf),
+    }),
+  ]);
+  const readings = currentReadings(recent, metricKey, ctx);
   if (readings.status === "unavailable") return unavailable(readings.reason);
 
   const changes: { latest: SnapshotPoint; change: number }[] = [];
   for (const latest of readings.readings) {
     const baseline =
-      points.find((point) => point.accountId === latest.accountId && point.metricKey === metricKey && point.snapshotDate === startDate) ??
-      points.find((point) => point.accountId === latest.accountId && point.metricKey === metricKey && point.snapshotDate === nextDate);
+      baselines.find((point) => point.accountId === latest.accountId && point.snapshotDate === startDate) ??
+      baselines.find((point) => point.accountId === latest.accountId && point.snapshotDate === nextDate);
     if (baseline === undefined || baseline.retrievedAt.getTime() >= latest.retrievedAt.getTime()) continue;
     changes.push({ latest, change: latest.value - baseline.value });
   }
@@ -224,8 +248,12 @@ async function snapshotChange(ctx: Context, metricKey: string): Promise<MetricVa
   );
 }
 
-/** The accounts' sync times, or why event data cannot be trusted up to `asOf`. */
-function eventSyncTimes(accounts: readonly SourceAccount[], asOf: Date): Date[] | UnavailableReason {
+/**
+ * The accounts' sync times, or why their stored data cannot be trusted up to `asOf`: no data when
+ * none has synced yet, stale when one has not synced for two days or has never synced beside one
+ * that has (its data is missing).
+ */
+function accountSyncTimes(accounts: readonly SourceAccount[], asOf: Date): Date[] | UnavailableReason {
   const synced = accounts.map((account) => account.lastSyncedAt);
   if (synced.every((at) => at === null)) return "no_data";
   // One account never synced (or not for two days) means its events are missing from the count.
@@ -235,11 +263,10 @@ function eventSyncTimes(accounts: readonly SourceAccount[], asOf: Date): Date[] 
 }
 
 async function eventCount(ctx: Context, typeIds: readonly string[]): Promise<MetricValue> {
-  const { store, asOf, accounts, definition } = ctx;
-  const syncTimes = eventSyncTimes(accounts, asOf);
+  const { store, asOf, from, accounts } = ctx;
+  const syncTimes = accountSyncTimes(accounts, asOf);
   if (typeof syncTimes === "string") return unavailable(syncTimes);
   const accountIds = accounts.map((account) => account.accountId);
-  const from = new Date(asOf.getTime() - definition.windowDays * DAY_MS);
 
   // History starts at the oldest connection or the oldest stored event, whichever is earlier
   // (adapters backfill some history on the first sync).
@@ -254,7 +281,7 @@ async function eventCount(ctx: Context, typeIds: readonly string[]): Promise<Met
 
 async function eventStreak(ctx: Context, successTypeId: string, failureTypeId: string): Promise<MetricValue> {
   const { store, asOf, accounts } = ctx;
-  const syncTimes = eventSyncTimes(accounts, asOf);
+  const syncTimes = accountSyncTimes(accounts, asOf);
   if (typeof syncTimes === "string") return unavailable(syncTimes);
   const events = await store.recentEvents({
     accountIds: accounts.map((account) => account.accountId),
@@ -271,11 +298,17 @@ async function eventStreak(ctx: Context, successTypeId: string, failureTypeId: s
 
 async function computeOne(store: PublicMetricStore, request: MetricRequest, all: readonly SourceAccount[]): Promise<ComputedMetric> {
   const definition = publicMetricDefinition(request.metricId);
+  const { asOf } = request;
+  if (request.from !== undefined) {
+    if (definition.windowDays === 0) throw new RangeError(`${request.metricId} has no window, so it takes no from`);
+    if (request.from.getTime() >= asOf.getTime()) throw new RangeError(`from must be before asOf for ${request.metricId}`);
+  }
   const accounts = all.filter((account) => account.provider === definition.provider);
-  const done = (result: MetricValue): ComputedMetric => ({ metricId: request.metricId, asOf: request.asOf, result });
+  const done = (result: MetricValue): ComputedMetric => ({ metricId: request.metricId, asOf, result });
   if (accounts.length === 0) return done(unavailable("not_connected"));
 
-  const ctx: Context = { store, definition, asOf: request.asOf, accounts };
+  const from = request.from ?? new Date(asOf.getTime() - definition.windowDays * DAY_MS);
+  const ctx: Context = { store, asOf, from, accounts };
   const { source } = definition;
   switch (source.type) {
     case "snapshot_total":

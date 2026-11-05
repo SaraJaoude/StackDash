@@ -22,7 +22,7 @@ import { createSupabaseMetricStore } from "./supabase-store";
 
 /*
  * The public read API of the metric engine (#148). Badges and cards (#149), public project pages
- * (#150), the yearly card (#151), and the leaderboard read published values only through here:
+ * (#150), and the leaderboard read published values only through here:
  *
  * - `loadPublishedProjectMetrics(projectId)`: every live publication of a project, computed now.
  * - `loadPublishedMetric(projectId, metricId)`: one engine metric, for a badge or a card. Takes a
@@ -32,6 +32,9 @@ import { createSupabaseMetricStore } from "./supabase-store";
  * value from stored snapshots and events. Nothing here calls a provider, and nothing returned
  * names an account, a repository, or an amount of money. Both return null for a project that does
  * not exist and for one with nothing published, so a caller cannot tell the two apart.
+ *
+ * The yearly card (#151) is private until shared and asks for its own window, so it calls
+ * `computePublicMetrics` in engine.ts with `createSupabaseMetricStore` and a `from` instead.
  */
 
 // Generated types mark every column of a set-returning function as non-null, but a row is either

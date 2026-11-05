@@ -103,7 +103,7 @@ An engine metric with no number has `"status": "unavailable"`, a `reason` from t
 
 ### Server API
 
-Server code (badges and cards #149, project pages #150, the yearly card #151, the leaderboard) reads published values through `src/lib/public-metrics/published.ts` and never queries `published_metrics` itself:
+Server code that shows published values (badges and cards #149, project pages #150, the leaderboard) reads them through `src/lib/public-metrics/published.ts` and never queries `published_metrics` itself:
 
 | Function | Returns |
 |---|---|
@@ -111,6 +111,8 @@ Server code (badges and cards #149, project pages #150, the yearly card #151, th
 | `loadPublishedMetric(projectId, metricId, now)` | One published engine metric, or `null`. It takes a `PublicMetricId`, so a self-reported value can never become a badge |
 
 Both read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `definitions.ts` and `display.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
+
+Private surfaces compute values that need not be published. The yearly card (#151) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, projectId)` and passes `from` on each request, for example 1 January, to count from there instead of the metric's own 7 or 30 days: "stars gained" and "deployments" then cover the year so far, and "Not enough history yet" means the data does not reach back to `from`. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. Publications always use the metric's own window.
 
 ## Metrics
 

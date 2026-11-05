@@ -64,7 +64,8 @@ export const UNIT_NOUNS: Record<Exclude<MetricUnit, "percent">, readonly [string
 /**
  * Where a value comes from. Snapshot sources read quantity rows of `usage_snapshots` (never money
  * kinds); event sources read `activity_events`. The window, where one applies, is the
- * definition's `windowDays`.
+ * definition's `windowDays`, unless a private request such as the yearly card passes its own start
+ * (`MetricRequest.from` in engine.ts).
  *
  * - `snapshot_total`: the sum, over the project's accounts, of each account's newest reading that
  *   is still current (inside its billing period or before its reset time) and fresh.
