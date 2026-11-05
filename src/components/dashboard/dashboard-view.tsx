@@ -124,6 +124,8 @@ export function DashboardView({
   scope,
   scopeOptions,
   scopeDescription,
+  filterParams,
+  headline,
   alerts,
   trends,
 }: {
@@ -134,6 +136,10 @@ export function DashboardView({
   scopeOptions: ScopeOptions;
   /** The active filter in words, or null when nothing is filtered. */
   scopeDescription: string | null;
+  /** The page's other URL state (trend period, headline window), carried through the filter form. */
+  filterParams: Readonly<Record<string, string>>;
+  /** The headline strip: revenue against spend, signups, and deploys over one window (#173). */
+  headline: ReactNode;
   /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
   alerts: ReactNode;
   trends: DashboardTrends;
@@ -148,10 +154,12 @@ export function DashboardView({
         scope={scope}
         options={scopeOptions}
         status={scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
-        hidden={trends.granularity === "daily" ? undefined : { trend: trends.granularity }}
+        hidden={filterParams}
       />
 
-      {/* The headline: totals first, with revenue sharing the row on wide screens. */}
+      {headline}
+
+      {/* The billing period totals, with revenue sharing the row on wide screens. */}
       <div className={hasRevenue ? "grid gap-x-6 xl:grid-cols-[2fr_1fr]" : undefined}>
         <Section title="Spending this billing period">
           {view.totals.length === 0 ? (

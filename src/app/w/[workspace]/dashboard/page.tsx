@@ -8,10 +8,13 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
+import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import { buildHeadline, HEADLINE_WINDOW_KINDS, headlineWindows, type HeadlineWindowKind } from "@/lib/dashboard/headline";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
+import { getHeadlineEventCounts } from "@/lib/data/headline";
 import { getTrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
@@ -26,18 +29,26 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-// The page's one URL schema: the shared scope filter plus the trend period. Unknown or malformed
-// values fall back to the defaults rather than erroring, because the URL is user-editable; other
-// keys are ignored.
+// The page's one URL schema: the shared scope filter, the trend period, and the headline window.
+// Unknown or malformed values fall back to the defaults rather than erroring, because the URL is
+// user-editable; other keys are ignored.
 const searchParamsSchema = ScopeSearchParamsSchema.extend({
   trend: z.enum(["daily", "monthly"]).catch("daily"),
+  window: z.enum(HEADLINE_WINDOW_KINDS).catch("week"),
 });
 
-/** Dashboard link keeping the filter; the daily trend is the default and stays out of the URL. */
-function dashboardHref(basePath: string, scope: ScopeFilters, trend: TrendGranularity): string {
+type DashboardViewParams = Readonly<{ trend: TrendGranularity; window: HeadlineWindowKind }>;
+
+/** The page's own URL state; the defaults (daily trend, this week) stay out of the URL. */
+function viewParams({ trend, window }: DashboardViewParams): Record<string, string> {
+  return { ...(trend === "daily" ? {} : { trend }), ...(window === "week" ? {} : { window }) };
+}
+
+/** Dashboard link keeping the filter and the other view choices. */
+function dashboardHref(basePath: string, scope: ScopeFilters, view: DashboardViewParams): string {
   const params = new URLSearchParams();
   appendScopeParams(params, scope);
-  if (trend !== "daily") params.set("trend", trend);
+  for (const [name, value] of Object.entries(viewParams(view))) params.set(name, value);
   const search = params.toString();
   return search === "" ? basePath : `${basePath}?${search}`;
 }
@@ -65,7 +76,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
         description="Spend, usage, and allowances across every provider this workspace connects."
       />
       <Suspense fallback={<DashboardSkeleton />}>
-        <DashboardContent access={access} scope={scope} trend={parsed.trend} />
+        <DashboardContent access={access} scope={scope} view={{ trend: parsed.trend, window: parsed.window }} />
       </Suspense>
     </>
   );
@@ -74,22 +85,24 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
 async function DashboardContent({
   access,
   scope,
-  trend,
+  view,
 }: {
   access: WorkspaceAccess;
   scope: ScopeFilters;
-  trend: TrendGranularity;
+  view: DashboardViewParams;
 }) {
   const { workspace, role } = access;
   // Request data first: reading the clock before it would fail the prerender.
   await connection();
   const now = new Date();
+  const windows = headlineWindows(view.window, now);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const [workspaceScope, data, trendData, alertsSummary] = await Promise.all([
+  const [workspaceScope, data, trendData, alertsSummary, headlineEvents] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
     getUnacknowledgedSummary(workspace.id),
+    getHeadlineEventCounts(workspace.id, scope, windows),
   ]);
   const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
 
@@ -119,20 +132,37 @@ async function DashboardContent({
       scope={scope}
       scopeOptions={scopeOptions}
       scopeDescription={describeScope(scope, scopeOptions)}
+      filterParams={viewParams(view)}
+      headline={
+        <HeadlineStrip
+          // The trend history reaches 13 months back, so it holds both windows and the readings before them.
+          strip={buildHeadline({
+            snapshots: trendData.snapshots,
+            connections: trendData.connections,
+            events: headlineEvents,
+            kind: view.window,
+            now,
+          })}
+          hrefs={{
+            week: dashboardHref(dashboardPath, scope, { ...view, window: "week" }),
+            month: dashboardHref(dashboardPath, scope, { ...view, window: "month" }),
+          }}
+        />
+      }
       alerts={alerts}
       trends={{
-        granularity: trend,
-        series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
+        granularity: view.trend,
+        series: buildTrends(trendData.snapshots, trendData.connections, view.trend, now),
         hrefs: {
-          daily: dashboardHref(dashboardPath, scope, "daily"),
-          monthly: dashboardHref(dashboardPath, scope, "monthly"),
+          daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
+          monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
         },
       }}
     />
   );
 }
 
-/** Shaped like the first screen (the closed filter bar and a row of total cards), so nothing jumps. */
+/** Shaped like the first screen (the closed filter bar and the headline strip's first row), so nothing jumps. */
 function DashboardSkeleton() {
   return (
     <div role="status" aria-live="polite">
