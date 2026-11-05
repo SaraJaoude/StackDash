@@ -27,9 +27,11 @@ ownerTest.describe("PostHog", () => {
       await card.getByRole("link", { name: "Connect PostHog" }).focus();
       await page.keyboard.press("Enter");
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect PostHog");
-      // The simulated adapter reuses the real adapter's list of what is collected.
-      await expect(page.getByText("Signups per project per day", { exact: true })).toBeVisible();
-      await expect(page.getByText("When a product nears or reaches its billing limit", { exact: true })).toBeVisible();
+      // The simulated adapter reuses the real adapter's list of what is collected. Role queries
+      // skip the hidden catalog the client router keeps, so each item matches once.
+      for (const item of ["Signups per project per day", "When a product nears or reaches its billing limit"]) {
+        await expect(page.getByRole("listitem").filter({ hasText: new RegExp(`^${item}$`) })).toBeVisible();
+      }
       expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
 
       await page.getByRole("button", { name: "Continue to PostHog" }).focus();
