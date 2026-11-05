@@ -1,4 +1,7 @@
-import { expect, test, type Locator } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import { ownerTest } from "./fixtures/auth";
+import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // textContent, not innerText: toHaveText compares textContent, and innerText applies CSS such as
 // line breaks.
@@ -172,6 +175,51 @@ test.describe("landing page", () => {
         }
         await expect(rows, "the closed row leaves the accessibility tree").toHaveCount(layout.rows);
       });
+    }
+  });
+});
+
+/**
+ * Keyboard only, from a fresh load: the first Tab reaches the skip link, Enter moves focus onto
+ * the main landmark, and the next Tab continues inside it rather than at the page navigation.
+ */
+async function expectSkipToContent(page: Page): Promise<void> {
+  const skip = page.getByRole("link", { name: "Skip to content" });
+  const main = page.getByRole("main");
+  await page.keyboard.press("Tab");
+  await expect(skip).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/#main$/);
+  await expect(main).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.locator("main :focus")).toHaveCount(1);
+}
+
+test.describe("skip to content", () => {
+  for (const route of ["/", "/docs", "/sign-in"]) {
+    test(`moves keyboard focus to the main content on ${route}`, async ({ page }) => {
+      await page.goto(route);
+      await expectSkipToContent(page);
+    });
+  }
+
+  test("moves focus again when the address already ends in #main", async ({ page }) => {
+    await page.goto("/");
+    await expectSkipToContent(page);
+    // A second press is a navigation to the fragment already in the address bar.
+    await page.getByRole("link", { name: "Skip to content" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("main")).toBeFocused();
+  });
+
+  ownerTest("moves keyboard focus past the workspace navigation", async ({ page }) => {
+    const workspace = await createTestWorkspace("Skip link");
+    try {
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectSkipToContent(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
     }
   });
 });

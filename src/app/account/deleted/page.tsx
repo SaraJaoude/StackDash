@@ -17,7 +17,7 @@ export const metadata: Metadata = { title: "Account deleted", robots: { index: f
  */
 export default function AccountDeletedPage({ searchParams }: PageProps<"/account/deleted">) {
   return (
-    <main id="main" className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-6 py-16">
+    <main id="main" tabIndex={-1} className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-6 py-16">
       <div className="rounded-xl border border-line bg-panel px-6 py-10 sm:px-10">
         <p className="flex">
           <Wordmark />

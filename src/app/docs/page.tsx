@@ -12,7 +12,7 @@ export default function DocsIndexPage() {
   const groups = groupDocs(listDocs());
 
   return (
-    <main id="main" className="mx-auto w-full max-w-6xl flex-1 px-6 py-16 sm:py-24">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-16 sm:py-24">
       <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Documentation</h1>
       <p className="mt-4 max-w-2xl text-base leading-7 text-muted">{intro}</p>
 

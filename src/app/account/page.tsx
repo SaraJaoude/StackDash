@@ -53,7 +53,7 @@ export default function AccountPage() {
           </div>
         </div>
       </header>
-      <main id="main" className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 sm:py-10">
         <PageHeader title="Account" description="Your sign-in details, and deleting your account." />
         <Suspense fallback={<LoadingAccount />}>
           <AccountContent />

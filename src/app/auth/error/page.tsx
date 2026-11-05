@@ -48,7 +48,7 @@ async function ErrorDetails({ searchParams }: { searchParams: PageProps<"/auth/e
 /** Where auth routes land when something unexpected fails outside the sign-in page itself. */
 export default function AuthErrorPage({ searchParams }: PageProps<"/auth/error">) {
   return (
-    <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">
+    <main id="main" tabIndex={-1} className="flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-8">
         <Link href="/" className="inline-flex min-h-6 items-center">
           <Wordmark />

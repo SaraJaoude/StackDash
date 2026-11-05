@@ -62,6 +62,12 @@ summary {
   border-radius: 2px;
 }
 
+/* The skip link's target takes focus so keyboard users land in the content, but it is a landmark,
+ * not a control, so it is not outlined like one. */
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
 /* Subtle rise-in for hero elements. Respects reduced motion. */
 @keyframes rise {
   from {
