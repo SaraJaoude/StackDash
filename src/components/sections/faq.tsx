@@ -33,7 +33,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Which services come first?",
-    answer: "Vercel, GitHub, Resend, Stripe, Supabase, and Railway, all connected with OAuth. GitLab, Polar, PostHog, DigitalOcean, Sentry, and ElevenLabs are planned next. The OpenAI and Anthropic APIs only share usage with admin API keys, so they wait until an OAuth route exists.",
+    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, and Railway, all connected with OAuth. GitLab, Polar, PostHog, Sentry, and ElevenLabs are planned next. The OpenAI and Anthropic APIs only share usage with admin API keys, so they wait until an OAuth route exists.",
   },
   {
     question: "Will there be an API or MCP server?",
