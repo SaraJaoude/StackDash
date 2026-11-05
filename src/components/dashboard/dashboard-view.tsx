@@ -89,7 +89,7 @@ function CurrencyCard({
             headline
           />
         </div>
-        <SpendProjectionNote projection={projection} />
+        <SpendProjectionNote projection={projection} partsNote="Each provider card shows its own projection or the reason there is none." />
       </section>
     </li>
   );

@@ -125,10 +125,13 @@ export function ProjectionNote({ text, estimate, flag }: { text: ProjectionText;
   );
 }
 
-/** The spend projection for one currency, or nothing when there is no current spend in it. */
-export function SpendProjectionNote({ projection }: { projection: SpendProjection | undefined }) {
+/**
+ * The spend projection for one currency, or nothing when there is no current spend in it.
+ * `partsNote` says where the amounts of a total are shown one by one (see `spendProjectionText`).
+ */
+export function SpendProjectionNote({ projection, partsNote }: { projection: SpendProjection | undefined; partsNote?: string }) {
   if (projection === undefined) return null;
-  return <ProjectionNote text={spendProjectionText(projection)} estimate={projection.projection.status === "projected"} />;
+  return <ProjectionNote text={spendProjectionText(projection, partsNote)} estimate={projection.projection.status === "projected"} />;
 }
 
 /** Where a value came from: the provider for verified values, the price list for estimates. */

@@ -6,12 +6,15 @@
  * Rules decided here, once:
  * - A projection is an estimate by DevMacro. It is shown beside verified and estimated amounts
  *   and never added to either.
+ * - What is projected is what the dashboard counts (`countedSnapshots`): a breakdown or a day
+ *   inside a longer billing window is not projected as an amount of its own.
  * - Linear on the recent daily rate: the change between the first and the last of the latest
  *   PROJECTION_WINDOW_POINTS daily points of the current period, divided by the time between
  *   their readings, continued from the last reading to the end of the period.
  * - At least MIN_PROJECTION_DAYS UTC days with a reading in the current period, else nothing is
- *   projected ("too_few_days"). A period with no known end ("unknown_period") or one that has
- *   already ended ("period_ended") is not projected either.
+ *   projected ("too_few_days"). A period with no known end ("unknown_period"), one that has
+ *   already ended ("period_ended"), or one shorter than MIN_PROJECTION_DAYS, which can never hold
+ *   enough days ("period_too_short", a daily quota), is not projected either.
  * - The current period is the latest reading's: readings with another period start, or for a
  *   point reading another reset time, belong to a period that has ended and are ignored. A value
  *   that falls within the period (a reset or a correction the provider did not announce) starts
@@ -19,23 +22,28 @@
  * - The end of the period is the reset time when there is one, else the stored period end when
  *   the window runs past the day it was read. A window "to date" that starts at a UTC month start
  *   is taken to end at the next UTC month start, and the explanation says so (decision recorded
- *   on #167). Anything else has no known end.
- * - Money: per external account and currency, verified spend is projected; estimated spend only
- *   for an account with no current verified spend in that currency, the rule `evaluate.ts` applies
- *   to spend alerts (7e35963). Projections are summed unrounded and rounded once, half up, to
- *   minor units when shown (`projectedMinor`).
+ *   on #167). Anything else has no known end. A period's length is from its start to that end;
+ *   for a point reading with a reset, the time since the previous reset among its readings.
+ * - Money: the spend one total counts (`spendToCount`): per external account and currency,
+ *   verified spend, and estimated spend only for an account with no current verified spend in
+ *   that currency. Projections are summed unrounded and rounded once, half up, to minor units
+ *   when shown (`projectedMinor`). A sum is unavailable when any part is, and says how many.
  * - A quota runs out when its used amount is projected to reach the allowance before the reset.
- *   One already at or over its allowance is used up: an observed reading, not an estimate.
+ *   One already at or over its allowance is used up: an observed reading, not an estimate. A quota
+ *   whose period is too short to project gets no projection at all.
  * - A projection never raises an alert (decision recorded on #167): an alert records observed
  *   values only, once per rule and cycle.
  */
+import { joinAlertSnapshots } from "@/lib/alerts/evaluate";
 import { formatDateTime, formatMoney, formatQuantity, formatUtcDate } from "@/lib/format";
 
 import {
-  dropSupersededBreakdowns,
-  isCurrentPeriod,
+  allowanceGroups,
+  allowanceUsage,
+  countedSnapshots,
   isEstimated,
   latestSnapshots,
+  spendToCount,
   type DashboardInput,
   type SnapshotInput,
 } from "./aggregate";
@@ -45,7 +53,7 @@ export const PROJECTION_WINDOW_POINTS = 7;
 
 const DAY_MS = 86_400_000;
 
-export type UnavailableReason = "too_few_days" | "unknown_period" | "period_ended";
+export type UnavailableReason = "too_few_days" | "unknown_period" | "period_ended" | "period_too_short";
 
 /** When the projected period ends. `assumed` when DevMacro took it to be the calendar month. */
 export type PeriodEnd = Readonly<{ at: string; assumed: boolean }>;
@@ -58,7 +66,8 @@ export type ProjectionBasis = Readonly<{
   /** First and last UTC snapshot dates used. */
   from: string;
   to: string;
-  days: number;
+  /** Days with data used; null when summed parts used different numbers of days. */
+  days: number | null;
   ratePerDay: number;
   /** The instant of the last reading the projection continues from. */
   lastReadAt: string;
@@ -76,7 +85,13 @@ export type Projected = Readonly<{
   basis: ProjectionBasis;
 }>;
 
-export type Projection = Readonly<{ status: "unavailable"; reason: UnavailableReason }> | Projected;
+/**
+ * No projection. `missing` of the `of` parts summed could not be projected, `reason` being the
+ * first of theirs in REASON_ORDER; a single metric is 1 of 1.
+ */
+export type Unavailable = Readonly<{ status: "unavailable"; reason: UnavailableReason; missing: number; of: number }>;
+
+export type Projection = Unavailable | Projected;
 
 export type SpendProjection = Readonly<{
   currency: string;
@@ -86,7 +101,7 @@ export type SpendProjection = Readonly<{
 }>;
 
 export type QuotaProjection =
-  | Readonly<{ status: "unavailable"; reason: UnavailableReason }>
+  | Unavailable
   | Readonly<{ status: "used_up"; used: number; included: number; unit: string }>
   | Readonly<{ status: "within"; included: number; unit: string; projection: Projected }>
   | Readonly<{ status: "runs_out"; at: string; included: number; unit: string; projection: Projected }>;
@@ -94,8 +109,8 @@ export type QuotaProjection =
 /** One allowance's projection with the allowance's label, for surfaces that name it. */
 export type AllowanceProjection = Readonly<{ label: string; quota: QuotaProjection }>;
 
-function unavailable(reason: UnavailableReason): Readonly<{ status: "unavailable"; reason: UnavailableReason }> {
-  return { status: "unavailable", reason };
+function unavailable(reason: UnavailableReason): Unavailable {
+  return { status: "unavailable", reason, missing: 1, of: 1 };
 }
 
 function iso(at: string | number): string {
@@ -169,6 +184,25 @@ function cycleOf(row: SnapshotInput): string | null {
 }
 
 /**
+ * How long the period of `latest` lasts, or null when the rows cannot tell: from the period start
+ * to `periodEnd`, else for a point reading with a reset, the time since the latest earlier reset
+ * among the rows of other cycles.
+ */
+function periodLengthMs(latest: SnapshotInput, rows: readonly SnapshotInput[], periodEnd: PeriodEnd): number | null {
+  if (latest.period_start !== null && latest.period_end !== null) return Date.parse(periodEnd.at) - Date.parse(latest.period_start);
+  if (latest.resets_at === null) return null;
+  const cycle = cycleOf(latest);
+  const resetsAt = Date.parse(latest.resets_at);
+  let previous: number | null = null;
+  for (const row of rows) {
+    if (row.resets_at === null || cycleOf(row) === cycle) continue;
+    const at = Date.parse(row.resets_at);
+    if (at < resetsAt && (previous === null || at > previous)) previous = at;
+  }
+  return previous === null ? null : resetsAt - previous;
+}
+
+/**
  * Projects one metric from its stored rows (one external account, one metric key). `valueOf`
  * reads the number to project, or null to skip a row.
  */
@@ -181,23 +215,29 @@ export function projectMetric(
   if (latest === undefined) return unavailable("too_few_days");
   const cycle = cycleOf(latest);
   if (cycle === null) return unavailable("unknown_period");
+  const periodEnd = periodEndOf(latest);
+  const length = periodEnd === null ? null : periodLengthMs(latest, rows, periodEnd);
+  if (length !== null && length < MIN_PROJECTION_DAYS * DAY_MS) return unavailable("period_too_short");
   const points: SeriesPoint[] = [];
   for (const row of rows) {
     const value = valueOf(row);
     if (value !== null && cycleOf(row) === cycle) points.push({ date: row.snapshot_date, at: row.retrieved_at, value });
   }
-  return projectSeries(points, periodEndOf(latest), now);
+  return projectSeries(points, periodEnd, now);
 }
 
-const REASON_ORDER: readonly UnavailableReason[] = ["unknown_period", "period_ended", "too_few_days"];
+const REASON_ORDER: readonly UnavailableReason[] = ["unknown_period", "period_too_short", "period_ended", "too_few_days"];
 
-/** The sum of several projections, unrounded; unavailable when any part is. */
+/** The sum of several projections, unrounded; unavailable when any part is, saying how many. */
 export function sumProjections(parts: readonly Projection[]): Projection {
-  const missing = REASON_ORDER.find((reason) => parts.some((part) => part.status === "unavailable" && part.reason === reason));
-  if (missing !== undefined) return unavailable(missing);
+  const missing = parts.filter((part): part is Unavailable => part.status === "unavailable");
+  const reason = REASON_ORDER.find((candidate) => missing.some((part) => part.reason === candidate));
+  if (reason !== undefined) {
+    return { status: "unavailable", reason, missing: missing.reduce((sum, part) => sum + part.missing, 0), of: parts.length };
+  }
   const projected = parts.filter((part): part is Projected => part.status === "projected");
   const [first, ...rest] = projected;
-  if (first === undefined) return unavailable("too_few_days");
+  if (first === undefined) return { status: "unavailable", reason: "too_few_days", missing: 0, of: 0 };
   return rest.reduce<Projected>((sum, part) => {
     const later = Date.parse(part.periodEnd.at) > Date.parse(sum.periodEnd.at);
     return {
@@ -209,7 +249,7 @@ export function sumProjections(parts: readonly Projection[]): Projection {
       basis: {
         from: part.basis.from < sum.basis.from ? part.basis.from : sum.basis.from,
         to: part.basis.to > sum.basis.to ? part.basis.to : sum.basis.to,
-        days: Math.min(sum.basis.days, part.basis.days),
+        days: sum.basis.days === part.basis.days ? sum.basis.days : null,
         ratePerDay: sum.basis.ratePerDay + part.basis.ratePerDay,
         lastReadAt: Date.parse(part.basis.lastReadAt) > Date.parse(sum.basis.lastReadAt) ? part.basis.lastReadAt : sum.basis.lastReadAt,
       },
@@ -242,20 +282,11 @@ function historyByMetric(rows: readonly SnapshotInput[]): Map<string, SnapshotIn
  * Sorted by currency code.
  */
 export function projectSpend(rows: readonly SnapshotInput[], now: Date): SpendProjection[] {
-  const current = dropSupersededBreakdowns(latestSnapshots(rows)).filter(
-    (row) =>
-      (row.kind === "verified_spend" || row.kind === "estimated_spend") &&
-      row.currency !== null &&
-      row.amount_minor !== null &&
-      isCurrentPeriod(row, now),
-  );
-  const verified = new Set(current.filter((row) => row.kind === "verified_spend").map((row) => `${row.external_account_id} ${row.currency}`));
   const history = historyByMetric(rows);
   const byCurrency = new Map<string, { parts: Projection[]; includesEstimates: boolean }>();
-  for (const row of current) {
+  for (const row of spendToCount(countedSnapshots(rows), now)) {
     const { currency } = row;
     if (currency === null) continue;
-    if (row.kind === "estimated_spend" && verified.has(`${row.external_account_id} ${currency}`)) continue;
     const projection = projectMetric(
       history.get(metricKey(row)) ?? [],
       (candidate) => (candidate.currency === currency ? candidate.amount_minor : null),
@@ -273,31 +304,22 @@ export function projectSpend(rows: readonly SnapshotInput[], now: Date): SpendPr
 
 /**
  * Run-out projections per allowance, keyed like the dashboard's allowances
- * (`<external account id>:<key prefix>`). An allowance pairs an `included_allowance` with the
- * first `usage` metric (by key) of the same account, key prefix, and unit, as on the dashboard;
- * allowances with no usage metric, or an allowance that is not above zero, are left out.
+ * (`<external account id>:<key prefix>`), paired the dashboard's way (`allowanceGroups`, with the
+ * used amount from `allowanceUsage`). Allowances with no usage metric, an allowance that is not
+ * above zero, or one whose period is too short to project are left out.
  */
 export function projectAllowances(rows: readonly SnapshotInput[], now: Date): Map<string, AllowanceProjection> {
-  type Group = { included?: SnapshotInput; usage: SnapshotInput[] };
-  const groups = new Map<string, Group>();
-  for (const row of dropSupersededBreakdowns(latestSnapshots(rows))) {
-    if (row.kind !== "included_allowance" && row.kind !== "usage") continue;
-    const key = `${row.external_account_id}:${row.metric_key.slice(0, row.metric_key.lastIndexOf("."))}`;
-    const group = groups.get(key) ?? { usage: [] };
-    if (row.kind === "included_allowance") group.included ??= row;
-    else group.usage.push(row);
-    groups.set(key, group);
-  }
-
   const history = historyByMetric(rows);
   const result = new Map<string, AllowanceProjection>();
-  for (const [key, group] of groups) {
+  for (const group of allowanceGroups(countedSnapshots(rows))) {
     const { included } = group;
     if (included === undefined || included.unit === null || included.value === null || !(included.value > 0)) continue;
     const unit = included.unit;
-    const used = group.usage.filter((row) => row.unit === unit).sort((a, b) => a.metric_key.localeCompare(b.metric_key))[0];
+    const used = allowanceUsage(group, unit);
     if (used === undefined || used.value === null) continue;
-    result.set(key, { label: included.label, quota: quotaOf(history.get(metricKey(used)) ?? [], used.value, included.value, unit, now) });
+    const quota = quotaOf(history.get(metricKey(used)) ?? [], used.value, included.value, unit, now);
+    if (quota.status === "unavailable" && quota.reason === "period_too_short") continue;
+    result.set(`${group.accountId}:${group.prefix}`, { label: included.label, quota });
   }
   return result;
 }
@@ -331,16 +353,12 @@ export type DashboardProjections = Readonly<{
 
 /**
  * Projections for the dashboard, from the same input as `aggregateDashboard`: rows of accounts
- * not included, or whose account moved connection, are skipped the same way.
+ * not included, or whose account moved connection, are skipped the same way (`joinAlertSnapshots`).
  */
 export function projectDashboard(input: DashboardInput): DashboardProjections {
-  const connections = new Set(input.connections.map((connection) => connection.id));
-  const accountConnection = new Map(input.accounts.map((account) => [account.id, account.connection_id]));
+  const rows = joinAlertSnapshots(input.snapshots, input.connections, input.accounts);
   const byConnection = new Map<string, SnapshotInput[]>();
-  const rows: SnapshotInput[] = [];
-  for (const row of input.snapshots) {
-    if (!connections.has(row.connection_id) || accountConnection.get(row.external_account_id) !== row.connection_id) continue;
-    rows.push(row);
+  for (const row of rows) {
     const list = byConnection.get(row.connection_id);
     if (list === undefined) byConnection.set(row.connection_id, [row]);
     else list.push(row);
@@ -361,14 +379,21 @@ const REASON_TEXT: Record<UnavailableReason, string> = {
   too_few_days: `DevMacro needs at least ${MIN_PROJECTION_DAYS} days of data in the current period to project it.`,
   unknown_period: "The provider does not say when the current period ends.",
   period_ended: "The current period has ended.",
+  period_too_short: `The period is shorter than ${MIN_PROJECTION_DAYS} days, so there is nothing to project.`,
 };
 
-/** The reason in a few words, for one line summaries. */
+/** The reason in a few words, for one line summaries and sums. */
 const REASON_PHRASE: Record<UnavailableReason, string> = {
   too_few_days: `fewer than ${MIN_PROJECTION_DAYS} days of data`,
   unknown_period: "the end of the period is unknown",
   period_ended: "the period has ended",
+  period_too_short: `the period is shorter than ${MIN_PROJECTION_DAYS} days`,
 };
+
+/** True when only some parts of a sum could not be projected, so the sum's text names how many. */
+function isPartial(projection: Unavailable): boolean {
+  return projection.of > 1 && projection.missing < projection.of;
+}
 
 /** The last day of a period ending at `periodEnd`, as a UTC date. */
 function lastDayOf(periodEnd: PeriodEnd): string {
@@ -381,17 +406,28 @@ function endPhrase(projection: Projected): string {
 }
 
 function basisPhrase(basis: ProjectionBasis, rate: string): string {
-  const days = `${basis.days} days with data (${basis.from} to ${basis.to})`;
-  return `Calculated by DevMacro, not reported by the provider: the average daily increase over the last ${days}, ${rate} a day, continued to the end of the period.`;
+  const over =
+    basis.days === null
+      ? `between ${basis.from} and ${basis.to}`
+      : `over the last ${basis.days} days with data (${basis.from} to ${basis.to})`;
+  return `Calculated by DevMacro, not reported by the provider: the average daily increase ${over}, ${rate} a day, continued to the end of the period.`;
 }
 
 const ASSUMED_NOTE = " The provider reports this period to date, so DevMacro assumes it ends with the calendar month.";
 
-/** "On track for $51.75 by 2026-11-30", with how it was calculated, or why there is none. */
-export function spendProjectionText(spend: SpendProjection): ProjectionText {
+/**
+ * "On track for $51.75 by 2026-11-30", with how it was calculated, or why there is none. When
+ * only some amounts in a total could not be projected, the explanation says how many, and
+ * `partsNote` (where the surface shows them one by one) follows it.
+ */
+export function spendProjectionText(spend: SpendProjection, partsNote?: string): ProjectionText {
   const { projection, currency } = spend;
   if (projection.status === "unavailable") {
-    return { headline: "Projection unavailable", explanation: REASON_TEXT[projection.reason] };
+    const explanation = isPartial(projection)
+      ? `DevMacro cannot project ${projection.missing} of the ${projection.of} amounts in this total (${REASON_PHRASE[projection.reason]}), so it does not project the total.` +
+        (partsNote === undefined ? "" : ` ${partsNote}`)
+      : REASON_TEXT[projection.reason];
+    return { headline: "Projection unavailable", explanation };
   }
   const explanation =
     basisPhrase(projection.basis, formatMoney(Math.round(projection.basis.ratePerDay), currency)) +
@@ -407,9 +443,13 @@ export function spendProjectionText(spend: SpendProjection): ProjectionText {
 /** One line for the daily summary: "Spending on track for $51.75 by 2026-11-30 (estimate by DevMacro)". */
 export function spendProjectionLine(spend: SpendProjection): string {
   const { projection, currency } = spend;
-  return projection.status === "projected"
-    ? `Spending on track for ${formatMoney(projectedMinor(projection), currency)} by ${endPhrase(projection)} (estimate by DevMacro)`
-    : `Spending projection in ${currency} unavailable (${REASON_PHRASE[projection.reason]})`;
+  if (projection.status === "projected") {
+    return `Spending on track for ${formatMoney(projectedMinor(projection), currency)} by ${endPhrase(projection)} (estimate by DevMacro)`;
+  }
+  const why = isPartial(projection)
+    ? `${projection.missing} of ${projection.of} amounts: ${REASON_PHRASE[projection.reason]}`
+    : REASON_PHRASE[projection.reason];
+  return `Spending projection in ${currency} unavailable (${why})`;
 }
 
 /**
