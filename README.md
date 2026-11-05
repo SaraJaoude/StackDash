@@ -420,11 +420,12 @@ src/
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
-    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
+    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings, year in review
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
+    badge/, card/              a published metric's live SVG badge and PNG card, for anyone
   components/
     sections/                  landing page sections
     app/                       app shell: navigation, workspace switcher, command palette, page states
@@ -432,7 +433,7 @@ src/
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules
-    public-metrics/            publish, unpublish, and self-reported value controls
+    public-metrics/            publish, unpublish, self-reported value controls, and the share dialog
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
@@ -443,7 +444,7 @@ src/
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
     dashboard/, timeline/      dashboard aggregation and timeline queries
-    public-metrics/            public metric definitions, engine, and the published read API
+    public-metrics/            public metric definitions, engine, published read API, badges, cards, yearly card
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
