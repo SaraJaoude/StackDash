@@ -13,6 +13,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100200_daily_summary_jobs.sql` | `daily_summary` jobs and `enqueue_daily_summaries` |
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
+| `20261105002438_anomaly_detection.sql` | `workspaces.anomaly_detection_enabled` (on by default) and `anomaly_mutes`, the metrics a workspace muted for anomaly detection |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -30,6 +31,7 @@ erDiagram
   workspaces ||--o{ oauth_states : "owns"
   workspaces ||--o{ budgets : "owns"
   workspaces ||--o{ alert_rules : "owns"
+  workspaces ||--o{ anomaly_mutes : "owns"
   workspaces ||--o{ activity_events : "owns"
   workspaces ||--o{ sync_jobs : "owns (null for instance jobs)"
   profiles }o--o| workspaces : "last_workspace_id"
@@ -99,9 +101,10 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 
 | Table | Read | Write through the Data API |
 |---|---|---|
-| `workspaces` | viewer | rename: admin; delete: owner; create: only `create_workspace` (service role) |
+| `workspaces` | viewer | rename and turn anomaly detection on or off: admin; delete: owner; create: only `create_workspace` (service role) |
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules` | viewer | admin |
+| `anomaly_mutes` | viewer | admin adds and removes; never updated |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `profiles` | own row | own row |
@@ -142,7 +145,7 @@ Each row keeps the adapter metric model: kind, value and unit or integer minor u
 
 ## Realtime (#129)
 
-The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
+The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`, `anomaly_mutes`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
 
 | Table | Why it is published |
 |---|---|
@@ -163,6 +166,7 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
+| `anomaly_mutes` | until a person unmutes the metric (cascade on workspace delete) | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 
 Nothing is aggregated in the MVP.

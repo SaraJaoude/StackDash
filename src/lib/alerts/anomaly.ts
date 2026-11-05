@@ -27,7 +27,7 @@
  * - The latest complete UTC day is compared with the 14 days before it. It needs at least 7 of
  *   them, and it fires only when all three hold: the day is at least twice the median, it is above
  *   the median by at least the minimum change for its currency or unit, and its modified z-score
- *   (0.6745 times the distance from the median, over the median absolute deviation) is at least
+ *   (0.6745 times the distance from the median, over the median absolute deviation) is above
  *   3.5, the outlier cutoff Iglewicz and Hoaglin recommend (NIST/SEMATECH e-Handbook of
  *   Statistical Methods, section 1.3.5.17, "Detection of Outliers"). The median and its absolute
  *   deviation are robust: one past spike moves neither, so it cannot hide the next one, and a
@@ -48,8 +48,8 @@ export const ANOMALY_WINDOW_DAYS = 14;
 export const ANOMALY_MIN_HISTORY_DAYS = 7;
 /** The day must be at least this many times the usual (median) amount. */
 export const ANOMALY_MIN_RATIO = 2;
-/** Modified z-score cutoff (Iglewicz and Hoaglin). */
-export const ANOMALY_MIN_SCORE = 3.5;
+/** Modified z-score cutoff (Iglewicz and Hoaglin): a day must score above it. */
+export const ANOMALY_SCORE_CUTOFF = 3.5;
 /** Money: the day must be at least this many whole currency units above the usual amount. */
 export const ANOMALY_MIN_MONEY_CHANGE_MAJOR = 5;
 /** Quantities: the day must be at least this much above the usual amount, per unit. */
@@ -150,7 +150,7 @@ export function detectSpike(history: readonly (number | null)[], value: number |
   if (value < ANOMALY_MIN_RATIO * usual) return null;
   const deviation = median(available.map((amount) => Math.abs(amount - usual)).sort((a, b) => a - b));
   // A flat history has no spread: anything past the ratio and the minimum change is unusual.
-  if (deviation > 0 && (MAD_SCALE * (value - usual)) / deviation < ANOMALY_MIN_SCORE) return null;
+  if (deviation > 0 && (MAD_SCALE * (value - usual)) / deviation <= ANOMALY_SCORE_CUTOFF) return null;
   return { value, usual, ratio: usual > 0 ? value / usual : null, historyDays: available.length };
 }
 

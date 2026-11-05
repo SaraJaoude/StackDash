@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { AlertSettings } from "@/components/alerts/alert-settings";
+import { AnomalySettings } from "@/components/alerts/anomaly-settings";
 import { TriggeredAlerts } from "@/components/alerts/triggered-alerts";
 import { PageHeader } from "@/components/app/page-header";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -38,7 +39,7 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
     <>
       <PageHeader
         title="Alerts"
-        description="Thresholds for spend, budgets, and allowances, and the alerts they raise."
+        description="Thresholds for spend, budgets, and allowances, the alerts they raise, and unusual days."
       />
       <Suspense
         fallback={
@@ -68,6 +69,15 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
           rulesAfter={search.rulesAfter ?? null}
           budgetsAfter={search.budgetsAfter ?? null}
         />
+      </Suspense>
+      <Suspense
+        fallback={
+          <p role="status" className="mt-8 text-sm text-muted">
+            Loading anomaly detection settings
+          </p>
+        }
+      >
+        <AnomalySettings workspace={workspace} role={role} />
       </Suspense>
     </>
   );
