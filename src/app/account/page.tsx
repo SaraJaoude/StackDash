@@ -23,6 +23,10 @@ import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Account" };
 
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
+
 const numberFormat = new Intl.NumberFormat("en-US");
 
 function count(value: number, one: string, many: string): string {
@@ -30,10 +34,11 @@ function count(value: number, one: string, many: string): string {
 }
 
 /**
- * The signed-in account page (#42). The shell prerenders; everything that needs the session
- * streams in behind Suspense, as Cache Components requires.
+ * The signed-in account page (#42). The header renders first; everything that needs the session
+ * streams in behind Suspense.
  */
-export default function AccountPage() {
+export default async function AccountPage() {
+  await connection();
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-line">
@@ -146,7 +151,7 @@ async function DeletionDetails({
         <p className="mt-1 text-muted">This cannot be undone.</p>
         <ul aria-label="What is deleted" className="mt-3 flex flex-col gap-3">
           <li className="rounded-lg border border-line bg-panel-raised px-4 py-3">
-            Your profile, your sign-in, and your membership of every workspace.
+            Your profile, your sign-in, your membership of every workspace, and every metric you published.
           </li>
           {preview.workspaces.map((workspace) => (
             <WorkspaceDeletion key={workspace.workspaceId} workspace={workspace} />
@@ -159,7 +164,7 @@ async function DeletionDetails({
           <h3 className="font-semibold">Workspaces you leave</h3>
           <p className="mt-1 text-muted">
             Other people keep these. The connections, budgets, and alert rules you created in them stay with the
-            workspace.
+            workspace. Metrics you published in them are removed and stop being public.
           </p>
           <ul aria-label="Workspaces you leave" className="mt-2 list-disc space-y-1 pl-5">
             {plan.leaving.map((workspace) => (

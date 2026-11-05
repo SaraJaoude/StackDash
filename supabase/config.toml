@@ -109,8 +109,9 @@ openai_api_key = "env(OPENAI_API_KEY)"
 enabled = true
 # Port to use for the email testing server web interface.
 port = 55424
-# Uncomment to expose additional ports for testing user applications that send emails.
-# smtp_port = 54325
+# SMTP port of the mail catcher. Alert emails (#152) go here locally and in CI: DEVMACRO_SMTP_URL is
+# smtp://127.0.0.1:55425 in .env.local, and the messages show in the web interface above.
+smtp_port = 55425
 # pop3_port = 54326
 # admin_email = "admin@email.com"
 # sender_name = "Admin"

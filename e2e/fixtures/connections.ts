@@ -1,6 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
+import { CONNECTION_URL } from "./db";
 
 /** Checks a spec runs on a screen of the connect flow before moving on, such as an axe scan. */
 export type ConnectChecks = Readonly<{

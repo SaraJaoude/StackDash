@@ -27,6 +27,8 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Resend OAuth client | `POST https://api.resend.com/oauth/register` | `<SITE_URL>/api/connections/resend/callback` | `full_access` (Resend has no read-only scope; **not read-only**) | `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET` |
 | DigitalOcean OAuth app | DigitalOcean control panel, API, OAuth Applications | `<SITE_URL>/api/connections/digitalocean/callback` | `billing:read`, `actions:read`, `app:read`, `droplet:read`, `account:read` (sent with each authorize request) | `DIGITALOCEAN_CLIENT_ID`, `DIGITALOCEAN_CLIENT_SECRET` |
 | PostHog client ID metadata document | Nothing to create: DevMacro serves the document at `<SITE_URL>/oauth/posthog/client-metadata` | `<SITE_URL>/api/connections/posthog/callback` (listed in the document) | `billing:read`, `organization:read`, `project:read`, `query:read` | `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` |
+| Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
+| Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 | Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
@@ -135,6 +137,35 @@ Settings that must match the code:
 - The document lists `<SITE_URL>/api/connections/posthog/callback` as its only redirect URI, `<SITE_URL>/oauth/posthog/jwks` as its `jwks_uri`, and the four read scopes as its scope ceiling. All three come from the code; there is nothing to configure.
 
 Variables: `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` (a P-256 or RSA private key in PEM, generated with `openssl`; `\n` escapes are accepted). Check both routes answer JSON after deploying. Whether PostHog grants `billing:read` to a document-registered app is unconfirmed (#11); see [PostHog, Unverified](../providers/posthog.md#unverified).
+
+## Polar OAuth client
+
+Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted DevMacro (#141); the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
+
+Settings that must match the code:
+
+- Polar, **Account Settings**, **Developer** ([link](https://polar.sh/dashboard/account/developer)), create an OAuth 2.0 client of the confidential type, not a public client.
+- **Redirect URIs**: `<SITE_URL>/api/connections/polar/callback`. Polar requires HTTPS except on `localhost`.
+- **Scopes**: `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read`. Nothing else, and no `:write` scope. Webhooks would need `webhooks:write`, so the timeline is polled instead.
+- Register in production (`polar.sh`), not the sandbox: the adapter calls `https://api.polar.sh` only.
+
+Variables: `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET`.
+
+## Sentry integration
+
+Reads error counts by outcome, new, regressed, and resolved issues, and releases, per project. A Sentry public integration on the integration platform; DevMacro uses its OAuth install flow and never asks for an auth token. Full steps: [Sentry, Self-hosted registration](../providers/sentry.md#self-hosted-registration). Permissions and what they also allow: [Sentry, Permissions](../providers/sentry.md#permissions) and [Permission risks](../providers/sentry.md#permission-risks).
+
+Settings that must match the code:
+
+- Sentry, **Settings, Developer Settings, Create New Integration, Public Integration**, in the organization that should own it.
+- **Redirect URL**: `<SITE_URL>/api/connections/sentry/callback`. Sentry sends `code`, `installationId`, `orgSlug`, and the `state` from the install URL here.
+- **Verify Installation**: unchecked. Checking it would need a write request to Sentry after every install.
+- **Permissions**: Organization Read, Issue & Event Read, Project Read (`org:read`, `event:read`, `project:read`). Everything else No Access. Team, Member, and Release permissions are not needed: releases are read with Project Read.
+- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off. Webhooks are Post-MVP (#28).
+
+Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
+
+Until Sentry publishes it, a public integration can only be installed by the organization that created it. Hosted DevMacro needs Sentry's publication review before other organizations can connect; a self-hosted install registers its own integration in its own organization and needs no review.
 
 ## Railway OAuth app
 

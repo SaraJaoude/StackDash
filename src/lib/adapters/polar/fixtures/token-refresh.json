@@ -1,0 +1,8 @@
+{
+  "token_type": "Bearer",
+  "access_token": "polar_at_fixture_access_2",
+  "expires_in": 864000,
+  "refresh_token": "polar_rt_fixture_refresh_2",
+  "scope": "organizations:read metrics:read orders:read subscriptions:read customers:read refunds:read",
+  "id_token": null
+}

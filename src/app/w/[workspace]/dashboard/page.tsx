@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
@@ -112,24 +113,27 @@ async function DashboardContent({
 
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
+  // The page's URL is its scope: a new filter or trend period resets what counts as changed.
   return (
-    <DashboardView
-      view={aggregateDashboard({ ...data, now })}
-      now={now}
-      dashboardPath={dashboardPath}
-      scope={scope}
-      scopeOptions={scopeOptions}
-      scopeDescription={describeScope(scope, scopeOptions)}
-      alerts={alerts}
-      trends={{
-        granularity: trend,
-        series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
-        hrefs: {
-          daily: dashboardHref(dashboardPath, scope, "daily"),
-          monthly: dashboardHref(dashboardPath, scope, "monthly"),
-        },
-      }}
-    />
+    <ArrivalScope scope={dashboardHref(dashboardPath, scope, trend)}>
+      <DashboardView
+        view={aggregateDashboard({ ...data, now })}
+        now={now}
+        dashboardPath={dashboardPath}
+        scope={scope}
+        scopeOptions={scopeOptions}
+        scopeDescription={describeScope(scope, scopeOptions)}
+        alerts={alerts}
+        trends={{
+          granularity: trend,
+          series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
+          hrefs: {
+            daily: dashboardHref(dashboardPath, scope, "daily"),
+            monthly: dashboardHref(dashboardPath, scope, "monthly"),
+          },
+        }}
+      />
+    </ArrivalScope>
   );
 }
 

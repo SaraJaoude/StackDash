@@ -19,6 +19,8 @@ import { githubProfile } from "./github";
 import { postHogProfile } from "./posthog";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
+import { polarProfile } from "./polar";
+import { sentryProfile } from "./sentry";
 import { railwayProfile } from "./railway";
 import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedProfile } from "./simulation";
 import { stripeProfile } from "./stripe";
@@ -178,6 +180,8 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
   digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean"),
   posthog: createSimulatedAdapter(postHogProfile, "posthog"),
+  polar: createSimulatedAdapter(polarProfile, "polar"),
+  sentry: createSimulatedAdapter(sentryProfile, "sentry"),
   railway: createSimulatedAdapter(railwayProfile, "railway"),
 };
 

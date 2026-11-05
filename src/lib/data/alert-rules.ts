@@ -77,6 +77,37 @@ export const listAlertRules = cache(
   },
 );
 
+// Every rule, for the channel form's rule picker (#153); the same bound the alert evaluation reads.
+const RULE_CHOICES_LIMIT = 500;
+
+/** Every alert rule of the workspace, oldest first, for choosing which ones a channel receives. */
+export const listAlertRuleChoices = cache(async (workspaceId: string): Promise<AlertRule[]> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("alert_rules")
+    .select(RULE_COLUMNS)
+    .eq("workspace_id", workspaceId)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(RULE_CHOICES_LIMIT);
+  if (error) throw new Error("Failed to list alert rules", { cause: error });
+  return data;
+});
+
+/** The ids among `ids` that are rules of this workspace; anything else (deleted, foreign) is dropped. */
+export async function existingRuleIds(workspaceId: string, ids: readonly string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("alert_rules")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .in("id", [...ids])
+    .limit(RULE_CHOICES_LIMIT);
+  if (error) throw new Error("Failed to check alert rules", { cause: error });
+  return data.map((row) => row.id);
+}
+
 /** Projects and connections a rule or budget can be scoped to. */
 export const listScopeTargets = cache(async (workspaceId: string): Promise<ScopeTargets> => {
   const supabase = await createClient();
