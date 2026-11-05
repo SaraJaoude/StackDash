@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { connectSimulated } from "./fixtures/connections";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -10,46 +12,36 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
  * routes PostHog itself calls answer 404 here, because CI sets no PostHog variables.
  */
 
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
+async function expectNoAxeViolations(page: Page): Promise<void> {
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+}
 
 ownerTest.describe("PostHog", () => {
   ownerTest("connects from the catalog with the keyboard and lists the organization", async ({ page }) => {
     const workspace = await createTestWorkspace("PostHog connection");
     try {
-      await page.goto(`/w/${workspace.slug}/connections`);
-      const card = page
-        .getByRole("list", { name: "Providers" })
-        .getByRole("listitem")
-        .filter({ has: page.getByRole("heading", { name: "PostHog", exact: true }) });
-      await expect(card.getByText("Simulated", { exact: true })).toBeVisible();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-
-      await card.getByRole("link", { name: "Connect PostHog" }).focus();
-      await page.keyboard.press("Enter");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect PostHog");
-      // The simulated adapter reuses the real adapter's list of what is collected. Role queries
-      // skip the hidden catalog the client router keeps, so each item matches once.
-      for (const item of ["Signups per project per day", "When a product nears or reaches its billing limit"]) {
-        await expect(page.getByRole("listitem").filter({ hasText: new RegExp(`^${item}$`) })).toBeVisible();
-      }
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-
-      await page.getByRole("button", { name: "Continue to PostHog" }).focus();
-      await page.keyboard.press("Enter");
-      await expect(page).toHaveURL(CONNECTION_URL);
-      await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
+      await connectSimulated(page, workspace.slug, "PostHog", {
+        catalog: () => expectNoAxeViolations(page),
+        connectScreen: async () => {
+          // The simulated adapter reuses the real adapter's list of what is collected. Role queries
+          // skip the hidden catalog the client router keeps, so each item matches once.
+          for (const item of ["Signups per project per day", "When a product nears or reaches its billing limit"]) {
+            await expect(page.getByRole("listitem").filter({ hasText: new RegExp(`^${item}$`) })).toBeVisible();
+          }
+          await expectNoAxeViolations(page);
+        },
+      });
       await expect(page.getByText("Example organization").first()).toBeVisible();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
   });
 
+  // The 404 body is proven by the route unit tests; here only the status matters.
   ownerTest("answers 404 for the metadata document and JWKS when PostHog is not set up", async ({ request }) => {
     for (const path of ["/oauth/posthog/client-metadata", "/oauth/posthog/jwks"]) {
-      const response = await request.get(path);
-      expect(response.status()).toBe(404);
-      expect(await response.text()).toBe("PostHog is not set up on this DevMacro instance.");
+      expect((await request.get(path)).status()).toBe(404);
     }
   });
 });
