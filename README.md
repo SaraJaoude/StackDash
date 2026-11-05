@@ -235,7 +235,9 @@ npm run demo:seed -- --member you@example.com
   a live tick would have stored. Each day keeps the last 30 minutes of events before midnight in
   London, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day in
   every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
-  limit, and the budget alert triggers in the third week of each full month.
+  limit, and the budget alert triggers in the third week of each full month. The alerts the replay
+  triggers count as already sent, so the first tick afterwards emails and posts none of them;
+  alerts that trigger once the history runs live are delivered as usual.
 - `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
   demo workspace; repeat it for more people (an email given twice counts once, and
   `demo@example.com` is refused because it already owns the workspace). The demo account has no
@@ -300,22 +302,33 @@ connects and syncs through `POST /api/jobs/tick`. `e2e/real-connection-while-sim
 checks, without a tick, that a real connection stays unlabeled and cannot be reconnected through
 the simulator.
 
-That tick is instance-wide: it syncs the due connections of every workspace, including the ones
-other specs seed, so a spec that runs it would break them if it ran beside them. Such specs live
-in a second Playwright project, `instance-wide`, which depends on the `chromium` project and so
-starts only after every other spec has finished. `npm run test:e2e` (and CI) runs both projects in
-that order; if a `chromium` test fails, the `instance-wide` specs are skipped. To run the tick
-spec locally:
+`e2e/alert-email.spec.ts` sends an alert email through SMTP and reads it back from the mail
+catcher, so `.env.local` also needs `DEVMACRO_EMAIL_FROM` (any sender, such as
+`DevMacro alerts <alerts@example.com>`) and `DEVMACRO_SMTP_URL=smtp://127.0.0.1:55425`, the local
+Supabase mail catcher. Without them the app sends no email and the spec times out waiting for
+one. The spec reads the catcher's inbox at `http://127.0.0.1:55424`; set `E2E_MAIL_URL` in the
+shell for a Supabase stack on other ports (and point `DEVMACRO_SMTP_URL` at its SMTP port). CI
+also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`,
+because it runs a production build, which sends no alert message without the first and refuses to
+post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without the second. The dev server
+needs neither.
+
+The tick is instance-wide: it syncs the due connections of every workspace, including the ones
+other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
+(`e2e/simulated-providers.spec.ts` and `e2e/alert-email.spec.ts`) live in a second Playwright
+project, `instance-wide`, which depends on the `chromium` project and so starts only after every
+other spec has finished. `npm run test:e2e` (and CI) runs both projects in that order; if a
+`chromium` test fails, the `instance-wide` specs are skipped. To run the tick specs locally:
 
 ```bash
-npx playwright test --project=instance-wide        # runs every chromium spec first, then the tick spec
-npx playwright test --project=instance-wide --no-deps  # only the tick spec, with nothing else running
-npx playwright test --project=chromium              # every spec except the tick spec
+npx playwright test --project=instance-wide        # runs every chromium spec first, then the tick specs
+npx playwright test --project=instance-wide --no-deps  # only the tick specs, with nothing else running
+npx playwright test --project=chromium              # every spec except the tick specs
 ```
 
 A file filter does not narrow the `chromium` dependency: it still runs in full. A wrapper that
-always passes `--project chromium` skips the tick spec; it needs `--project instance-wide` to
-include it.
+always passes `--project chromium` skips the tick specs; it needs `--project instance-wide` to
+include them.
 
 ## Environment variables
 
@@ -325,13 +338,17 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs and provider callback URLs; falls back to the request origin | Public | Optional (set in production) |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs, provider callback URLs, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
 | `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
 | `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
+| `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`; with Resend, on a domain verified in the Resend account | Server only | Required with either email transport |
+| `DEVMACRO_SMTP_URL` | SMTP server for alert email on local and self-hosted installs: `smtp://host:port` (STARTTLS when offered) or `smtps://user:password@host:port`. Locally `smtp://127.0.0.1:55425`, the Supabase mail catcher | Secret | Optional (one email transport, never with `DEVMACRO_RESEND_API_KEY`) |
+| `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access, for alert email on the hosted instance | Secret | Optional (one email transport, never with `DEVMACRO_SMTP_URL`) |
+| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -363,6 +380,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `DEVMACRO_SIMULATE_PROVIDERS` | Set to `1` to replace the live providers with simulated ones that need no OAuth app | Local only | Optional (refused on Vercel production) |
 | `E2E_PORT` | Port of the Playwright dev server, read from the shell (default 3100) | Test only | Optional |
+| `E2E_MAIL_URL` | Mail catcher inbox that `e2e/alert-email.spec.ts` reads, from the shell (default `http://127.0.0.1:55424`) | Test only | Optional |
 
 A provider with any required variable empty shows as not set up in the connection catalog; the
 rest of the app keeps working. Each provider callback URL is
@@ -408,24 +426,33 @@ full procedure is in the header of `scripts/rotate-encryption-key.ts`:
    `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` and deploy again.
 
 Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1); those
-connections need reconnecting.
+connections need reconnecting, and those alert channels need removing and adding again with their
+URL (the alerts page marks them as needing attention after their next message).
 
 ## Project layout
 
 ```text
 src/
   proxy.ts                     content security policy and Supabase session refresh
+  instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
+    not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
+    global-not-found.tsx       document for URLs that match no route, rendered per request so its
+                               scripts carry the policy nonce
+    fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
     docs/                      the Markdown in docs/ published at /docs, one page per file
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
     w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
+    unsubscribe/               signed-out page behind the unsubscribe link in alert emails
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
+    api/notifications/unsubscribe/  RFC 8058 one-click unsubscribe for mail clients
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
+    api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
   components/
     sections/                  landing page sections
     app/                       app shell: navigation, workspace switcher, command palette, page states
@@ -433,6 +460,7 @@ src/
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules
+    public-metrics/            publish, unpublish, and self-reported value controls
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
@@ -442,7 +470,10 @@ src/
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
+    notifications/             alert email and channel messages: dispatch, digests, Discord, Slack, webhooks
+    email/                     email transport: SMTP or Resend
     dashboard/, timeline/      dashboard aggregation and timeline queries
+    public-metrics/            public metric definitions, engine, and the published read API
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
@@ -463,6 +494,7 @@ e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
+  architecture/public-metrics.md  publishable metrics: rules, formulas, and the read API
   operations/                  deploy, OAuth apps, jobs
   providers/                   one page per provider: app setup, permissions, data read
 ```

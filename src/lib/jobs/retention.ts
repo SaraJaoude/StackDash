@@ -3,7 +3,8 @@ import { utcDate } from "./ingest";
 
 /*
  * Retention (#37 decision): daily snapshots and activity events are kept 13 months, sync job rows
- * 30 days. Triggered alerts are kept while their rule exists, so they are not touched here. OAuth
+ * and digest delivery records (#152) 30 days. Triggered alerts are kept while their rule exists, so
+ * they are not touched here, and their delivery records go with them. OAuth
  * states go once expired: a finished connect flow deletes its own state, so an expired one belongs
  * to an abandoned flow and still holds a sealed PKCE verifier bound to a user.
  * Deletes run in batches of RETENTION_BATCH_SIZE until a batch comes back short, so the job is
@@ -59,6 +60,7 @@ export type RetentionResult = {
   snapshots: number;
   events: number;
   jobs: number;
+  deliveries: number;
   // False when the time budget ran out first; the next run continues.
   complete: boolean;
 };
@@ -80,11 +82,15 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
   const snapshots = await purgeAll(() => store.purgeSnapshots(cutoffs.snapshotsBeforeDate, RETENTION_BATCH_SIZE), hasTime);
   const events = await purgeAll(() => store.purgeEvents(cutoffs.eventsBefore, RETENTION_BATCH_SIZE), hasTime);
   const jobs = await purgeAll(() => store.purgeJobs(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
+  // Digest delivery records only stop a retried digest job from sending twice, so they share the
+  // job rows' 30 days.
+  const deliveries = await purgeAll(() => store.purgeNotificationDeliveries(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
   return {
     oauthStates: oauthStates.deleted,
     snapshots: snapshots.deleted,
     events: events.deleted,
     jobs: jobs.deleted,
-    complete: oauthStates.complete && snapshots.complete && events.complete && jobs.complete,
+    deliveries: deliveries.deleted,
+    complete: oauthStates.complete && snapshots.complete && events.complete && jobs.complete && deliveries.complete,
   };
 }

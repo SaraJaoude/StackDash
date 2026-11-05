@@ -5,7 +5,11 @@ const port = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = `http://localhost:${port}`;
 
 // Specs that run the job tick, which touches every workspace; see `projects` below.
-const INSTANCE_WIDE_SPECS = ["simulated-providers.spec.ts", "simulated-sentry.spec.ts"];
+const INSTANCE_WIDE_SPECS = [
+  "simulated-providers.spec.ts",
+  "alert-email.spec.ts",
+  "simulated-sentry.spec.ts",
+];
 
 export default defineConfig({
   testDir: "./e2e",

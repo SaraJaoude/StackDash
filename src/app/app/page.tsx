@@ -11,12 +11,17 @@ import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Your workspace" };
 
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
+
 /**
  * The signed-in entry point. It holds no content of its own: it opens the last-used workspace,
- * then the personal one, then the first membership. Session reads sit behind Suspense, as Cache
- * Components requires.
+ * then the personal one, then the first membership. Session reads sit behind Suspense, so the
+ * "Opening your workspace" status shows while they run.
  */
-export default function AppEntryPage() {
+export default async function AppEntryPage() {
+  await connection();
   return (
     <main id="main" className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center px-6 py-16">
       <Suspense fallback={<OpeningWorkspace />}>

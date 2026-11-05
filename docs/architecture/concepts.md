@@ -13,7 +13,7 @@ Issues: #139. A workspace holds everything. A connection is one OAuth grant to a
 
 The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write through `has_workspace_role`, using the caller's role in `workspace_members`.
 
-- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, and alert rules, acknowledge alerts, and rename the workspace. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
+- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, and alert rules, publish and unpublish metrics ([Public metrics](public-metrics.md)), acknowledge alerts, and rename the workspace. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
 - Sign-up creates one personal workspace with the new user as its owner. `is_personal` only changes how the workspace is shown, never what anyone may do in it.
 - A user can belong to more than one workspace and switches between them in the app. Creating further workspaces (#106) and inviting members by email (#107) come with teams (#105); until then a shared workspace exists only in local seed data (Acme in `supabase/seed.sql`).
 - Workspace URLs are `/w/<slug>/...`. The slug is random and never changes, so renaming a workspace never breaks a link.

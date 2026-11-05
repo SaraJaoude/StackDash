@@ -58,13 +58,14 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
       <Suspense
         fallback={
           <p role="status" className="mt-8 text-sm text-muted">
-            Loading alert rules and budgets
+            Loading alert rules, budgets, and where alerts go
           </p>
         }
       >
         <AlertSettings
           workspace={workspace}
           role={role}
+          userId={user.id}
           rulesAfter={search.rulesAfter ?? null}
           budgetsAfter={search.budgetsAfter ?? null}
         />
