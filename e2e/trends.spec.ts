@@ -220,10 +220,15 @@ ownerTest.describe("dashboard trends", () => {
       );
       expect(outline).not.toBe("none");
 
-      // The skip link jumps past every marker: the next stop is the chart's table control.
+      // The skip link jumps past every marker onto the legend, which is not outlined, as #main is
+      // not: a skip target is not a control. The next stop is the chart's table control.
       await skip.focus();
       await page.keyboard.press("Enter");
+      const legend = firstChart.locator("ul[data-skip-focused]");
+      await expect(legend).toBeFocused();
+      expect(await legend.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
       await page.keyboard.press("Tab");
+      await expect(legend).toHaveCount(0);
       await expect(firstChart.getByText("Show the values as a table")).toBeFocused();
 
       const scan = await new AxeBuilder({ page }).analyze();

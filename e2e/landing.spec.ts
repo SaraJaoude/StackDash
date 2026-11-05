@@ -198,6 +198,8 @@ async function expectSkipToContent(page: Page): Promise<void> {
     await expect(main).toBeFocused({ timeout: 1000 });
   }).toPass();
   await expect(page).toHaveURL(/#main$/);
+  // A landmark, not a control: the skip target is not outlined (src/app/globals.css).
+  expect(await main.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
   await page.keyboard.press("Tab");
   await expect(page.locator("main :focus")).toHaveCount(1);
   await expect(main).not.toHaveAttribute("tabindex");

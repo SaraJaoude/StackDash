@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { focusSkipTarget } from "./skip-link";
+import { focusSkipTarget, SKIP_FOCUSED_ATTRIBUTE } from "./skip-link";
 
 /** Just enough of an element: attributes, one-shot listeners, and focus that fires `focus`. */
 function fakeTarget(attributes: Record<string, string> = {}) {
@@ -42,9 +42,11 @@ describe("focusSkipTarget", () => {
     focusSkipTarget(target);
     expect(target.focused).toBe(true);
     expect(target.attrs.get("tabindex")).toBe("-1");
+    expect(target.attrs.has(SKIP_FOCUSED_ATTRIBUTE)).toBe(true);
 
     target.blur();
     expect(target.attrs.has("tabindex")).toBe(false);
+    expect(target.attrs.has(SKIP_FOCUSED_ATTRIBUTE)).toBe(false);
   });
 
   it("works again on a second skip after the first one ended", () => {
@@ -55,13 +57,16 @@ describe("focusSkipTarget", () => {
     expect(target.focused).toBe(true);
     target.blur();
     expect(target.attrs.has("tabindex")).toBe(false);
+    expect(target.attrs.has(SKIP_FOCUSED_ATTRIBUTE)).toBe(false);
   });
 
   it("leaves a target that is focusable on its own with its tabindex after focus leaves", () => {
     const target = fakeTarget({ tabindex: "0" });
     focusSkipTarget(target);
     expect(target.focused).toBe(true);
+    expect(target.attrs.has(SKIP_FOCUSED_ATTRIBUTE)).toBe(true);
     target.blur();
     expect(target.attrs.get("tabindex")).toBe("0");
+    expect(target.attrs.has(SKIP_FOCUSED_ATTRIBUTE)).toBe(false);
   });
 });
