@@ -7,7 +7,7 @@ import { formatDateTime } from "@/lib/format";
 
 import type { PublishedMetricCard } from "./published";
 import { CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
-import { yearFigures, yearPeriod, yearProvenance, type YearSummary } from "./yearly";
+import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSummary } from "./yearly";
 
 /*
  * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card), rendered with Next.js'
@@ -150,14 +150,15 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
   );
 }
 
-/** The private yearly summary card (#151). */
+/** The private yearly summary card (#151): a whole past year, or the current year to date. */
 export function YearCard({ summary }: { summary: YearSummary }) {
+  const tag = isYearComplete(summary.year, summary.asOf) ? `${summary.year} in review` : "Year to date";
   return (
     <Frame
-      tag={<Tag text={`${summary.year} in review`} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
+      tag={<Tag text={tag} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
       footer={[yearPeriod(summary), yearProvenance(summary)]}
     >
-      <div style={{ display: "flex", fontSize: 56, letterSpacing: -1, marginBottom: 32 }}>{`Your stack in ${summary.year}`}</div>
+      <div style={{ display: "flex", fontSize: 56, letterSpacing: -1, marginBottom: 32 }}>{`Your stack in ${yearSummaryLabel(summary)}`}</div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
         {yearFigures(summary).map((stat) => (
           <div

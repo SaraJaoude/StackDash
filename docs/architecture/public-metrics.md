@@ -143,9 +143,9 @@ Each time DevMacro serves a published metric's badge or card it counts one view 
 
 ## Yearly card
 
-Issue #151. `/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2025 in review", opens the newest card.
+Issue #151. `/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year's card.
 
-- A year's card opens on 1 December of that year. Before then the page says when it opens and links to the year before.
+- The current year's card is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review" (decision on issue #151). Past years link from the page; a year that has not started is a `404`.
 - Each figure counts from 1 January, or from where its stored history starts when that is later (`historyStart`), and then says "since" that day. A figure whose provider was connected only after the year reads "No data in 2025".
 - Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not on the card (decision on issue #151). No money appears.
 - Private: the page and its image, `/w/<workspace>/year/<year>/card.png`, answer only members (`Cache-Control: private, no-store`, the same `404` for anyone else). Share opens the same dialog as milestone cards, with Download card in place of a public URL, the alt text, and "Share to X" with prefilled text. The card is public only once a member posts it.

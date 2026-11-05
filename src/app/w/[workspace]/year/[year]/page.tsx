@@ -8,14 +8,14 @@ import { PageHeader } from "@/components/app/page-header";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
 import { loadYearSummary } from "@/lib/data/year-summary";
-import { formatUtcDate } from "@/lib/format";
 import { CARD_SIZE, shareToXUrl } from "@/lib/public-metrics/share";
 import {
-  isYearCardOpen,
-  latestOpenYear,
+  isYearComplete,
+  latestCardYear,
+  parseCardYear,
   yearCardAltText,
-  yearCardOpensAt,
   yearFigures,
+  yearLabel,
   yearPeriod,
   yearProvenance,
   yearShareText,
@@ -27,9 +27,10 @@ export const metadata: Metadata = { title: "Year in review" };
 
 /*
  * The yearly stack summary (#151): a card of what the workspace did in a calendar year, for its
- * members only. A year's card opens on 1 December; before that the page says when. Sharing is the
- * same dialog as the milestone cards (#149), with Download in place of a public URL, because this
- * card has none: it is public only once a member posts it.
+ * members only. A past year shows in full; the current year shows at any time as the year to date,
+ * labeled "2026 so far" (decision on issue #151). Sharing is the same dialog as the milestone cards
+ * (#149), with Download in place of a public URL, because this card has none: it is public only
+ * once a member posts it.
  */
 
 // Every section renders inside its own Suspense boundary so navigating between sections
@@ -47,62 +48,55 @@ async function YearInReviewContent({ params }: PageProps<"/w/[workspace]/year/[y
   const { workspace } = await requireWorkspace(slug, "viewer");
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
-  if (!/^[1-9][0-9]{3}$/.test(yearParam)) notFound();
-  const year = Number(yearParam);
-  if (year > now.getUTCFullYear()) notFound();
-  const latest = latestOpenYear(now);
+  const year = parseCardYear(yearParam, now);
+  if (year === null) notFound();
+  const complete = isYearComplete(year, now);
 
   return (
     <>
       <PageHeader
-        title={`Your stack in ${year}`}
-        description="What your connected providers did this calendar year, counted from the data DevMacro stored. Only members of this workspace can see it."
+        title={`Your stack in ${yearLabel(year, now)}`}
+        description={`What your connected providers did ${complete ? `in ${year}` : "this year up to today"}, counted from the data DevMacro stored. Only members of this workspace can see it.`}
       />
       <nav aria-label="Years" className="mt-4 flex flex-wrap gap-4 text-sm">
         <Link href={yearInReviewPath(workspace.slug, year - 1)} className="text-muted underline underline-offset-4 hover:text-foreground">
           {year - 1}
         </Link>
-        {year + 1 <= latest ? (
+        {year + 1 <= latestCardYear(now) ? (
           <Link href={yearInReviewPath(workspace.slug, year + 1)} className="text-muted underline underline-offset-4 hover:text-foreground">
             {year + 1}
           </Link>
         ) : null}
       </nav>
-      {isYearCardOpen(year, now) ? (
-        <YearCardSection workspaceId={workspace.id} slug={workspace.slug} year={year} now={now} />
-      ) : (
-        <section aria-labelledby="year-closed-title" className="mt-6 rounded-xl border border-line bg-panel px-6 py-5 text-sm">
-          <h2 id="year-closed-title" className="font-semibold">
-            Your {year} card opens on {formatUtcDate(yearCardOpensAt(year))}
-          </h2>
-          <p className="mt-2 leading-6 text-muted">
-            A year&apos;s card opens on 1 December, once most of the year is in.{" "}
-            <Link href={yearInReviewPath(workspace.slug, latest)} className="font-medium text-foreground underline underline-offset-4">
-              See your {latest} card
-            </Link>
-            .
-          </p>
-        </section>
-      )}
+      <YearCardSection workspaceId={workspace.id} slug={workspace.slug} year={year} now={now} />
     </>
   );
 }
 
 async function YearCardSection({ workspaceId, slug, year, now }: { workspaceId: string; slug: string; year: number; now: Date }) {
   const summary = await loadYearSummary(workspaceId, year, now);
+  const complete = isYearComplete(year, now);
+  const cardName = complete ? `${year} card` : `${year} year to date card`;
   const cardSrc = `${yearInReviewPath(slug, year)}/card.png`;
   const alt = yearCardAltText(summary);
   return (
     <section aria-labelledby="year-card-title" className="mt-6 space-y-6 rounded-xl border border-line bg-panel px-6 py-5 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 id="year-card-title" className="font-semibold">
-          {yearPeriod(summary)}
-        </h2>
+        <div>
+          <h2 id="year-card-title" className="font-semibold">
+            {complete ? yearPeriod(summary) : `Year to date: ${yearPeriod(summary)}`}
+          </h2>
+          {complete ? null : (
+            <p className="mt-1 text-muted">
+              {year} is not over yet. This card counts up to today and covers the whole year from January 1, {year + 1}.
+            </p>
+          )}
+        </div>
         <ShareDialog
-          title={`Share your ${year} card`}
+          title={`Share your ${cardName}`}
           triggerText="Share"
-          subject={`your ${year} card`}
-          card={{ src: cardSrc, alt, ...CARD_SIZE, downloadName: `devmacro-${year}.png` }}
+          subject={`your ${cardName}`}
+          card={{ src: cardSrc, alt, ...CARD_SIZE, downloadName: complete ? `devmacro-${year}.png` : `devmacro-${year}-so-far.png` }}
           xIntentUrl={shareToXUrl(yearShareText(summary))}
           notes={[
             "This card is private to your workspace. It becomes public only when you post it.",
@@ -114,7 +108,7 @@ async function YearCardSection({ workspaceId, slug, year, now }: { workspaceId: 
           figures are listed in full below it, so its alt text points there instead of repeating them. */}
       <Image
         src={cardSrc}
-        alt={`Your ${year} card. Its figures are listed below.`}
+        alt={`Your ${cardName}. Its figures are listed below.`}
         {...CARD_SIZE}
         unoptimized
         className="h-auto w-full max-w-3xl rounded-lg border border-line"

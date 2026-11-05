@@ -5,10 +5,12 @@ import type { PublicMetricId } from "./definitions";
 import { computePublicMetrics, historyStart, type PublicMetricStore } from "./engine";
 
 /*
- * The yearly stack summary (#151): a once-a-year card of what a workspace did in a calendar year,
- * computed by the public metric engine (#148) from stored snapshots and events only, across every
- * included account of the workspace. Private: nothing here is published, and the card is shown to
- * members only until one of them downloads and posts it.
+ * The yearly stack summary (#151): a card of what a workspace did in a calendar year, computed by
+ * the public metric engine (#148) from stored snapshots and events only, across every included
+ * account of the workspace. Private: nothing here is published, and the card is shown to members
+ * only until one of them downloads and posts it. A past year's card covers the whole year; the
+ * current year's card is always there too, as the year to date, labeled "2026 so far" (decision
+ * on issue #151), so a workspace can see and share its year at any time.
  *
  * Only change and count metrics fit a year, because only they take a window (`from` in engine.ts):
  * deployments, stars gained, and signups. The window starts on 1 January, or where the stored
@@ -29,27 +31,32 @@ export const YEARLY_METRICS = [
   { metricId: "supabase-signups-30d", label: "Signups", nouns: ["signup", "signups"] },
 ] as const satisfies readonly Readonly<{ metricId: PublicMetricId; label: string; nouns: readonly [string, string] }>[];
 
-/** 1 December of `year`, 00:00 UTC (also 00:00 in London, which is on GMT in December). */
-export function yearCardOpensAt(year: number): Date {
-  return new Date(Date.UTC(year, 11, 1));
+/** A year has a card once it has started: in full once it has ended, as the year to date before. */
+export function hasYearStarted(year: number, now: Date): boolean {
+  return now.getTime() > Date.UTC(year, 0, 1);
 }
 
-/** The card of `year` opens on 1 December of that year and stays open afterwards. */
-export function isYearCardOpen(year: number, now: Date): boolean {
-  return now.getTime() >= yearCardOpensAt(year).getTime();
+/** True once `year` has ended at `now`, so its card is the whole year rather than the year to date. */
+export function isYearComplete(year: number, now: Date): boolean {
+  return now.getTime() >= Date.UTC(year + 1, 0, 1);
 }
 
-/** The newest year whose card is open at `now`: this year from 1 December, else last year. */
-export function latestOpenYear(now: Date): number {
+/** "2025" for a year that has ended at `now`, "2026 so far" for the year to date. */
+export function yearLabel(year: number, now: Date): string {
+  return isYearComplete(year, now) ? String(year) : `${year} so far`;
+}
+
+/** The newest year with a card at `now`: this year to date (last year only at midnight on 1 January). */
+export function latestCardYear(now: Date): number {
   const year = now.getUTCFullYear();
-  return isYearCardOpen(year, now) ? year : year - 1;
+  return hasYearStarted(year, now) ? year : year - 1;
 }
 
-/** The year in a URL segment when its card is open at `now`, else null (malformed or too early). */
+/** The year in a URL segment when it has started at `now`, else null (malformed or in the future). */
 export function parseCardYear(segment: string, now: Date): number | null {
   if (!/^[1-9][0-9]{3}$/.test(segment)) return null;
   const year = Number(segment);
-  return isYearCardOpen(year, now) ? year : null;
+  return hasYearStarted(year, now) ? year : null;
 }
 
 export type YearStat =
@@ -150,6 +157,11 @@ export function yearPeriod(summary: YearSummary): string {
   return `${formatUtcDate(summary.start)} to ${formatUtcDate(new Date(summary.asOf.getTime() - 1))}`;
 }
 
+/** "2025" for a whole year, "2026 so far" for the year to date. */
+export function yearSummaryLabel(summary: YearSummary): string {
+  return yearLabel(summary.year, summary.asOf);
+}
+
 export function yearProvenance(summary: YearSummary): string {
   return summary.simulated ? "Simulated data, not verified" : "Counted by DevMacro from stored data";
 }
@@ -159,7 +171,7 @@ export function yearCardAltText(summary: YearSummary): string {
   const figures = yearFigures(summary)
     .map((figure) => `${figure.label}: ${figure.value}${figure.note === null ? "" : `, ${figure.note}`}.`)
     .join(" ");
-  return `DevMacro card: your stack in ${summary.year}, ${yearPeriod(summary)}. ${figures} ${yearProvenance(summary)}.`;
+  return `DevMacro card: your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${figures} ${yearProvenance(summary)}.`;
 }
 
 /** The prefilled post for "Share to X": the figures that have a number. */
@@ -171,5 +183,5 @@ export function yearShareText(summary: YearSummary): string {
     return [`${NUMBER_FORMAT.format(stat.value)} ${nouns[stat.value === 1 ? 0 : 1]}`];
   });
   const figures = counted.length === 0 ? "" : `: ${counted.join(", ")}`;
-  return `My stack in ${summary.year} on DevMacro${figures}.${summary.simulated ? " Simulated data." : ""}`;
+  return `My stack in ${yearSummaryLabel(summary)} on DevMacro${figures}.${summary.simulated ? " Simulated data." : ""}`;
 }

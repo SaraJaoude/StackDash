@@ -4,11 +4,13 @@ import type { SnapshotPoint, SourceAccount } from "./engine";
 import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
 import {
   computeYearSummary,
-  isYearCardOpen,
-  latestOpenYear,
+  hasYearStarted,
+  isYearComplete,
+  latestCardYear,
   parseCardYear,
   yearCardAltText,
   yearFigures,
+  yearLabel,
   yearShareText,
 } from "./yearly";
 
@@ -73,11 +75,13 @@ describe("computeYearSummary", () => {
     expect(deployments).toEqual({ label: "Deployments shipped", status: "available", value: 2, since: null, simulated: false });
   });
 
-  it("runs this year's card up to now (boundary: the year is not over)", async () => {
+  it("runs this year's card up to now and labels it the year to date (boundary: the year is not over)", async () => {
     const store = new MemoryMetricStore([account("vercel", "2026-01-10T00:00:00Z")], [], [deploy("2026-03-01T00:00:00Z"), deploy("2026-11-05T11:00:00Z")]);
     const summary = await computeYearSummary(store, 2026, NOW);
     expect(summary.asOf).toEqual(NOW);
     expect(summary.stats[0]).toMatchObject({ status: "available", value: 2 });
+    expect(yearShareText(summary)).toBe("My stack in 2026 so far on DevMacro: 2 deployments shipped.");
+    expect(yearCardAltText(summary)).toMatch(/^DevMacro card: your stack in 2026 so far, 2026-01-01 to 2026-11-05\. /);
   });
 
   it("says there is no data in the year when the provider was connected after it (boundary: history after the year)", async () => {
@@ -91,7 +95,7 @@ describe("computeYearSummary", () => {
     const store = new MemoryMetricStore([account("vercel", "2026-01-10T00:00:00Z", { simulated: true })], [], [deploy("2026-03-01T00:00:00Z")]);
     const summary = await computeYearSummary(store, 2026, NOW);
     expect(summary.simulated).toBe(true);
-    expect(yearShareText(summary)).toBe("My stack in 2026 on DevMacro: 1 deployment shipped. Simulated data.");
+    expect(yearShareText(summary)).toBe("My stack in 2026 so far on DevMacro: 1 deployment shipped. Simulated data.");
   });
 
   it("refuses a year that has not started", async () => {
@@ -100,39 +104,43 @@ describe("computeYearSummary", () => {
 });
 
 describe("the year card's words", () => {
-  it("lists every figure with its note, then the provider count, and says it all in the alt text", async () => {
+  it("lists every figure with its note, then the provider count, and says it all in the alt text of a whole year", async () => {
     const synced = { lastSyncedAt: new Date("2026-12-01T23:00:00Z") };
-    const store = new MemoryMetricStore([account("vercel", "2026-08-07T10:00:00Z", synced)], [], [deploy("2026-09-01T00:00:00Z")]);
-    const summary = await computeYearSummary(store, 2026, new Date("2026-12-02T00:00:00Z"));
+    const store = new MemoryMetricStore([account("vercel", "2025-08-07T10:00:00Z", synced)], [], [deploy("2025-09-01T00:00:00Z")]);
+    const summary = await computeYearSummary(store, 2025, NOW);
     expect(yearFigures(summary)).toEqual([
-      { label: "Deployments shipped", value: "1", note: "since 2026-08-07" },
+      { label: "Deployments shipped", value: "1", note: "since 2025-08-07" },
       { label: "Stars gained", value: "Not connected", note: null },
       { label: "Signups", value: "Not connected", note: null },
       { label: "Providers connected", value: "1", note: null },
     ]);
     expect(yearCardAltText(summary)).toBe(
-      "DevMacro card: your stack in 2026, 2026-01-01 to 2026-12-01. Deployments shipped: 1, since 2026-08-07. Stars gained: Not connected. Signups: Not connected. Providers connected: 1. Counted by DevMacro from stored data.",
+      "DevMacro card: your stack in 2025, 2025-01-01 to 2025-12-31. Deployments shipped: 1, since 2025-08-07. Stars gained: Not connected. Signups: Not connected. Providers connected: 1. Counted by DevMacro from stored data.",
     );
-    expect(yearShareText(summary)).toBe("My stack in 2026 on DevMacro: 1 deployment shipped.");
+    expect(yearShareText(summary)).toBe("My stack in 2025 on DevMacro: 1 deployment shipped.");
   });
 });
 
-describe("when a year's card opens", () => {
-  it("opens on 1 December and stays open (boundary: the last millisecond of November)", () => {
-    expect(isYearCardOpen(2026, new Date("2026-11-30T23:59:59.999Z"))).toBe(false);
-    expect(isYearCardOpen(2026, new Date("2026-12-01T00:00:00.000Z"))).toBe(true);
-    expect(isYearCardOpen(2025, NOW)).toBe(true);
+describe("which years have a card", () => {
+  it("shows a year from its first moment and the current year at any time (boundary: midnight on 1 January)", () => {
+    expect(hasYearStarted(2027, new Date("2027-01-01T00:00:00.000Z"))).toBe(false);
+    expect(hasYearStarted(2027, new Date("2027-01-01T00:00:00.001Z"))).toBe(true);
+    expect(hasYearStarted(2026, NOW)).toBe(true);
+    expect(latestCardYear(NOW)).toBe(2026);
+    expect(latestCardYear(new Date("2027-01-01T00:00:00.000Z"))).toBe(2026);
   });
 
-  it("offers last year's card until this year's opens", () => {
-    expect(latestOpenYear(NOW)).toBe(2025);
-    expect(latestOpenYear(new Date("2026-12-01T00:00:00Z"))).toBe(2026);
-    expect(latestOpenYear(new Date("2027-01-01T00:00:00Z"))).toBe(2026);
+  it("labels the year to date until the year ends, then the whole year (boundary: the last millisecond of December)", () => {
+    expect(isYearComplete(2026, new Date("2026-12-31T23:59:59.999Z"))).toBe(false);
+    expect(yearLabel(2026, new Date("2026-12-31T23:59:59.999Z"))).toBe("2026 so far");
+    expect(isYearComplete(2026, new Date("2027-01-01T00:00:00.000Z"))).toBe(true);
+    expect(yearLabel(2026, new Date("2027-01-01T00:00:00.000Z"))).toBe("2026");
+    expect(yearLabel(2025, NOW)).toBe("2025");
   });
 
   it.each([
     ["2025", 2025],
-    ["2026", null],
+    ["2026", 2026],
     ["2027", null],
     ["0999", null],
     ["25", null],

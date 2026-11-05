@@ -24,7 +24,7 @@ import {
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
-import { latestOpenYear } from "@/lib/public-metrics/yearly";
+import { isYearComplete, latestCardYear, yearLabel } from "@/lib/public-metrics/yearly";
 import { requireWorkspace, type WorkspaceAccess } from "@/lib/workspaces/access";
 import { workspacePath, yearInReviewPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -63,7 +63,8 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const parsed = searchParamsSchema.parse(await searchParams);
   const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
   // Read after the request data above, so the clock never runs during prerendering.
-  const reviewYear = latestOpenYear(new Date());
+  const now = new Date();
+  const reviewYear = latestCardYear(now);
 
   return (
     <>
@@ -72,7 +73,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
         description="Spend, usage, and allowances across every provider this workspace connects."
         actions={
           <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={secondaryButtonClass}>
-            Your {reviewYear} in review
+            {isYearComplete(reviewYear, now) ? `Your ${reviewYear} in review` : `Your ${yearLabel(reviewYear, now)}`}
           </Link>
         }
       />

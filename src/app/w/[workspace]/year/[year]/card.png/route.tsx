@@ -9,10 +9,10 @@ import { parseCardYear } from "@/lib/public-metrics/yearly";
 import { isWorkspaceSlug } from "@/lib/workspaces/paths";
 
 /*
- * GET /w/<workspace>/year/<year>/card.png (#151): the yearly card as a 1200 by 630 PNG, for the
- * members of the workspace only. It is private until a member downloads it and posts it: never
- * cached by a shared cache, and the same 404 for a stranger, a missing workspace, and a year whose
- * card is not open yet, so the route reveals nothing.
+ * GET /w/<workspace>/year/<year>/card.png (#151): the yearly card as a 1200 by 630 PNG, a past
+ * year in full or the current year to date, for the members of the workspace only. It is private
+ * until a member downloads it and posts it: never cached by a shared cache, and the same 404 for a
+ * stranger, a missing workspace, and a year that has not started, so the route reveals nothing.
  */
 
 const PRIVATE_HEADERS = { "Cache-Control": "private, no-store" };
