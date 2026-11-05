@@ -218,6 +218,39 @@ describe("aggregateDashboard GitHub spend levels (#137)", () => {
   });
 });
 
+describe("aggregateDashboard billing period", () => {
+  it("shows the whole month when the Fake provider reports month to date spend and a month estimate, in either order", () => {
+    // As the Fake adapter reports them: verified spend from the month start to tomorrow, and an
+    // estimate for the whole month.
+    const monthToDate = money({
+      metric_key: "fake.spend.month",
+      amount_minor: 1_000,
+      currency: "USD",
+      period_start: MONTH.period_start,
+      period_end: "2026-10-16T00:00:00.000Z",
+    });
+    const estimate = money({ metric_key: "fake.cost.estimate", kind: "estimated_spend", amount_minor: 2_500, currency: "USD" });
+    for (const rows of [
+      [monthToDate, estimate],
+      [estimate, monthToDate],
+    ]) {
+      expect(aggregateDashboard(input(rows)).byProvider[0]?.billingPeriod).toEqual({ start: MONTH.period_start, end: MONTH.period_end });
+    }
+  });
+
+  it("shows the period that starts first, even when it ends first, in either order", () => {
+    const cycle = { period_start: "2026-09-20T00:00:00.000Z", period_end: "2026-10-20T00:00:00.000Z" } as const;
+    const earlier = money({ metric_key: "fake.spend.cycle", amount_minor: 1_000, currency: "USD", ...cycle });
+    const estimate = money({ metric_key: "fake.cost.estimate", kind: "estimated_spend", amount_minor: 2_500, currency: "USD" });
+    for (const rows of [
+      [earlier, estimate],
+      [estimate, earlier],
+    ]) {
+      expect(aggregateDashboard(input(rows)).byProvider[0]?.billingPeriod).toEqual({ start: cycle.period_start, end: cycle.period_end });
+    }
+  });
+});
+
 describe("aggregateDashboard simulated sources (#131)", () => {
   // A real connection and a simulated one in the same workspace, each with one account.
   const simulated: ConnectionInput = { ...connection, id: "c2", display_name: "Simulated account", granted_scopes: [SIMULATED_SCOPE] };
