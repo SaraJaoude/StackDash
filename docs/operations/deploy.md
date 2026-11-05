@@ -6,7 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
-- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the five provider apps.
+- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the six provider apps.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
 
@@ -212,7 +212,7 @@ Run every check against the production URL and write down the deployment URL you
 ## What stays Eddie's
 
 - Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and the five provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
+- Registering the sign-in OAuth app and the six provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.

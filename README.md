@@ -331,7 +331,7 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
-  five provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+  six provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 
 ### Invite testers

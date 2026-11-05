@@ -128,7 +128,7 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 
 - Money: `currentUsage` and `creditBalance` are JSON numbers, read as US dollars (see Unverified). Each is read at 12 decimal places, converted exactly, and rounded once to cents, half to even (`src/lib/money.ts`).
 - Estimate: Railway's `estimatedUsage` is described as "the estimated total cost of the project at the end of the current billing cycle" but returns one quantity per measurement and project. DevMacro multiplies each by the unit price and rounds the sum once. Unit prices from the [pricing page](https://docs.railway.com/pricing/plans) (checked 2026-11-05): CPU $0.000463 per vCPU per minute, memory $0.000231 per GB per minute, egress $0.05 per GB, volume storage $0.000003472222222 per GB per minute. Builds are free and not measured.
-- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom and its plan value is not in the schema's `Plan` enum (`FREE`, `HOBBY`, `PRO`), so its billing shows as unavailable. It is the only estimated spend metric, because the dashboard adds up every estimated spend in a currency; a separate usage estimate would be counted twice.
+- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, because the dashboard adds up every estimated spend in a currency; a separate usage estimate would be counted twice.
 - Reset: every billing period metric carries the period end as its reset time.
 - Quantities: CPU and memory are priced per minute, so their measurements are read as vCPU-minutes and GB-minutes; egress is in GB.
 - Plan limits per service, replicas included (pricing page, "Default plan resources"): Free 0.5 GB memory, 1 vCPU, 1 replica, 0.5 GB volume; Hobby 48 GB, 48 vCPU, 6 replicas, 5 GB volume; Pro 1 TB (stored as 1,000 GB), 1,000 vCPU, 42 replicas, 1 TB volume.
@@ -184,10 +184,11 @@ Disclosed on the connect screen before redirecting:
 
 ## Limitations
 
-- Billing may be unreadable with viewer access. When it is, the connection syncs deployments, shows billing as unavailable, and lists `workspace:viewer` under missing permissions as the permission the billing data is read through.
-- At most 50 projects per workspace and 20 deployments per project per sync.
-- Enterprise workspaces get no billing metrics (plan value unknown to the schema).
-- Event times are when Railway recorded the status, not when DevMacro polled; a status that changed and changed again between two polls only shows the latest one, apart from the building event.
+- Billing may be unreadable with viewer access. When Railway answers `Not Authorized`, the connection syncs deployments, shows billing as unavailable, and lists `workspace:viewer` under missing permissions although the user granted it: it is the permission billing is read through, and reconnecting does not help, because only a workspace admin can read billing in Railway's dashboard. The options and the decision are on [#113](https://github.com/eddiejaoude/DevMacro/issues/113#issuecomment-6647333803).
+- At most 50 projects per workspace, and per project the deployments created in the sync window up to five pages of 50; past that the sync logs `railway.deployments.page_cap_reached` and older deployments in the window are skipped.
+- Enterprise workspaces report `FREE`, `HOBBY`, or `PRO` (the schema has no other plan value), so their estimated bill and plan limits use that plan's published figures, not the custom contract. Unverified.
+- DevMacro polls hourly, and Railway reports only each deployment's latest status with the time it entered it. A status that changed and changed again between two polls shows only the latest one, apart from the building event. In particular, a deployment that succeeded and was replaced before a poll saw it is first seen as removed: it reaches the timeline as "started building" and "succeeded, then was removed", never as a separate "succeeded" event, because nothing dates the success. On a service that deploys several times an hour, most successful deployments arrive this way. Telling that a removed deployment succeeded relies on `canRollback`, which turns false once the plan's image retention ends (24 hours on Free), so after a longer sync outage replaced deployments show as removed only.
+- A deployment created before the sync window and not on its project's first page of 50 is not re-read, so a later crash or removal of such a long-running deployment is missed.
 - No link from an event to Railway's dashboard.
 
 ## Self-hosted registration
@@ -302,7 +303,10 @@ Confirm with a test account (#141) before relying on these:
 9. Whether one query with ten aliased `deployments` fields stays within any query complexity limit.
 10. Whether the rate limit counts per token, per user, or per workspace.
 11. Where a user removes an authorized app in Railway's dashboard.
-12. The exact `Plan` value an Enterprise workspace returns.
+12. The exact `Plan` value an Enterprise workspace returns, and so which plan's fee and limits its billing uses.
+13. Whether `deployments(input: { projectId })` lists `REMOVED` deployments without `includeDeleted: true`, and what else `includeDeleted` adds (deployments of deleted services or environments, or ones removed from the history). The adapter passes it either way. If it adds deployments of a deleted service or environment, whether their `service` and `environment` still resolve: the schema's `Service.deletedAt` and `Environment.deletedAt` suggest soft deletion, but a non-null field that fails to resolve would fail the whole deployments query.
+14. That `canRollback` is true for a removed deployment only when it deployed successfully, and stays true for the plan's image retention.
+15. That `endCursor` pages `deployments` in the same newest first order.
 
 ## Sources
 

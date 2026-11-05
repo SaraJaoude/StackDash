@@ -685,6 +685,7 @@ async function syncBilling(ctx: OAuthContext, input: SyncInput): Promise<Adapter
       ctx.logger.warn("railway.billing.unavailable", { code: error.code });
       return new PermissionMissingError(
         "Railway billing is unavailable with viewer access to this workspace; deployments still sync",
+        // A scope the user did grant: the permission billing is read through (decision on #113).
         [WORKSPACE_SCOPE],
         { cause: error, endpoint: GRAPHQL_URL, ...(error.status === undefined ? {} : { status: error.status }) },
       );
