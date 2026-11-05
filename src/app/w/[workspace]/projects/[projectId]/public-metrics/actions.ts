@@ -14,15 +14,17 @@ import {
   publicMetricDefinition,
 } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
+import { pageSlugSchema, projectPagePath } from "@/lib/public-metrics/project-page";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction } from "@/lib/workspaces/access";
 import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions";
 
 /*
- * Publishing and unpublishing (#148). Owner or admin only: `requireWorkspaceAction` checks the
- * signed-in member, then a service role function writes the row and its timeline audit event in
- * one transaction and checks the member's role again (20261105023129_published_metrics.sql).
+ * Publishing and unpublishing (#148), and turning the project page on and off (#150). Owner or
+ * admin only: `requireWorkspaceAction` checks the signed-in member, then a service role function
+ * writes the row and its timeline audit event in one transaction and checks the member's role
+ * again (20261105023129_published_metrics.sql, 20261105034459_project_pages.sql).
  */
 
 export type PublicMetricActionResult =
@@ -47,6 +49,8 @@ const publishSchema = z
 const unpublishSchema = z.object({ workspace, publicationId: id }).strict();
 const unpublishAllSchema = z.object({ workspace }).strict();
 const selfReportedSchema = z.object({ workspace, projectId: id, ...selfReportedFields }).strict();
+const projectPageSchema = z.object({ workspace, projectId: id, slug: pageSlugSchema, indexable: z.boolean() }).strict();
+const disableProjectPageSchema = z.object({ workspace, projectId: id }).strict();
 
 const OUT_OF_DATE = "This form is out of date. Reload the page and try again.";
 // Same answer for a project or publication that is gone and one in another workspace.
@@ -237,5 +241,74 @@ export async function publishSelfReported(
     return { ok: true, message: `Published ${label} as a self-reported value.` };
   } catch (error) {
     return unexpected(error, "public_metrics.self_reported_failed", "The value was not published. Try again in a moment.");
+  }
+}
+
+export async function saveProjectPage(
+  _previous: PublicMetricActionResult | null,
+  formData: FormData,
+): Promise<PublicMetricActionResult> {
+  const slug = formData.get("slug");
+  if (typeof slug !== "string") return { ok: false, message: OUT_OF_DATE };
+  const parsed = projectPageSchema.safeParse({
+    workspace: formData.get("workspace"),
+    projectId: formData.get("projectId"),
+    slug,
+    // A checkbox sends "on" when ticked and nothing otherwise.
+    indexable: formData.get("indexable") === "on",
+  });
+  if (!parsed.success) {
+    const slugIssue = parsed.error.issues.find((issue) => issue.path[0] === "slug");
+    if (slugIssue === undefined) return { ok: false, message: OUT_OF_DATE };
+    return { ok: false, fieldErrors: { slug: slugIssue.message }, message: "The page settings were not saved. Fix the address below." };
+  }
+
+  try {
+    const { workspace: ws, user } = await requireWorkspaceAction(parsed.data.workspace, "publish_metrics");
+    const { data, error } = await createAdminClient().rpc("save_project_page", {
+      p_workspace_id: ws.id,
+      p_project_id: parsed.data.projectId,
+      p_actor_id: user.id,
+      p_slug: parsed.data.slug,
+      p_indexable: parsed.data.indexable,
+    });
+    if (error) rpcFailure(error, "Save project page");
+    if (data === "not_found") return { ok: false, message: PROJECT_GONE };
+    if (data === "slug_taken") {
+      const message = "Another project in this workspace uses this address. Choose another one.";
+      return { ok: false, fieldErrors: { slug: message }, message: `The page settings were not saved. ${message}` };
+    }
+    if (data === "unchanged") return { ok: true, message: "The project page already has these settings." };
+    refresh();
+    const path = projectPagePath(ws.slug, parsed.data.slug);
+    return {
+      ok: true,
+      message: data === "enabled" ? `The project page is on at ${path}.` : `Saved the project page settings. Its address is ${path}.`,
+    };
+  } catch (error) {
+    return unexpected(error, "project_page.save_failed", "The page settings were not saved. Try again in a moment.");
+  }
+}
+
+export async function disableProjectPage(
+  _previous: PublicMetricActionResult | null,
+  formData: FormData,
+): Promise<PublicMetricActionResult> {
+  const parsed = disableProjectPageSchema.safeParse({ workspace: formData.get("workspace"), projectId: formData.get("projectId") });
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+
+  try {
+    const { workspace: ws, user } = await requireWorkspaceAction(parsed.data.workspace, "publish_metrics");
+    const { data, error } = await createAdminClient().rpc("disable_project_page", {
+      p_workspace_id: ws.id,
+      p_project_id: parsed.data.projectId,
+      p_actor_id: user.id,
+    });
+    if (error) rpcFailure(error, "Disable project page");
+    if (data === "not_found") return { ok: false, message: "The project page is already off. Reload the page to see its settings." };
+    refresh();
+    return { ok: true, message: "The project page is off. Its address now answers page not found." };
+  } catch (error) {
+    return unexpected(error, "project_page.disable_failed", "The project page was not turned off. Try again in a moment.");
   }
 }

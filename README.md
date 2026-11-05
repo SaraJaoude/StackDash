@@ -321,7 +321,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs, provider callback URLs, and the `formulaUrl` links in the public metrics route; falls back to the request origin | Public | Optional (set in production) |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (including a project page's canonical address and preview image), provider callback URLs, the sitemap, and the `formulaUrl` links in the public metrics route; falls back to the request origin | Public | Optional (set in production) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
@@ -407,10 +407,11 @@ connections need reconnecting.
 
 ```text
 src/
-  proxy.ts                     content security policy and Supabase session refresh
+  proxy.ts                     content security policy, Supabase session refresh, project page addresses
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
+    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
@@ -425,6 +426,7 @@ src/
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
     api/public/projects/[projectId]/metrics/  published metrics as JSON, for anyone
+    p/[workspace]/[slug]/      public project page, answered at /@<workspace>/<slug>
   components/
     sections/                  landing page sections
     app/                       app shell: navigation, workspace switcher, command palette, page states
@@ -432,7 +434,7 @@ src/
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
     projects/                  project forms and rules
-    public-metrics/            publish, unpublish, and self-reported value controls
+    public-metrics/            publish, unpublish, self-reported value, and project page controls; history charts
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
@@ -443,7 +445,7 @@ src/
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
     dashboard/, timeline/      dashboard aggregation and timeline queries
-    public-metrics/            public metric definitions, engine, and the published read API
+    public-metrics/            public metric definitions, engine, history, and the published read API
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids

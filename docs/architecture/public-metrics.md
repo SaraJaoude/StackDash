@@ -109,10 +109,38 @@ Server code that shows published values (badges and cards #149, project pages #1
 |---|---|
 | `loadPublishedProjectMetrics(projectId, now)` | Every live publication of the project, engine metrics in definition order then self-reported values, or `null` when nothing is published |
 | `loadPublishedMetric(projectId, metricId, now)` | One published engine metric, or `null`. It takes a `PublicMetricId`, so a self-reported value can never become a badge |
+| `loadPublishedProjectHistory(published)` | The daily history of each published engine metric in what `loadPublishedProjectMetrics` returned, over 90 days ending at the publication's own `asOf` and rounded the same way, plus the milestones those publications reveal. It takes that result, not a project id, so it can only describe what is published |
 
-Both read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `definitions.ts` and `display.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
+The first two read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `definitions.ts` and `display.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
 
 Private surfaces compute values that need not be published. The yearly card (#151) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, projectId)` and passes `from` on each request, for example 1 January, to count from there instead of the metric's own 7 or 30 days: "stars gained" and "deployments" then cover the year so far, and "Not enough history yet" means the data does not reach back to `from`. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. Publications always use the metric's own window.
+
+History points are the engine's own values at each moment, computed by `computeMetricHistories` in `history.ts` with the same formulas as the current value. To avoid reading the database once per day and metric, it computes against `preloadHistoryStore`, a read-through cache that loads the window's snapshots (one read per metric key) and events (up to five pages of 1,000, newest first) once, answers every query it fully covers from memory, and passes anything older to the real store. A read that comes back full may be cut short, so its oldest day is treated as not loaded. Every answer is therefore the real store's answer.
+
+## Project pages
+
+Issue #150. An owner or admin can turn on one public page per project, at `/@<workspace slug>/<page slug>`, on the project's public metrics page. Nothing is public by default. The schema and functions are in [Database schema](schema.md#project-pages-150).
+
+The page shows only what this engine publishes for the project:
+
+| Section | What it shows |
+|---|---|
+| Published metrics | Every live publication, with its provenance (Verified, Estimated, or Self-reported), when it was last synced or the moment a delayed value describes, a link to its formula, and Simulated when the provider simulator made it up |
+| Connected providers | An icon, named for screen readers, for each provider behind a published value that is still connected. Never an account name |
+| History | The last 30 and 90 days of each published engine metric, each day's value published with the same rounding and delay as today's. Each chart's accessible name summarizes it, and its values open as a table. Self-reported values have no history |
+| Milestones | "First deployment recorded", "First signup recorded", "First customer recorded", and "First successful payment recorded", from the oldest stored event, while a metric counting those events is published and no later than its `asOf`; and "Reached 100 GitHub stars" (also 1,000, 10,000, 100,000) when the published GitHub stars history crosses it, only for thresholds its rounding can show |
+
+Choosing metrics, rounding to 10, 100, or 1,000, and showing values 7 days late are the publication options above; the page follows them. The page settings are the address, whether search engines may index it, and turning it on or off. Each change writes a DevMacro event to the timeline:
+
+| Event type | Title | Body |
+|---|---|---|
+| `devmacro.project_page_enabled` | Turned on the public project page | Project Acme web. Address /@k3j4h5g6f7/acme-web. Search engines are asked not to index it. |
+| `devmacro.project_page_updated` | Updated the public project page | Project Acme web. Address /@k3j4h5g6f7/acme-web. Search engines may index it. |
+| `devmacro.project_page_disabled` | Turned off the public project page | Project Acme web. The page is no longer public. |
+
+An address answers only while its page is on and the project has at least one live publication, so "Unpublish everything" takes every page offline too. An unknown address, a page that is off, and a page with nothing published answer the same 404. The page renders per request and is not cached (the enforced nonce policy needs per request HTML, #125), so turning a page off answers 404 from the next request. A page asks search engines not to index it unless its owner allows indexing; `/sitemap.xml` lists the pages that are public and indexable, at most 1,000, and is read per request too. When `NEXT_PUBLIC_SITE_URL` is set, the page names its canonical address and uses the card of its first published engine metric (`/card/<project id>/<metric id>.png`, #149) as its preview image.
+
+`src/proxy.ts` rewrites `/@<workspace slug>/<page slug>` to the page route at `/p/<workspace slug>/<page slug>`, because a route folder starting with `@` is a parallel route slot, and answers every other path under `/@` or `/p` with the global 404, so a page has exactly one address.
 
 ## Metrics
 
