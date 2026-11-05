@@ -16,7 +16,8 @@ const SECTIONS = [
 /**
  * Primary navigation for a workspace. A client leaf only because it reads the pathname to mark
  * the current section. Below the md breakpoint the links collapse behind a disclosure button;
- * it is not a modal, so there is no focus trap and the page stays reachable.
+ * it is not a modal, so there is no focus trap and the page stays reachable. The layout owns the
+ * row's divider, because the row also holds the command palette button.
  */
 export function AppNav({ workspaceSlug }: { workspaceSlug: string }) {
   const pathname = usePathname();
@@ -37,7 +38,7 @@ export function AppNav({ workspaceSlug }: { workspaceSlug: string }) {
   }
 
   return (
-    <nav aria-label="Workspace" onKeyDown={onKeyDown} className="border-t border-line md:border-t-0">
+    <nav aria-label="Workspace" onKeyDown={onKeyDown} className="min-w-0 flex-1">
       <button
         ref={buttonRef}
         type="button"

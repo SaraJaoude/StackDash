@@ -415,7 +415,7 @@ src/
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
   components/
     sections/                  landing page sections
-    app/                       app shell: navigation, workspace switcher, page states
+    app/                       app shell: navigation, workspace switcher, command palette, page states
     account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
     connections/               connection status, controls, provider marks
@@ -430,6 +430,7 @@ src/
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
     dashboard/, timeline/      dashboard aggregation and timeline queries
+    palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
