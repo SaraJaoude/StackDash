@@ -1,0 +1,656 @@
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import {
+  AuthRevokedError,
+  InvalidResponseError,
+  PermissionMissingError,
+  RateLimitedError,
+} from "../errors";
+import { validateAdapterEvents, type ActivityEvent } from "../events";
+import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
+import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
+import { billingMetrics, deploymentEvents, GRAPHQL_URL, MAX_PROJECTS, PRICING_SOURCE, railwayAdapter } from "./index";
+import { BillingDataSchema, DeploymentSchema, type BillingData, type Deployment } from "./schemas";
+// Every fixture below is from documentation, not recorded: no Railway account exists yet (#141).
+// Checked 2026-11-05, values synthetic.
+// - token.json, token-refreshed.json: POST /oauth/token responses from "Login & Tokens"
+//   (https://docs.railway.com/integrations/oauth/login-and-tokens), with workspace:viewer added.
+import tokenRefreshedFixture from "./fixtures/token-refreshed.json";
+import tokenFixture from "./fixtures/token.json";
+// - workspaces.json: `me { workspaces { id name } }` response from "Fetching Workspaces or Projects"
+//   (https://docs.railway.com/integrations/oauth/fetching-workspaces-or-projects).
+import workspacesFixture from "./fixtures/workspaces.json";
+// - projects.json, deployments.json, billing.json: shaped from the Public API schema (introspection
+//   of https://backboard.railway.com/graphql/v2) and the deployment statuses in "Manage Deployments"
+//   (https://docs.railway.com/integrations/api/manage-deployments). deployments.json carries
+//   creator and commit fields the query never selects, so the tests prove they are dropped.
+import billingFixture from "./fixtures/billing.json";
+import deploymentsFixture from "./fixtures/deployments.json";
+import projectsFixture from "./fixtures/projects.json";
+// - not-authorized.json: the error shape from "Public API, Errors"
+//   (https://docs.railway.com/integrations/api), with Railway's documented "Not Authorized" message.
+import notAuthorizedFixture from "./fixtures/not-authorized.json";
+
+const NOW = new Date("2026-11-05T12:00:00.000Z");
+const CLIENT_ID = "client-railway-1";
+const CLIENT_SECRET = "synthetic-client-secret";
+const WORKSPACE = "ws-synthetic-1";
+const REDIRECT_URI = "https://devmacro.example/api/connections/railway/callback";
+const VERIFIER = "v".repeat(43);
+
+type Call = { method: string; url: URL; headers: Headers; body: string };
+type Route = (call: Call) => Response;
+type Operation = "DevMacroWorkspaces" | "DevMacroProjects" | "DevMacroDeployments" | "DevMacroBilling";
+
+function json(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...headers } });
+}
+
+const GraphqlRequestSchema = z.object({ query: z.string(), variables: z.record(z.string(), z.unknown()) });
+
+function graphqlBody(call: Call): z.infer<typeof GraphqlRequestSchema> {
+  return GraphqlRequestSchema.parse(JSON.parse(call.body));
+}
+
+/** Routes the token endpoint by path and GraphQL calls by operation name. */
+function harness(routes: Partial<Record<Operation | "token", Route>>) {
+  const operations: Partial<Record<string, Route>> = routes;
+  const calls: Call[] = [];
+  const warnings: string[] = [];
+  const fetch: FetchLike = async (input, init) => {
+    const call: Call = {
+      method: init?.method ?? "GET",
+      url: new URL(input),
+      headers: new Headers(init?.headers),
+      body: typeof init?.body === "string" ? init.body : "",
+    };
+    calls.push(call);
+    if (call.method === "POST" && call.url.href === "https://backboard.railway.com/oauth/token") {
+      return routes.token?.(call) ?? json({ error: "unexpected" }, 500);
+    }
+    if (call.method === "POST" && call.url.href === GRAPHQL_URL) {
+      const operation = /query (DevMacro\w+)/.exec(graphqlBody(call).query)?.[1] ?? "";
+      const route = operations[operation];
+      return route === undefined ? json({ errors: [{ message: "unexpected operation" }] }, 400) : route(call);
+    }
+    return json({ message: "not found" }, 404);
+  };
+  const ctx: OAuthContext = {
+    fetch,
+    now: () => NOW,
+    timeoutMs: 5000,
+    logger: {
+      info: () => undefined,
+      warn: (event) => {
+        warnings.push(event);
+      },
+      error: () => undefined,
+    },
+    client: { clientId: CLIENT_ID, clientSecret: new Secret(CLIENT_SECRET), extra: {} },
+  };
+  const graphqlCalls = (operation: Operation) =>
+    calls.filter((call) => call.url.href === GRAPHQL_URL && graphqlBody(call).query.includes(`query ${operation}`));
+  return { ctx, calls, warnings, graphqlCalls };
+}
+
+const syncRoutes = (overrides: Partial<Record<Operation, Route>> = {}): Partial<Record<Operation, Route>> => ({
+  DevMacroProjects: () => json(projectsFixture),
+  DevMacroDeployments: () => json(deploymentsFixture),
+  DevMacroBilling: () => json(billingFixture),
+  ...overrides,
+});
+
+const credential: OAuthCredential = {
+  accessToken: new Secret("synthetic-access-token-1"),
+  refreshToken: new Secret("synthetic-refresh-token-1"),
+  expiresAt: new Date(NOW.getTime() + 3_600_000),
+  scopes: ["openid", "email", "profile", "offline_access", "workspace:viewer"],
+  tokenType: "Bearer",
+};
+
+function form(call: Call | undefined): Record<string, string> {
+  return Object.fromEntries(new URLSearchParams(call?.body));
+}
+
+function expectValid(metrics: readonly AdapterMetric[], events: readonly ActivityEvent[]): void {
+  const checkedMetrics = validateAdapterMetrics("railway", metrics);
+  expect(checkedMetrics.ok ? [] : checkedMetrics.issues).toEqual([]);
+  const checkedEvents = validateAdapterEvents(railwayAdapter.eventTypes, events);
+  expect(checkedEvents.ok ? [] : checkedEvents.issues).toEqual([]);
+}
+
+function metric(metrics: readonly AdapterMetric[], key: string): AdapterMetric {
+  const found = metrics.find((candidate) => candidate.metricKey === key);
+  if (found === undefined) throw new Error(`metric ${key} missing`);
+  return found;
+}
+
+function amount(value: AdapterMetric): number {
+  if (!("amountMinor" in value)) throw new Error(`${value.metricKey} is not money`);
+  return value.amountMinor;
+}
+
+function billing(overrides: { plan?: BillingData["workspace"]["plan"]; estimatedUsage?: BillingData["estimatedUsage"] } = {}): BillingData {
+  const parsed = BillingDataSchema.parse(billingFixture.data);
+  return {
+    ...parsed,
+    workspace: { ...parsed.workspace, plan: overrides.plan ?? parsed.workspace.plan },
+    estimatedUsage: overrides.estimatedUsage ?? parsed.estimatedUsage,
+  };
+}
+
+describe("railwayAdapter declaration", () => {
+  it("connects through OAuth with PKCE, read-only permissions, hourly polling, and no revoke endpoint", () => {
+    expect(railwayAdapter.id).toBe("railway");
+    expect(railwayAdapter.displayName).toBe("Railway");
+    expect(railwayAdapter.oauth.pkce).toBe(true);
+    expect(railwayAdapter.oauth.scopes).toEqual(["openid", "email", "profile", "offline_access", "workspace:viewer"]);
+    expect(railwayAdapter.permissions.map((permission) => permission.access)).toEqual(["read", "read", "read", "read", "read"]);
+    expect(railwayAdapter.permissions.map((permission) => permission.scope)).toEqual([...railwayAdapter.oauth.scopes]);
+    expect(railwayAdapter.pollIntervalSeconds).toBe(3600);
+    expect(railwayAdapter.revoke).toBeUndefined();
+    expect(railwayAdapter.capabilities.webhooks).toBe(false);
+  });
+});
+
+describe("railwayAdapter.buildAuthorizeUrl", () => {
+  it("asks for consent every time, so Railway issues a refresh token, with PKCE S256 and every scope", () => {
+    const url = railwayAdapter.buildAuthorizeUrl({
+      client: { clientId: CLIENT_ID, clientSecret: new Secret(CLIENT_SECRET), extra: {} },
+      state: "state-abc",
+      redirectUri: REDIRECT_URI,
+      codeChallenge: "challenge-xyz",
+    });
+    expect(`${url.origin}${url.pathname}`).toBe("https://backboard.railway.com/oauth/auth");
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      response_type: "code",
+      client_id: CLIENT_ID,
+      redirect_uri: REDIRECT_URI,
+      scope: "openid email profile offline_access workspace:viewer",
+      state: "state-abc",
+      code_challenge: "challenge-xyz",
+      code_challenge_method: "S256",
+      prompt: "consent",
+    });
+  });
+
+  it.each<[string, { state: string; codeChallenge?: string }]>([
+    ["a missing PKCE challenge", { state: "s" }],
+    ["an empty state", { state: "", codeChallenge: "c" }],
+    ["a state over 1024 characters", { state: "s".repeat(1025), codeChallenge: "c" }],
+  ])("rejects %s", (_title, params) => {
+    expect(() =>
+      railwayAdapter.buildAuthorizeUrl({
+        client: { clientId: CLIENT_ID, clientSecret: new Secret(CLIENT_SECRET), extra: {} },
+        redirectUri: REDIRECT_URI,
+        ...params,
+      }),
+    ).toThrow();
+  });
+});
+
+describe("railwayAdapter.exchangeCode", () => {
+  it("exchanges the code with Basic client auth and the verifier, keeping the refresh token and expiry", async () => {
+    const { ctx, calls } = harness({ token: () => json(tokenFixture) });
+    const result = await railwayAdapter.exchangeCode(
+      {
+        code: "code-1",
+        redirectUri: REDIRECT_URI,
+        codeVerifier: VERIFIER,
+        callbackParams: { code: "code-1", state: "s", iss: "https://backboard.railway.com" },
+      },
+      ctx,
+    );
+    const [call] = calls;
+    expect(call?.headers.get("authorization")).toBe(`Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`);
+    expect(form(call)).toEqual({
+      grant_type: "authorization_code",
+      code: "code-1",
+      redirect_uri: REDIRECT_URI,
+      code_verifier: VERIFIER,
+    });
+    expect(result.accessToken.reveal()).toBe("synthetic-access-token-1");
+    expect(result.refreshToken?.reveal()).toBe("synthetic-refresh-token-1");
+    expect(result.expiresAt).toEqual(new Date(NOW.getTime() + 3_600_000));
+    expect(result.scopes).toEqual(["openid", "email", "profile", "offline_access", "workspace:viewer"]);
+    // The id_token is not kept anywhere on the credential.
+    expect(JSON.stringify({ ...result, accessToken: "", refreshToken: "" })).not.toContain("synthetic-id-token");
+  });
+
+  it("falls back to the requested scopes when the response omits scope", async () => {
+    const { scope: _omitted, ...withoutScope } = tokenFixture;
+    const { ctx } = harness({ token: () => json(withoutScope) });
+    const result = await railwayAdapter.exchangeCode(
+      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} },
+      ctx,
+    );
+    expect(railwayAdapter.detectMissingPermissions(result)).toEqual([]);
+  });
+
+  it("reports a grant without workspace:viewer or offline_access as missing permissions", async () => {
+    const { ctx } = harness({ token: () => json({ ...tokenFixture, scope: "openid email profile" }) });
+    const result = await railwayAdapter.exchangeCode(
+      { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} },
+      ctx,
+    );
+    expect(railwayAdapter.detectMissingPermissions(result)).toEqual(["offline_access", "workspace:viewer"]);
+  });
+
+  it("refuses a callback from another issuer before calling the token endpoint", async () => {
+    const { ctx, calls } = harness({ token: () => json(tokenFixture) });
+    await expect(
+      railwayAdapter.exchangeCode(
+        { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: { iss: "https://evil.example" } },
+        ctx,
+      ),
+    ).rejects.toBeInstanceOf(InvalidResponseError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["too short", "v".repeat(42)],
+    ["with a space", `${"v".repeat(42)} `],
+  ])("refuses a %s code verifier", async (_title, codeVerifier) => {
+    const { ctx } = harness({ token: () => json(tokenFixture) });
+    await expect(
+      railwayAdapter.exchangeCode(
+        { code: "c", redirectUri: REDIRECT_URI, callbackParams: {}, ...(codeVerifier === undefined ? {} : { codeVerifier }) },
+        ctx,
+      ),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+
+  it.each([
+    ["without a refresh token", (() => {
+      const { refresh_token: _dropped, ...rest } = tokenFixture;
+      return rest;
+    })()],
+    ["with a token type other than Bearer", { ...tokenFixture, token_type: "mac" }],
+  ])("rejects a token response %s as invalid_response", async (_title, body) => {
+    const { ctx } = harness({ token: () => json(body) });
+    await expect(
+      railwayAdapter.exchangeCode({ code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} }, ctx),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("reports invalid_grant as auth revoked and other 400 errors as invalid_response", async () => {
+    const input = { code: "c", redirectUri: REDIRECT_URI, codeVerifier: VERIFIER, callbackParams: {} };
+    await expect(
+      railwayAdapter.exchangeCode(input, harness({ token: () => json({ error: "invalid_grant" }, 400) }).ctx),
+    ).rejects.toBeInstanceOf(AuthRevokedError);
+    await expect(
+      railwayAdapter.exchangeCode(input, harness({ token: () => json({ error: "invalid_request" }, 400) }).ctx),
+    ).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+});
+
+describe("railwayAdapter.refreshTokens", () => {
+  it("rotates: sends the current refresh token and returns the new one, keeping metadata", async () => {
+    const { ctx, calls } = harness({ token: () => json(tokenRefreshedFixture) });
+    const result = await railwayAdapter.refreshTokens?.({ ...credential, metadata: { note: "kept" } }, ctx);
+    if (result === undefined) throw new Error("railway must refresh tokens");
+    expect(form(calls[0])).toEqual({ grant_type: "refresh_token", refresh_token: "synthetic-refresh-token-1" });
+    expect(result.accessToken.reveal()).toBe("synthetic-access-token-2");
+    expect(result.refreshToken?.reveal()).toBe("synthetic-refresh-token-2");
+    expect(result.metadata).toEqual({ note: "kept" });
+  });
+
+  it("keeps the same refresh token when Railway has not rotated it yet", async () => {
+    const { ctx } = harness({ token: () => json({ ...tokenRefreshedFixture, refresh_token: "synthetic-refresh-token-1" }) });
+    const result = await railwayAdapter.refreshTokens?.(credential, ctx);
+    expect(result?.refreshToken?.reveal()).toBe("synthetic-refresh-token-1");
+  });
+
+  it("reports a reused, rotated refresh token (invalid_grant) as auth revoked", async () => {
+    const { ctx } = harness({ token: () => json({ error: "invalid_grant" }, 400) });
+    await expect(railwayAdapter.refreshTokens?.(credential, ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+
+  it("asks for a reconnect without calling Railway when no refresh token is stored", async () => {
+    const { ctx, calls } = harness({ token: () => json(tokenRefreshedFixture) });
+    const { refreshToken: _omitted, ...accessOnly } = credential;
+    await expect(railwayAdapter.refreshTokens?.(accessOnly, ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+    expect(calls).toHaveLength(0);
+  });
+});
+
+describe("railwayAdapter.listAccounts", () => {
+  it("lists the workspaces picked at consent, without selecting any personal field", async () => {
+    const { ctx, calls } = harness({ DevMacroWorkspaces: () => json(workspacesFixture) });
+    const accounts = await railwayAdapter.listAccounts(credential, ctx);
+    expect(accounts).toEqual([
+      { externalId: "ws-synthetic-1", displayName: "My Workspace", kind: "workspace" },
+      { externalId: "ws-synthetic-2", displayName: "ACME Inc.", kind: "workspace" },
+    ]);
+    const [call] = calls;
+    expect(call?.headers.get("authorization")).toBe("Bearer synthetic-access-token-1");
+    expect(graphqlBody(call ?? { method: "", url: new URL(GRAPHQL_URL), headers: new Headers(), body: "{}" }).query).not.toMatch(
+      /email|avatar|name\s*email|profile/,
+    );
+  });
+
+  it.each([
+    ["no workspaces", [], []],
+    [
+      "a blank workspace name",
+      [{ id: "ws-blank", name: "   " }],
+      [{ externalId: "ws-blank", displayName: "Railway workspace", kind: "workspace" }],
+    ],
+  ])("handles %s", async (_title, workspaces, expected) => {
+    const { ctx } = harness({ DevMacroWorkspaces: () => json({ data: { me: { workspaces } } }) });
+    expect(await railwayAdapter.listAccounts(credential, ctx)).toEqual(expected);
+  });
+
+  it("reports Railway's Not Authorized answer (HTTP 200) as a missing permission", async () => {
+    const { ctx } = harness({ DevMacroWorkspaces: () => json(notAuthorizedFixture) });
+    await expect(railwayAdapter.listAccounts(credential, ctx)).rejects.toMatchObject({
+      code: "permission_missing",
+      missingScopes: ["workspace:viewer"],
+    });
+  });
+
+  it("reports a 401 as auth revoked", async () => {
+    const { ctx } = harness({ DevMacroWorkspaces: () => json({}, 401) });
+    await expect(railwayAdapter.listAccounts(credential, ctx)).rejects.toBeInstanceOf(AuthRevokedError);
+  });
+});
+
+describe("railwayAdapter.sync", () => {
+  it("turns deployments into timeline events and billing into metrics, with the latest status time as the cursor", async () => {
+    const { ctx, graphqlCalls } = harness(syncRoutes());
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    expectValid(result.metrics, result.events);
+    expect(result.partialErrors).toBeUndefined();
+
+    const byKey = Object.fromEntries(result.events.map((event) => [event.dedupeKey, event]));
+    expect(Object.keys(byKey).sort()).toEqual([
+      "railway.deployment:dep-api-failed:building",
+      "railway.deployment:dep-api-failed:failed",
+      "railway.deployment:dep-docs-building:building",
+      "railway.deployment:dep-docs-crashed:building",
+      "railway.deployment:dep-docs-crashed:crashed",
+      "railway.deployment:dep-preview-sleeping:building",
+      "railway.deployment:dep-preview-sleeping:deployed",
+      "railway.deployment:dep-web-removed:removed",
+      "railway.deployment:dep-web-success:building",
+      "railway.deployment:dep-web-success:deployed",
+    ]);
+    expect(byKey["railway.deployment:dep-web-success:deployed"]).toEqual({
+      typeId: "railway.deployment.deployed",
+      occurredAt: new Date("2026-11-05T11:03:00.000Z"),
+      severity: "success",
+      title: "Deployment of web to production succeeded",
+      body: "Project: shop",
+      externalAccountId: WORKSPACE,
+      dedupeKey: "railway.deployment:dep-web-success:deployed",
+    });
+    expect(byKey["railway.deployment:dep-web-success:building"]?.occurredAt).toEqual(new Date("2026-11-05T11:00:00.000Z"));
+    expect(byKey["railway.deployment:dep-api-failed:failed"]).toMatchObject({ severity: "warning", title: "Deployment of api to staging failed" });
+    // "Production" matches whatever its case: a production crash is critical.
+    expect(byKey["railway.deployment:dep-docs-crashed:crashed"]).toMatchObject({
+      severity: "critical",
+      title: "Deployment of docs in Production crashed",
+      body: "Project: docs",
+    });
+    expect(byKey["railway.deployment:dep-web-removed:removed"]).toMatchObject({ severity: "info" });
+    // Nothing personal from the deployment reaches an event.
+    expect(JSON.stringify(result.events)).not.toMatch(/someone@example\.com|Someone|synthetic commit/);
+    expect(result.cursor).toBe("2026-11-05T11:59:30.000Z");
+
+    // One request each: projects, deployments for both projects, billing. Never a mutation.
+    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(1);
+    const [deployments] = graphqlCalls("DevMacroDeployments");
+    if (deployments === undefined) throw new Error("expected a deployments call");
+    expect(graphqlBody(deployments).variables).toEqual({ p0: "prj-shop", p1: "prj-docs" });
+    for (const call of graphqlCalls("DevMacroProjects").concat(graphqlCalls("DevMacroBilling"), [deployments])) {
+      expect(graphqlBody(call).query).not.toMatch(/mutation|creator|meta|email/);
+    }
+    expect(graphqlBody(graphqlCalls("DevMacroBilling")[0] ?? deployments).variables).toEqual({
+      workspaceId: WORKSPACE,
+      measurements: ["CPU_USAGE", "MEMORY_USAGE_GB", "NETWORK_TX_GB", "DISK_USAGE_GB"],
+    });
+
+    expect(result.metrics.map((item) => item.metricKey).sort()).toEqual([
+      "railway.credits.balance",
+      "railway.estimate.bill",
+      "railway.plan.memory_per_service",
+      "railway.plan.replicas_per_service",
+      "railway.plan.vcpu_per_service",
+      "railway.plan.volume_per_service",
+      "railway.spend.usage",
+      "railway.usage.cpu",
+      "railway.usage.memory",
+      "railway.usage.network_egress",
+      "railway.usage.volume",
+    ]);
+  });
+
+  it("re-reads an hour before the cursor, and only that far", async () => {
+    const { ctx } = harness(syncRoutes());
+    const result = await railwayAdapter.sync(
+      { credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T11:30:00.000Z" },
+      ctx,
+    );
+    // From 10:30 onwards: the 10:30 build start is kept, the 09:15 crash and 02:00 sleep are not.
+    expect(result.events.map((event) => event.dedupeKey).sort()).toEqual([
+      "railway.deployment:dep-api-failed:building",
+      "railway.deployment:dep-api-failed:failed",
+      "railway.deployment:dep-docs-building:building",
+      "railway.deployment:dep-web-removed:removed",
+      "railway.deployment:dep-web-success:building",
+      "railway.deployment:dep-web-success:deployed",
+    ]);
+    expect(result.cursor).toBe("2026-11-05T11:59:30.000Z");
+  });
+
+  it("keeps a cursor newer than every deployment, so a re-read never moves it back", async () => {
+    const { ctx } = harness(syncRoutes());
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE, cursor: "2026-11-05T13:00:00.000Z" }, ctx);
+    expect(result.cursor).toBe("2026-11-05T13:00:00.000Z");
+  });
+
+  it("ignores an unreadable cursor with a warning and falls back to the last 7 days", async () => {
+    const { ctx, warnings } = harness(syncRoutes());
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE, cursor: "1730800000000" }, ctx);
+    expect(warnings).toContain("railway.deployments.cursor_ignored");
+    expect(result.events.some((event) => event.dedupeKey.includes("dep-web-old"))).toBe(false);
+    expect(result.events).toHaveLength(10);
+  });
+
+  it.each([
+    ["Not Authorized", () => json(notAuthorizedFixture)],
+    ["a null customer", () => json({ data: { ...billingFixture.data, workspace: { plan: "HOBBY", customer: null } } })],
+    ["an HTTP 403", () => json({}, 403)],
+    ["an unknown plan", () => json({ data: { ...billingFixture.data, workspace: { ...billingFixture.data.workspace, plan: "ENTERPRISE" } } })],
+  ])("leaves billing unavailable on %s while deployments still sync", async (_title, billingRoute) => {
+    const { ctx, warnings } = harness(syncRoutes({ DevMacroBilling: billingRoute }));
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    expect(result.metrics).toEqual([]);
+    expect(result.events).toHaveLength(10);
+    expect(result.cursor).toBe("2026-11-05T11:59:30.000Z");
+    const [gap] = result.partialErrors ?? [];
+    expect(gap).toBeInstanceOf(PermissionMissingError);
+    expect(gap?.missingScopes).toEqual(["workspace:viewer"]);
+    expect(warnings).toContain("railway.billing.unavailable");
+  });
+
+  it("fails the whole sync on a billing rate limit, so the runner retries instead of losing billing", async () => {
+    const { ctx } = harness(syncRoutes({ DevMacroBilling: () => json({}, 429, { "Retry-After": "120" }) }));
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
+      code: "rate_limited",
+      retryAfterMs: 120_000,
+    });
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toBeInstanceOf(RateLimitedError);
+  });
+
+  it("fails as a missing permission when the grant no longer covers the workspace", async () => {
+    const { ctx } = harness(syncRoutes({ DevMacroProjects: () => json(notAuthorizedFixture) }));
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toMatchObject({
+      code: "permission_missing",
+      missingScopes: ["workspace:viewer"],
+    });
+  });
+
+  it("fails as an invalid response on any other GraphQL error, without copying Railway's message", async () => {
+    const { ctx } = harness(
+      syncRoutes({
+        DevMacroDeployments: () =>
+          json({ data: null, errors: [{ message: "Problem with project prj-shop", extensions: { code: "BAD_USER_INPUT" } }] }),
+      }),
+    );
+    const failure = railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    await expect(failure).rejects.toBeInstanceOf(InvalidResponseError);
+    await expect(failure).rejects.toThrow("Railway answered the deployments query with GraphQL errors (BAD_USER_INPUT)");
+  });
+
+  it("skips the deployments request for a workspace with no projects and still reads billing", async () => {
+    const empty = { data: { workspace: { projects: { edges: [], pageInfo: { hasNextPage: false } } } } };
+    const { ctx, graphqlCalls } = harness(syncRoutes({ DevMacroProjects: () => json(empty) }));
+    const result = await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    expect(graphqlCalls("DevMacroDeployments")).toHaveLength(0);
+    expect(result.events).toEqual([]);
+    expect(result.cursor).toBeUndefined();
+    expect(result.metrics.length).toBeGreaterThan(0);
+  });
+
+  it("asks for at most 10 projects' deployments per request and warns when the project list is capped", async () => {
+    const projects = Array.from({ length: 11 }, (_, index) => ({ node: { id: `prj-${index}`, name: `project ${index}` } }));
+    const page = { data: { workspace: { projects: { edges: projects, pageInfo: { hasNextPage: true } } } } };
+    const { ctx, warnings, graphqlCalls } = harness(
+      syncRoutes({
+        DevMacroProjects: () => json(page),
+        DevMacroDeployments: (call) =>
+          json({ data: Object.fromEntries(Object.keys(graphqlBody(call).variables).map((key) => [key.replace("p", "d"), { edges: [] }])) }),
+      }),
+    );
+    await railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx);
+    const requests = graphqlCalls("DevMacroDeployments").map((call) => Object.keys(graphqlBody(call).variables).length);
+    expect(requests).toEqual([10, 1]);
+    expect(warnings).toContain("railway.projects.cap_reached");
+    expect(MAX_PROJECTS).toBe(50);
+  });
+
+  it("fails as an invalid response when Railway leaves out a project's deployments", async () => {
+    const { ctx } = harness(syncRoutes({ DevMacroDeployments: () => json({ data: { d0: deploymentsFixture.data.d0 } }) }));
+    await expect(railwayAdapter.sync({ credential, externalAccountId: WORKSPACE }, ctx)).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+});
+
+describe("deploymentEvents", () => {
+  const base: Deployment = DeploymentSchema.parse(deploymentsFixture.data.d0.edges[0]?.node);
+
+  it.each<[Deployment["status"], string[]]>([
+    ["QUEUED", []],
+    ["WAITING", []],
+    ["NEEDS_APPROVAL", []],
+    ["INITIALIZING", []],
+    ["SKIPPED", []],
+    ["BUILDING", ["building"]],
+    ["DEPLOYING", ["building"]],
+    ["SUCCESS", ["building", "deployed"]],
+    ["SLEEPING", ["building", "deployed"]],
+    ["FAILED", ["building", "failed"]],
+    ["CRASHED", ["building", "crashed"]],
+    ["REMOVING", ["removed"]],
+    ["REMOVED", ["removed"]],
+  ])("%s gives %j", (status, kinds) => {
+    const events = deploymentEvents({ ...base, status }, "shop", WORKSPACE);
+    expect(events.map((event) => event.typeId.replace("railway.deployment.", ""))).toEqual(kinds);
+  });
+
+  it("dates the final event by updatedAt when statusUpdatedAt is null", () => {
+    const [, final] = deploymentEvents({ ...base, statusUpdatedAt: null }, "shop", WORKSPACE);
+    expect(final?.occurredAt).toEqual(base.updatedAt);
+  });
+
+  it("shortens long names and names a blank service, keeping titles within the event limit", () => {
+    const events = deploymentEvents(
+      { ...base, service: { name: "s".repeat(500) }, environment: { name: " " } },
+      "p".repeat(500),
+      WORKSPACE,
+    );
+    expectValid([], events);
+    expect(events[1]?.title).toBe(`Deployment of ${"s".repeat(60)}… to unnamed succeeded`);
+    expect(events[1]?.body).toBe(`Project: ${"p".repeat(60)}…`);
+  });
+});
+
+describe("billingMetrics", () => {
+  it("converts dollars to cents once, sums the estimate exactly, and adds usage beyond the Hobby allowance", () => {
+    const metrics = billingMetrics(billing(), WORKSPACE, NOW);
+    expectValid(metrics, []);
+    // 3.456 dollars rounds half to even once: 346 cents.
+    expect(amount(metric(metrics, "railway.spend.usage"))).toBe(346);
+    // 6,000 vCPU-min x 0.000463 + 12,000 GB-min x 0.000231 + 2 GB x 0.05 + 43,200 GB-min x 0.000003472222222
+    // is $5.7999999999904, 580 cents: the $5 fee plus 80 cents beyond the $5 it includes.
+    expect(amount(metric(metrics, "railway.estimate.bill"))).toBe(580);
+    expect(amount(metric(metrics, "railway.credits.balance"))).toBe(125);
+    expect(metric(metrics, "railway.estimate.bill").provenance).toEqual({
+      source: "derived",
+      endpoint: GRAPHQL_URL,
+      pricingSource: PRICING_SOURCE,
+    });
+    // One estimate only: the dashboard adds up every estimated spend of a currency.
+    expect(metrics.filter((item) => item.kind === "estimated_spend")).toHaveLength(1);
+    expect(metric(metrics, "railway.usage.cpu")).toMatchObject({ kind: "usage", value: 4200.5, unit: "vCPU-minutes" });
+    const periodEnd = new Date("2026-11-20T00:00:00.000Z");
+    expect(metric(metrics, "railway.spend.usage")).toMatchObject({
+      timeframe: { type: "period", start: new Date("2026-10-20T00:00:00.000Z"), end: periodEnd },
+      resetsAt: periodEnd,
+    });
+    expect(metric(metrics, "railway.plan.memory_per_service")).toMatchObject({ kind: "included_allowance", value: 48, unit: "GB" });
+  });
+
+  it("rounds the estimate once: three sub-cent projects tip the bill over by a cent", () => {
+    // $5.00 of egress plus three projects at 10 vCPU-minutes ($0.00463 each, 0 cents alone): the
+    // exact sum $5.01389 is 501 cents, one over the Hobby allowance. Rounding each row would give 500.
+    const estimatedUsage = [
+      { measurement: "NETWORK_TX_GB" as const, estimatedValue: 100, projectId: "a" },
+      ...["a", "b", "c"].map((projectId) => ({ measurement: "CPU_USAGE" as const, estimatedValue: 10, projectId })),
+    ];
+    expect(amount(metric(billingMetrics(billing({ estimatedUsage }), WORKSPACE, NOW), "railway.estimate.bill"))).toBe(501);
+  });
+
+  it.each([
+    ["Hobby, no usage", "HOBBY", 0, 500],
+    ["Hobby, usage under the allowance", "HOBBY", 300, 500],
+    ["Hobby, usage exactly at the allowance", "HOBBY", 500, 500],
+    ["Hobby, one cent over", "HOBBY", 501, 501],
+    ["Pro, usage under the allowance", "PRO", 1999, 2000],
+    ["Pro, usage over the allowance", "PRO", 2500, 2500],
+    ["Free, usage over its credit", "FREE", 300, 0],
+  ] as const)("bills %s", (_title, plan, usageMinor, billMinor) => {
+    // An egress estimate whose cost is exactly usageMinor cents: 1 GB egress is 5 cents.
+    const estimatedUsage = [{ measurement: "NETWORK_TX_GB" as const, estimatedValue: usageMinor / 5, projectId: "p" }];
+    const metrics = billingMetrics(billing({ plan, estimatedUsage }), WORKSPACE, NOW);
+    expect(amount(metric(metrics, "railway.estimate.bill"))).toBe(billMinor);
+  });
+
+  it("reads the Free plan's limits per service", () => {
+    const metrics = billingMetrics(billing({ plan: "FREE" }), WORKSPACE, NOW);
+    expect(metric(metrics, "railway.plan.memory_per_service")).toMatchObject({ value: 0.5 });
+  });
+
+  it("keeps a negative credit balance, and leaves out usage rows Railway did not return", () => {
+    const parsed = billing();
+    const metrics = billingMetrics(
+      { ...parsed, usage: [], workspace: { ...parsed.workspace, customer: { ...parsed.workspace.customer, creditBalance: -2.5 } } },
+      WORKSPACE,
+      NOW,
+    );
+    expectValid(metrics, []);
+    expect(amount(metric(metrics, "railway.credits.balance"))).toBe(-250);
+    expect(metrics.some((item) => item.kind === "usage")).toBe(false);
+  });
+
+  it.each([
+    ["a billing period that ends when it starts", { billingPeriod: { start: NOW, end: NOW } }],
+    ["an amount beyond the storable range", { currentUsage: 1e20 }],
+  ])("rejects %s as invalid_response", (_title, customer) => {
+    const parsed = billing();
+    expect(() =>
+      billingMetrics({ ...parsed, workspace: { ...parsed.workspace, customer: { ...parsed.workspace.customer, ...customer } } }, WORKSPACE, NOW),
+    ).toThrow(InvalidResponseError);
+  });
+});

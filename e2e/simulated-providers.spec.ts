@@ -9,9 +9,9 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 
 /*
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
- * (playwright.config.ts), so Vercel and Stripe connect from the catalog through the dev consent
- * screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up data, and
- * every screen labels it "Simulated". Nothing leaves the machine.
+ * (playwright.config.ts), so Vercel, Stripe, and Railway connect from the catalog through the dev
+ * consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up
+ * data, and every screen labels it "Simulated". Nothing leaves the machine.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
@@ -23,6 +23,7 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspa
 const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
 const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
+const RAILWAY_CONNECTION = "Railway (Example workspace)";
 
 function cronSecret(): string {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
@@ -30,7 +31,7 @@ function cronSecret(): string {
 }
 
 /** Connects a simulated provider from the catalog with the keyboard and lands on the connection. */
-async function connectFromCatalog(page: Page, slug: string, provider: "Vercel" | "Stripe"): Promise<void> {
+async function connectFromCatalog(page: Page, slug: string, provider: "Vercel" | "Stripe" | "Railway"): Promise<void> {
   await page.goto(`/w/${slug}/connections`);
   const card = page
     .getByRole("list", { name: "Providers" })
@@ -50,7 +51,7 @@ async function connectFromCatalog(page: Page, slug: string, provider: "Vercel" |
   await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
 }
 
-/** Ticks until both simulated connections have synced; other specs' jobs may share a tick. */
+/** Ticks until every simulated connection has synced; other specs' jobs may share a tick. */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {
   const authorization = `Bearer ${cronSecret()}`;
   await expect(async () => {
@@ -62,7 +63,7 @@ async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<vo
       .eq("workspace_id", workspace.id)
       .limit(10);
     if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
-    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["stripe", "vercel"]);
+    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["railway", "stripe", "vercel"]);
   }).toPass({ timeout: 90_000 });
 }
 
@@ -73,11 +74,12 @@ ownerTest.describe("simulated providers", () => {
     try {
       await connectFromCatalog(page, workspace.slug, "Vercel");
       await connectFromCatalog(page, workspace.slug, "Stripe");
+      await connectFromCatalog(page, workspace.slug, "Railway");
 
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");
-      await expect(connections).toHaveCount(2);
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION]) {
+      await expect(connections).toHaveCount(3);
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, RAILWAY_CONNECTION]) {
         const row = connections.filter({ has: page.getByRole("link", { name, exact: true }) });
         await expect(row.getByText("Simulated", { exact: true })).toBeVisible();
       }
@@ -98,19 +100,21 @@ ownerTest.describe("simulated providers", () => {
       await expect(events.first().getByText("Stripe", { exact: true })).toBeVisible();
       await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
 
-      // A Vercel deployment is not guaranteed in the backfill, so the filtered page may be empty;
-      // every Vercel row that is there is labeled. The Vercel dashboard card below always is.
-      await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
-      await expect(status).toHaveText(/^Showing (no events|\d+ events?) for provider Vercel$/);
-      const vercelRows = await events.count();
-      for (let index = 0; index < vercelRows; index += 1) {
-        await expect(events.nth(index).getByText("Vercel", { exact: true })).toBeVisible();
-        await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+      // A Vercel or Railway deployment is not guaranteed in the backfill, so the filtered page may
+      // be empty; every row that is there is labeled. The dashboard cards below always are.
+      for (const [slug, name] of [["vercel", "Vercel"], ["railway", "Railway"]] as const) {
+        await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
+        await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
+        const rows = await events.count();
+        for (let index = 0; index < rows; index += 1) {
+          await expect(events.nth(index).getByText(name, { exact: true })).toBeVisible();
+          await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+        }
       }
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const byProvider = page.getByRole("region", { name: "By provider" });
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION]) {
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, RAILWAY_CONNECTION]) {
         await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
       }
       // Every total the simulated connections contribute to says so, not only their own cards.
