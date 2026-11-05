@@ -9,7 +9,10 @@ import {
   countOf,
   DAY_MS,
   instantInSlot,
+  isLaunchDay,
+  isWeekend,
   simulatedEndpoint,
+  SLOT_MS,
   unit,
   utcDayStart,
   utcMonthStart,
@@ -17,9 +20,13 @@ import {
 } from "./simulation";
 
 /*
- * Simulated Vercel team: about 60 deployments finish a day (mostly succeeded, some failed),
- * and month-to-date spend grows hour by hour. Deployments go through the real adapter's
- * `deploymentEvent`, so titles, severities, and dedupe keys match a real sync.
+ * Simulated Vercel team: about 60 deployments finish on a weekday (mostly succeeded, some
+ * failed), and month-to-date spend grows hour by hour. Weekends run at under a third of that, and
+ * one launch day a month runs at five times it, deploys and usage together, so the spend spike
+ * lines up with the burst of deploys (#166). The release itself fills the last two UTC hours of
+ * the launch day with deploys at fifteen times the weekday pace, which is also the half hour the
+ * demo seed's daily step reads. Deployments go through the real adapter's `deploymentEvent`, so
+ * titles, severities, and dedupe keys match a real sync.
  */
 
 const PROJECTS = ["web", "docs", "api"] as const;
@@ -29,13 +36,31 @@ const MONTHLY_PURCHASE_MINOR = 2000;
 // 20 percent VAT on usage and purchases, rounded down.
 const TAX_PERCENT = 20;
 const ENDPOINT = simulatedEndpoint("vercel", "/v1/billing/charges");
+const WEEKEND_PERCENT = 30;
+const LAUNCH_DAY_PERCENT = 500;
+const RELEASE_FROM_UTC_HOUR = 22;
+const RELEASE_PERCENT = 1500;
+
+/** How busy the team is at `ms`, in percent of an ordinary weekday. */
+function activityPercent(accountId: string, ms: number): number {
+  if (isLaunchDay(accountId, ms)) return LAUNCH_DAY_PERCENT;
+  return isWeekend(ms) ? WEEKEND_PERCENT : 100;
+}
+
+/** How fast deploys land at `ms`, in percent of an ordinary weekday: the release peaks on top of the launch day. */
+function deployPercent(accountId: string, ms: number): number {
+  const release = isLaunchDay(accountId, ms) && new Date(ms).getUTCHours() >= RELEASE_FROM_UTC_HOUR;
+  return release ? RELEASE_PERCENT : activityPercent(accountId, ms);
+}
 
 function usagePerHour(accountId: string): (hourStartMs: number) => number {
-  // Busier in the UTC working day; 30 cents to $1.50 an hour, so the total moves on most ticks.
+  // Busier in the UTC working day; 30 cents to $1.50 an hour on a weekday, so the total moves on
+  // most ticks.
   return (hourStartMs) => {
     const hourOfDay = new Date(hourStartMs).getUTCHours();
     const busy = hourOfDay >= 8 && hourOfDay < 20 ? 60 : 0;
-    return 30 + busy + between(0, 60, accountId, "usage", hourStartMs);
+    const weekday = 30 + busy + between(0, 60, accountId, "usage", hourStartMs);
+    return Math.floor((weekday * activityPercent(accountId, hourStartMs)) / 100);
   };
 }
 
@@ -72,8 +97,14 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
 }
 
 function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
-  // About 60 finished deployments a day (8,640 slots).
-  const count = countOf([0.006, 0.001], accountId, "deployments", slot);
+  // About 60 finished deployments on a weekday (8,640 slots).
+  const percent = deployPercent(accountId, slot * SLOT_MS);
+  const count = countOf(
+    [0.006, 0.001].map((p) => (p * percent) / 100),
+    accountId,
+    "deployments",
+    slot,
+  );
   const events: ActivityEvent[] = [];
   for (let index = 0; index < count; index += 1) {
     const parts = [accountId, "deployment", slot, index] as const;

@@ -26,6 +26,7 @@ import {
   simulatedAdapters,
 } from "./index";
 import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
+import { DAY_MS, isLaunchDay, isWeekend } from "./simulation";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -507,5 +508,74 @@ describe("simulated numbers", () => {
       const before = (await sync("2026-11-04T23:59:30Z")).events.filter((event) => event.typeId === typeId);
       expect(before).toEqual([]);
     }
+  });
+});
+
+describe("the simulated week (#166)", () => {
+  it.each([
+    ["Friday's last millisecond", "2026-11-06T23:59:59.999Z", false],
+    ["Saturday's first instant", "2026-11-07T00:00:00.000Z", true],
+    ["Sunday's last millisecond", "2026-11-08T23:59:59.999Z", true],
+    ["Monday's first instant", "2026-11-09T00:00:00.000Z", false],
+  ])("counts %s as weekend: %s", (_title, at, expected) => {
+    expect(isWeekend(Date.parse(at))).toBe(expected);
+  });
+
+  it.each(["team_sim5eed0a11", "sim5eed0a11", "acct_simffffffff"])("puts exactly one launch day in any 30 UTC days for %s", (accountId) => {
+    const first = Date.UTC(2026, 6, 1);
+    const launches = Array.from({ length: 120 }, (_, index) => first + index * DAY_MS).filter((day) => isLaunchDay(accountId, day));
+    expect(launches.length).toBe(4);
+    for (const [index, day] of launches.slice(1).entries()) expect(day - (launches[index] ?? 0)).toBe(30 * DAY_MS);
+    // The whole day is a launch day, up to its last millisecond.
+    const [launch] = launches;
+    if (launch === undefined) throw new Error("expected a launch day");
+    expect(isLaunchDay(accountId, launch + DAY_MS - 1)).toBe(true);
+    expect(isLaunchDay(accountId, launch - 1)).toBe(false);
+  });
+
+  it("lines a Vercel spend spike up with a burst of deploys on the launch day, and slows both at weekends", async () => {
+    const adapter = simulatedAdapters.vercel;
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected an account");
+    const accountId = account.externalId;
+    // Days after the 1st, so a day's spend is the difference of two readings in one month.
+    const days = Array.from({ length: 60 }, (_, index) => Date.UTC(2026, 8, 2) + index * DAY_MS).filter(
+      (day) => new Date(day).getUTCDate() > 1,
+    );
+    const pick = (predicate: (day: number) => boolean) => {
+      const day = days.find(predicate);
+      if (day === undefined) throw new Error("expected a matching day");
+      return day;
+    };
+    const launch = pick((day) => isLaunchDay(accountId, day));
+    const weekday = pick((day) => !isLaunchDay(accountId, day) && !isWeekend(day));
+    const weekend = pick((day) => !isLaunchDay(accountId, day) && isWeekend(day));
+
+    const usageAt = async (ms: number) =>
+      amount(metric((await adapter.sync({ credential, externalAccountId: accountId }, makeCtx(new Date(ms)))).metrics, "vercel.spend.usage"));
+    const dailyUsage = async (day: number) => (await usageAt(day + DAY_MS - SLOT_MS)) - (await usageAt(day - SLOT_MS));
+    // Chained syncs every 30 minutes across the day, as a live tick would read it.
+    const dailyDeploys = async (day: number) => {
+      let cursor = new Date(day - SLOT_MS).toISOString();
+      const deploys: ActivityEvent[] = [];
+      for (let step = 1; step <= 48; step += 1) {
+        const result = await adapter.sync({ credential, externalAccountId: accountId, cursor }, makeCtx(new Date(day + step * 30 * MINUTE_MS)));
+        deploys.push(...result.events);
+        cursor = result.cursor ?? cursor;
+      }
+      return deploys;
+    };
+    // The half hour before midnight UTC, which is all the demo seed's daily step reads.
+    const lastHalfHour = (deploys: ActivityEvent[], day: number) =>
+      deploys.filter((event) => event.occurredAt.getTime() >= day + DAY_MS - 30 * MINUTE_MS).length;
+
+    const [launchUsage, weekdayUsage, weekendUsage] = await Promise.all([launch, weekday, weekend].map(dailyUsage));
+    const [launchDeploys = [], weekdayDeploys = [], weekendDeploys = []] = await Promise.all([launch, weekday, weekend].map(dailyDeploys));
+    expect(launchUsage).toBeGreaterThan(3 * (weekdayUsage ?? 0));
+    expect(weekendUsage).toBeLessThan((weekdayUsage ?? 0) / 2);
+    expect(launchDeploys.length).toBeGreaterThan(3 * weekdayDeploys.length);
+    expect(weekendDeploys.length).toBeLessThan(weekdayDeploys.length / 2);
+    expect(lastHalfHour(launchDeploys, launch)).toBeGreaterThan(5 * Math.max(1, lastHalfHour(weekdayDeploys, weekday)));
   });
 });
