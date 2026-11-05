@@ -1,5 +1,6 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { dropSupersededBreakdowns, type ProviderId } from "@/lib/dashboard/aggregate";
+import { projectAllowances, projectSpend, quotaProjectionLine, spendProjectionLine } from "@/lib/dashboard/projection";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
@@ -14,11 +15,17 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  * - Each value is labeled verified (reported by the provider), estimated (calculated by DevMacro),
  *   or unavailable (no snapshot that day), never shown as 0 when missing.
  * - Money is summed per provider and currency only, never across currencies.
+ * - Each provider's spend projected to the end of its billing period follows its values (#167),
+ *   labeled as an estimate by DevMacro, or says why there is none; a quota projected to run out
+ *   before its reset, or already used up, gets a line too. Projections are as of the end of the
+ *   summarized day, from the history up to it (`src/lib/dashboard/projection.ts`).
  * - The event's dedupe key names the day, so a job that runs twice writes one event.
  */
 
 export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
 const DAY_MS = 86_400_000;
+/** UTC days of snapshots read for the projections, the dashboard's snapshot window. */
+export const SUMMARY_HISTORY_DAYS = 45;
 
 /** The UTC day a summary job created at `createdAt` reports on: the day before. */
 export function summaryDate(createdAt: Date): string {
@@ -76,9 +83,19 @@ function lines(provider: ProviderInfo, rows: readonly SummarySnapshot[]): string
   return parts.map((part) => `${provider.name}: ${part}`);
 }
 
+/** Projection lines for one provider, as of `now`, from its rows up to the summarized day. */
+function projectionLines(provider: ProviderInfo, history: readonly SummarySnapshot[], now: Date): string[] {
+  const quotas = [...projectAllowances(history, now).values()].sort((a, b) => a.label.localeCompare(b.label));
+  return [
+    ...projectSpend(history, now).map(spendProjectionLine),
+    ...quotas.flatMap((quota) => quotaProjectionLine(quota) ?? []),
+  ].map((part) => `${provider.name}: ${part}`);
+}
+
 /**
  * Builds the summary event, or null when the workspace has no connections. Pure: the caller
- * passes the connections, the day's snapshots, and the provider lookup.
+ * passes the connections, the snapshots of the summarized day and the days before it (see
+ * SUMMARY_HISTORY_DAYS; later days are ignored), and the provider lookup.
  */
 export function buildDailySummary(input: {
   workspaceId: string;
@@ -89,15 +106,22 @@ export function buildDailySummary(input: {
 }): EventRow | null {
   if (input.connections.length === 0) return null;
   const providerOf = new Map(input.connections.map((connection) => [connection.id, connection.provider]));
-  const byProvider = new Map<ProviderId, SummarySnapshot[]>();
-  for (const connection of input.connections) byProvider.set(connection.provider, []);
-  for (const row of dropSupersededBreakdowns(input.snapshots)) {
+  const byProvider = new Map<ProviderId, { day: SummarySnapshot[]; history: SummarySnapshot[] }>();
+  for (const connection of input.connections) byProvider.set(connection.provider, { day: [], history: [] });
+  for (const row of input.snapshots) {
     const provider = providerOf.get(row.connection_id);
-    if (provider !== undefined) byProvider.get(provider)?.push(row);
+    if (provider === undefined || row.snapshot_date > input.date) continue;
+    byProvider.get(provider)?.history.push(row);
+  }
+  for (const row of dropSupersededBreakdowns(input.snapshots.filter((candidate) => candidate.snapshot_date === input.date))) {
+    const provider = providerOf.get(row.connection_id);
+    if (provider !== undefined) byProvider.get(provider)?.day.push(row);
   }
 
+  // The end of the summarized day, so the summary sorts after everything it describes.
+  const endOfDay = new Date(Date.parse(`${input.date}T00:00:00.000Z`) + DAY_MS);
   const providers = [...byProvider.entries()]
-    .map(([id, rows]) => ({ info: input.provider(id), rows }))
+    .map(([id, rows]) => ({ info: input.provider(id), ...rows }))
     .sort((a, b) => a.info.name.localeCompare(b.info.name));
   return {
     workspace_id: input.workspaceId,
@@ -107,10 +131,11 @@ export function buildDailySummary(input: {
     type_id: DAILY_SUMMARY_TYPE_ID,
     severity: "info",
     title: `Daily summary for ${input.date}`,
-    body: providers.flatMap(({ info, rows }) => lines(info, rows)).join("\n"),
+    body: providers
+      .flatMap(({ info, day, history }) => [...lines(info, day), ...projectionLines(info, history, endOfDay)])
+      .join("\n"),
     url: null,
-    // The end of the summarized day, so the summary sorts after everything it describes.
-    occurred_at: new Date(Date.parse(`${input.date}T00:00:00.000Z`) + DAY_MS).toISOString(),
+    occurred_at: endOfDay.toISOString(),
     dedupe_key: dailySummaryEventKey(input.date),
   };
 }
@@ -135,7 +160,11 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
   const date = keyed ?? summaryDate(new Date(job.created_at));
   const [connections, snapshots] = await Promise.all([
     deps.store.listSummaryConnections(workspaceId),
-    deps.store.listSnapshotsForDate(workspaceId, date),
+    deps.store.listSnapshotsBetween(
+      workspaceId,
+      utcDate(new Date(Date.parse(`${date}T00:00:00.000Z`) - (SUMMARY_HISTORY_DAYS - 1) * DAY_MS)),
+      date,
+    ),
   ]);
   const event = buildDailySummary({
     workspaceId,

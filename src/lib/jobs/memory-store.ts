@@ -398,9 +398,10 @@ export class MemoryJobStore implements JobStore {
       .map(({ id, provider }) => ({ id, provider }));
   }
 
-  async listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]> {
+  async listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]> {
     return this.snapshots
-      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date === date)
+      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date >= fromDate && row.snapshot_date <= toDate)
+      .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
       .map((row) => ({
         connection_id: row.connection_id,
         external_account_id: row.external_account_id,

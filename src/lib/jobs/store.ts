@@ -56,8 +56,8 @@ export type JobFailure = Readonly<{ errorCode: string; errorReference: string | 
 export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
 export type SummarySnapshot = SnapshotInput;
 
-// One workspace's connections, or one workspace's snapshots for one day. Far above any MVP
-// workspace (a few connections, tens of metrics each).
+// One workspace's connections, or one workspace's snapshots for the summary's history window. Far
+// above any MVP workspace (a few connections, tens of metrics each, one row a day).
 const SUMMARY_ROW_LIMIT = 5000;
 
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
@@ -109,7 +109,8 @@ export interface JobStore {
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
-  listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
+  /** Snapshots dated `fromDate` to `toDate` (UTC dates, both inclusive), newest first. */
+  listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -372,14 +373,17 @@ export function createSupabaseJobStore(): JobStore {
       return data;
     },
 
-    async listSnapshotsForDate(workspaceId, date) {
+    async listSnapshotsBetween(workspaceId, fromDate, toDate) {
       const { data, error } = await db
         .from("usage_snapshots")
         .select(
           "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
         )
         .eq("workspace_id", workspaceId)
-        .eq("snapshot_date", date)
+        .gte("snapshot_date", fromDate)
+        .lte("snapshot_date", toDate)
+        // The (workspace_id, snapshot_date desc) index; if the cap is ever reached, the oldest go first.
+        .order("snapshot_date", { ascending: false })
         .order("id")
         .limit(SUMMARY_ROW_LIMIT);
       if (error) throw failure("summary snapshots read", error);
