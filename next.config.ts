@@ -24,6 +24,15 @@ const staticCsp = {
 // mis-cased /docs paths but sets no CSP there, so they stay covered here.
 const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$).*)";
 
+// Badges (#149) are SVG documents another site embeds and anyone can open directly: opened as a
+// page, they may load and run nothing. Next applies these headers before a route handler runs and
+// drops a handler's header of the same name, so the policy lives here, not in the route. Listed
+// after outsideProxy, so it replaces the static policy for /badge/* (the last matching entry wins).
+const badgeCsp = {
+  key: "Content-Security-Policy",
+  value: "default-src 'none'; frame-ancestors 'none'; sandbox",
+};
+
 const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
@@ -51,6 +60,7 @@ const nextConfig: NextConfig = {
     return [
       { source: "/:path*", headers: securityHeaders },
       { source: outsideProxy, headers: [staticCsp] },
+      { source: "/badge/:path*", headers: [badgeCsp] },
     ];
   },
 };

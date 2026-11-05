@@ -24,15 +24,17 @@ import { metricIdFromFile } from "@/lib/public-metrics/share";
  * image. The one minute cache (requests.ts) bounds how long an unpublished value can still show.
  *
  * Safe to embed anywhere: outside the proxy matcher, so no session is read and no cookie is set;
- * an SVG with text only (badge.ts); its own CSP so that, opened directly, it can load and run
- * nothing; and Cross-Origin-Resource-Policy so other sites may load it as an image.
+ * an SVG with text only (badge.ts); Cross-Origin-Resource-Policy so other sites may load it as an
+ * image; and, so that opened directly it can load and run nothing, the policy
+ * "default-src 'none'; frame-ancestors 'none'; sandbox". That policy is set in next.config.ts, not
+ * here: Next applies the config's headers first and drops a handler header of the same name, so a
+ * Content-Security-Policy set in this file would never be sent (e2e/share-cards.spec.ts checks it).
  */
 
 const ProjectIdSchema = z.guid();
 
 const SVG_HEADERS = {
   "Content-Type": "image/svg+xml; charset=utf-8",
-  "Content-Security-Policy": "default-src 'none'; sandbox",
   "Cross-Origin-Resource-Policy": "cross-origin",
 };
 

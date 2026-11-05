@@ -63,7 +63,6 @@ describe("GET /badge/[projectId]/[file]", () => {
     expect(response.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8");
     expect(response.headers.get("cache-control")).toBe("public, max-age=60, s-maxage=60");
     expect(response.headers.get("cross-origin-resource-policy")).toBe("cross-origin");
-    expect(response.headers.get("content-security-policy")).toBe("default-src 'none'; sandbox");
     expect(response.headers.get("set-cookie")).toBeNull();
     const svg = await response.text();
     expect(svg).toContain("1,200+ verified");

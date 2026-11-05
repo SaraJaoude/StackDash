@@ -10,6 +10,9 @@ import { ALL_METRIC_IDS, publishMetrics, seedShareProject, STARS_TODAY } from ".
 
 const STARS_TEXT = new Intl.NumberFormat("en-US").format(STARS_TODAY);
 
+// The badge's own policy as served (next.config.ts): opened directly, it loads and runs nothing.
+const BADGE_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
+
 /** A context with no session, as a README, a social network, or a stranger reads the routes. */
 async function anonymous(baseURL: string | undefined): Promise<APIRequestContext> {
   if (baseURL === undefined) throw new Error("baseURL is not configured");
@@ -29,6 +32,8 @@ async function expectBadge(api: APIRequestContext, projectId: string, metricId: 
   const headers = response.headers();
   expect(headers["content-type"]).toBe("image/svg+xml; charset=utf-8");
   expect(headers["cache-control"]).toBe("public, max-age=60, s-maxage=60");
+  expect(headers["content-security-policy"]).toBe(BADGE_CSP);
+  expect(headers["cross-origin-resource-policy"]).toBe("cross-origin");
   expect(headers["set-cookie"]).toBeUndefined();
   const svg = await response.text();
   const shown = /<text [^>]*>([^<]*)<\/text>\s*<\/g>/.exec(svg)?.[1];
