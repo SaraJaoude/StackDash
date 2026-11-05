@@ -182,19 +182,25 @@ test.describe("landing page", () => {
 
 /**
  * Keyboard only, from a fresh load: the first Tab reaches the skip link, Enter moves focus onto
- * the main landmark, and the next Tab continues inside it rather than at the page navigation. The
- * focusable landmark must not cost an accessibility violation either.
+ * the main landmark, and the next Tab continues inside it rather than at the page navigation.
+ * Focus leaving the landmark takes its tabindex with it, and the skip costs no accessibility
+ * violation either.
  */
 async function expectSkipToContent(page: Page): Promise<void> {
   const skip = page.getByRole("link", { name: "Skip to content" });
   const main = page.getByRole("main");
   await page.keyboard.press("Tab");
   await expect(skip).toBeFocused();
-  await page.keyboard.press("Enter");
+  // Focus only moves once the link has hydrated; before that Enter only scrolls, so retry.
+  await expect(async () => {
+    await skip.focus();
+    await page.keyboard.press("Enter");
+    await expect(main).toBeFocused({ timeout: 1000 });
+  }).toPass();
   await expect(page).toHaveURL(/#main$/);
-  await expect(main).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(page.locator("main :focus")).toHaveCount(1);
+  await expect(main).not.toHaveAttribute("tabindex");
   const scan = await new AxeBuilder({ page }).analyze();
   expect(scan.violations).toEqual([]);
 }
@@ -217,6 +223,15 @@ test.describe("skip to content", () => {
     await page.getByRole("link", { name: "Skip to content" }).focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("main")).toBeFocused();
+  });
+
+  test("a click inside the content after a skip does not focus the landmark", async ({ page }) => {
+    await page.goto("/docs");
+    await expectSkipToContent(page);
+    const main = page.getByRole("main");
+    await main.getByRole("heading", { level: 1 }).click();
+    await expect(main).not.toBeFocused();
+    await expect(main).not.toHaveAttribute("tabindex");
   });
 
   ownerTest("moves keyboard focus past the workspace navigation", async ({ page }) => {

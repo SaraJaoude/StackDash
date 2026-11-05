@@ -63,9 +63,9 @@ summary {
   border-radius: 2px;
 }
 
-/* The skip link's target takes focus so keyboard users land in the content, but it is a landmark,
- * not a control, so it is not outlined like one. */
-main[tabindex="-1"]:focus {
+/* The skip link focuses #main, which only carries tabindex="-1" until focus leaves it
+ * (src/components/skip-link.tsx). It is a landmark, not a control, so it is not outlined like one. */
+#main[tabindex="-1"]:focus {
   outline: none;
 }
 
