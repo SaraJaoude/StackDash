@@ -26,25 +26,20 @@ const PROVENANCE_CLASSES: Record<Provenance, string> = {
 interface Stage {
   name: string;
   body: string;
-  /** True for a share surface that is not built yet. */
-  comingNext: boolean;
 }
 
 const stages: readonly Stage[] = [
   {
     name: "Publish one metric at a time",
     body: "Choose from metrics computed from your connected accounts, such as stars, deployments, signups, and emails sent. Each one links to its formula.",
-    comingNext: false,
   },
   {
     name: "Public project pages",
     body: "An opt-in page at its own address with the metrics you publish, their history, and milestones.",
-    comingNext: false,
   },
   {
-    name: "Badges and milestone cards",
-    body: "A README badge or an image to post on X, LinkedIn, or Reddit, for any metric you have published.",
-    comingNext: true,
+    name: "Badges and cards",
+    body: "A README badge or a card image to post on X, LinkedIn, or Reddit, for any metric you have published. A yearly card sums up your whole stack's year so far.",
   },
 ];
 
@@ -119,14 +114,7 @@ export function ShareProgress() {
               <li key={stage.name} className="flex gap-4">
                 <span className="font-mono text-xs leading-6 text-muted">0{index + 1}</span>
                 <div>
-                  <p className="text-sm font-medium">
-                    {stage.name}
-                    {stage.comingNext ? (
-                      <span className="ml-2 rounded-full border border-line px-2 py-0.5 font-mono text-[10px] font-normal text-muted">
-                        Coming next
-                      </span>
-                    ) : null}
-                  </p>
+                  <p className="text-sm font-medium">{stage.name}</p>
                   <p className="mt-1 text-sm leading-6 text-muted">{stage.body}</p>
                 </div>
               </li>
