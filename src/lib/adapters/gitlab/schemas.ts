@@ -34,15 +34,12 @@ const NamespaceKindSchema = z.enum(["user", "group"]);
 // `GET /namespaces` and `GET /namespaces/:id`.
 export const NamespaceSchema = z.object({
   id: z.int().positive(),
-  name: z.string().min(1),
   path: z.string().min(1),
   kind: NamespaceKindSchema,
   full_path: z.string().min(1),
   parent_id: z.int().positive().nullable(),
-  web_url: z.string().min(1),
   // A string rather than an enum so a new plan name does not fail the whole sync.
   plan: z.string().min(1).nullable().optional(),
-  trial: z.boolean().nullable().optional(),
 });
 export type Namespace = z.infer<typeof NamespaceSchema>;
 export const NamespacesSchema = z.array(NamespaceSchema);
@@ -51,7 +48,6 @@ export const NamespacesSchema = z.array(NamespaceSchema);
 export const ProjectSchema = z.object({
   id: z.int().positive(),
   path_with_namespace: z.string().min(1),
-  web_url: z.string().min(1),
   default_branch: z.string().min(1).nullable().optional(),
 });
 export type Project = z.infer<typeof ProjectSchema>;

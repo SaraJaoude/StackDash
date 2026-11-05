@@ -66,7 +66,7 @@ One external account per **top-level namespace the user owns**: the personal nam
 
 ### Plan: `GET /namespaces/:id`
 
-`plan` (for example `free`, `premium`, `ultimate`), `trial`, `kind` (`user` or `group`), `full_path`. Only the plan name is used, to pick the estimated compute quota.
+`plan` (for example `free`, `premium`, `ultimate`), `kind` (`user` or `group`), `path`, `full_path`. Only the plan name is used, to pick the estimated compute quota.
 
 ### Compute minutes and storage: `POST /api/graphql`
 
