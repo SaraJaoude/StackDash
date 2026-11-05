@@ -140,7 +140,7 @@ The dashboard's headline strip (#173) reads the same daily rows as running total
 
 Signups and deploys in that strip come from `public.count_activity_events(workspace_id, account_ids, type_ids, from, until)`: counts per connection and event type in a half open window, for the accounts the scope filter leaves in view. It is `security invoker`, so the `activity_events` select policy applies to the caller as it does on the timeline, and the `occurred_at` range keeps it on an index range scan.
 
-Which event types count is declared by each adapter, not listed in the strip: an event type whose declaration sets `category` to `signup`, `deploy_succeeded`, or `deploy_failed` (`EventTypeSchema` in `src/lib/adapters/events.ts`) counts as a signup or a deploy. A new adapter sets it on its own signup and deploy event types and needs nothing else.
+Which event types count is declared by each adapter, not listed in the strip: an event type whose declaration sets `category` to `signup`, `deploy_succeeded`, or `deploy_failed` (`EventTypeSchema` in `src/lib/adapters/events.ts`) counts as a signup or a deploy. A new adapter sets it on its own signup and deploy event types and needs nothing else. Whether a connection had reported by a window's first day comes from its oldest snapshot, read per connection, rather than from the trend history, which is capped at 10,000 rows newest first.
 
 ## Jobs
 

@@ -14,6 +14,7 @@ import {
   moneyFormatter,
   windowDescription,
   type EventCount,
+  type HeadlineEvents,
   type HeadlineInput,
   type HeadlineWindowKind,
   type MoneyLine,
@@ -125,8 +126,29 @@ function allowance(connectionId: string, date: string): SnapshotInput {
 const NO_EVENTS = { current: [], previous: [] } as const;
 const EVENT_TYPES = headlineEventTypes(declaredEventTypes);
 
-function headline(overrides: Partial<HeadlineInput> & Pick<HeadlineInput, "snapshots" | "connections">) {
-  return buildHeadline({ events: NO_EVENTS, eventTypes: EVENT_TYPES, kind: "week", now: NOW, ...overrides });
+/** What `getHeadlineEvents` reads on its own: each connection's oldest reading. */
+function firstReadings(snapshots: readonly SnapshotInput[]): Map<string, string> {
+  const first = new Map<string, string>();
+  for (const row of snapshots) {
+    const known = first.get(row.connection_id);
+    if (known === undefined || row.snapshot_date < known) first.set(row.connection_id, row.snapshot_date);
+  }
+  return first;
+}
+
+type HeadlineOverrides = Partial<Omit<HeadlineInput, "events">> &
+  Pick<HeadlineInput, "snapshots" | "connections"> &
+  Readonly<{ events?: Pick<HeadlineEvents, "current" | "previous">; firstReadings?: HeadlineEvents["firstReadings"] }>;
+
+/** First readings default to the oldest snapshot passed in, as when the history is not truncated. */
+function headline({ events = NO_EVENTS, firstReadings: readings, ...overrides }: HeadlineOverrides) {
+  return buildHeadline({
+    kind: "week",
+    now: NOW,
+    eventTypes: EVENT_TYPES,
+    ...overrides,
+    events: { ...events, firstReadings: readings ?? firstReadings(overrides.snapshots) },
+  });
 }
 
 function line(lines: readonly MoneyLine[] | null, currency: string): MoneyLine | undefined {
@@ -414,6 +436,17 @@ describe("buildHeadline counts", () => {
       failed: 1,
       included: ["DigitalOcean"],
     });
+  });
+
+  it("takes when a connection first reported from its own first reading, not the snapshot history passed in", () => {
+    // The history page starts this week, as a capped newest first read would leave it.
+    const thisWeek = [allowance(supabase.id, "2026-11-03")];
+    const signups = { current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 3 }], previous: [] };
+    const strip = headline({ snapshots: thisWeek, connections: [supabase], events: signups, firstReadings: new Map([[supabase.id, "2026-10-01"]]) });
+    expect(strip.signups).toMatchObject({ value: { value: 3, comparison: { status: "change", direction: "up", previous: 0 } }, previousUnavailable: [] });
+    // No first reading at all: connected after the window began.
+    const unknown = headline({ snapshots: history, connections: [supabase], events: signups, firstReadings: new Map() });
+    expect(unknown.signups).toMatchObject({ value: null, unavailable: ["Supabase"] });
   });
 });
 

@@ -18,8 +18,8 @@
  * - Money is grouped by currency and never converted. Verified and estimated amounts stay apart,
  *   in revenue minus spend and in cost per signup too.
  * - Signups and deploys are counts of synced events of the types adapters declare in that
- *   category. A connection counts in a window when it had reported by the window's first day and
- *   has synced since the start of the last required day.
+ *   category. A connection counts in a window when it had reported by the window's first day (its
+ *   oldest reading, read on its own) and has synced since the start of the last required day.
  * - A comparison needs every connection behind the current figure to be available in the previous
  *   window as well, and the previous figure is taken over those same connections.
  */
@@ -75,6 +75,17 @@ const REVENUE_PROVIDERS: readonly string[] = ["stripe"];
 
 /** Events of one type from one connection within one window. */
 export type EventCount = Readonly<{ connection_id: string; type_id: string; events: number }>;
+
+/**
+ * What the event figures read, for the included accounts in scope: counts per window, and each
+ * connection's oldest reading on or before the current window's first day (UTC date), read on its
+ * own so a truncated snapshot history cannot move it. No entry means no reading by then.
+ */
+export type HeadlineEvents = Readonly<{
+  current: readonly EventCount[];
+  previous: readonly EventCount[];
+  firstReadings: ReadonlyMap<string, string>;
+}>;
 
 function isoDate(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
@@ -335,8 +346,8 @@ export type HeadlineInput = Readonly<{
   snapshots: readonly SnapshotInput[];
   /** Connections already narrowed to the scope filter. */
   connections: readonly ConnectionInput[];
-  /** Event counts per connection and type, for the included accounts in scope, per window. */
-  events: Readonly<{ current: readonly EventCount[]; previous: readonly EventCount[] }>;
+  /** Event counts and first readings, for the included accounts in scope. */
+  events: HeadlineEvents;
   /** The event types counted, from the adapters' declarations (`headlineEventTypes`). */
   eventTypes: HeadlineEventTypes;
   kind: HeadlineWindowKind;
@@ -452,14 +463,9 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   const spend = assemble(connections, moneyOf("spend"), specs);
 
   // Events.
-  const firstReading = new Map<string, string>();
-  for (const row of input.snapshots) {
-    const first = firstReading.get(row.connection_id);
-    if (first === undefined || row.snapshot_date < first) firstReading.set(row.connection_id, row.snapshot_date);
-  }
   const countsFor = (window: WindowSpec) => (window === specs.current ? input.events.current : input.events.previous);
   const eventsOf = (typeIds: readonly string[]) => (connection: ConnectionInput, window: WindowSpec) => {
-    const first = firstReading.get(connection.id);
+    const first = input.events.firstReadings.get(connection.id);
     if (first === undefined || first > window.start) return null;
     if (connection.last_synced_at === null || Date.parse(connection.last_synced_at) < dayStart(window.requiredEnd)) return null;
     const events = countsFor(window)
