@@ -437,7 +437,13 @@ describe("sync", () => {
       ["14 signups in Example app on 2026-11-03", "2026-11-04T00:00:00.000Z", "posthog.signups:10001:2026-11-03"],
       ["9 signups in Example app on 2026-11-04", "2026-11-05T00:00:00.000Z", "posthog.signups:10001:2026-11-04"],
     ]);
-    expect(byKey(result.metrics, "posthog.signups.daily")).toMatchObject({ value: 9, unit: "signups" });
+    // The timeframe names the day, so the label does not have to.
+    expect(byKey(result.metrics, "posthog.signups.daily")).toMatchObject({
+      label: "Daily signups",
+      value: 9,
+      unit: "signups",
+      timeframe: { type: "period", start: new Date("2026-11-04T00:00:00.000Z"), end: new Date("2026-11-05T00:00:00.000Z") },
+    });
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
   });
 

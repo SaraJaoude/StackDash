@@ -489,7 +489,8 @@ export function signupMetric(
   return {
     kind: "usage",
     metricKey: "posthog.signups.daily",
-    label: "Signups yesterday",
+    // The timeframe carries the day, so the label holds on any day the dashboard shows.
+    label: "Daily signups",
     value: days.filter((day) => day.date === date).reduce((sum, day) => sum + day.signups, 0),
     unit: "signups",
     externalAccountId,
