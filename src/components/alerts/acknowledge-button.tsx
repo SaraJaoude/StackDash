@@ -3,6 +3,7 @@
 import { createContext, use, useActionState, useState, type ReactNode } from "react";
 
 import { acknowledgeAlert, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { failureOf, smallButtonClass } from "./form-controls";
 
@@ -60,10 +61,10 @@ export function AcknowledgeButton({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="alertId" value={alertId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
         {pending ? "Acknowledging" : "Acknowledge"}
         <span className="sr-only">: {accessibleSuffix}</span>
-      </button>
+      </GuardedButton>
       <div role="alert" aria-live="assertive" className="text-sm">
         {failure === null ? null : (
           <p className="mt-2 text-danger">
