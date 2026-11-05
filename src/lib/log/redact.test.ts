@@ -27,6 +27,8 @@ const VERCEL_PREFIXED = join("vcp_", "AbCdEfGhIjKlMnOpQrSt1234");
 const VERCEL_LEGACY = join("Xk9", "2LmQpR7tVbN4wZcY8hJd3Fs");
 const SUPABASE_PAT = join("sbp_", "0123456789abcdef0123456789abcdef01234567");
 const SUPABASE_SECRET = join("sb_secret_", "FakeKeyFor", "RedactTests", "0123");
+const POLAR_ACCESS = join("polar_at_", "AbCdEfGhIjKlMnOpQrSt1234");
+const POLAR_ORGANIZATION = join("polar_oat_", "AbCdEfGhIjKlMnOpQrSt1234");
 const BASIC_CREDENTIALS = btoa("user:password");
 const HEX_BLOB = join("9f86d081884c7d659a2feaa0c55ad015", "a3bf4f1b2b0b822cd15d6c15b0f00a08");
 const BASE64_BLOB = join("dGhpcyBpcyBhIHNlY3Jl", "dCBibG9iIHdpdGggMzIrIGNoYXJz");
@@ -56,6 +58,8 @@ describe("redactString", () => {
     { name: "Vercel legacy 24 char token", input: `vercel ${VERCEL_LEGACY}`, secret: VERCEL_LEGACY },
     { name: "Supabase sbp_ token", input: `supabase ${SUPABASE_PAT}`, secret: SUPABASE_PAT },
     { name: "Supabase sb_secret_ key", input: `supabase ${SUPABASE_SECRET}`, secret: SUPABASE_SECRET },
+    { name: "Polar polar_at_ access token", input: `polar ${POLAR_ACCESS} expired`, secret: POLAR_ACCESS },
+    { name: "Polar polar_oat_ organization token", input: `token=${POLAR_ORGANIZATION}`, secret: POLAR_ORGANIZATION },
     { name: "hex blob of 64 chars", input: `digest ${HEX_BLOB}`, secret: HEX_BLOB },
     { name: "base64 blob of 48 chars", input: `blob ${BASE64_BLOB}`, secret: BASE64_BLOB },
     { name: "password in connection string", input: "postgres://app:hunter2pass@db.example.com:5432/app", secret: "hunter2pass" },
@@ -81,6 +85,7 @@ describe("redactString", () => {
     { name: "URL without credentials", input: "https://api.vercel.com/v9/projects?teamId=team_1&limit=20" },
     { name: "short hex below 32 chars", input: "deadbeefdeadbeefdeadbeef" },
     { name: "word containing re_ mid-word", input: "store_procedure_name_for_reporting" },
+    { name: "Polar event type and adapter names", input: "polar.order.paid from polar_adapter_sync_runner" },
   ];
 
   it.each(untouched)("leaves $name untouched", ({ input }) => {

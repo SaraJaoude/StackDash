@@ -6,7 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
-- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the five provider apps.
+- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and one app per provider.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
 
@@ -147,6 +147,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `POSTHOG_OAUTH_CLIENT_ID` | Server only | Yes, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Optional | [OAuth apps, PostHog client ID metadata document](oauth-apps.md#posthog-client-id-metadata-document) |
 | `POSTHOG_OAUTH_PRIVATE_KEY` | Secret | Yes | Optional | Same. Paste the PEM; `\n` escapes are accepted |
+| `POLAR_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Polar OAuth client](oauth-apps.md#polar-oauth-client) |
+| `POLAR_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
 | `FAKE_PROVIDER_CLIENT_ID`, `FAKE_PROVIDER_CLIENT_SECRET` | Test only | Unset | Unset | Fake provider used by tests |
 | `DEVMACRO_SIMULATE_PROVIDERS` | Local only | **Must be unset** (refused there even if set) | **Unset** | Only local development and end-to-end runs set it to `1` to simulate the live providers |
@@ -216,7 +218,7 @@ Run every check against the production URL and write down the deployment URL you
 ## What stays Eddie's
 
 - Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and the five provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
+- Registering the sign-in OAuth app and one app per provider ([OAuth apps](oauth-apps.md)), and entering their secrets.
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.
