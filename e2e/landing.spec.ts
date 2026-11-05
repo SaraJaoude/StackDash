@@ -84,6 +84,13 @@ test.describe("landing page", () => {
     await expect(page.getByText("Example data.", { exact: false }).first()).toBeVisible();
   });
 
+  test("the preview names Copilot spend in AI Credits, not premium requests", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByText("AI Credits beyond the plan")).toBeVisible();
+    await expect(page.getByText(/premium requests/i)).toHaveCount(0);
+  });
+
   test("every built integration states its spend requirement and links to its provider page", async ({ page }) => {
     await page.goto("/");
 
