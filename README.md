@@ -213,6 +213,40 @@ removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_P
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
 
+### 11. Seed a demo workspace with 90 days of history (optional)
+
+For a demo that is not mostly empty charts, one command builds a whole workspace on your local
+stack with every simulated provider connected and 90 days behind it:
+
+```bash
+npm run demo:seed -- --member you@example.com
+```
+
+- It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
+  by it, connects every simulated provider through the same code as the connect flow, spreads their
+  accounts over three projects, and adds a Vercel budget alert and a Resend monthly quota alert.
+- It then replays the 90 days before today one at a time, counting days in London (the timeline's
+  time zone), then today up to now: each day runs the real sync (with its validation and alert
+  checks) and the daily summary job with the clock set to that day, so the history is exactly what
+  a live tick would have stored. Each day keeps the last 30 minutes of events before midnight in
+  London, as a sync after a pause does. Weekdays are busier than weekends, one Vercel launch day in
+  every 30 has a spend spike and a burst of deploys, the Resend monthly quota gets close to its
+  limit, and the budget alert triggers in the third week of each full month.
+- `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
+  demo workspace; repeat it for more people (an email given twice counts once, and
+  `demo@example.com` is refused because it already owns the workspace). The demo account has no
+  sign-in of its own, because sign-in is GitHub only. `--seed <text>` picks different simulated
+  accounts; the same seed rehearses the same demo (default `devmacro-demo`).
+- Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
+  changes nothing outside the demo account's workspaces.
+- It refuses to run unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL`
+  points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it can never write to a
+  hosted project.
+
+It prints the dashboard and timeline links when it finishes, which takes seconds (7 on a local
+stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
+carries on from the replay's last sync without a gap or a repeat.
+
 ## Checks
 
 The Supabase stack from step 3 must be running for `test:db`, `db:types:check`, and `test:e2e`.
@@ -402,6 +436,7 @@ src/
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
+    demo/                      the demo workspace and its replayed history (npm run demo:seed)
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
@@ -412,7 +447,7 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for

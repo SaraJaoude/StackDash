@@ -20,12 +20,8 @@ import {
 } from "@/lib/connections/oauth-state";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
 import { logError } from "@/lib/log/logger";
-import {
-  isWorkspaceSlug,
-  requireWorkspaceAction,
-  workspacePath,
-  type WorkspaceAccess,
-} from "@/lib/workspaces/access";
+import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/paths";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
 
 /** A text field of the posted form, or null when it is missing or a file. */

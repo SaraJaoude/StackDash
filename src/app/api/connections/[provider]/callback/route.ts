@@ -25,7 +25,8 @@ import {
 import { getLastWorkspaceSlug } from "@/lib/data/workspaces";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
-import { requireWorkspaceAction, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspaceAction } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { ForbiddenError } from "@/lib/workspaces/permissions";
 
 /**
