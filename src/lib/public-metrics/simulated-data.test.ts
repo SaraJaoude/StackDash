@@ -15,9 +15,9 @@ import { MemoryMetricStore, type MemoryEvent } from "./memory-store";
 
 /*
  * Every metric against stored data shaped exactly like a sync writes it: 35 days of the simulated
- * providers (#131), which build their metrics and events with the real adapters' helpers. This
- * stands in for the demo seed (#166, not merged yet), which uses the same simulators. Expected
- * values are worked out here straight from the generated rows, not through the engine.
+ * providers (#131), which build their metrics and events with the real adapters' helpers. It is the
+ * unit twin of the demo seed (#166): the same simulators, with a fixed clock and no database.
+ * Expected values are worked out here straight from the generated rows, not through the engine.
  */
 
 const AS_OF = new Date("2026-11-05T12:00:00Z");
