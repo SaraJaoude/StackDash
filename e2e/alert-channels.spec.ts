@@ -98,21 +98,46 @@ ownerTest.describe("alert channels as the owner", () => {
     }
   });
 
-  ownerTest("refuses a Discord channel with a URL that is not a Discord webhook", async ({ page }) => {
+  ownerTest("refuses a webhook URL that is not https and keeps every choice in the form", async ({ page }) => {
     const workspace = await createTestWorkspace("Alert channel errors");
     try {
       await page.goto(`/w/${workspace.slug}/alerts`);
       const form = page.getByRole("form", { name: "Add a channel" });
-      await form.getByLabel("Channel name").fill("#alerts");
-      await form.getByLabel("Webhook URL").fill("https://example.com/not-discord");
+      await form.getByLabel("Where to post").selectOption({ label: "Webhook" });
+      await form.getByLabel("Channel name").fill("Ops webhook");
+      await form.getByLabel("Webhook URL").fill("ftp://example.com/hook");
+      await form.getByRole("radio", { name: "Only the rules I choose" }).check();
+      await form.getByLabel("Digest", { exact: true }).selectOption({ label: "Weekly digest" });
       await form.getByRole("button", { name: "Add channel" }).click();
       await expect(form.getByRole("alert")).toContainText("The channel was not added");
       await expect(form.getByLabel("Webhook URL")).toHaveAttribute("aria-invalid", "true");
+      // What the user chose survives the failed submit, so fixing the URL is the only step left.
+      await expect(form.getByLabel("Where to post")).toHaveValue("webhook");
+      await expect(form.getByLabel("Channel name")).toHaveValue("Ops webhook");
+      await expect(form.getByRole("radio", { name: "Only the rules I choose" })).toBeChecked();
+      await expect(form.getByLabel("Digest", { exact: true })).toHaveValue("weekly");
       const { count } = await adminClient()
         .from("notification_destinations")
         .select("id", { count: "exact", head: true })
         .eq("workspace_id", workspace.id);
       expect(count).toBe(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps the chosen alert email option selected after saving it", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert email setting");
+    try {
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      const emails = page.getByRole("form", { name: "Alert emails" });
+      await expect(emails.getByRole("radio", { name: /^As each alert happens/ })).toBeChecked();
+      await emails.getByRole("radio", { name: /^Weekly digest/ }).check();
+      await emails.getByRole("button", { name: "Save alert emails" }).click();
+      await expect(emails.getByRole("status")).toHaveText("Alert email setting saved.");
+      await expect(emails.getByRole("radio", { name: /^Weekly digest/ })).toBeChecked();
+      await page.reload();
+      await expect(page.getByRole("form", { name: "Alert emails" }).getByRole("radio", { name: /^Weekly digest/ })).toBeChecked();
     } finally {
       await deleteTestWorkspace(workspace);
     }

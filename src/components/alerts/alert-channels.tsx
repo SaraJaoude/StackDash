@@ -18,6 +18,7 @@ import {
   secondaryButtonClass,
   SelectField,
   smallButtonClass,
+  submitWithoutReset,
   TextField,
 } from "./form-controls";
 import { DESTINATION_KIND_LABELS, DIGEST_LABELS, type ChannelFormValues, type Option } from "./labels";
@@ -163,7 +164,7 @@ export function ChannelForm({
   const signingSecret = !isEdit && state?.ok === true ? state.signingSecret : undefined;
 
   return (
-    <form action={formAction} aria-label={title} className="space-y-5">
+    <form action={formAction} onSubmit={submitWithoutReset(formAction)} aria-label={title} className="space-y-5">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       {destinationId === undefined ? null : <input type="hidden" name="destinationId" value={destinationId} />}
 
