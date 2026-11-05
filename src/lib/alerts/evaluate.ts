@@ -31,7 +31,15 @@
  * - A rule that covers several allowances or accounts still records one alert per cycle (the
  *   unique key is per rule): when several cross at once, the one furthest past its allowance wins.
  */
-import { countedSnapshots, isCurrentPeriod, type SnapshotInput } from "@/lib/dashboard/aggregate";
+import {
+  allowanceGroups,
+  allowanceUsage,
+  countedSnapshots,
+  spendToCount,
+  type AccountInput,
+  type ConnectionInput,
+  type SnapshotInput,
+} from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -143,6 +151,28 @@ export function scopedItem(row: AlertSnapshotInput): ScopedItem {
 }
 
 /**
+ * Joins each stored row to its connection's provider and its external account's project. Rows of
+ * an account not in `accounts` (excluded from the workspace's views), of a connection not in
+ * `connections`, or whose account moved connection are skipped, as on the dashboard.
+ */
+export function joinAlertSnapshots(
+  rows: readonly SnapshotInput[],
+  connections: readonly Pick<ConnectionInput, "id" | "provider">[],
+  accounts: readonly Pick<AccountInput, "id" | "connection_id" | "project_id">[],
+): AlertSnapshotInput[] {
+  const providerOf = new Map(connections.map((connection) => [connection.id, connection.provider]));
+  const accountById = new Map(accounts.map((account) => [account.id, account]));
+  const joined: AlertSnapshotInput[] = [];
+  for (const row of rows) {
+    const account = accountById.get(row.external_account_id);
+    const provider = providerOf.get(row.connection_id);
+    if (account === undefined || provider === undefined || account.connection_id !== row.connection_id) continue;
+    joined.push({ ...row, provider, projectId: account.project_id });
+  }
+  return joined;
+}
+
+/**
  * The cycle key of an allowance or usage reading, or null when it does not describe the current
  * cycle. A period reading counts while its period has started and was still open when it was read
  * (month to date windows end at the retrieval time). A point reading with a reset time counts until
@@ -205,11 +235,11 @@ function scopeSubject(target: ScopeTarget, names: AlertNames): string {
 }
 
 /**
- * One allowance with a usable reading. Pairing rule (the dashboard's): an `included_allowance` and
- * a `usage` metric of the same external account whose keys share everything before the last
- * segment (`resend.emails.monthly.limit` with `resend.emails.monthly.used`) and whose units match.
- * With no such usage metric, a `remaining_allowance` in the same group stands in: used = included
- * minus remaining. Both readings must be in the current cycle.
+ * One allowance with a usable reading. Pairing rule (the dashboard's, `allowanceGroups`): an
+ * `included_allowance` and a `usage` metric of the same external account whose keys share
+ * everything before the last segment (`resend.emails.monthly.limit` with `resend.emails.monthly.used`)
+ * and whose units match. With no such usage metric, a `remaining_allowance` in the same group stands
+ * in: used = included minus remaining. Both readings must be in the current cycle.
  */
 type AllowanceReading = Readonly<{
   item: ScopedItem;
@@ -224,25 +254,8 @@ type AllowanceReading = Readonly<{
 }>;
 
 function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): AllowanceReading[] {
-  type Group = { prefix: string; keys: Set<string>; included?: AlertSnapshotInput; remaining?: AlertSnapshotInput; usage: AlertSnapshotInput[] };
-  const groups = new Map<string, Group>();
-  for (const row of rows) {
-    if (row.kind !== "included_allowance" && row.kind !== "remaining_allowance" && row.kind !== "usage") continue;
-    const prefix = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
-    const key = `${row.external_account_id} ${prefix}`;
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = { prefix, keys: new Set(), usage: [] };
-      groups.set(key, group);
-    }
-    group.keys.add(row.metric_key);
-    if (row.kind === "included_allowance") group.included ??= row;
-    else if (row.kind === "remaining_allowance") group.remaining ??= row;
-    else group.usage.push(row);
-  }
-
   const readings: AllowanceReading[] = [];
-  for (const group of groups.values()) {
+  for (const group of allowanceGroups(rows)) {
     const included = group.included;
     if (included === undefined || included.unit === null || included.value === null) continue;
     // An allowance of zero (or a nonsense negative one) has no percentage to cross.
@@ -250,10 +263,7 @@ function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): Allo
     const cycleKey = quantityCycleKey(included, now);
     if (cycleKey === null) continue;
     const unit = included.unit;
-
-    const usage = group.usage
-      .filter((row) => row.unit === unit && row.value !== null && quantityCycleKey(row, now) !== null)
-      .sort((a, b) => a.metric_key.localeCompare(b.metric_key))[0];
+    const usage = allowanceUsage(group, unit, (row) => row.value !== null && quantityCycleKey(row, now) !== null);
     let used: number;
     let usedRow: AlertSnapshotInput;
     if (usage !== undefined && usage.value !== null) {
@@ -348,22 +358,10 @@ function spendTotal(
   currency: string,
   now: Date,
 ): SpendTotal | null {
-  const verified = new Map<string, AlertSnapshotInput[]>();
-  const estimated = new Map<string, AlertSnapshotInput[]>();
-  for (const row of rows) {
-    if (row.kind !== "verified_spend" && row.kind !== "estimated_spend") continue;
-    if (row.currency !== currency || row.amount_minor === null) continue;
-    if (!targets.every((target) => inScope(target, scopedItem(row)))) continue;
-    if (!isCurrentPeriod(row, now)) continue;
-    const byAccount = row.kind === "verified_spend" ? verified : estimated;
-    const list = byAccount.get(row.external_account_id);
-    if (list === undefined) byAccount.set(row.external_account_id, [row]);
-    else list.push(row);
-  }
-  const counted = [...verified.values()].flat();
-  for (const [accountId, list] of estimated) {
-    if (!verified.has(accountId)) counted.push(...list);
-  }
+  const counted = spendToCount(
+    rows.filter((row) => row.currency === currency && targets.every((target) => inScope(target, scopedItem(row)))),
+    now,
+  );
   if (counted.length === 0) return null;
   let amountMinor = 0;
   let isEstimated = false;

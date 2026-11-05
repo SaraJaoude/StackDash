@@ -8,6 +8,9 @@
  *   longer billing window supersedes a day inside it.
  * - Money is grouped by currency and never added across currencies. Verified (from the provider)
  *   and estimated (calculated by DevMacro from a price list) amounts are kept apart.
+ * - One spend total (spend and budget alerts, projections) counts verified spend per account and
+ *   currency, and estimated spend only for an account with none (`spendToCount`).
+ * - Allowance rows pair by account, key prefix, and unit (`allowanceGroups`, `allowanceUsage`).
  * - A value that is missing is `null` and shown as "Unavailable", never as 0.
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
@@ -258,6 +261,77 @@ export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[]): T
   return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows)));
 }
 
+/**
+ * The spend one total counts, for spend and budget alerts and for projections (the dashboard shows
+ * verified and estimated apart instead): money rows of the current billing period, and per
+ * external account and currency verified spend, with estimated spend only for an account that has
+ * no current verified spend in that currency, so the two are never added for the same money.
+ * Expects rows already reduced by `countedSnapshots`.
+ */
+export function spendToCount<T extends SnapshotInput>(rows: readonly T[], now: Date): T[] {
+  const accountCurrency = (row: T) => `${row.external_account_id} ${row.currency ?? ""}`;
+  const current = rows.filter(
+    (row) =>
+      (row.kind === "verified_spend" || row.kind === "estimated_spend") &&
+      row.currency !== null &&
+      row.amount_minor !== null &&
+      isCurrentPeriod(row, now),
+  );
+  const verified = new Set(current.filter((row) => row.kind === "verified_spend").map(accountCurrency));
+  return current.filter((row) => row.kind === "verified_spend" || !verified.has(accountCurrency(row)));
+}
+
+/** One allowance's rows, paired by `allowanceGroups`, before any value is read. */
+export type AllowanceGroup<T extends SnapshotInput> = Readonly<{
+  accountId: string;
+  /** The metric key without its last segment, shared by every row of the group. */
+  prefix: string;
+  keys: ReadonlySet<string>;
+  included: T | undefined;
+  remaining: T | undefined;
+  usage: readonly T[];
+}>;
+
+/**
+ * The allowance pairing rule, shared by the dashboard, alerts, and projections: `included_allowance`,
+ * `remaining_allowance`, and `usage` rows of one external account belong to one allowance when
+ * their keys share everything before the last segment (`resend.emails.month.limit` with
+ * `resend.emails.month.used`). The first included and remaining row of a group are kept; see
+ * `allowanceUsage` for the used amount.
+ */
+export function allowanceGroups<T extends SnapshotInput>(rows: readonly T[]): AllowanceGroup<T>[] {
+  type Group = { accountId: string; prefix: string; keys: Set<string>; included: T | undefined; remaining: T | undefined; usage: T[] };
+  const groups = new Map<string, Group>();
+  for (const row of rows) {
+    if (row.kind !== "included_allowance" && row.kind !== "remaining_allowance" && row.kind !== "usage") continue;
+    const prefix = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
+    const key = `${row.external_account_id} ${prefix}`;
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = { accountId: row.external_account_id, prefix, keys: new Set(), included: undefined, remaining: undefined, usage: [] };
+      groups.set(key, group);
+    }
+    group.keys.add(row.metric_key);
+    if (row.kind === "included_allowance") group.included ??= row;
+    else if (row.kind === "remaining_allowance") group.remaining ??= row;
+    else group.usage.push(row);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The usage row an allowance counts against: the first by key among the group's usage rows in the
+ * allowance's unit (a used amount only counts against an allowance measured in the same unit) that
+ * `usable` accepts.
+ */
+export function allowanceUsage<T extends SnapshotInput>(
+  group: AllowanceGroup<T>,
+  unit: string,
+  usable: (row: T) => boolean = () => true,
+): T | undefined {
+  return group.usage.filter((row) => row.unit === unit && usable(row)).sort((a, b) => a.metric_key.localeCompare(b.metric_key))[0];
+}
+
 /** Calculated by DevMacro from a price list (or otherwise derived), not reported by the provider. */
 export function isEstimated(row: Pick<SnapshotInput, "kind" | "provenance_source">): boolean {
   return row.kind === "estimated_spend" || row.provenance_source === "derived";
@@ -327,9 +401,8 @@ function sumByCurrency(entries: readonly Entry[], now: Date): CurrencyAmounts[] 
     }));
 }
 
-function quantityValue(entry: Entry | undefined, now: Date): QuantityValue | null {
-  if (entry === undefined) return null;
-  const { row, connection } = entry;
+function quantityValue(row: SnapshotInput | undefined, connection: ConnectionInput, now: Date): QuantityValue | null {
+  if (row === undefined) return null;
   if (row.value === null || row.unit === null) return null;
   return {
     value: row.value,
@@ -355,58 +428,35 @@ function periodOf(row: SnapshotInput): Period | null {
   return row.period_start === null || row.period_end === null ? null : { start: row.period_start, end: row.period_end };
 }
 
-/**
- * Allowance cards for one connection. Metrics pair by account and key prefix (the key without its
- * last segment, as in `resend.emails.month.limit` and `resend.emails.month.used`) and by unit: a
- * used amount only counts against an allowance measured in the same unit.
- */
+/** Allowance cards for one connection, from its rows, paired by `allowanceGroups`. */
 function buildAllowances(
-  entries: readonly Entry[],
+  connection: ConnectionInput,
+  rows: readonly SnapshotInput[],
   accountNames: ReadonlyMap<string, string>,
   now: Date,
 ): Allowance[] {
-  type Group = { accountId: string; prefix: string; included?: Entry; remaining?: Entry; usage: Entry[] };
-  const groups = new Map<string, Group>();
-  for (const entry of entries) {
-    const { kind, metric_key: metricKey, external_account_id: accountId } = entry.row;
-    if (kind !== "included_allowance" && kind !== "remaining_allowance" && kind !== "usage") continue;
-    const prefix = metricKey.slice(0, metricKey.lastIndexOf("."));
-    const key = `${accountId} ${prefix}`;
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = { accountId, prefix, usage: [] };
-      groups.set(key, group);
-    }
-    if (kind === "included_allowance") group.included ??= entry;
-    else if (kind === "remaining_allowance") group.remaining ??= entry;
-    else group.usage.push(entry);
-  }
-
   const allowances: Allowance[] = [];
-  for (const group of groups.values()) {
+  for (const group of allowanceGroups(rows)) {
     const anchor = group.included ?? group.remaining;
-    if (anchor === undefined || anchor.row.unit === null) continue;
-    const unit = anchor.row.unit;
-    const usedEntry = group.usage
-      .filter(({ row }) => row.unit === unit)
-      .sort((a, b) => a.row.metric_key.localeCompare(b.row.metric_key))[0];
-    const remainingEntry = group.remaining?.row.unit === unit ? group.remaining : undefined;
-    const included = quantityValue(group.included, now);
-    const used = quantityValue(usedEntry, now);
-    const remaining = quantityValue(remainingEntry, now);
+    if (anchor === undefined || anchor.unit === null) continue;
+    const unit = anchor.unit;
+    const usedRow = allowanceUsage(group, unit);
+    const remainingRow = group.remaining?.unit === unit ? group.remaining : undefined;
+    const included = quantityValue(group.included, connection, now);
+    const used = quantityValue(usedRow, connection, now);
+    const remaining = quantityValue(remainingRow, connection, now);
     const resetsAt =
-      [group.included, usedEntry, remainingEntry].map((entry) => entry?.row.resets_at ?? null).find((value) => value !== null) ??
-      null;
+      [group.included, usedRow, remainingRow].map((row) => row?.resets_at ?? null).find((value) => value !== null) ?? null;
     allowances.push({
       key: `${group.accountId}:${group.prefix}`,
       accountName: accountNames.get(group.accountId) ?? "Unknown account",
-      label: anchor.row.label,
+      label: anchor.label,
       unit,
       included,
       used,
       remaining,
       percentUsed: percentUsed(included, used),
-      period: periodOf(anchor.row),
+      period: periodOf(anchor),
       resetsAt,
     });
   }
@@ -438,7 +488,7 @@ function providerSummary(
     const start = Date.parse(period.start) - Date.parse(widest.start);
     return start < 0 || (start === 0 && Date.parse(period.end) > Date.parse(widest.end)) ? period : widest;
   }, null);
-  const allowances = buildAllowances(entries, accountNames, now);
+  const allowances = buildAllowances(connection, entries.map(({ row }) => row), accountNames, now);
   return {
     connectionId: connection.id,
     provider: connection.provider,
