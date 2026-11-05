@@ -87,7 +87,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const summary = page.getByRole("region", { name: "Alerts", exact: true });
       await expect(summary).toContainText("No unacknowledged alerts");
-      await expect(summary).toContainText("1 unusual day in the last 7 days");
+      await expect(summary).toContainText("1 unusual spend or usage event in the last 7 days");
       await expect(summary).toContainText(ANOMALY_TITLE);
       await expect(summary).toContainText(ANOMALY_BODY);
       await expectNoAxeViolations(page);

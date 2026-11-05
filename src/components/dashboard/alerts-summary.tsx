@@ -11,9 +11,9 @@ const TITLE_ID = "alerts-summary-title";
 
 /**
  * Unacknowledged alerts on the dashboard: how many, the newest three, and the way to the full
- * list, followed by the unusual days anomaly detection found in the last week (#169). One plain
- * line with no panel when there is nothing to act on, so it never pushes the numbers down. Zero is
- * said in words, so "no alerts" never looks like "not loaded".
+ * list, followed by the unusual spend and usage events anomaly detection wrote in the last week
+ * (#169). One plain line with no panel when there is nothing to act on, so it never pushes the
+ * numbers down. Zero is said in words, so "no alerts" never looks like "not loaded".
  */
 export function AlertsSummary({
   workspace,
@@ -82,10 +82,11 @@ export function AlertsSummary({
 
 function UnusualDays({ workspace, anomalies }: { workspace: WorkspaceRef; anomalies: RecentAnomalies }) {
   const headingId = `${TITLE_ID}-unusual`;
+  // One event per metric per day, so two metrics on one day are two events, not two days.
   const countText =
     anomalies.count === 1
-      ? `1 unusual day in the last ${RECENT_ANOMALY_DAYS} days`
-      : `${anomalies.count} unusual days in the last ${RECENT_ANOMALY_DAYS} days`;
+      ? `1 unusual spend or usage event in the last ${RECENT_ANOMALY_DAYS} days`
+      : `${anomalies.count} unusual spend or usage events in the last ${RECENT_ANOMALY_DAYS} days`;
   return (
     <div className="border-t border-line">
       <div className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
