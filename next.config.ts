@@ -20,9 +20,9 @@ const staticCsp = {
 };
 
 // Every path except the app paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w/*,
-// /account, /sign-in, /auth/*). Keep the two lists in sync. The proxy also matches mis-cased /docs
-// paths but sets no CSP there, so they stay covered here.
-const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/).*)";
+// /account, /sign-in, /auth/*, /unsubscribe). Keep the two lists in sync. The proxy also matches
+// mis-cased /docs paths but sets no CSP there, so they stay covered here.
+const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$).*)";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,

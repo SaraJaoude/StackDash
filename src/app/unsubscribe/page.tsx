@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
@@ -9,6 +10,10 @@ import { readUnsubscribeToken } from "@/lib/notifications/unsubscribe";
 import { EmailsOffNotice, InvalidLinkNotice, UnsubscribeCard, UnsubscribeForm } from "./unsubscribe-form";
 
 export const metadata: Metadata = { title: "Unsubscribe from alert emails", robots: { index: false } };
+
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
 
 /*
  * The unsubscribe link in every alert email and digest (#152). It works signed out: the signed
@@ -47,7 +52,8 @@ async function UnsubscribeDetails({ searchParams }: { searchParams: PageProps<"/
   );
 }
 
-export default function UnsubscribePage({ searchParams }: PageProps<"/unsubscribe">) {
+export default async function UnsubscribePage({ searchParams }: PageProps<"/unsubscribe">) {
+  await connection();
   return (
     <UnsubscribeCard>
       <Suspense
