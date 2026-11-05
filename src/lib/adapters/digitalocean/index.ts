@@ -68,7 +68,7 @@ const PAGE_SIZE = 200;
 // Bounded sync: at most this many pages of any one list per run (1,000 items at 200 a page).
 export const MAX_PAGES = 5;
 // A first sync emits only the latest invoice; a later one at most this many new ones.
-const MAX_NEW_INVOICES = 3;
+export const MAX_NEW_INVOICES = 3;
 // Daily SKU metrics per sync, largest first; the rest are logged as skipped.
 export const MAX_SKU_METRICS = 50;
 // Apps whose deployments are read in one sync, most recently deployed first.
@@ -645,11 +645,20 @@ async function syncInvoices(
   if (newest === undefined) return { metrics: [], events: [], latest: previous };
 
   const metric = invoiceMetric(newest, externalAccountId, now);
-  // The first sync announces only the latest invoice instead of replaying the whole history.
-  const fresh =
-    previous === undefined
-      ? [newest]
-      : invoices.filter((invoice) => periodStart(invoice.invoice_period) > periodStart(previous)).slice(0, MAX_NEW_INVOICES);
+  // The first sync announces only the latest invoice instead of replaying the whole history. A later
+  // one announces the newest MAX_NEW_INVOICES unannounced invoices; the cursor then moves past any
+  // older ones, so they are logged rather than silently never announced.
+  let fresh = [newest];
+  if (previous !== undefined) {
+    const unannounced = invoices.filter((invoice) => periodStart(invoice.invoice_period) > periodStart(previous));
+    fresh = unannounced.slice(0, MAX_NEW_INVOICES);
+    if (fresh.length < unannounced.length) {
+      ctx.logger.warn("digitalocean.invoices.new_cap_reached", {
+        skipped: unannounced.length - fresh.length,
+        maxNewInvoices: MAX_NEW_INVOICES,
+      });
+    }
+  }
   const events: ActivityEvent[] = [];
   for (const invoice of fresh) {
     events.push(invoiceEvent(invoice, await invoiceProducts(ctx, credential, invoice), externalAccountId));

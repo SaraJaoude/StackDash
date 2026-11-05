@@ -7,6 +7,7 @@ import {
   CREDIT_BALANCE_METRIC_KEY,
   digitaloceanAdapter,
   LATEST_INVOICE_METRIC_KEY,
+  MAX_NEW_INVOICES,
   MAX_PAGES,
   MAX_SKU_METRICS,
   MONTH_TO_DATE_METRIC_KEY,
@@ -253,7 +254,6 @@ describe("exchangeCode", () => {
     await expect(digitaloceanAdapter.exchangeCode(withoutVerifier, makeCtx(api.fetch).ctx)).rejects.toThrow(TypeError);
     expect(api.calls).toHaveLength(0);
   });
-});
 
   it("maps a 400 invalid_grant code to auth revoked and a 400 invalid_client to invalid_response", async () => {
     const grant = fakeDigitalOcean({
@@ -269,6 +269,7 @@ describe("exchangeCode", () => {
       code: "invalid_response",
     });
   });
+});
 
 describe("refreshTokens", () => {
   it("spends the refresh token once and returns the NEW access and refresh token together", async () => {
@@ -303,7 +304,6 @@ describe("refreshTokens", () => {
     );
   });
 
-  it("rejects a refresh answered without a new refresh token as invalid_response", async () => {
   // Bodies from the OAuth troubleshooting page (docs.digitalocean.com/support/im-getting-an-error-
   // when-using-the-digitalocean-oauth-api., checked 2026-11-05): instance configuration, not the grant.
   it.each([
@@ -318,6 +318,7 @@ describe("refreshTokens", () => {
     });
   });
 
+  it("rejects a refresh answered without a new refresh token as invalid_response", async () => {
     const { refresh_token: _spent, ...withoutRefresh } = tokenRefreshedFixture;
     const api = fakeDigitalOcean({ "/v1/oauth/token": () => Response.json(withoutRefresh) });
     await expect(digitaloceanAdapter.refreshTokens?.(credential, makeCtx(api.fetch).ctx)).rejects.toMatchObject({
@@ -519,6 +520,50 @@ describe("sync", () => {
       "Deployment of sample-php started",
       "Deployment of sample-php succeeded",
     ]);
+  });
+
+  describe("new invoice cap", () => {
+    // Invoices for 2026-10 back to 2026-(10 - count + 1), each with its own items route.
+    function monthlyInvoices(count: number) {
+      const invoices = Array.from({ length: count }, (_, index) => ({
+        invoice_uuid: `00000000-0000-4000-8000-00000000000${index}`,
+        invoice_id: `1000000${index}`,
+        amount: "10.00",
+        invoice_period: `2026-${String(10 - index).padStart(2, "0")}`,
+      }));
+      const routes: Record<string, Route> = {
+        "/v2/customers/my/invoices": () => Response.json({ ...invoicesFixture, invoices }),
+      };
+      for (const invoice of invoices) {
+        routes[`/v2/customers/my/invoices/${invoice.invoice_uuid}`] = () => Response.json(invoiceItemsFixture);
+      }
+      return fakeDigitalOcean(routes);
+    }
+    const cursor = JSON.stringify({ v: 1, invoice: "2026-04" });
+    const periods = (events: readonly ActivityEvent[]) =>
+      events.filter((event) => event.typeId === "digitalocean.invoice.issued").map((event) => event.title.slice(12, 19));
+
+    it("announces the newest three, logs the older ones it skips, and moves the cursor past them", async () => {
+      const api = monthlyInvoices(MAX_NEW_INVOICES + 2);
+      const { ctx, logger } = makeCtx(api.fetch);
+      const result = await digitaloceanAdapter.sync({ ...syncInput, cursor }, ctx);
+      expectValid(result);
+      expect(periods(result.events)).toEqual(["2026-10", "2026-09", "2026-08"]);
+      expect(logger.warn).toHaveBeenCalledWith("digitalocean.invoices.new_cap_reached", {
+        skipped: 2,
+        maxNewInvoices: MAX_NEW_INVOICES,
+      });
+      expect(JSON.parse(result.cursor ?? "").invoice).toBe("2026-10");
+    });
+
+    it("logs nothing when exactly the cap of invoices is new", async () => {
+      const api = monthlyInvoices(MAX_NEW_INVOICES);
+      const { ctx, logger } = makeCtx(api.fetch);
+      const result = await digitaloceanAdapter.sync({ ...syncInput, cursor }, ctx);
+      expectValid(result);
+      expect(periods(result.events)).toEqual(["2026-10", "2026-09", "2026-08"]);
+      expect(logger.warn).not.toHaveBeenCalledWith("digitalocean.invoices.new_cap_reached", expect.anything());
+    });
   });
 
   it("keeps syncing the rest when billing is refused, and keeps the invoice cursor", async () => {
