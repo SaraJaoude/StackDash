@@ -12,10 +12,10 @@ README badges, and cards, read a workspace from your own scripts through a read-
 see spend and allowances where each provider reports them.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Webhooks come after the MVP. Sentry is built from Sentry's documentation and not yet tried
-against a real organization, and until Sentry approves the hosted integration's publication only
-the organization that registered it can install it; self-hosters register their own
-([Sentry provider page](docs/providers/sentry.md)).
+list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Sentry is built
+from Sentry's documentation and not yet tried against a real organization, and until Sentry
+approves the hosted integration's publication only the organization that registered it can
+install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
 
 ## Stack
 
