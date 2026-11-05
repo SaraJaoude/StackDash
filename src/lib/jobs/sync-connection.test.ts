@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { fakeAdapter, type FakeMode } from "@/lib/adapters/fake";
+import { gitlabAdapter } from "@/lib/adapters/gitlab";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
@@ -412,6 +413,39 @@ describe("sync job: token refresh (#44)", () => {
     const rotated = harness.store.savedCredentials[0];
     expect(rotated?.refreshToken?.reveal()).not.toBe(original.refreshToken?.reveal());
     expect(harness.store.credentials.get(harness.connectionId)).toBe(rotated);
+    expect(seen).toEqual([rotated]);
+    expect(lastSyncJob(harness).status).toBe("succeeded");
+  });
+
+  it("refreshes a GitLab token, which lasts 2 hours, inside the skew and saves GitLab's rotated pair before syncing", async () => {
+    const refresh = gitlabAdapter.refreshTokens;
+    if (refresh === undefined) throw new Error("gitlab must refresh tokens");
+    const seen: OAuthCredential[] = [];
+    const tokenRequests: string[] = [];
+    const adapter: ProviderAdapter = {
+      ...recordingAdapter(seen),
+      // GitLab's own refresh, answered with its documented response; the sync itself stays fake.
+      refreshTokens: (current, ctx) =>
+        refresh(current, {
+          ...ctx,
+          fetch: async (input, init) => {
+            tokenRequests.push(`${String(input)} ${String(init?.body)}`);
+            return Response.json({ access_token: "gl-at-2", token_type: "bearer", expires_in: 7200, refresh_token: "gl-rt-2" });
+          },
+        }),
+    };
+    const harness = setup({ adapter, accounts: 1 });
+    // Connected 1 hour 56 minutes ago: 4 minutes left, inside the 5 minute skew.
+    const original = credential("ok", new Date(harness.now().getTime() + 4 * 60_000));
+    harness.store.credentials.set(harness.connectionId, original);
+
+    await harness.tick();
+
+    expect(tokenRequests).toHaveLength(1);
+    expect(tokenRequests[0]).toMatch(/^https:\/\/gitlab\.com\/oauth\/token .*grant_type=refresh_token&refresh_token=rt-ok/);
+    const [rotated] = harness.store.savedCredentials;
+    expect(rotated?.refreshToken?.reveal()).toBe("gl-rt-2");
+    expect(rotated?.expiresAt).toEqual(new Date(harness.now().getTime() + 7200 * 1000));
     expect(seen).toEqual([rotated]);
     expect(lastSyncJob(harness).status).toBe("succeeded");
   });

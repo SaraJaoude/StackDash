@@ -4,6 +4,7 @@ import { log } from "@/lib/log/logger";
 
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
+import { gitlabAdapter } from "./gitlab";
 import { resendAdapter } from "./resend";
 import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
 import { stripeAdapter } from "./stripe";
@@ -33,6 +34,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  gitlab: gitlabAdapter,
 };
 
 /** Read on every call, not at module load, so the flag can never be baked into a build. */

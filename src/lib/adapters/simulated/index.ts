@@ -15,6 +15,7 @@ import {
 import { PROVIDER_NAMES } from "@/lib/providers";
 
 import { githubProfile } from "./github";
+import { gitlabProfile } from "./gitlab";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedProfile } from "./simulation";
@@ -173,6 +174,7 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   resend: createSimulatedAdapter(resendProfile, "resend"),
   stripe: createSimulatedAdapter(stripeProfile, "stripe"),
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
+  gitlab: createSimulatedAdapter(gitlabProfile, "gitlab"),
 };
 
 /** True only for the registry's own simulated adapters, compared by identity rather than id. */

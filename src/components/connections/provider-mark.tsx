@@ -9,6 +9,7 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  gitlab: "GitLab",
   fake: null,
 };
 
