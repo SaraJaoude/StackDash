@@ -60,7 +60,7 @@ describe("retention (#37)", () => {
 
     expect(store.snapshots.map((row) => row.snapshot_date).sort()).toEqual(["2025-09-30", "2026-10-31"]);
     expect(store.events.map((row) => row.dedupe_key)).toEqual(["exactly-13-months"]);
-    expect(result).toEqual({ oauthStates: 0, snapshots: 1, events: 1, jobs: 0, deliveries: 0, complete: true });
+    expect(result).toEqual({ oauthStates: 0, snapshots: 1, events: 1, jobs: 0, rateLimitCounters: 0, metricViews: 0, deliveries: 0, complete: true });
   });
 
   it("deletes finished sync jobs older than 30 days and never queued or running ones", async () => {
@@ -120,7 +120,40 @@ describe("retention (#37)", () => {
     expect(purge.mock.calls.every(([, limit]) => limit === RETENTION_BATCH_SIZE)).toBe(true);
 
     const second = await runRetention(store, NOW, () => true);
-    expect(second).toEqual({ oauthStates: 0, snapshots: 0, events: 0, jobs: 0, deliveries: 0, complete: true });
+    expect(second).toEqual({ oauthStates: 0, snapshots: 0, events: 0, jobs: 0, rateLimitCounters: 0, metricViews: 0, deliveries: 0, complete: true });
+  });
+
+  it("deletes rate limit counters older than a day and keeps the last day's (#149)", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const cutoff = retentionCutoffs(NOW).rateLimitCountersBefore.getTime();
+    const at = (ms: number) => new Date(cutoff + ms).toISOString();
+    store.rateLimitCounters.push(
+      { ip_hash: "a".repeat(64), window_start: at(-60_000), count: 3 },
+      { ip_hash: "b".repeat(64), window_start: at(0), count: 1 },
+    );
+
+    const result = await runRetention(store, NOW, () => true);
+
+    expect(store.rateLimitCounters.map((row) => row.ip_hash)).toEqual(["b".repeat(64)]);
+    expect(result.rateLimitCounters).toBe(1);
+  });
+
+  it("keeps metric view counts exactly 13 months old and deletes older days (#149)", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    const view = (viewDate: string) => ({
+      workspace_id: WORKSPACE_ID,
+      project_id: "22222222-2222-4222-8222-222222222222",
+      metric_id: "github-stars" as const,
+      surface: "badge" as const,
+      view_date: viewDate,
+      views: 4,
+    });
+    store.metricViews.push(view("2025-09-29"), view("2025-09-30"));
+
+    const result = await runRetention(store, NOW, () => true);
+
+    expect(store.metricViews.map((row) => row.view_date)).toEqual(["2025-09-30"]);
+    expect(result.metricViews).toBe(1);
   });
 
   it("stops between batches when the time budget runs out and reports the run incomplete", async () => {

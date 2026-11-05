@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { formatUtcDate } from "@/lib/format";
 import {
   formulaPath,
   PUBLIC_METRICS,
@@ -18,6 +19,7 @@ import {
   type PublishedSelfReportedMetric,
   type PublishedValue,
 } from "@/lib/public-metrics/published";
+import type { ShareSurface } from "@/lib/public-metrics/requests";
 import { createSupabaseMetricStore } from "@/lib/public-metrics/supabase-store";
 import { createClient } from "@/lib/supabase/server";
 
@@ -36,6 +38,8 @@ export type ProjectMetricStatus = Readonly<{
   formulaPath: string;
   current: PublishedValue;
   publication: PublishedEngineMetric | null;
+  /** Times DevMacro served the metric's badge and card in the last `VIEW_WINDOW_DAYS` UTC days. */
+  views: Readonly<Record<ShareSurface, number>>;
 }>;
 
 export type ProjectPublications = Readonly<{
@@ -48,11 +52,17 @@ export type ProjectPublications = Readonly<{
 // the engine part at the number of definitions.
 const LIVE_ROWS_LIMIT = 200;
 
+/** The share dialog's "in the last 7 days", today (UTC) included. */
+export const VIEW_WINDOW_DAYS = 7;
+// One row per metric, surface, and day: 13 metrics, 2 surfaces, 7 days.
+const VIEW_ROWS_LIMIT = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 /** Null when the project is not in the workspace (or does not exist): one answer for both. */
 export const loadProjectPublications = cache(
   async (workspaceId: string, projectId: string, now: Date): Promise<ProjectPublications | null> => {
     const supabase = await createClient();
-    const [project, live] = await Promise.all([
+    const [project, live, views] = await Promise.all([
       supabase.from("projects").select("id, name").eq("workspace_id", workspaceId).eq("id", projectId).maybeSingle(),
       supabase
         .from("published_metrics")
@@ -63,9 +73,18 @@ export const loadProjectPublications = cache(
         .order("published_at", { ascending: true })
         .order("id", { ascending: true })
         .limit(LIVE_ROWS_LIMIT),
+      // Served by the primary key (project_id, metric_id, surface, view_date).
+      supabase
+        .from("published_metric_views")
+        .select("metric_id, surface, views")
+        .eq("workspace_id", workspaceId)
+        .eq("project_id", projectId)
+        .gte("view_date", formatUtcDate(new Date(now.getTime() - (VIEW_WINDOW_DAYS - 1) * DAY_MS)))
+        .limit(VIEW_ROWS_LIMIT),
     ]);
     if (project.error) throw new Error("Failed to load the project", { cause: project.error });
     if (live.error) throw new Error("Failed to load published metrics", { cause: live.error });
+    if (views.error) throw new Error("Failed to load published metric views", { cause: views.error });
     if (project.data === null) return null;
 
     const engineRows = live.data.flatMap((row) =>
@@ -96,6 +115,11 @@ export const loadProjectPublications = cache(
       computePublishedEngineMetrics(store, engineRows, now),
     ]);
     const publications = new Map(published.map((publication) => [publication.metricId, publication]));
+    const viewCounts = new Map<string, number>();
+    for (const row of views.data) {
+      const key = `${row.metric_id}:${row.surface}`;
+      viewCounts.set(key, (viewCounts.get(key) ?? 0) + row.views);
+    }
 
     const metrics = PUBLIC_METRICS.map((definition, index): ProjectMetricStatus => {
       const computed = current[index];
@@ -108,6 +132,10 @@ export const loadProjectPublications = cache(
         formulaPath: formulaPath(definition.id),
         current: publishedValue(computed, definition.unit, "exact"),
         publication: publications.get(definition.id) ?? null,
+        views: {
+          badge: viewCounts.get(`${definition.id}:badge`) ?? 0,
+          card: viewCounts.get(`${definition.id}:card`) ?? 0,
+        },
       };
     });
     return {

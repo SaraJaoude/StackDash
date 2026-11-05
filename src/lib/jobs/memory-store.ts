@@ -29,6 +29,8 @@ export type MemoryJob = Tables<"sync_jobs">;
 export type MemorySnapshot = SnapshotRow & { id: string };
 export type MemoryEvent = EventRow & { id: string };
 export type MemoryOAuthState = Pick<Tables<"oauth_states">, "state" | "workspace_id" | "expires_at">;
+export type MemoryRateLimitCounter = Tables<"public_rate_limit_counters">;
+export type MemoryMetricView = Tables<"published_metric_views">;
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -41,6 +43,8 @@ export class MemoryJobStore implements JobStore {
   snapshots: MemorySnapshot[] = [];
   events: MemoryEvent[] = [];
   oauthStates: MemoryOAuthState[] = [];
+  rateLimitCounters: MemoryRateLimitCounter[] = [];
+  metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
   savedCredentials: OAuthCredential[] = [];
   /** Workspaces with a triggered alert not dispatched yet, as triggered_alerts would answer. */
@@ -381,6 +385,28 @@ export class MemoryJobStore implements JobStore {
         .map((row) => row.state),
     );
     this.oauthStates = this.oauthStates.filter((row) => !doomed.has(row.state));
+    return doomed.size;
+  }
+
+  async purgeRateLimitCounters(before: Date, limit: number): Promise<number> {
+    const doomed = new Set(
+      this.rateLimitCounters
+        .filter((row) => Date.parse(row.window_start) < before.getTime())
+        .sort((a, b) => Date.parse(a.window_start) - Date.parse(b.window_start) || a.ip_hash.localeCompare(b.ip_hash))
+        .slice(0, limit),
+    );
+    this.rateLimitCounters = this.rateLimitCounters.filter((row) => !doomed.has(row));
+    return doomed.size;
+  }
+
+  async purgeMetricViews(beforeDate: string, limit: number): Promise<number> {
+    const doomed = new Set(
+      this.metricViews
+        .filter((row) => row.view_date < beforeDate)
+        .sort((a, b) => a.view_date.localeCompare(b.view_date) || a.project_id.localeCompare(b.project_id))
+        .slice(0, limit),
+    );
+    this.metricViews = this.metricViews.filter((row) => !doomed.has(row));
     return doomed.size;
   }
 

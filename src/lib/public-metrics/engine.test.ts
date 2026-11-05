@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import type { PublicMetricId } from "./definitions";
-import { computePublicMetrics, STALE_AFTER_MS, STREAK_EVENT_LIMIT, type MetricValue, type SnapshotPoint, type SourceAccount } from "./engine";
-import { MemoryMetricStore, type MemoryAccount, type MemoryEvent } from "./memory-store";
+import {
+  computePublicMetrics,
+  historyStart,
+  STALE_AFTER_MS,
+  STREAK_EVENT_LIMIT,
+  type MetricValue,
+  type SnapshotPoint,
+  type SourceAccount,
+  type StoredEvent,
+} from "./engine";
+import { MemoryMetricStore, type MemoryAccount } from "./memory-store";
 
 const AS_OF = new Date("2026-11-05T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
@@ -39,13 +48,13 @@ function dayPoint(daysAgo: number, value: number, overrides: Partial<SnapshotPoi
   return point({ value, retrievedAt: day, snapshotDate: day.toISOString().slice(0, 10), ...overrides });
 }
 
-function event(typeId: string, at: Date, accountId = "acct-1"): MemoryEvent {
+function event(typeId: string, at: Date, accountId = "acct-1"): StoredEvent {
   return { typeId, occurredAt: at, accountId };
 }
 
 async function compute(
   metricId: PublicMetricId,
-  data: { accounts?: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] },
+  data: { accounts?: MemoryAccount[]; points?: SnapshotPoint[]; events?: StoredEvent[] },
   asOf: Date = AS_OF,
 ): Promise<MetricValue> {
   const store = new MemoryMetricStore(data.accounts ?? [account()], data.points ?? [], data.events ?? []);
@@ -313,7 +322,7 @@ describe("computePublicMetrics: a request's own window start (the yearly card)",
   const vercel = account({ provider: "vercel", connectionCreatedAt: new Date("2025-12-01T00:00:00Z") });
   const yearStart = new Date("2026-01-01T00:00:00Z");
 
-  async function computeFrom(metricId: PublicMetricId, data: { accounts: MemoryAccount[]; points?: SnapshotPoint[]; events?: MemoryEvent[] }, from: Date) {
+  async function computeFrom(metricId: PublicMetricId, data: { accounts: MemoryAccount[]; points?: SnapshotPoint[]; events?: StoredEvent[] }, from: Date) {
     const store = new MemoryMetricStore(data.accounts, data.points ?? [], data.events ?? []);
     const [result] = await computePublicMetrics(store, [{ metricId, asOf: AS_OF, from }]);
     if (result === undefined) throw new Error("no result");
@@ -357,5 +366,46 @@ describe("computePublicMetrics: a request's own window start (the yearly card)",
   it("refuses a start for a metric without a window and a start that is not before asOf", async () => {
     await expect(computeFrom("github-stars", { accounts: [account()] }, yearStart)).rejects.toThrow(RangeError);
     await expect(computeFrom("vercel-deployments-7d", { accounts: [vercel] }, AS_OF)).rejects.toThrow(RangeError);
+  });
+});
+
+describe("historyStart (#151)", () => {
+  const vercel = account({ provider: "vercel", connectionCreatedAt: new Date("2026-08-07T10:00:00Z") });
+
+  it("starts an event count at the oldest stored event when it is older than the connection (backfill)", async () => {
+    const store = new MemoryMetricStore([vercel], [], [event("vercel.deployment.succeeded", new Date("2026-07-01T09:00:00Z"))]);
+    expect(await historyStart(store, "vercel-deployments-30d")).toEqual(new Date("2026-07-01T09:00:00Z"));
+  });
+
+  it("starts an event count at the connection when no event is older (boundary: no events at all)", async () => {
+    const store = new MemoryMetricStore([vercel], [], []);
+    expect(await historyStart(store, "vercel-deployments-30d")).toEqual(new Date("2026-08-07T10:00:00Z"));
+  });
+
+  it("starts a snapshot change at the start of the oldest stored day, ignoring other metric keys", async () => {
+    const store = new MemoryMetricStore(
+      [account()],
+      [dayPoint(3, 10), dayPoint(40, 2, { metricKey: "github.forks.total" }), dayPoint(20, 5)],
+      [],
+    );
+    expect(await historyStart(store, "github-stars-gained-30d")).toEqual(new Date("2026-10-16T00:00:00Z"));
+  });
+
+  it("is null without an account of the provider, or for a snapshot metric with nothing stored", async () => {
+    expect(await historyStart(new MemoryMetricStore([account()], [], []), "vercel-deployments-30d")).toBeNull();
+    expect(await historyStart(new MemoryMetricStore([account()], [], []), "github-stars-gained-30d")).toBeNull();
+  });
+
+  it("refuses a metric with no window, which has no history start", async () => {
+    await expect(historyStart(new MemoryMetricStore([account()], [], []), "github-stars")).rejects.toThrow(RangeError);
+  });
+
+  it("counts an event exactly at the history start once the window starts there (boundary: from equals the start)", async () => {
+    const at = new Date("2026-08-07T10:00:00Z");
+    const store = new MemoryMetricStore([vercel], [], [event("vercel.deployment.succeeded", at)]);
+    const from = await historyStart(store, "vercel-deployments-30d");
+    if (from === null) throw new Error("expected a history start");
+    const [result] = await computePublicMetrics(store, [{ metricId: "vercel-deployments-30d", asOf: AS_OF, from }]);
+    expect(result?.result).toMatchObject({ status: "available", value: 1 });
   });
 });

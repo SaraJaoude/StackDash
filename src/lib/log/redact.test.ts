@@ -27,6 +27,9 @@ const VERCEL_PREFIXED = join("vcp_", "AbCdEfGhIjKlMnOpQrSt1234");
 const VERCEL_LEGACY = join("Xk9", "2LmQpR7tVbN4wZcY8hJd3Fs");
 const SUPABASE_PAT = join("sbp_", "0123456789abcdef0123456789abcdef01234567");
 const SUPABASE_SECRET = join("sb_secret_", "FakeKeyFor", "RedactTests", "0123");
+// A DevMacro API key whose secret part has separators every few characters, so only the dmk_ rule
+// (not the generic blob rule) can catch it.
+const DEVMACRO_KEY = join("dmk_", "ab-cd_ef-gh_ij-kl_mn-op_qr-st_uv-wx_yz-01_2");
 const POLAR_ACCESS = join("polar_at_", "AbCdEfGhIjKlMnOpQrSt1234");
 const POLAR_ORGANIZATION = join("polar_oat_", "AbCdEfGhIjKlMnOpQrSt1234");
 const BASIC_CREDENTIALS = btoa("user:password");
@@ -60,6 +63,8 @@ describe("redactString", () => {
     { name: "Vercel legacy 24 char token", input: `vercel ${VERCEL_LEGACY}`, secret: VERCEL_LEGACY },
     { name: "Supabase sbp_ token", input: `supabase ${SUPABASE_PAT}`, secret: SUPABASE_PAT },
     { name: "Supabase sb_secret_ key", input: `supabase ${SUPABASE_SECRET}`, secret: SUPABASE_SECRET },
+    { name: "DevMacro dmk_ API key", input: `api key ${DEVMACRO_KEY} rejected`, secret: DEVMACRO_KEY },
+    { name: "DevMacro API key at the start of a value", input: DEVMACRO_KEY, secret: DEVMACRO_KEY },
     { name: "Polar polar_at_ access token", input: `polar ${POLAR_ACCESS} expired`, secret: POLAR_ACCESS },
     { name: "Polar polar_oat_ organization token", input: `token=${POLAR_ORGANIZATION}`, secret: POLAR_ORGANIZATION },
     { name: "hex blob of 64 chars", input: `digest ${HEX_BLOB}`, secret: HEX_BLOB },
@@ -102,6 +107,7 @@ describe("redactString", () => {
     { name: "URL without credentials", input: "https://api.vercel.com/v9/projects?teamId=team_1&limit=20" },
     { name: "short hex below 32 chars", input: "deadbeefdeadbeefdeadbeef" },
     { name: "word containing re_ mid-word", input: "store_procedure_name_for_reporting" },
+    { name: "API key display prefix", input: "key dmk_AbCd1234 revoked" },
     { name: "Polar event type and adapter names", input: "polar.order.paid from polar_adapter_sync_runner" },
   ];
 
