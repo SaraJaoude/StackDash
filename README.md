@@ -330,6 +330,8 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
   five provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
+- [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
+  examples, and the OpenAPI document at `/docs/api/openapi.json`.
 
 ### Invite testers
 
@@ -378,6 +380,7 @@ src/
     w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
+    api/v1/                    the read-only REST API, one GET route per resource, API key auth
     api/dev/fake-provider/     dev-only consent screen of the fake and simulated providers
   components/
     sections/                  landing page sections
@@ -392,6 +395,7 @@ src/
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, fake, simulated) and registry
+    api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     connections/               connect, OAuth state, revoke
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
@@ -412,6 +416,7 @@ supabase/
 scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   operations/                  deploy, OAuth apps, jobs

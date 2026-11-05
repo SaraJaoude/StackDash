@@ -13,6 +13,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100200_daily_summary_jobs.sql` | `daily_summary` jobs and `enqueue_daily_summaries` |
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
+| `20261105002137_api_keys.sql` | `api_keys`, `api_key_request_windows`, `authenticate_api_key`, `api_key_workspace`, and one `api_*` read function per REST endpoint (#162) |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -106,6 +107,8 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `profiles` | own row | own row |
 | `connection_credentials`, `oauth_states`, `access_invites` | none | none (service role; the auth hook reads invites) |
+| `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
+| `api_key_request_windows` | none | none (service role) |
 
 Defense in depth, following BackTalk's hardening:
 
@@ -155,6 +158,28 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 
 `connection_credentials`, `oauth_states`, `access_invites`, and `profiles` are never published: `supabase/tests/database/07_realtime_publication.test.sql` pins the exact table list and fails if any of them is added. Replica identity stays the default, because inserts and updates carry the whole new row; only deletes would need `replica identity full`, and the screens do not listen for deletes.
 
+## Public REST API (#162)
+
+The read-only API under `/api/v1` is documented for users in [REST API](../api.md). How it sits on the schema:
+
+- `api_keys` holds one row per key: workspace, name, scopes (`public.api_key_scope`), the SHA-256 hex of the key (`token_hash`, unique), an 8 character display prefix, `created_by`, `last_used_at`, and `revoked_at`/`revoked_by`. The key itself is never stored. Owners and admins manage keys through the Data API; `token_hash` has no select grant, and the `api_keys_guard_revoke` trigger stamps a revoke with the database clock and refuses to undo it. This follows BackTalk's `api_keys` (its migration 0034).
+- `authenticate_api_key(token_hash)` is the one key check: it returns nothing for an unknown hash, `revoked` or `creator_left` for a key that must not work, and otherwise `valid` with the workspace, scopes, and this minute's request count. It counts the request in `api_key_request_windows`, prunes that key's old windows, and refreshes `last_used_at` at most once a minute.
+- Each endpoint reads through its own function (`api_workspaces`, `api_projects`, `api_connections`, `api_usage_snapshots`, `api_activity_events`, `api_triggered_alerts`). Every one takes the key hash, not a workspace id, and filters on `api_key_workspace(token_hash, scope)`, so the database itself decides which workspace a key reads and whether its scope allows it. `supabase/tests/database/08_api_keys.test.sql` proves for each function that a key of workspace A reads nothing of workspace B.
+- All of these functions are granted to `service_role` only. The route handlers call them with the admin client.
+
+**Reusing the key check (the MCP server, #163).** Do not look keys up again. In a route handler:
+
+```ts
+import { authenticateApiRequest, requireApiScope } from "@/lib/api/auth";
+import { loadUsageSnapshots } from "@/lib/api/resources";
+
+const { principal } = await authenticateApiRequest(request); // throws ApiError: 401 or 429
+requireApiScope(principal, "usage:read"); // throws ApiError: 403
+const page = await loadUsageSnapshots(principal.tokenHash, { limit: 50 });
+```
+
+`authenticateApiRequest` (`src/lib/api/auth.ts`) reads the bearer key, hashes it, calls `authenticate_api_key`, and enforces the per key rate limit; `apiErrorResponse` in `src/lib/api/errors.ts` turns its `ApiError` into the error envelope with a reference id. The endpoint list with scopes and Zod schemas is `API_ENDPOINTS` in `src/lib/api/endpoints.ts`.
+
 ## Retention defaults (#37)
 
 | Data | Kept | Index used by the retention job |
@@ -164,6 +189,8 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
+| `api_keys` | while the workspace exists; revoked keys stay listed in settings | not applicable |
+| `api_key_request_windows` | the current minute plus five, pruned by `authenticate_api_key` on each request | primary key `(key_id, window_start)` |
 
 Nothing is aggregated in the MVP.
 
@@ -172,6 +199,6 @@ Nothing is aggregated in the MVP.
 No planned feature needs a breaking migration:
 
 - **Teams (#105).** The workspace is already the tenant, `workspace_members` already carries `owner`, `admin`, and `viewer`, and every policy already enforces the role matrix, tested for all three roles. Creating more workspaces calls the existing `create_workspace`. Inviting members, changing roles, removing members, and leaving add rows or policies; the last-owner rule already protects ownership transfer. Member lists need a policy that lets co-members read each other's `profiles` row, which is an additive policy. Workspace invites are a new table, separate from the test allow list in `access_invites`.
-- **Public REST API.** Every tenant row carries `workspace_id`, uses a UUID primary key, and has `created_at`; timelines already page by `(occurred_at, id)` with a matching index, so cursors are stable. API keys will be a new workspace-scoped table resolved server-side to a workspace and role, then queried with the same filters; nothing existing changes shape. Money is already integer minor units with currency, the format an API should return.
-- **Read-only MCP server.** It reads the same tables as the dashboard with viewer rights, which the role matrix already defines. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
+- **Public REST API.** Built in #162; see [Public REST API](#public-rest-api-162) above. Nothing existing changed shape: the API added its own tables and functions, plus `(workspace_id, created_at, id)` indexes on `projects` and `connections` for its keyset pages.
+- **Read-only MCP server (#163).** It reuses the API's keys, scopes, and read functions through `authenticateApiRequest` (see above), so it needs no new tables. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
 - **Billing per workspace (#80, #82).** Plan and entitlement columns attach to `workspaces` or a new table keyed by `workspace_id`; nothing is keyed on the user.
