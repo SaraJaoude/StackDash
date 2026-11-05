@@ -276,6 +276,17 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     for (const { result } of results.slice(1)) expect(result.events.length).toBeLessThanOrEqual(12);
   });
 
+  it("keeps events coming after the backfill as watch mode ticks, under one a sync on average", () => {
+    // Every sync after an account's backfill is one `jobs:tick -- --watch` tick. Bounding each provider
+    // on its own means a provider that goes silent or floods fails here by itself, and adding a
+    // provider never moves another provider's bounds. One event a sync is 360 an hour, twice the
+    // busiest profile (Stripe's payments).
+    const ticks = results.filter(({ at }) => at.getTime() >= SPAN_START.getTime() + SLOT_MS);
+    const written = ticks.reduce((sum, { result }) => sum + result.events.length, 0);
+    expect(written).toBeGreaterThan(0);
+    expect(written / ticks.length).toBeLessThan(1);
+  });
+
   it("backfills the last 30 minutes on the first sync, never newer than the last whole slot", () => {
     const first = results[0];
     if (first === undefined) throw new Error("expected a first sync");
@@ -361,10 +372,20 @@ describe("simulated sync boundaries", () => {
   });
 });
 
+// The five providers simulated since #131, the group the watch bounds below were set for. Fixed, so
+// these aggregate bounds and this test's cost stay the same as providers are added; every provider's
+// own silence and flood bounds are in "simulated %s over a two hour span" above.
+const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
+// Stripe's sync re-adds 31 days of hourly transactions for its metrics, so this group costs about
+// 1.4 s on a laptop, the slowest test in the file. The old all-provider shape took 2.1 s on the same
+// laptop and ran past 5 s on CI (run 41959212551), so CI is at least 2.4 times slower: the default
+// 5 s would leave this test almost no headroom there.
+const WATCH_TIMEOUT_MS = 20_000;
+
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the live providers, and keep Stripe revenue moving", async () => {
+  it("bring new events on most ticks across the #131 providers, and keep Stripe revenue moving", async () => {
     const connections = await Promise.all(
-      liveProviderIds.map(async (id) => {
+      WATCH_GROUP.map(async (id) => {
         const adapter = simulatedAdapters[id];
         const credential = await connect(adapter);
         const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
@@ -396,7 +417,7 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
     expect(Math.max(...perTick)).toBeLessThanOrEqual(10);
     const moved = revenue.slice(1).filter((value, index) => value !== revenue[index]).length;
     expect(moved / (revenue.length - 1)).toBeGreaterThan(0.8);
-  });
+  }, WATCH_TIMEOUT_MS);
 });
 
 describe("simulated numbers", () => {
