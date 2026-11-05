@@ -162,6 +162,27 @@ describe("aggregateDashboard totals", () => {
     expect(view.revenue[0]?.verified?.amountMinor).toBe(9_000);
   });
 
+  it("keeps recurring revenue (MRR, ARR) out of revenue and spending totals, even as a point in time", () => {
+    const view = aggregateDashboard(
+      input([
+        money({ metric_key: "fake.revenue.month", kind: "revenue", amount_minor: 9_000, currency: "USD" }),
+        money({
+          metric_key: "fake.mrr.usd",
+          kind: "recurring_revenue",
+          amount_minor: 4_000,
+          currency: "USD",
+          period_start: null,
+          period_end: null,
+          point_at: "2026-10-15T11:30:00.000Z",
+        }),
+      ]),
+    );
+    expect(view.totals).toEqual([]);
+    expect(view.revenue.map((amounts) => amounts.verified?.amountMinor)).toEqual([9_000]);
+    expect(view.byProvider[0]?.revenue.map((amounts) => amounts.verified?.amountMinor)).toEqual([9_000]);
+    expect(view.byProvider[0]?.spend).toEqual([]);
+  });
+
   it("shows nothing for an empty workspace or a scope that matched no connection", () => {
     const view = aggregateDashboard(input([], { connections: [], accounts: [] }));
     expect(view.byProvider).toEqual([]);

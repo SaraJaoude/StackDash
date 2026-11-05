@@ -54,6 +54,10 @@ describe("validateAdapterMetrics", () => {
       metric: { ...usage, kind: "remaining_allowance", value: 0, timeframe: { type: "point", at: retrievedAt } },
     },
     { name: "negative revenue after refunds", metric: { ...verifiedSpend, kind: "revenue", amountMinor: -500 } },
+    {
+      name: "recurring revenue of zero at a point in time",
+      metric: { ...verifiedSpend, kind: "recurring_revenue", amountMinor: 0, timeframe: { type: "point", at: retrievedAt } },
+    },
     { name: "largest safe integer amount", metric: { ...verifiedSpend, amountMinor: Number.MAX_SAFE_INTEGER } },
   ])("accepts $name", ({ metric }) => {
     const result = validateAdapterMetrics("resend", [metric]);
@@ -74,6 +78,16 @@ describe("validateAdapterMetrics", () => {
       path: "amountMinor",
     },
     { name: "negative spend", metric: { ...verifiedSpend, amountMinor: -1 }, path: "amountMinor" },
+    {
+      name: "negative recurring revenue",
+      metric: { ...verifiedSpend, kind: "recurring_revenue", amountMinor: -1 },
+      path: "amountMinor",
+    },
+    {
+      name: "recurring revenue as a quantity",
+      metric: { ...usage, kind: "recurring_revenue" },
+      path: "amountMinor",
+    },
     { name: "lowercase currency", metric: { ...verifiedSpend, currency: "usd" }, path: "currency" },
     { name: "four letter currency", metric: { ...verifiedSpend, currency: "USDT" }, path: "currency" },
     {

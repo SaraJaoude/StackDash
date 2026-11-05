@@ -113,6 +113,14 @@ const RevenueSchema = z.strictObject({
   kind: z.literal("revenue"),
 });
 
+// A run rate at a point in time (Polar MRR and ARR), not money earned in a period. Its own kind so
+// it can never be summed into revenue or spend, which the dashboard selects by kind (#114).
+const RecurringRevenueSchema = z.strictObject({
+  ...baseShape,
+  ...nonNegativeMoneyShape,
+  kind: z.literal("recurring_revenue"),
+});
+
 // Set by a user in DevMacro. Part of the model so budgets compare against spend, never adapter output.
 const BudgetSchema = z.strictObject({
   ...baseShape,
@@ -128,6 +136,7 @@ const adapterMetricSchemas = [
   UsageSchema,
   CreditBalanceSchema,
   RevenueSchema,
+  RecurringRevenueSchema,
 ] as const;
 
 export const MetricSchema = z.discriminatedUnion("kind", [...adapterMetricSchemas, BudgetSchema]);

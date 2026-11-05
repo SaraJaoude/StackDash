@@ -4,6 +4,7 @@ import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
 import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
+import { polarAdapter } from "@/lib/adapters/polar";
 import { resendAdapter } from "@/lib/adapters/resend";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
@@ -33,6 +34,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   resend: resendAdapter,
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
+  polar: polarAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -353,7 +355,7 @@ describe("simulated sync boundaries", () => {
 });
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the five providers, and keep Stripe revenue moving", async () => {
+  it("bring new events on most ticks across the live providers, and keep Stripe revenue moving", async () => {
     const connections = await Promise.all(
       liveProviderIds.map(async (id) => {
         const adapter = simulatedAdapters[id];
@@ -464,6 +466,48 @@ describe("simulated numbers", () => {
       expect(item.metricKey.endsWith(`.${item.currency.toLowerCase()}`)).toBe(true);
     }
     expect(amount(metric(metrics, "stripe.revenue.month.usd"))).toBeGreaterThan(0);
+  });
+
+  it("keeps Polar revenue as revenue, fees as spend, and MRR and ARR as recurring revenue, in USD cents", async () => {
+    const [metrics] = await metricsAt(simulatedAdapters.polar, [new Date("2026-11-20T15:00:00Z")]);
+    if (metrics === undefined) throw new Error("expected metrics");
+    expect(Object.fromEntries(metrics.map((item) => [item.metricKey, item.kind]))).toEqual({
+      "polar.revenue.month.usd": "revenue",
+      "polar.fees.month.usd": "verified_spend",
+      "polar.orders.month": "usage",
+      "polar.subscriptions.new.month": "usage",
+      "polar.subscriptions.canceled.month": "usage",
+      "polar.mrr.usd": "recurring_revenue",
+      "polar.arr.usd": "recurring_revenue",
+      "polar.subscriptions.active": "usage",
+      "polar.customers.new.month": "usage",
+    });
+    for (const item of metrics) {
+      if ("amountMinor" in item) {
+        expect(Number.isInteger(item.amountMinor), item.metricKey).toBe(true);
+        expect(item.currency).toBe("USD");
+      }
+    }
+    const revenue = amount(metric(metrics, "polar.revenue.month.usd"));
+    const fees = amount(metric(metrics, "polar.fees.month.usd"));
+    expect(revenue).toBeGreaterThan(0);
+    expect(fees).toBeGreaterThan(0);
+    expect(fees).toBeLessThan(revenue);
+    // ARR is twelve months of MRR, each rounded once from Polar's fractional cents.
+    expect(Math.abs(amount(metric(metrics, "polar.arr.usd")) - 12 * amount(metric(metrics, "polar.mrr.usd")))).toBeLessThanOrEqual(12);
+  });
+
+  it("grows Polar month-to-date revenue within a month and starts again in the next", async () => {
+    const samples = await metricsAt(simulatedAdapters.polar, [
+      new Date("2026-11-20T15:00:00Z"),
+      new Date("2026-11-20T15:10:00Z"),
+      new Date("2026-11-30T23:00:00Z"),
+      new Date("2026-12-01T00:10:00Z"),
+    ]);
+    const revenue = samples.map((metrics) => amount(metric(metrics, "polar.revenue.month.usd")));
+    expect(revenue[0]).toBeLessThanOrEqual(revenue[1] ?? 0);
+    expect(revenue[1]).toBeLessThan(revenue[2] ?? 0);
+    expect(revenue[3]).toBeLessThan(revenue[2] ?? 0);
   });
 
   it("reports GitHub stars per repository and in total, plus Actions minutes and spend", async () => {

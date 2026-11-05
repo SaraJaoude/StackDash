@@ -57,6 +57,14 @@ const PLATFORM_MARKS: Record<Platform, BrandMark> = {
     fill: "#3FCF8E",
     path: "M11.9 1.036c-.015-.986-1.26-1.41-1.874-.637L.764 12.05C-.33 13.427.65 15.455 2.409 15.455h9.579l.113 7.51c.014.985 1.259 1.408 1.873.636l9.262-11.653c1.093-1.375.113-3.403-1.645-3.403h-9.642z",
   },
+  // Polar is not in Simple Icons. Path from the official logomark in Polar's brand kit
+  // (https://polar.sh/brand, polar_brand.zip, Logomark/logomark_black.svg, checked 2026-11-05),
+  // scaled from its 1510 viewBox to 24 and clipped to its circular mask. The mark is monochrome,
+  // "full white on dark, full black on light", so it uses currentColor like Vercel's.
+  Polar: {
+    fill: "currentColor",
+    path: "M10.8 0.06L10.8 9.081L4.418 2.699A12 12 0 0 0 2.688 4.432L9.068 10.812L0.059 10.812A12 12 0 0 0 0.066 13.261L9.068 13.261L2.721 19.609A12 12 0 0 0 4.459 21.334L10.8 14.992L10.8 23.94A12 12 0 0 0 13.249 23.935L13.249 0.065A12 12 0 0 0 10.8 0.06ZM19.93 2.994C17.64 5.312 16.212 8.544 16.212 12.037C16.212 15.571 17.701 18.677 19.989 20.954A12 12 0 0 0 21.788 18.943C20.014 17.13 18.906 14.731 18.906 12.037C18.906 9.329 19.996 6.815 21.743 4.994A12 12 0 0 0 19.93 2.994Z",
+  },
 };
 
 function BrandMarkSvg({ mark, ...props }: IconProps & { mark: BrandMark }) {

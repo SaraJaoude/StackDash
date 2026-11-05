@@ -183,6 +183,16 @@ describe("loadOAuthClient", () => {
     setRequired();
     expect(JSON.stringify(loadOAuthClient(TEST_ADAPTER))).not.toContain("client-secret");
   });
+
+  it.each([
+    { name: "both Polar variables set", id: "polar-client", secret: "polar-secret", configured: true },
+    { name: "Polar client secret empty", id: "polar-client", secret: "", configured: false },
+    { name: "Polar client id blank", id: "   ", secret: "polar-secret", configured: false },
+  ])("sets Polar up only with its client id and secret: $name", ({ id, secret, configured }) => {
+    vi.stubEnv("POLAR_CLIENT_ID", id);
+    vi.stubEnv("POLAR_CLIENT_SECRET", secret);
+    expect(isProviderConfigured(getAdapter("polar"))).toBe(configured);
+  });
 });
 
 describe("createOAuthContext", () => {
