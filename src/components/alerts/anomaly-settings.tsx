@@ -4,7 +4,7 @@ import { ANOMALY_MIN_HISTORY_DAYS, ANOMALY_MIN_RATIO, ANOMALY_TYPE_ID, ANOMALY_W
 import { getAnomalyControls, listAnomalyMetrics, type AnomalyMetric } from "@/lib/data/anomalies";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { providerName } from "@/lib/providers";
-import { workspacePath } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AnomalyToggle, MuteMetricForm, UnmuteButton } from "./anomaly-controls";
