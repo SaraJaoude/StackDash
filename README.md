@@ -9,7 +9,10 @@ and project, keeps a timeline of activity, and raises alerts before a limit or b
 problem.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Webhooks come after the MVP.
+list. Webhooks come after the MVP. Sentry is built from Sentry's documentation and not yet tried
+against a real organization, and until Sentry approves the hosted integration's publication only
+the organization that registered it can install it; self-hosters register their own
+([Sentry provider page](docs/providers/sentry.md)).
 
 ## Stack
 
