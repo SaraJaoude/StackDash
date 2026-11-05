@@ -27,7 +27,7 @@ const phases: readonly Phase[] = [
       "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
-      "More integrations, starting with GitLab, Railway, and Polar",
+      "More integrations, starting with GitLab and Polar",
       "Public REST API with scoped keys",
       "Read-only MCP server for AI assistants",
     ],

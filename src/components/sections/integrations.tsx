@@ -16,13 +16,13 @@ const groups: readonly IntegrationGroup[] = [
     stage: "First",
     dotClass: "bg-success",
     note: "In the first release",
-    providers: ["Vercel", "GitHub and GitHub Actions", "Resend", "Stripe", "Supabase"],
+    providers: ["Vercel", "GitHub and GitHub Actions", "Resend", "Stripe", "Supabase", "Railway"],
   },
   {
     stage: "Next",
     dotClass: "bg-warning",
     note: "Planned straight after",
-    providers: ["GitLab", "Railway", "Polar", "PostHog", "DigitalOcean", "Sentry", "ElevenLabs"],
+    providers: ["GitLab", "Polar", "PostHog", "DigitalOcean", "Sentry", "ElevenLabs"],
   },
   {
     stage: "Waiting",

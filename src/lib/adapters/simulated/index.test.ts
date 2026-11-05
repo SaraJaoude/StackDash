@@ -355,7 +355,7 @@ describe("simulated sync boundaries", () => {
 });
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the five providers, and keep Stripe revenue moving", async () => {
+  it("bring new events on most ticks across every live provider, and keep Stripe revenue moving", async () => {
     const connections = await Promise.all(
       liveProviderIds.map(async (id) => {
         const adapter = simulatedAdapters[id];
