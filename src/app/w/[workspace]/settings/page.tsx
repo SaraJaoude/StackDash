@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -6,12 +7,15 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LockIcon, MailIcon } from "@/components/icons";
+import { connectOrigin } from "@/lib/connections/oauth-state";
 import { API_KEYS_LIST_LIMIT, listApiKeys } from "@/lib/data/api-keys";
 import { formatDateTime } from "@/lib/format";
+import { mcpEndpointUrl } from "@/lib/mcp/setup";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
 import { ApiKeysManager, type ApiKeyItem } from "./api-keys";
+import { AssistantSetup } from "./assistant-setup";
 import { RenameWorkspaceForm } from "./rename-workspace-form";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -44,6 +48,12 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
       revoked: key.revoked_at === null ? null : formatDateTime(key.revoked_at),
       creatorLeft: key.creator_left,
     })) ?? [];
+  // The MCP URL users paste into an assistant: NEXT_PUBLIC_SITE_URL when set, otherwise this
+  // request's own origin, as the sitemap does.
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const endpointUrl = mcpEndpointUrl(connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL));
 
   return (
     <>
@@ -113,6 +123,8 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
           />
         )}
       </section>
+
+      <AssistantSetup endpointUrl={endpointUrl} canManageKeys={canManageKeys} />
 
       {/* No action: inviting teammates is not built yet, and there is nothing to link to. */}
       <EmptyState

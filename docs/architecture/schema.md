@@ -205,7 +205,9 @@ requireApiScope(principal, "usage:read"); // throws ApiError: 403
 const page = await loadUsageSnapshots(principal.tokenHash, { limit: 50 });
 ```
 
-`authenticateApiRequest` (`src/lib/api/auth.ts`) reads the bearer key, hashes it, calls `authenticate_api_key`, and enforces the per key rate limit; `apiErrorResponse` in `src/lib/api/errors.ts` turns its `ApiError` into the error envelope with a reference id. The endpoint list with scopes and Zod schemas is `API_ENDPOINTS` in `src/lib/api/endpoints.ts`.
+`authenticateApiRequest` (`src/lib/api/auth.ts`) reads the bearer key, hashes it, calls `authenticate_api_key`, and enforces the per key rate limit; `apiErrorResponse` in `src/lib/api/errors.ts` turns its `ApiError` into the error envelope with a reference id, and `reportApiError` beside it logs one for a caller that answers in another shape. The endpoint list with scopes and Zod schemas is `API_ENDPOINTS` in `src/lib/api/endpoints.ts`.
+
+The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticateApiRequest` before the MCP SDK sees the request (so a key that does not work answers `401` or `429` in the API's envelope), and passes the principal to the SDK as `authInfo`. Each tool in `src/lib/mcp/server.ts` calls `requireApiScope` with its endpoint's scope from `API_ENDPOINTS`, then that endpoint's loader with `principal.tokenHash`; a refusal becomes a tool error with a reference id from `reportApiError`. It adds no table, function, or grant. User guide: [MCP server](../mcp.md).
 
 ## Retention defaults (#37)
 

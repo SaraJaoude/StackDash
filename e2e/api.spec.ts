@@ -1,12 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
+import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
-// The REST API with scoped keys (#162). Each test creates its own workspace and seeds only inside it.
+// The REST API with scoped keys (#162), and the MCP server on the same keys (#163). Each test creates
+// its own workspace and seeds only inside it.
 
 const KEY_PATTERN = /^dmk_[A-Za-z0-9_-]{43}$/;
 const REFERENCE_PATTERN = /^REF-[0-9A-Z]{8}$/;
@@ -380,5 +382,164 @@ ownerTest.describe("API docs", () => {
       openapi: "3.1.0",
       paths: { "/api/v1/events": { get: { security: [{ apiKey: ["events:read"] }] } } },
     });
+  });
+});
+
+/** A key the service role inserts into the workspace, with these scopes. */
+async function insertKey(workspace: TestWorkspace, name: string, scopes: readonly Scope[]): Promise<string> {
+  const { key, token_hash, token_prefix } = seededKey();
+  const { error } = await adminClient()
+    .from("api_keys")
+    .insert({ workspace_id: workspace.id, name, token_hash, token_prefix, scopes: [...scopes], created_by: workspace.ownerId });
+  if (error) throw new Error(`Seeding a key failed (code ${error.code}).`);
+  return key;
+}
+
+/** The MCP SDK's own client, connected over HTTP to the running app with this key. */
+async function mcpClient(baseURL: string | undefined, key: string): Promise<Client> {
+  const client = new Client({ name: "devmacro-e2e", version: "1.0.0" }, { versionNegotiation: { mode: "auto" } });
+  await client.connect(
+    new StreamableHTTPClientTransport(new URL("/api/mcp", baseURL), { authProvider: { token: async () => key } }),
+  );
+  return client;
+}
+
+function toolText(result: CallToolResult): string {
+  const [first] = result.content;
+  return first?.type === "text" ? first.text : "";
+}
+
+ownerTest.describe("MCP server", () => {
+  ownerTest("an assistant lists projects and answers a usage question with the workspace's data", async ({ baseURL }) => {
+    const workspace = await createTestWorkspace("MCP");
+    try {
+      const seeded = await seedWorkspaceData(workspace);
+      const client = await mcpClient(baseURL, await insertKey(workspace, "Assistant", SCOPES));
+      try {
+        const { tools } = await client.listTools();
+        expect(tools.map((tool) => tool.name).sort()).toEqual([
+          "get_connection_status",
+          "get_usage",
+          "list_alerts",
+          "list_events",
+          "list_projects",
+        ]);
+
+        const projects = await client.callTool({ name: "list_projects", arguments: {} });
+        expect(projects.structuredContent).toMatchObject({
+          workspace: { id: workspace.id, slug: workspace.slug },
+          data: [{ id: seeded.projectId, name: "API web" }],
+        });
+        const usage = await client.callTool({
+          name: "get_usage",
+          arguments: { project_id: seeded.projectId, metric_key: "fake.spend" },
+        });
+        expect(usage.structuredContent).toMatchObject({
+          data: [
+            {
+              amount_minor: 1250,
+              currency: "USD",
+              display: "$12.50",
+              provenance: "verified",
+              retrieved_at: expect.stringMatching(/^2026-10-31T09:00:00/),
+            },
+          ],
+        });
+        const connections = await client.callTool({ name: "get_connection_status", arguments: {} });
+        expect(connections.structuredContent).toMatchObject({ data: [{ id: seeded.connectionId, status: "active" }] });
+
+        const { contents } = await client.readResource({ uri: "devmacro://docs/providers/resend" });
+        expect(contents[0]).toMatchObject({ mimeType: "text/markdown", text: expect.stringContaining("# Resend") });
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("a key without usage:read gets no spend and a tool error for usage", async ({ baseURL }) => {
+    const workspace = await createTestWorkspace("MCP scopes");
+    try {
+      await seedWorkspaceData(workspace);
+      const client = await mcpClient(baseURL, await insertKey(workspace, "Events only", ["events:read"]));
+      try {
+        const usage = await client.callTool({ name: "get_usage", arguments: {} });
+        expect(usage.isError).toBe(true);
+        expect(toolText(usage)).toContain("does not have the usage:read scope");
+
+        const events = await client.callTool({ name: "list_events", arguments: {} });
+        expect(events.structuredContent).toMatchObject({
+          withheld: { fields: ["title", "body"], scope: "usage:read" },
+          data: [{ type: "fake.deployment_failed", severity: "critical", title: null, body: null }],
+        });
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("refuses a request without a working key, and answers only POST", async ({ request }) => {
+    const response = await request.post("/api/mcp", {
+      headers: { accept: "application/json, text/event-stream", "content-type": "application/json" },
+      data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+    });
+    expect(response.status()).toBe(401);
+    expect(await response.json()).toMatchObject({
+      error: { code: "unauthorized", reference_id: expect.stringMatching(REFERENCE_PATTERN) },
+    });
+    expect((await request.get("/api/mcp")).status()).toBe(405);
+  });
+
+  ownerTest("settings shows this site's server URL and a snippet per client", async ({ page, baseURL }) => {
+    const workspace = await createTestWorkspace("MCP setup");
+    try {
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = page.getByRole("region", { name: "AI assistants" });
+      const endpoint = new URL("/api/mcp", baseURL).href;
+      await expect(section.getByText(endpoint, { exact: true })).toBeVisible();
+      const clients = ["Claude Code", "Claude Desktop", "Cursor", "Other clients"];
+      for (const client of clients) {
+        await expect(section.getByRole("heading", { level: 3, name: client })).toBeVisible();
+      }
+      await expect(section.getByText("Create an API key above for the assistant.", { exact: false })).toBeVisible();
+      await expect(section.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        `claude mcp add --transport http devmacro ${endpoint}`,
+      );
+
+      // Keyboard: the guide link, then each snippet in turn, which takes focus so it can scroll.
+      await section.getByRole("link", { name: "Read the MCP guide" }).focus();
+      for (const client of clients) {
+        await page.keyboard.press("Tab");
+        await expect(section.getByRole("region", { name: client, exact: true })).toBeFocused();
+      }
+      const scan = await new AxeBuilder({ page }).include("section[aria-labelledby='assistants-title']").analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("publishes the guide at /docs/mcp", async ({ page }) => {
+    await page.goto("/docs/mcp");
+    await expect(page.getByRole("heading", { level: 1, name: "MCP server" })).toBeVisible();
+    const scan = await new AxeBuilder({ page }).analyze();
+    expect(scan.violations).toEqual([]);
+  });
+});
+
+viewerTest.describe("MCP setup as a viewer", () => {
+  viewerTest("sees the snippets and is told to ask an owner or admin for a key", async ({ page }) => {
+    const workspace = await createTestWorkspace("MCP setup viewer");
+    try {
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = page.getByRole("region", { name: "AI assistants" });
+      await expect(section).toContainText("Ask an owner or admin of this workspace for an API key for the assistant.");
+      await expect(section.getByRole("heading", { level: 3, name: "Cursor" })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
   });
 });
