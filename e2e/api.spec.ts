@@ -500,17 +500,20 @@ ownerTest.describe("MCP server", () => {
       const section = page.getByRole("region", { name: "AI assistants" });
       const endpoint = new URL("/api/mcp", baseURL).href;
       await expect(section.getByText(endpoint, { exact: true })).toBeVisible();
-      for (const client of ["Claude Code", "Claude Desktop", "Cursor", "Other clients"]) {
+      const clients = ["Claude Code", "Claude Desktop", "Cursor", "Other clients"];
+      for (const client of clients) {
         await expect(section.getByRole("heading", { level: 3, name: client })).toBeVisible();
       }
       await expect(section.getByText("Create an API key above for the assistant.", { exact: false })).toBeVisible();
-      await expect(section.locator("pre").first()).toContainText(`claude mcp add --transport http devmacro ${endpoint}`);
+      await expect(section.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
+        `claude mcp add --transport http devmacro ${endpoint}`,
+      );
 
       // Keyboard: the guide link, then each snippet in turn, which takes focus so it can scroll.
       await section.getByRole("link", { name: "Read the MCP guide" }).focus();
-      for (let index = 0; index < 4; index += 1) {
+      for (const client of clients) {
         await page.keyboard.press("Tab");
-        await expect(section.locator("pre").nth(index)).toBeFocused();
+        await expect(section.getByRole("region", { name: client, exact: true })).toBeFocused();
       }
       const scan = await new AxeBuilder({ page }).include("section[aria-labelledby='assistants-title']").analyze();
       expect(scan.violations).toEqual([]);

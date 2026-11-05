@@ -38,11 +38,16 @@ export function AssistantSetup({ endpointUrl, canManageKeys }: { endpointUrl: st
         </ol>
         {mcpClientSetups(endpointUrl).map((setup) => (
           <div key={setup.id} className="mt-6">
-            <h3 className="font-semibold">{setup.name}</h3>
+            <h3 id={`assistant-${setup.id}-title`} className="font-semibold">
+              {setup.name}
+            </h3>
             <p className="mt-1 text-muted">{setup.instructions}</p>
-            {/* Scrollable blocks take focus so keyboard users can scroll them, as on the docs pages. */}
+            {/* Scrollable blocks take focus so keyboard users can scroll them, as on the docs pages, and
+                are named regions so a screen reader says which client's snippet has focus. */}
             <pre
               tabIndex={0}
+              role="region"
+              aria-labelledby={`assistant-${setup.id}-title`}
               className="mt-2 overflow-x-auto rounded-lg border border-line bg-panel-raised p-4 font-mono text-[13px] leading-6 text-foreground/90"
             >
               <code>{setup.snippet}</code>
