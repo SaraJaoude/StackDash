@@ -253,11 +253,14 @@ describe("simulated markers", () => {
 describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
   const adapter = simulatedAdapters[id];
   let results: SpanSync[];
+  let ticks: SpanSync[];
   let allEvents: ActivityEvent[];
 
   // Carries the Stripe cost described at WATCH_TIMEOUT_MS, so it states the same timeout.
   beforeAll(async () => {
     results = await syncSpan(adapter, await connect(adapter));
+    // Every sync after an account's backfill is one `jobs:tick -- --watch` tick.
+    ticks = results.filter(({ at }) => at.getTime() >= SPAN_START.getTime() + SLOT_MS);
     allEvents = results.flatMap(({ result }) => result.events);
   }, WATCH_TIMEOUT_MS);
 
@@ -278,19 +281,19 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     }
   });
 
-  it("trickles events in, a few per sync at most, with no dedupe key repeated across chained syncs", () => {
+  it("trickles events in, at most 10 a tick like the group test, with no dedupe key repeated across chained syncs", () => {
     expect(allEvents.length).toBeGreaterThan(0);
     const keys = allEvents.map((event) => event.dedupeKey);
     expect(new Set(keys).size).toBe(keys.length);
-    for (const { result } of results.slice(1)) expect(result.events.length).toBeLessThanOrEqual(12);
+    // The group test's per-tick cap, so no single provider is allowed a burst the group would reject.
+    // The most any provider writes in one tick on the seed is 4 (Stripe).
+    for (const { result } of ticks) expect(result.events.length).toBeLessThanOrEqual(10);
   });
 
   it("keeps events coming after the backfill as watch mode ticks, under one a sync on average", () => {
-    // Every sync after an account's backfill is one `jobs:tick -- --watch` tick. Bounding each provider
-    // on its own means a provider that goes silent or floods fails here by itself, and adding a
-    // provider never moves another provider's bounds. One event a sync is 360 an hour, twice the
-    // busiest profile (Stripe's payments).
-    const ticks = results.filter(({ at }) => at.getTime() >= SPAN_START.getTime() + SLOT_MS);
+    // Bounding each provider on its own means a provider that goes silent or floods fails here by
+    // itself, and adding a provider never moves another provider's bounds. One event a sync is 360
+    // an hour, twice the busiest profile (Stripe's payments).
     const written = ticks.reduce((sum, { result }) => sum + result.events.length, 0);
     expect(written).toBeGreaterThan(0);
     expect(written / ticks.length).toBeLessThan(1);
