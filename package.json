@@ -15,7 +15,8 @@
     "db:types:check": "supabase gen types typescript --local --schema public > \"${TMPDIR:-/tmp}/devmacro-database.types.ts\" && diff -u src/lib/supabase/database.types.ts \"${TMPDIR:-/tmp}/devmacro-database.types.ts\"",
     "keys:rotate": "tsx --conditions=react-server scripts/rotate-encryption-key.ts",
     "invite": "tsx --conditions=react-server scripts/invite.ts",
-    "jobs:tick": "tsx --conditions=react-server scripts/tick.ts"
+    "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",
+    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

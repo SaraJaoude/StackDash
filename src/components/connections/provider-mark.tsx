@@ -10,6 +10,7 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   stripe: "Stripe",
   supabase: "Supabase",
   digitalocean: "DigitalOcean",
+  posthog: "PostHog",
   gitlab: "GitLab",
   fake: null,
 };

@@ -5,6 +5,7 @@ import { log } from "@/lib/log/logger";
 import { digitaloceanAdapter } from "./digitalocean";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
+import { postHogAdapter } from "./posthog";
 import { gitlabAdapter } from "./gitlab";
 import { resendAdapter } from "./resend";
 import { isProviderSimulationEnabled, isSimulatedAdapter, simulatedAdapters } from "./simulated";
@@ -36,6 +37,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   stripe: stripeAdapter,
   supabase: supabaseAdapter,
   digitalocean: digitaloceanAdapter,
+  posthog: postHogAdapter,
   gitlab: gitlabAdapter,
 };
 

@@ -21,6 +21,7 @@ export type Platform =
   | "Stripe"
   | "Supabase"
   | "DigitalOcean"
+  | "PostHog"
   | "GitLab";
 
 export interface NavLink {
