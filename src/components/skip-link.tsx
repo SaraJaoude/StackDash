@@ -29,24 +29,35 @@ export function focusSkipTarget(target: SkipTarget): void {
 }
 
 /**
- * The first control on every page. Before hydration it is a plain fragment link that scrolls to
- * `#main`; once hydrated it also moves focus there. The fragment navigation still runs, so the
- * address ends in `#main` either way. A skip that lands after this link has hydrated but before the
- * page's `main` has adds a tabindex React then reports in development as a hydration mismatch; React
- * logs it and does not patch it up, so the blur listener still clears the attribute, and
- * `suppressHydrationWarning` on every `main` was judged worse.
+ * A link shown only on keyboard focus that jumps past a run of controls: the page's own, first on
+ * every page, skips to `#main` (#103); a trend chart's skips its event markers (#168). Before
+ * hydration it is a plain fragment link that scrolls to `targetId`; once hydrated it also moves
+ * focus there. The fragment navigation still runs, so the address ends in `#<targetId>` either way.
+ * A skip to `#main` that lands after this link has hydrated but before the page's `main` has adds a
+ * tabindex React then reports in development as a hydration mismatch; React logs it and does not
+ * patch it up, so the blur listener still clears the attribute, and `suppressHydrationWarning` on
+ * every `main` was judged worse.
  */
-export function SkipLink() {
+export function SkipLink({
+  targetId,
+  placement,
+  children,
+}: {
+  targetId: string;
+  /** Where the focused link sits inside its nearest positioned ancestor, as Tailwind `focus:` classes. */
+  placement: string;
+  children: string;
+}) {
   return (
     <a
-      href="#main"
+      href={`#${targetId}`}
       onClick={() => {
-        const target = document.getElementById("main");
+        const target = document.getElementById(targetId);
         if (target !== null) focusSkipTarget(target);
       }}
-      className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background"
+      className={`sr-only focus:not-sr-only focus:absolute focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background ${placement}`}
     >
-      Skip to content
+      {children}
     </a>
   );
 }

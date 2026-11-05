@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { SkipLink } from "@/components/skip-link";
 import {
   MARKER_CATEGORIES,
   markerCategoryLabel,
@@ -89,12 +90,9 @@ export function TrendMarkers({
     // The skip link overlays the first lane while focused, like "Skip to content", so focus never
     // moves the chart.
     <div className="relative mt-2">
-      <a
-        href={`#${skipTo}`}
-        className="sr-only focus:not-sr-only focus:absolute focus:left-0 focus:top-0 focus:z-20 focus:rounded-md focus:bg-foreground focus:px-3 focus:py-2 focus:text-sm focus:text-background"
-      >
+      <SkipLink targetId={skipTo} placement="focus:left-0 focus:top-0 focus:z-20">
         Skip the event markers
-      </a>
+      </SkipLink>
       <ul aria-label="Event markers" className="relative" style={{ height: lanes.length * MARKER_SLOT_PX }}>
         {[...byBucket].map(([bucket, items]) => {
           const left = positions.get(bucket);
