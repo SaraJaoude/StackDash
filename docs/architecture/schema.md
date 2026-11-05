@@ -17,6 +17,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
 | `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
 | `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
+| `20261105003011_count_activity_events.sql` | `count_activity_events` (security invoker): activity event counts per connection and type in a half open window, for the dashboard headline (#173) |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
