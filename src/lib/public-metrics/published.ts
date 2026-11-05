@@ -25,13 +25,14 @@ import { createSupabaseMetricStore } from "./supabase-store";
  * (#150), and the leaderboard read published values only through here:
  *
  * - `loadPublishedProjectMetrics(projectId)`: every live publication of a project, computed now.
- * - `loadPublishedMetric(projectId, metricId)`: one engine metric, for a badge or a card. Takes a
+ * - `loadPublishedMetric(projectId, metricId)`: one engine metric, for a badge. Takes a
  *   `PublicMetricId`, so a self-reported value can never become a badge.
+ * - `loadPublishedMetricCard(projectId, metricId)`: the same, with its trend, for a card.
  *
- * Both read `public_published_metrics()` (live rows only) with the service role and compute each
+ * All read `public_published_metrics()` (live rows only) with the service role and compute each
  * value from stored snapshots and events. Nothing here calls a provider, and nothing returned
- * names an account, a repository, or an amount of money. Both return null for a project that does
- * not exist and for one with nothing published, so a caller cannot tell the two apart.
+ * names an account, a repository, or an amount of money. Each returns null for a project that
+ * does not exist and for one with nothing published, so a caller cannot tell the two apart.
  *
  * The yearly card (#151) is private until shared and asks for its own window, so it calls
  * `computePublicMetrics` in engine.ts with `createSupabaseMetricStore` and a `from` instead.
@@ -226,15 +227,61 @@ export async function loadPublishedProjectMetrics(projectId: string, now: Date):
   return { projectId, workspaceId: first.workspace_id, metrics: [...engine, ...selfReported] };
 }
 
+/** The live publication row of one engine metric in the project, or undefined. */
+async function liveEngineRow(projectId: string, metricId: PublicMetricId): Promise<(LiveRow & { metric_id: PublicMetricId }) | undefined> {
+  for (const row of await liveRows(projectId)) {
+    if (row.metric_id === metricId) return { ...row, metric_id: row.metric_id };
+  }
+  return undefined;
+}
+
+function engineRow(row: LiveRow & { metric_id: PublicMetricId }): EngineRow {
+  return { id: row.id, metricId: row.metric_id, rounding: row.rounding, delayDays: row.delay_days, publishedAt: row.published_at };
+}
+
 /** One published engine metric of the project, computed at `now`, or null when it is not published. */
 export async function loadPublishedMetric(projectId: string, metricId: PublicMetricId, now: Date): Promise<PublishedEngineMetric | null> {
-  const row = (await liveRows(projectId)).find((candidate) => candidate.metric_id === metricId);
+  const row = await liveEngineRow(projectId, metricId);
   if (row === undefined) return null;
   const store = createSupabaseMetricStore(createAdminClient(), row.workspace_id, projectId);
-  const [metric] = await computePublishedEngineMetrics(
-    store,
-    [{ id: row.id, metricId, rounding: row.rounding, delayDays: row.delay_days, publishedAt: row.published_at }],
-    now,
-  );
+  const [metric] = await computePublishedEngineMetrics(store, [engineRow(row)], now);
   return metric ?? null;
+}
+
+/** One day of a published metric's trend: the public value at `at`, or null when it had none. */
+export type TrendPoint = Readonly<{ at: Date; value: number | null }>;
+
+/**
+ * The published value at the same moment on each of the `days` days before `metric.asOf`, oldest
+ * first, ending with the value itself. Each point is computed by the engine as a value published
+ * that day would have been, with the publication's rounding, so a rounded metric's trend never
+ * reveals the exact numbers and a delayed one never reaches past its own `asOf`.
+ */
+export async function publishedTrend(store: PublicMetricStore, metric: PublishedEngineMetric, days: number): Promise<TrendPoint[]> {
+  const moments = Array.from({ length: days + 1 }, (_, index) => new Date(metric.asOf.getTime() - (days - index) * DAY_MS));
+  const computed = await computePublicMetrics(
+    store,
+    moments.map((asOf) => ({ metricId: metric.metricId, asOf })),
+  );
+  return computed.map((point) => {
+    const value = publishedValue(point, metric.unit, metric.rounding);
+    return { at: point.asOf, value: value.status === "available" ? value.value : null };
+  });
+}
+
+export type PublishedMetricCard = Readonly<{ metric: PublishedEngineMetric; trend: readonly TrendPoint[] }>;
+
+/** A published engine metric with its trend over `trendDays`, for its card (#149), or null. */
+export async function loadPublishedMetricCard(
+  projectId: string,
+  metricId: PublicMetricId,
+  now: Date,
+  trendDays: number,
+): Promise<PublishedMetricCard | null> {
+  const row = await liveEngineRow(projectId, metricId);
+  if (row === undefined) return null;
+  const store = createSupabaseMetricStore(createAdminClient(), row.workspace_id, projectId);
+  const [metric] = await computePublishedEngineMetrics(store, [engineRow(row)], now);
+  if (metric === undefined) return null;
+  return { metric, trend: await publishedTrend(store, metric, trendDays) };
 }

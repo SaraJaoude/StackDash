@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -15,7 +16,9 @@ import {
   UnpublishButton,
   UnpublishEverythingButton,
 } from "@/components/public-metrics/publication-controls";
-import { countLivePublications, loadProjectPublications, type ProjectMetricStatus } from "@/lib/data/published-metrics";
+import { ShareDialog } from "@/components/public-metrics/share-dialog";
+import { connectOrigin } from "@/lib/connections/oauth-state";
+import { countLivePublications, loadProjectPublications, VIEW_WINDOW_DAYS, type ProjectMetricStatus } from "@/lib/data/published-metrics";
 import { formatDateTime } from "@/lib/format";
 import {
   allowedRoundings,
@@ -26,6 +29,17 @@ import {
 } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import type { PublishedValue } from "@/lib/public-metrics/published";
+import {
+  badgeAltText,
+  badgeMarkdown,
+  badgePath,
+  CARD_SIZE,
+  cardAltText,
+  cardPath,
+  shareableMetric,
+  shareText,
+  shareToXUrl,
+} from "@/lib/public-metrics/share";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -63,6 +77,17 @@ function ValueText({ value }: { value: PublishedValue }) {
   );
 }
 
+/**
+ * This deployment's public origin for share links: NEXT_PUBLIC_SITE_URL, else the request's own
+ * host, as the public JSON route builds its formula links.
+ */
+async function siteOrigin(): Promise<string> {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  return connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL);
+}
+
 async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projects/[projectId]/public-metrics">) {
   const { workspace: slug, projectId } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
@@ -70,9 +95,10 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   if (!z.guid().safeParse(projectId).success) notFound();
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
-  const [publications, liveCount] = await Promise.all([
+  const [publications, liveCount, origin] = await Promise.all([
     loadProjectPublications(workspace.id, projectId, now),
     countLivePublications(workspace.id),
+    siteOrigin(),
   ]);
   if (publications === null) notFound();
 
@@ -115,7 +141,8 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               <a href={publicDataPath} className="break-all font-medium text-foreground underline underline-offset-4">
                 {publicDataPath}
               </a>
-              . Badges, cards, and the project page will read the same values.
+              . Each published metric also has a live badge and a card: use Share beside it. The project page will
+              read the same values.
             </p>
           ) : (
             <p className="mt-2 leading-6 text-muted">Nothing from this project is public.</p>
@@ -149,6 +176,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
                 workspaceSlug={workspace.slug}
                 projectId={project.id}
                 canPublish={canPublish}
+                origin={origin}
               />
             ))}
           </ul>
@@ -203,16 +231,53 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   );
 }
 
+/** "1 time", "320 times". */
+function times(count: number): string {
+  return count === 1 ? "1 time" : `${new Intl.NumberFormat("en-US").format(count)} times`;
+}
+
+/** The share dialog of a published metric: its badge, its card, and where they are served. */
+function ShareMetric({ metric, publication, projectId, origin }: {
+  metric: ProjectMetricStatus;
+  publication: NonNullable<ProjectMetricStatus["publication"]>;
+  projectId: string;
+  origin: string;
+}) {
+  const shareable = shareableMetric(publication);
+  const badgeUrl = new URL(badgePath(projectId, metric.metricId), origin).href;
+  const cardUrl = new URL(cardPath(projectId, metric.metricId), origin).href;
+  return (
+    <ShareDialog
+      title={`Share ${metric.label}`}
+      triggerText="Share"
+      subject={metric.label}
+      badge={{
+        src: badgeUrl,
+        alt: badgeAltText(shareable),
+        markdown: badgeMarkdown({ badgeUrl, formulaUrl: new URL(metric.formulaPath, origin).href, label: metric.label }),
+      }}
+      card={{ src: cardUrl, alt: cardAltText(shareable), ...CARD_SIZE, publicUrl: cardUrl }}
+      xIntentUrl={shareToXUrl(shareText(shareable), cardUrl)}
+      notes={[
+        "Anyone with these links sees the published value, and nothing else. Unpublishing turns both into an Unpublished image within a minute.",
+        `In the last ${VIEW_WINDOW_DAYS} days DevMacro served the badge ${times(metric.views.badge)} and the card ${times(metric.views.card)}, including previews here. Views a cache answers, such as GitHub's image proxy, are not counted.`,
+      ]}
+    />
+  );
+}
+
 function MetricRow({
   metric,
   workspaceSlug,
   projectId,
   canPublish,
+  origin,
 }: {
   metric: ProjectMetricStatus;
   workspaceSlug: string;
   projectId: string;
   canPublish: boolean;
+  origin: string;
 }) {
   const { publication } = metric;
   const simulated =
@@ -253,9 +318,9 @@ function MetricRow({
           </Link>
         </p>
       </div>
-      {canPublish ? (
-        <div className="shrink-0">
-          {publication === null ? (
+      {publication === null ? (
+        canPublish ? (
+          <div className="shrink-0">
             <PublishMetricForm
               workspaceSlug={workspaceSlug}
               projectId={projectId}
@@ -265,16 +330,21 @@ function MetricRow({
               delays={DELAY_CHOICES}
               focusId={METRICS_HEADING_ID}
             />
-          ) : (
+          </div>
+        ) : null
+      ) : (
+        <div className="flex shrink-0 flex-wrap items-start gap-3">
+          {canPublish ? (
             <UnpublishButton
               workspaceSlug={workspaceSlug}
               publicationId={publication.publicationId}
               label={metric.label}
               focusId={METRICS_HEADING_ID}
             />
-          )}
+          ) : null}
+          <ShareMetric metric={metric} publication={publication} projectId={projectId} origin={origin} />
         </div>
-      ) : null}
+      )}
     </li>
   );
 }
