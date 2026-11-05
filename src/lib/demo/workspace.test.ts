@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { PUBLIC_METRICS } from "@/lib/public-metrics/definitions";
+
 import { DEMO_USER_EMAIL, demoPublicMetricIds, memberEmails } from "./workspace";
 
 describe("memberEmails", () => {
@@ -18,15 +20,10 @@ describe("memberEmails", () => {
 
 describe("demoPublicMetricIds", () => {
   it("lists every metric the project's providers can count, once each, in definition order", () => {
-    expect(demoPublicMetricIds(["vercel", "github", "vercel"])).toEqual([
-      "github-stars",
-      "github-stars-gained-7d",
-      "github-stars-gained-30d",
-      "vercel-deployments-7d",
-      "vercel-deployments-30d",
-      "vercel-deployment-streak",
-      "github-actions-minutes-month",
-    ]);
+    const ids = demoPublicMetricIds(["vercel", "github", "vercel"]);
+    expect(ids).toEqual(PUBLIC_METRICS.filter((definition) => ["vercel", "github"].includes(definition.provider)).map((definition) => definition.id));
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(ids.length).toBeGreaterThan(0);
   });
 
   it("lists nothing for a project with no provider that has public metrics (boundary)", () => {
