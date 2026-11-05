@@ -2,11 +2,20 @@ import { useId } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
+import { quotaProjectionText, type AllowanceProjection, type QuotaProjection, type SpendProjection } from "@/lib/dashboard/projection";
 import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
 import { CurrencyAmountsList, MoneyValueBlock } from "./currency-amounts";
-import { connectionStatusLabel, Freshness, ProvenanceBadge, ProviderMark, Unavailable } from "./value-meta";
+import {
+  connectionStatusLabel,
+  Freshness,
+  ProjectionNote,
+  ProvenanceBadge,
+  ProviderMark,
+  SpendProjectionNote,
+  Unavailable,
+} from "./value-meta";
 
 function QuantityCell({ label, value }: { label: string; value: QuantityValue | null }) {
   return (
@@ -26,7 +35,7 @@ function QuantityCell({ label, value }: { label: string; value: QuantityValue | 
   );
 }
 
-function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) {
+function AllowanceCard({ allowance, quota, now }: { allowance: Allowance; quota: QuotaProjection | undefined; now: Date }) {
   const titleId = useId();
   const parts = [allowance.included, allowance.used, allowance.remaining].filter((value) => value !== null);
   // The oldest part decides "Updated", and one stale part marks the card stale.
@@ -80,6 +89,9 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
             </dd>
           </div>
         </dl>
+        {quota === undefined ? null : (
+          <ProjectionNote text={quotaProjectionText(quota)} estimate={quota.status === "runs_out" || quota.status === "within"} />
+        )}
         {oldest === null ? null : (
           <div className="mt-2">
             <Freshness retrievedAt={oldest.retrievedAt} stale={stale} now={now} />
@@ -90,8 +102,22 @@ function AllowanceCard({ allowance, now }: { allowance: Allowance; now: Date }) 
   );
 }
 
-/** One connection: its spend, revenue, credit balance, billing period, and allowances. */
-export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: Date }) {
+/**
+ * One connection: its spend, revenue, credit balance, billing period, and allowances, with the
+ * spend and quota projections to the end of the period beside them (#167).
+ */
+export function ProviderCard({
+  summary,
+  spendProjections,
+  quotaProjections,
+  now,
+}: {
+  summary: ProviderSummary;
+  spendProjections: readonly SpendProjection[];
+  /** Keyed like `Allowance.key`. */
+  quotaProjections: ReadonlyMap<string, AllowanceProjection>;
+  now: Date;
+}) {
   const titleId = useId();
   const name = providerName(summary.provider);
   return (
@@ -152,6 +178,7 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
                   verifiedLabel="Verified spend"
                   estimatedLabel="Estimated spend"
                 />
+                <SpendProjectionNote projection={spendProjections.find((projection) => projection.currency === amounts.currency)} />
               </li>
             ))}
           </ul>
@@ -196,7 +223,7 @@ export function ProviderCard({ summary, now }: { summary: ProviderSummary; now: 
             <h4 className="mt-5 text-sm font-semibold">Allowances</h4>
             <ul className="mt-2 space-y-3">
               {summary.allowances.map((allowance) => (
-                <AllowanceCard key={allowance.key} allowance={allowance} now={now} />
+                <AllowanceCard key={allowance.key} allowance={allowance} quota={quotaProjections.get(allowance.key)?.quota} now={now} />
               ))}
             </ul>
           </>

@@ -4,12 +4,14 @@ import { useId, type ReactNode } from "react";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
 import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
+import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
 import { TrendChart } from "./trend-chart";
+import { SpendProjectionNote } from "./value-meta";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();
@@ -29,18 +31,45 @@ function Section({ title, description, children }: { title: string; description?
  * The columns follow the card list's own width rather than the viewport, because the same list
  * fills the whole row on its own and shares it when revenue sits beside spend.
  */
-function CurrencyCards({ amounts, noun, now }: { amounts: readonly CurrencyAmounts[]; noun: string; now: Date }) {
+function CurrencyCards({
+  amounts,
+  noun,
+  now,
+  projections = [],
+}: {
+  amounts: readonly CurrencyAmounts[];
+  noun: string;
+  now: Date;
+  /** Spend projections to the end of the period (#167), matched by currency. */
+  projections?: readonly SpendProjection[];
+}) {
   return (
     <ul className="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
       {amounts.map((entry) => (
-        <CurrencyCard key={entry.currency} amounts={entry} noun={noun} now={now} />
+        <CurrencyCard
+          key={entry.currency}
+          amounts={entry}
+          noun={noun}
+          now={now}
+          projection={projections.find((projection) => projection.currency === entry.currency)}
+        />
       ))}
     </ul>
   );
 }
 
 /** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
-function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: string; now: Date }) {
+function CurrencyCard({
+  amounts,
+  noun,
+  now,
+  projection,
+}: {
+  amounts: CurrencyAmounts;
+  noun: string;
+  now: Date;
+  projection: SpendProjection | undefined;
+}) {
   const titleId = useId();
   return (
     <li>
@@ -60,6 +89,7 @@ function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: 
             headline
           />
         </div>
+        <SpendProjectionNote projection={projection} />
       </section>
     </li>
   );
@@ -119,6 +149,7 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
 
 export function DashboardView({
   view,
+  projections,
   now,
   dashboardPath,
   scope,
@@ -128,6 +159,8 @@ export function DashboardView({
   trends,
 }: {
   view: View;
+  /** Spend and quota projections to the end of the period (#167). */
+  projections: DashboardProjections;
   now: Date;
   dashboardPath: string;
   scope: ScopeFilters;
@@ -160,7 +193,7 @@ export function DashboardView({
             </p>
           ) : (
             <div className="@container">
-              <CurrencyCards amounts={view.totals} noun="Spend" now={now} />
+              <CurrencyCards amounts={view.totals} noun="Spend" now={now} projections={projections.totals} />
             </div>
           )}
         </Section>
@@ -182,7 +215,13 @@ export function DashboardView({
         ) : (
           <ul className="grid gap-4 lg:grid-cols-2">
             {view.byProvider.map((summary) => (
-              <ProviderCard key={summary.connectionId} summary={summary} now={now} />
+              <ProviderCard
+                key={summary.connectionId}
+                summary={summary}
+                spendProjections={projections.byConnection.get(summary.connectionId) ?? []}
+                quotaProjections={projections.quotas}
+                now={now}
+              />
             ))}
           </ul>
         )}

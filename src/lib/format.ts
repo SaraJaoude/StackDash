@@ -74,6 +74,11 @@ export function formatPeriod(period: Readonly<{ start: string; end: string }>): 
   return `${UTC_DATE_FORMAT.format(new Date(period.start))} to ${UTC_DATE_FORMAT.format(lastDay)}`;
 }
 
+/** "2026-10-31": the UTC date of an instant, for days that belong to UTC billing periods. */
+export function formatUtcDate(at: Instant): string {
+  return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 const UTC_MONTH_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" });
 
 /** "October 2026": the UTC calendar month of an instant, for monthly buckets of UTC snapshot days. */

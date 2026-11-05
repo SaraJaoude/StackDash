@@ -10,6 +10,7 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import { projectDashboard } from "@/lib/dashboard/projection";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getTrendData } from "@/lib/data/trends";
@@ -111,9 +112,11 @@ async function DashboardContent({
 
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
+  const input = { ...data, now };
   return (
     <DashboardView
-      view={aggregateDashboard({ ...data, now })}
+      view={aggregateDashboard(input)}
+      projections={projectDashboard(input)}
       now={now}
       dashboardPath={dashboardPath}
       scope={scope}
