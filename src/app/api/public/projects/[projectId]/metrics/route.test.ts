@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublishedProjectMetrics } from "@/lib/public-metrics/published";
 
@@ -23,8 +23,13 @@ function get(projectId: string): Promise<Response> {
   });
 }
 
+beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+});
+
 afterEach(() => {
   loadPublishedProjectMetrics.mockReset();
+  vi.unstubAllEnvs();
 });
 
 describe("GET /api/public/projects/[projectId]/metrics", () => {
@@ -88,13 +93,41 @@ describe("GET /api/public/projects/[projectId]/metrics", () => {
       value: 1200,
       atLeast: true,
       lastSyncedAt: AT.toISOString(),
-      formulaUrl: "/docs/architecture/public-metrics#github-stars",
+      formulaUrl: "http://localhost/docs/architecture/public-metrics#github-stars",
     });
     expect(body.metrics[1]).toEqual(expect.objectContaining({ status: "unavailable", reason: "not_enough_history" }));
     expect(body.metrics[1]).not.toHaveProperty("value");
     expect(body.metrics[2]).toEqual(expect.objectContaining({ kind: "self_reported", provenance: "self_reported", value: 42 }));
     // Internal ids stay inside: no workspace id or publication ids in the public answer.
     expect(JSON.stringify(body)).not.toMatch(/20000000-0000-4000-8000-000000000001|80000000-/);
+    // Same-origin only: no CORS header, so another site's scripts cannot read it.
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+
+  it("builds formula links from NEXT_PUBLIC_SITE_URL when it is set, not from the request", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example.com/ignored-path");
+    loadPublishedProjectMetrics.mockResolvedValue({
+      projectId: PROJECT_ID,
+      workspaceId: "20000000-0000-4000-8000-000000000001",
+      metrics: [
+        {
+          kind: "engine",
+          publicationId: "80000000-0000-4000-8000-000000000001",
+          metricId: "github-stars",
+          label: "GitHub stars",
+          provenance: "verified",
+          unit: "stars",
+          formulaPath: "/docs/architecture/public-metrics#github-stars",
+          rounding: "exact",
+          delayDays: 0,
+          asOf: AT,
+          publishedAt: AT,
+          value: { status: "unavailable", reason: "no_data", text: "No data yet" },
+        },
+      ],
+    });
+    const body = await (await get(PROJECT_ID)).json();
+    expect(body.metrics[0].formulaUrl).toBe("https://devmacro.example.com/docs/architecture/public-metrics#github-stars");
   });
 
   it.each([

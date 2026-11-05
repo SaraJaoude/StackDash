@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { z } from "zod";
 
+import { connectOrigin } from "@/lib/connections/oauth-state";
 import { logError } from "@/lib/log/logger";
 import { loadPublishedProjectMetrics, type PublishedMetric } from "@/lib/public-metrics/published";
 
@@ -12,6 +13,14 @@ import { loadPublishedProjectMetrics, type PublishedMetric } from "@/lib/public-
  * Caching: one minute in browsers and shared caches, so an unpublished metric stops showing within
  * a minute (#149's acceptance bound) while an embed polled by many readers is computed about once a
  * minute per cache. Not prerendered: every response reads the database at request time.
+ *
+ * CORS: same-origin only. No `Access-Control-Allow-Origin` is sent, so a script on another site
+ * cannot `fetch` this; badges and cards (#149) are rendered by DevMacro's own server, and anyone
+ * else can still read the JSON server-side or with curl. Opening it to browsers elsewhere is a
+ * separate decision, not a side effect of a new surface.
+ *
+ * `formulaUrl` is absolute (NEXT_PUBLIC_SITE_URL, else the request's origin, as the connect routes
+ * build theirs), because readers off-site cannot resolve a path against an origin they do not know.
  */
 
 const CACHE_CONTROL = "public, max-age=60, s-maxage=60";
@@ -27,7 +36,7 @@ function notFound(): Response {
   );
 }
 
-function serialize(metric: PublishedMetric) {
+function serialize(metric: PublishedMetric, origin: string) {
   if (metric.kind === "self_reported") {
     return {
       kind: metric.kind,
@@ -46,7 +55,7 @@ function serialize(metric: PublishedMetric) {
     label: metric.label,
     provenance: metric.provenance,
     unit: metric.unit,
-    formulaUrl: metric.formulaPath,
+    formulaUrl: new URL(metric.formulaPath, origin).href,
     rounding: metric.rounding,
     delayDays: metric.delayDays,
     asOf: metric.asOf.toISOString(),
@@ -64,7 +73,7 @@ function serialize(metric: PublishedMetric) {
   };
 }
 
-export async function GET(_request: Request, ctx: RouteContext<"/api/public/projects/[projectId]/metrics">) {
+export async function GET(request: Request, ctx: RouteContext<"/api/public/projects/[projectId]/metrics">) {
   // The answer depends on the clock and the database, so it is always rendered at request time.
   await connection();
   const { projectId } = await ctx.params;
@@ -73,8 +82,9 @@ export async function GET(_request: Request, ctx: RouteContext<"/api/public/proj
   try {
     const published = await loadPublishedProjectMetrics(projectId, new Date());
     if (published === null) return notFound();
+    const origin = connectOrigin(request.url, process.env.NEXT_PUBLIC_SITE_URL);
     return Response.json(
-      { projectId: published.projectId, metrics: published.metrics.map(serialize) },
+      { projectId: published.projectId, metrics: published.metrics.map((metric) => serialize(metric, origin)) },
       { headers: { "Cache-Control": CACHE_CONTROL } },
     );
   } catch (error) {

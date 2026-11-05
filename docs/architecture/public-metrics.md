@@ -62,6 +62,8 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 
 `GET /api/public/projects/<project id>/metrics` returns a project's live publications as JSON, for anyone. A project that does not exist and one with nothing published both answer `404`, so the route never reveals which projects exist. Responses are cached for 60 seconds (`Cache-Control: public, max-age=60, s-maxage=60`), so an unpublished value stops showing within a minute.
 
+The route is same-origin only: it sends no `Access-Control-Allow-Origin`, so a script on another site cannot `fetch` it in a browser. Badges and cards are rendered by DevMacro's own server, and anyone can still read the JSON from a server or with curl. `formulaUrl` is an absolute URL on this DevMacro (from `NEXT_PUBLIC_SITE_URL`, else the request's origin), so a reader off-site can follow it.
+
 ```json
 {
   "projectId": "30000000-0000-4000-8000-000000000001",
@@ -72,7 +74,7 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
       "label": "GitHub stars",
       "provenance": "verified",
       "unit": "stars",
-      "formulaUrl": "/docs/architecture/public-metrics#github-stars",
+      "formulaUrl": "https://devmacro.example.com/docs/architecture/public-metrics#github-stars",
       "rounding": "hundreds",
       "delayDays": 0,
       "asOf": "2026-11-05T12:00:00.000Z",
