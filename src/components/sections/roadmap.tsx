@@ -17,6 +17,7 @@ const phases: readonly Phase[] = [
       "Daily and weekly email digests",
       "Percentage and dollar thresholds",
       "Publish chosen metrics, one at a time",
+      "Opt-in public project pages",
       "Allowances, remaining quota, and reset dates",
       "Spend where the provider allows it",
       "Usage history",
@@ -27,7 +28,6 @@ const phases: readonly Phase[] = [
     summary: "Share what you publish, see what is coming, and query it from your own tools.",
     items: [
       "README badges and shareable milestone cards",
-      "Opt-in public project pages",
       "Spend forecasts and anomaly detection",
       "More integrations, starting with GitLab",
       "Public REST API with scoped keys",
@@ -50,7 +50,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, and publishing your own stats. Badges, public pages, forecasts, an API, and self-hosting follow."
+      intro="The first release covers the timeline, alerts, and a public page for the stats you choose. Badges, forecasts, an API, and self-hosting follow."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

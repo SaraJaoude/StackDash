@@ -37,13 +37,13 @@ const stages: readonly Stage[] = [
     comingNext: false,
   },
   {
-    name: "Badges and milestone cards",
-    body: "A README badge or an image to post on X, LinkedIn, or Reddit, for any metric you have published.",
-    comingNext: true,
+    name: "Public project pages",
+    body: "An opt-in page at its own address with the metrics you publish, their history, and milestones.",
+    comingNext: false,
   },
   {
-    name: "Public project pages",
-    body: "An opt-in page with the metrics you publish and their history.",
+    name: "Badges and milestone cards",
+    body: "A README badge or an image to post on X, LinkedIn, or Reddit, for any metric you have published.",
     comingNext: true,
   },
 ];
