@@ -4,7 +4,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(7);
+select plan(8);
 
 -- Fixtures as postgres: one owner, one workspace, one Polar connection with one organization.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
@@ -102,6 +102,21 @@ select throws_ok(
   $$,
   '23514', null,
   'value shape: revenue with a quantity as well as money is still rejected');
+
+-- Control: the recreated non-negative check still holds for spend.
+select throws_ok(
+  $$
+    insert into public.usage_snapshots (
+      workspace_id, connection_id, external_account_id, metric_key, kind, label, snapshot_date,
+      amount_minor, currency, period_start, period_end, retrieved_at, provenance_source
+    )
+    values ('a80000a0-0000-4000-8000-000000000000', 'a80000c1-0000-4000-8000-000000000000',
+            'a80000e1-0000-4000-8000-000000000000', 'polar.fees.month.usd', 'verified_spend',
+            'Polar fees, this month (USD)', date '2026-11-05', -1, 'USD',
+            timestamptz '2026-11-01 00:00:00+00', timestamptz '2026-11-05 12:00:00+00', now(), 'provider_api')
+  $$,
+  '23514', null,
+  'spend: a negative amount is still rejected');
 
 select * from finish();
 rollback;
