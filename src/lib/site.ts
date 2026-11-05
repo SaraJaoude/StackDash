@@ -23,7 +23,8 @@ export type Platform =
   | "DigitalOcean"
   | "PostHog"
   | "Polar"
-  | "Sentry";
+  | "Sentry"
+  | "Railway";
 
 export interface NavLink {
   label: string;

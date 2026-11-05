@@ -63,6 +63,11 @@ export function addDecimals(values: readonly Decimal[]): Decimal {
   return { coefficient, scale };
 }
 
+/** Exact product, for a usage quantity times a unit price; round the sum once with toMinorUnits. */
+export function multiplyDecimals(a: Decimal, b: Decimal): Decimal {
+  return { coefficient: a.coefficient * b.coefficient, scale: a.scale + b.scale };
+}
+
 /** Digits after the decimal point for an ISO 4217 code (2 for USD, 0 for JPY, 3 for KWD). */
 export function currencyMinorDigits(currency: string): number {
   if (!/^[A-Z]{3}$/.test(currency)) {

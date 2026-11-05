@@ -7,9 +7,9 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
 
 /*
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
- * (playwright.config.ts), so Vercel, Stripe, and Polar connect from the catalog through the dev consent
- * screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up data, and
- * every screen labels it "Simulated". Nothing leaves the machine.
+ * (playwright.config.ts), so Vercel, Stripe, Polar, and Railway connect from the catalog through the
+ * dev consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up
+ * data, and every screen labels it "Simulated". Nothing leaves the machine.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
@@ -21,6 +21,7 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
 const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
 const POLAR_CONNECTION = "Polar (Example organization)";
+const RAILWAY_CONNECTION = "Railway (Example workspace)";
 
 /** Ticks until every simulated connection has synced; other specs' jobs may share a tick. */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {
@@ -34,7 +35,7 @@ async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<vo
       .eq("workspace_id", workspace.id)
       .limit(10);
     if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
-    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["polar", "stripe", "vercel"]);
+    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["polar", "railway", "stripe", "vercel"]);
   }).toPass({ timeout: 90_000 });
 }
 
@@ -46,11 +47,12 @@ ownerTest.describe("simulated providers", () => {
       await connectSimulated(page, workspace.slug, "Vercel");
       await connectSimulated(page, workspace.slug, "Stripe");
       await connectSimulated(page, workspace.slug, "Polar");
+      await connectSimulated(page, workspace.slug, "Railway");
 
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");
-      await expect(connections).toHaveCount(3);
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION]) {
+      await expect(connections).toHaveCount(4);
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
         const row = connections.filter({ has: page.getByRole("link", { name, exact: true }) });
         await expect(row.getByText("Simulated", { exact: true })).toBeVisible();
       }
@@ -78,19 +80,21 @@ ownerTest.describe("simulated providers", () => {
       await expect(events.first().getByText("Polar", { exact: true })).toBeVisible();
       await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
 
-      // A Vercel deployment is not guaranteed in the backfill, so the filtered page may be empty;
-      // every Vercel row that is there is labeled. The Vercel dashboard card below always is.
-      await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
-      await expect(status).toHaveText(/^Showing (no events|\d+ events?) for provider Vercel$/);
-      const vercelRows = await events.count();
-      for (let index = 0; index < vercelRows; index += 1) {
-        await expect(events.nth(index).getByText("Vercel", { exact: true })).toBeVisible();
-        await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+      // A Vercel or Railway deployment is not guaranteed in the backfill, so the filtered page may
+      // be empty; every row that is there is labeled. The dashboard cards below always are.
+      for (const [slug, name] of [["vercel", "Vercel"], ["railway", "Railway"]] as const) {
+        await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
+        await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
+        const rows = await events.count();
+        for (let index = 0; index < rows; index += 1) {
+          await expect(events.nth(index).getByText(name, { exact: true })).toBeVisible();
+          await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
+        }
       }
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const byProvider = page.getByRole("region", { name: "By provider" });
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION]) {
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
         await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
       }
       // Polar's revenue shows as revenue and its fees as spend on its own card, never mixed.
