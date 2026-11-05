@@ -17,6 +17,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
 | `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
 | `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
+| `20261105023129_published_metrics.sql` | `public_metric_id`, `published_metric_rounding`, `published_metrics`, and the publish, unpublish, and public read functions |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -50,6 +51,7 @@ erDiagram
   projects |o--o{ alert_rules : "scope"
   connections |o--o{ alert_rules : "scope"
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
+  projects ||--o{ published_metrics : "publishes"
   connections |o--o{ sync_jobs : "syncs"
 
   workspaces {
@@ -107,6 +109,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules` | viewer | admin |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
+| `published_metrics` | viewer | none (service role functions, after an owner or admin check) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `profiles` | own row | own row |
 | `connection_credentials`, `oauth_states`, `access_invites` | none | none (service role; the auth hook reads invites) |
@@ -169,9 +172,21 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
+| `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 
 Nothing is aggregated in the MVP.
+
+## Public metrics (#148)
+
+`published_metrics` records which metrics a workspace has made public, per project. What each metric is and how it is counted is in [Public metrics](public-metrics.md).
+
+- `metric_id` is the enum `public_metric_id`, the only list of publishable metrics; the code keys its definitions by the same enum through the generated types. Spend, budgets, and alert thresholds have no value in it. A row with no `metric_id` is a self-reported value with its own label, value (a whole number), and unit; `published_metrics_source` allows exactly one of the two shapes.
+- Rows are never edited except to revoke them (`revoked_at`, `revoked_by`), so the table is also the publication history. Partial unique indexes allow one live row per metric, and per self-reported label ignoring case, in a project.
+- Members read it as viewers. Nobody writes through the Data API: `publish_metric`, `publish_self_reported_metric`, `unpublish_metric`, and `unpublish_all_metrics` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.metric_published`, `devmacro.metric_unpublished`, or `devmacro.metrics_unpublished_all` timeline event in the same transaction.
+- `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
+- `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.
+- Not published to Realtime: the page that changes a publication refreshes itself, and the timeline hears the audit event through `activity_events`.
 
 ## Review against later plans
 
