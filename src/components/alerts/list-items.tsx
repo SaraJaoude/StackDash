@@ -27,7 +27,7 @@ function focusOnMount(node: HTMLElement | null) {
  * (saved or cancelled) returns focus to the Edit button and announces the outcome. Focus moves
  * through callback refs driven by state, so nothing reads a ref during render.
  */
-function EditableRow({
+export function EditableRow({
   summary,
   details,
   badges,
@@ -107,13 +107,15 @@ function EditableRow({
   );
 }
 
-function Badge({ children, tone }: { children: ReactNode; tone: "neutral" | "accent" | "muted" }) {
+export function Badge({ children, tone }: { children: ReactNode; tone: "neutral" | "accent" | "muted" | "danger" }) {
   const toneClass =
     tone === "accent"
       ? "border-accent/50 text-accent"
       : tone === "muted"
         ? "border-line-strong text-muted"
-        : "border-success/50 text-success";
+        : tone === "danger"
+          ? "border-danger/50 text-danger"
+          : "border-success/50 text-success";
   return (
     <span className={`inline-flex min-h-6 items-center rounded-full border px-2.5 text-xs font-medium ${toneClass}`}>
       {children}

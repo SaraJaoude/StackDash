@@ -12,6 +12,7 @@ import { utcDate } from "@/lib/jobs/ingest";
 import { MemoryJobStore, type MemorySnapshot } from "@/lib/jobs/memory-store";
 import { runSyncJob, type SyncDeps } from "@/lib/jobs/sync-connection";
 import type { Logger } from "@/lib/log/logger";
+import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 import { groupEventsByDay, londonDate } from "@/lib/timeline/days";
 
 import { DEMO_HISTORY_DAYS, demoAccountSeed, demoSeedRefusal, historySteps, isLoopbackUrl, replayHistory } from "./history";
@@ -217,6 +218,7 @@ describe("replayHistory with every simulated provider in the registry", () => {
       evaluateAlerts: async (_workspaceId, at) => {
         alertClocks.push(at.toISOString());
       },
+      notifications: () => memoryNotificationDeps(),
     };
     await replayHistory({
       deps,

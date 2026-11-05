@@ -51,7 +51,8 @@ const BUDGET_COLUMNS = "id, name, scope, provider, project_id, connection_id, am
 const SNAPSHOT_COLUMNS =
   "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source";
 
-async function loadSnapshots(
+/** The workspace's snapshots dated `sinceDate` or later, newest first, as the service role. */
+export async function loadSnapshots(
   db: SupabaseClient<Database>,
   workspaceId: string,
   sinceDate: string,
@@ -182,6 +183,11 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
           threshold_label: trigger.thresholdLabel,
           is_estimated: trigger.isEstimated,
           message: trigger.message,
+          title: trigger.title,
+          provider: trigger.provider,
+          project_id: trigger.projectId,
+          resets_at: trigger.resetsAt,
+          // dispatched_at stays null: the next tick's alert dispatch sends it (src/lib/notifications).
         }),
       ),
       { onConflict: "rule_id,cycle_key", ignoreDuplicates: true },

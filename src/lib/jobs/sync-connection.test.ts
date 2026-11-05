@@ -5,6 +5,7 @@ import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import type { Logger } from "@/lib/log/logger";
+import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { BACKOFF_CAP_MS, backoffCeilingMs } from "./backoff";
 import { ALLOWANCE_RESET_TYPE_ID } from "./ingest";
@@ -85,6 +86,7 @@ function setup(
       if (options.alertsFail === true) throw new Error("alert evaluation failed");
       return { triggered: 0 };
     },
+    notifications: () => memoryNotificationDeps(),
   };
   return {
     store,

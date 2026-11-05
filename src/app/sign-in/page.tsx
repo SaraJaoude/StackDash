@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
@@ -18,6 +19,10 @@ export const metadata: Metadata = {
   title: "Sign in",
   robots: { index: false },
 };
+
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
 
 // Codes the auth routes put in `?error=`. Anything else in the URL is ignored.
 const signInErrorSchema = z.enum(["not_invited", "cancelled", "start_failed", "callback_failed"]);
@@ -101,7 +106,8 @@ async function SignInPanel({ searchParams }: { searchParams: PageProps<"/sign-in
   );
 }
 
-export default function SignInPage({ searchParams }: PageProps<"/sign-in">) {
+export default async function SignInPage({ searchParams }: PageProps<"/sign-in">) {
+  await connection();
   return (
     <main id="main" className="flex flex-1 items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-panel p-8">
