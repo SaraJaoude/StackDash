@@ -163,6 +163,9 @@ ownerTest.describe("dashboard headline strip", () => {
       await expect(figure("Spend")).toContainText("Unavailable from Stripe and Supabase, not counted.");
       await expect(figure("Revenue minus spend")).toContainText(usd(4_000 * days));
       await expect(figure("Revenue minus spend")).toContainText(`Up 14 percent from ${usd(3_500 * days)}`);
+      // Stripe's revenue counts; only its spend, and Supabase's, are left out.
+      await expect(figure("Revenue minus spend")).toContainText("Leaves out spend from Stripe and Supabase, unavailable for this window.");
+      await expect(figure("Revenue minus spend")).not.toContainText("Leaves out revenue");
       await expect(figure("Cost per signup")).toContainText("No change from");
       await expect(figure("Signups")).toContainText("6 signups");
       await expect(figure("Signups")).toContainText("Up 100 percent from 3 signups on the same days last week");
@@ -199,7 +202,7 @@ ownerTest.describe("dashboard headline strip", () => {
       await page.goto(`/w/${workspace.slug}/dashboard?provider=fake`);
       const scoped = page.getByRole("region", { name: "This week so far" });
       await expect(scoped.getByRole("definition").first()).toContainText("Unavailable");
-      await expect(scoped.getByRole("definition").first()).toContainText("No connected provider reports revenue.");
+      await expect(scoped.getByRole("definition").first()).toContainText("No provider in this view reports revenue.");
       await expect(scoped.getByRole("definition").nth(1)).toContainText("From Example provider.");
       await expect(scoped.getByRole("definition").nth(1)).not.toContainText("Unavailable from");
     } finally {

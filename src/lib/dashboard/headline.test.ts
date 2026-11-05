@@ -417,8 +417,6 @@ describe("headline copy", () => {
   it("explains cost per signup with exactly the providers in it and the ones left out", () => {
     expect(
       costPerSignupExplanation({
-        lines: null,
-        missing: null,
         spendFrom: ["GitHub", "Vercel"],
         signupsFrom: ["Supabase"],
         spendUnavailable: ["Resend", "Supabase"],
@@ -433,7 +431,7 @@ describe("headline copy", () => {
     const texts = [
       headlineComparisonText({ status: "change", direction: "down", percent: 50, previous: -500 }, usd, "week"),
       windowDescription(headlineWindows("month", NOW)),
-      costPerSignupExplanation({ lines: null, missing: null, spendFrom: ["Vercel"], signupsFrom: ["Supabase"], spendUnavailable: [], signupsUnavailable: [] }),
+      costPerSignupExplanation({ spendFrom: ["Vercel"], signupsFrom: ["Supabase"], spendUnavailable: [], signupsUnavailable: [] }),
     ];
     for (const text of texts) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });

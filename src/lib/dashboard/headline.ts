@@ -308,22 +308,36 @@ export type CountFigure = FigureSources & Readonly<{ value: FigureValue | null }
 
 export type DeploysFigure = CountFigure & Readonly<{ failed: number | null }>;
 
-export type CostPerSignupFigure = Readonly<{
-  /** null when spend or signups are unavailable, or there were no signups. */
+/**
+ * Revenue minus spend, per currency and provenance. `lines` is null unless both revenue and spend
+ * have a source; the providers left out on each side are the revenue and spend figures' own.
+ */
+export type NetFigure = Readonly<{
   lines: readonly MoneyLine[] | null;
-  missing: "spend" | "signups" | "no_signups" | null;
+  /** Providers behind either side with no complete previous window, so no comparison. */
+  previousUnavailable: readonly string[];
+}>;
+
+/** The providers behind cost per signup, and the ones left out because they could not report. */
+export type CostPerSignupSources = Readonly<{
   spendFrom: readonly string[];
   signupsFrom: readonly string[];
-  /** Left out because they could not report the window. */
   spendUnavailable: readonly string[];
   signupsUnavailable: readonly string[];
 }>;
+
+/** Lines only when spend and signups both have a source and there was at least one signup. */
+export type CostPerSignupFigure = CostPerSignupSources &
+  (
+    | Readonly<{ missing: null; lines: readonly MoneyLine[] }>
+    | Readonly<{ missing: "spend" | "signups" | "no_signups"; lines: null }>
+  );
 
 export type HeadlineStrip = Readonly<{
   windows: HeadlineWindows;
   revenue: MoneyFigure;
   spend: MoneyFigure;
-  net: MoneyFigure;
+  net: NetFigure;
   signups: CountFigure;
   costPerSignup: CostPerSignupFigure;
   deploys: DeploysFigure;
@@ -480,7 +494,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     return sum + (eventsOf(failedTypes)(connection, specs.current)?.get("count") ?? 0);
   }, 0);
 
-  // Revenue minus spend: both sides must have a source. Unavailable sources on either side are named.
+  // Revenue minus spend: both sides must have a source.
   const netTotals = (revenueTotals: Totals | null, spendTotals: Totals | null): Totals | null => {
     if (revenueTotals === null || spendTotals === null) return null;
     const totals: Totals = new Map();
@@ -489,9 +503,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     return totals;
   };
   const netCurrent = netTotals(revenue.current, spend.current);
-  const net: MoneyFigure = {
-    included: names([...revenue.included, ...spend.included]),
-    unavailable: names([...revenue.unavailable, ...spend.unavailable]),
+  const net: NetFigure = {
     previousUnavailable: names([...revenue.previousUnavailable, ...spend.previousUnavailable]),
     lines: netCurrent === null ? null : toLines(netCurrent, netTotals(revenue.previous, spend.previous)),
   };
@@ -499,24 +511,23 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   // Cost per signup: spend over signups, per currency and provenance, only when both are there.
   const signupCount = signupsFigure.value?.value ?? null;
   const previousSignups = signups.previous === null ? null : (signups.previous.get("count") ?? 0);
-  const missing =
-    spend.current === null ? "spend" : signupCount === null ? "signups" : signupCount === 0 ? "no_signups" : null;
-  const costPerSignup: CostPerSignupFigure = {
-    lines:
-      missing !== null || spend.current === null || signupCount === null
-        ? null
-        : toLines(
-            divideTotals(spend.current, signupCount),
-            spend.previous === null || previousSignups === null || previousSignups === 0
-              ? null
-              : divideTotals(spend.previous, previousSignups),
-          ),
-    missing,
+  const costSources = {
     spendFrom: names(spend.included),
     signupsFrom: names(signups.included),
     spendUnavailable: names(spend.unavailable),
     signupsUnavailable: names(signups.unavailable),
   };
+  let costPerSignup: CostPerSignupFigure;
+  if (spend.current === null) costPerSignup = { ...costSources, missing: "spend", lines: null };
+  else if (signupCount === null) costPerSignup = { ...costSources, missing: "signups", lines: null };
+  else if (signupCount === 0) costPerSignup = { ...costSources, missing: "no_signups", lines: null };
+  else {
+    const previousCost =
+      spend.previous === null || previousSignups === null || previousSignups === 0
+        ? null
+        : divideTotals(spend.previous, previousSignups);
+    costPerSignup = { ...costSources, missing: null, lines: toLines(divideTotals(spend.current, signupCount), previousCost) };
+  }
 
   // A provider's billing period differs from the window unless it starts on the window's first day.
   const moneySources = [...new Set([...revenue.included, ...spend.included])];
@@ -607,7 +618,7 @@ export function moneyFormatter(currency: string): (value: number) => string {
 }
 
 /** The cost per signup explanation: exactly which providers went into it. */
-export function costPerSignupExplanation(figure: CostPerSignupFigure): string {
+export function costPerSignupExplanation(figure: CostPerSignupSources): string {
   const parts: string[] = [];
   if (figure.spendFrom.length > 0 && figure.signupsFrom.length > 0) {
     parts.push(`Spend from ${listNames(figure.spendFrom)}, divided by signups from ${listNames(figure.signupsFrom)}.`);

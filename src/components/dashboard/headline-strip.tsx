@@ -20,6 +20,7 @@ import {
   type HeadlineStrip as Strip,
   type HeadlineWindowKind,
   type MoneyFigure,
+  type MoneyLine,
 } from "@/lib/dashboard/headline";
 import { formatQuantity } from "@/lib/format";
 
@@ -56,7 +57,7 @@ function UnavailableFigure({ reason }: { reason: string }) {
 
 function sourcesUnavailable(sources: FigureSources, noun: string): string {
   return sources.unavailable.length === 0
-    ? `No connected provider reports ${noun}.`
+    ? `No provider in this view reports ${noun}.`
     : `${listNames(sources.unavailable)} could not report ${noun} for this window.`;
 }
 
@@ -97,11 +98,18 @@ function Value({
 }
 
 /** Each currency on its own line, verified and estimated side by side, never added together. */
-function MoneyLines({ figure, kind }: { figure: MoneyFigure | CostPerSignupFigure; kind: HeadlineWindowKind }) {
-  const previousUnavailable = "previousUnavailable" in figure ? figure.previousUnavailable : [];
+function MoneyLines({
+  lines,
+  previousUnavailable = [],
+  kind,
+}: {
+  lines: readonly MoneyLine[];
+  previousUnavailable?: readonly string[] | undefined;
+  kind: HeadlineWindowKind;
+}) {
   return (
     <ul className="space-y-3">
-      {(figure.lines ?? []).map((line) => {
+      {lines.map((line) => {
         const format = moneyFormatter(line.currency);
         return (
           <li key={line.currency} className="space-y-2">
@@ -122,7 +130,7 @@ function MoneyFigureBody({ figure, kind, noun }: { figure: MoneyFigure; kind: He
   if (figure.lines === null) return <UnavailableFigure reason={sourcesUnavailable(figure, noun)} />;
   return (
     <>
-      <MoneyLines figure={figure} kind={kind} />
+      <MoneyLines lines={figure.lines} previousUnavailable={figure.previousUnavailable} kind={kind} />
       <SourcesLine sources={figure} />
     </>
   );
@@ -162,6 +170,12 @@ const COST_PER_SIGNUP_MISSING = {
   no_signups: "No signups in this window to share the spend over.",
 } as const satisfies Record<NonNullable<CostPerSignupFigure["missing"]>, string>;
 
+/** "Leaves out spend from Supabase, unavailable for this window." for each side that left one out. */
+function LeftOut({ side, names }: { side: string; names: readonly string[] }) {
+  if (names.length === 0) return null;
+  return <p className="text-xs leading-5 text-muted">{`Leaves out ${side} from ${listNames(names)}, unavailable for this window.`}</p>;
+}
+
 function DeploysExtra({ figure }: { figure: DeploysFigure }) {
   if (figure.failed === null || figure.failed === 0) return null;
   return <p className="text-xs leading-5 text-muted">{`Including ${formatQuantity(figure.failed, "failed")}.`}</p>;
@@ -170,7 +184,7 @@ function DeploysExtra({ figure }: { figure: DeploysFigure }) {
 export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<Record<HeadlineWindowKind, string>> }) {
   const titleId = useId();
   const { kind } = strip.windows;
-  const net = strip.net;
+  const { net, costPerSignup } = strip;
   return (
     <section aria-labelledby={titleId} className="mt-6 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -214,10 +228,9 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
             <UnavailableFigure reason="Needs both revenue and spend for this window." />
           ) : (
             <>
-              <MoneyLines figure={net} kind={kind} />
-              {net.unavailable.length > 0 ? (
-                <p className="text-xs leading-5 text-muted">{`Leaves out ${listNames(net.unavailable)}, unavailable for this window.`}</p>
-              ) : null}
+              <MoneyLines lines={net.lines} previousUnavailable={net.previousUnavailable} kind={kind} />
+              <LeftOut side="revenue" names={strip.revenue.unavailable} />
+              <LeftOut side="spend" names={strip.spend.unavailable} />
             </>
           )}
         </Figure>
@@ -226,12 +239,12 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
         </Figure>
         <Figure
           label="Cost per signup"
-          extra={<InfoTooltip label="How cost per signup is worked out" text={costPerSignupExplanation(strip.costPerSignup)} />}
+          extra={<InfoTooltip label="How cost per signup is worked out" text={costPerSignupExplanation(costPerSignup)} />}
         >
-          {strip.costPerSignup.missing === null ? (
-            <MoneyLines figure={strip.costPerSignup} kind={kind} />
+          {costPerSignup.missing === null ? (
+            <MoneyLines lines={costPerSignup.lines} kind={kind} />
           ) : (
-            <UnavailableFigure reason={COST_PER_SIGNUP_MISSING[strip.costPerSignup.missing]} />
+            <UnavailableFigure reason={COST_PER_SIGNUP_MISSING[costPerSignup.missing]} />
           )}
         </Figure>
         <Figure label="Deploys">
