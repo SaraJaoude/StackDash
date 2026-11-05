@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useId, useRef, useState } from "react";
+import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 
@@ -220,8 +220,7 @@ function CreateApiKeyForm({
   workspaceSlug: string;
   onCreated: (name: string, key: string) => void;
 }) {
-  // Controlled so a rejected submit keeps what was typed and ticked (React resets uncontrolled
-  // fields after every form action).
+  // Controlled so a rejected submit keeps what was typed and ticked.
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<ReadonlySet<ApiKeyScope>>(new Set());
   const [state, formAction, pending] = useActionState<CreateApiKeyResult | null, FormData>(
@@ -246,7 +245,16 @@ function CreateApiKeyForm({
   const scopesError = failure?.fieldErrors?.scopes;
 
   return (
-    <form action={formAction}>
+    <form
+      // Submitted here rather than through the `action` prop: React resets a form after its action
+      // runs, and while it restores a controlled text field (it syncs the default value), a reset
+      // unticks controlled checkboxes. A successful create clears the fields itself above.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        startTransition(() => formAction(formData));
+      }}
+    >
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <label htmlFor={`${id}-name`} className="block text-sm font-medium">
         Key name

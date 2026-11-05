@@ -136,6 +136,8 @@ ownerTest.describe("API keys as the owner", () => {
       await expect(section.getByText("No API keys yet.")).toBeVisible();
 
       const key = await createKeyWithKeyboard(page, "Reporting script", SCOPES);
+      // The button fades back from its pending style; scan once it has, or axe measures mid-fade.
+      await expect(section.getByRole("button", { name: "Create key" })).toHaveCSS("opacity", "1");
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
@@ -326,6 +328,9 @@ ownerTest.describe("API keys as the owner", () => {
       await expect(page.locator(":focus")).toContainText(
         "This workspace already has 20 keys that are not revoked. Revoke one you no longer use, then create the new one.",
       );
+      // A rejected submit keeps what was typed and ticked.
+      await expect(section.getByLabel("Key name")).toHaveValue("One too many");
+      await expect(section.getByRole("checkbox", { name: /usage:read/ })).toBeChecked();
       await expect(section.getByRole("listitem").filter({ hasText: "One too many" })).toHaveCount(0);
       const { count, error: countError } = await adminClient()
         .from("api_keys")
