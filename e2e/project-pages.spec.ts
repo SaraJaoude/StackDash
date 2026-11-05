@@ -134,6 +134,8 @@ ownerTest.describe("project pages as the owner", () => {
       // Off: the next request answers 404, the same page as an address that never existed.
       await asStranger(browser, baseURL, address, expectNotFound);
       await asStranger(browser, baseURL, `/@${workspace.slug}/no-such-page`, expectNotFound);
+      // A slug longer than any page can have answers the same 404, refused before any query.
+      await asStranger(browser, baseURL, `/@${workspace.slug}/${"a".repeat(41)}`, expectNotFound);
       expect((await readPublic(baseURL, "/sitemap.xml")).body).not.toContain(address);
     } finally {
       await deleteTestWorkspace(workspace);

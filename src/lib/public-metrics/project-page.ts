@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isWorkspaceSlug } from "@/lib/workspaces/paths";
+
 /*
  * Public project pages (#150): the address and the slug rules, shared by the settings form (limits
  * and hints), the Server Actions (validation), the proxy's rewrite, the page, and the sitemap.
@@ -39,4 +41,18 @@ export function suggestPageSlug(projectName: string): string {
 /** The public address of a page: `/@<workspace slug>/<page slug>`. */
 export function projectPagePath(workspaceSlug: string, pageSlug: string): string {
   return `/@${workspaceSlug}/${pageSlug}`;
+}
+
+const PROJECT_PAGE_PATH = /^\/@([^/]+)\/([^/]+)$/;
+
+/**
+ * The workspace and page slugs of a public address, or null when the path is not one. The proxy
+ * asks this before it queries, so a path the page would refuse (an over-long slug included) costs
+ * no database round trip, and both apply the same isWorkspaceSlug and isPageSlug rules.
+ */
+export function parseProjectPagePath(pathname: string): { workspaceSlug: string; pageSlug: string } | null {
+  const [, workspaceSlug, pageSlug] = PROJECT_PAGE_PATH.exec(pathname) ?? [];
+  if (workspaceSlug === undefined || pageSlug === undefined) return null;
+  if (!isWorkspaceSlug(workspaceSlug) || !isPageSlug(pageSlug)) return null;
+  return { workspaceSlug, pageSlug };
 }

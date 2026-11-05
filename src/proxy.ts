@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { publicEnv } from "@/lib/env";
+import { parseProjectPagePath } from "@/lib/public-metrics/project-page";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -69,8 +70,8 @@ const UNKNOWN_DOC_PATH = "/docs/_";
 // starts with @ is a parallel route slot, so the address is rewritten to the page route under /p.
 // That route is never answered under its own path: anything else under /@ or /p is rewritten to a
 // path no route matches, so a page has one address and every other path there is the global 404.
-// The alphabets mirror isWorkspaceSlug and the page slug format in src/lib/public-metrics/project-page.ts.
-const PROJECT_PAGE_ADDRESS = /^\/@([a-z0-9]{1,64})\/([a-z0-9]+(?:-[a-z0-9]+)*)$/;
+// parseProjectPagePath applies the page's own slug rules, length limits included, so a path the
+// page would refuse never reaches the database.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
 /**
@@ -119,9 +120,11 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/@") || pathname === "/p" || pathname.startsWith("/p/")) {
     // No session refresh: nothing on a public page depends on who is signed in. The nonce policy
     // still applies, because the page renders its scripts per request.
-    const [, workspaceSlug, pageSlug] = PROJECT_PAGE_ADDRESS.exec(pathname) ?? [];
-    const isPublic = workspaceSlug !== undefined && pageSlug !== undefined && (await isPublicProjectPage(workspaceSlug, pageSlug));
-    const target = isPublic ? `/p/${workspaceSlug}/${pageSlug}` : UNKNOWN_PROJECT_PAGE;
+    const address = parseProjectPagePath(pathname);
+    const target =
+      address !== null && (await isPublicProjectPage(address.workspaceSlug, address.pageSlug))
+        ? `/p/${address.workspaceSlug}/${address.pageSlug}`
+        : UNKNOWN_PROJECT_PAGE;
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(target, request.url), init),
     );
