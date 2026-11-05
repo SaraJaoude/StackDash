@@ -143,6 +143,8 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `SUPABASE_OAUTH_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `RESEND_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Resend OAuth client](oauth-apps.md#resend-oauth-client) |
 | `RESEND_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `DIGITALOCEAN_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, DigitalOcean OAuth app](oauth-apps.md#digitalocean-oauth-app) |
+| `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `POSTHOG_OAUTH_CLIENT_ID` | Server only | Yes, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Optional | [OAuth apps, PostHog client ID metadata document](oauth-apps.md#posthog-client-id-metadata-document) |
 | `POSTHOG_OAUTH_PRIVATE_KEY` | Secret | Yes | Optional | Same. Paste the PEM; `\n` escapes are accepted |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
