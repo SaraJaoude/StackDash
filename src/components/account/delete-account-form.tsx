@@ -3,10 +3,11 @@
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { deleteAccount, type DeleteAccountResult } from "@/app/account/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { confirmationMatches, type AccountIdentity } from "@/lib/account/delete-account";
 
 const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
 /**
  * The last step of account deletion: typing the account email or GitHub username enables the
@@ -72,9 +73,11 @@ export function DeleteAccountForm({ identity }: { identity: AccountIdentity }) {
         </p>
       )}
       <div>
-        <button type="submit" disabled={!matches || pending} className={DANGER}>
+        {/* Native disabled until the confirmation matches, while focus is still in the field;
+            only unavailable while deleting, so a keyboard press keeps focus on the button (#161). */}
+        <GuardedButton type="submit" disabled={!matches} unavailable={pending} className={DANGER}>
           {pending ? "Deleting your account" : "Delete my account"}
-        </button>
+        </GuardedButton>
       </div>
       {/* Always mounted, so screen readers announce progress and the result. */}
       <div role="status" aria-live="polite" className="text-sm">
