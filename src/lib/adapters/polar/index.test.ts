@@ -387,7 +387,20 @@ describe("polarAdapter.sync", () => {
 
     const at = (path: string, predicate: (url: URL) => boolean = () => true) =>
       calls.find((call) => call.url.pathname === path && predicate(call.url))?.url.searchParams;
-    expect(Object.fromEntries(at("/v1/metrics/") ?? [])).toEqual({
+    const metricsParams = new URLSearchParams(at("/v1/metrics/"));
+    // One `metrics` slug per field read, so Polar runs only those queries.
+    expect(metricsParams.getAll("metrics")).toEqual([
+      "revenue",
+      "net_revenue",
+      "orders",
+      "new_subscriptions",
+      "canceled_subscriptions",
+      "active_subscriptions",
+      "monthly_recurring_revenue",
+      "annual_recurring_revenue",
+    ]);
+    metricsParams.delete("metrics");
+    expect(Object.fromEntries(metricsParams)).toEqual({
       start_date: "2026-11-01",
       end_date: "2026-11-10",
       interval: "day",

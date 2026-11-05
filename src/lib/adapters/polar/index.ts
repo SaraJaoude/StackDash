@@ -23,6 +23,7 @@ import { addDecimals, InvalidDecimalError, parseDecimal, toMinorUnits, type Deci
 import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   CustomerSchema,
+  MetricPeriodSchema,
   MetricsResponseSchema,
   OAuthErrorSchema,
   OrderSchema,
@@ -71,6 +72,10 @@ const POLAR_API_VERSION = "2026-10";
 // Polar's metrics endpoint has no currency field; amounts are cents in Polar's settlement
 // currency, USD (Unverified #3).
 const METRICS_CURRENCY = "USD";
+
+// The slugs the adapter reads, one `metrics` parameter each: Polar then runs only the queries they
+// need instead of every series in its schema (Get metrics reference, 2026-10).
+const METRIC_SLUGS = Object.keys(MetricPeriodSchema.shape).filter((key) => key !== "timestamp");
 
 const PAGE_LIMIT = 100;
 const MAX_PAGES = 10;
@@ -506,6 +511,7 @@ async function syncAnalytics(
     timezone: "UTC",
     organization_id: externalAccountId,
   });
+  for (const slug of METRIC_SLUGS) params.append("metrics", slug);
   const response = await polarGet(ctx, credential, METRICS_URL, params, MetricsResponseSchema, "metrics:read");
   return analyticsMetrics(response, now, externalAccountId, ctx);
 }

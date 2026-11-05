@@ -76,7 +76,7 @@ Not requested: `webhooks:write` (push events, not read-only), `webhooks:read` (D
 
 ### Analytics: `GET /v1/metrics/`
 
-One call per organization per sync: `start_date` the first of the current UTC month, `end_date` today, `interval=day`, `timezone=UTC`, `organization_id`. The response has one period per day. Currency values are documented as "output in cents"; the response carries no currency field (see [Units](#units-freshness-retention)).
+One call per organization per sync: `start_date` the first of the current UTC month, `end_date` today, `interval=day`, `timezone=UTC`, `organization_id`, and one `metrics` parameter for each field in the table below, so Polar runs only those queries instead of every series in its schema. The response has one period per day. Currency values are documented as "output in cents"; the response carries no currency field (see [Units](#units-freshness-retention)).
 
 | Polar field | DevMacro metric | Kind | How |
 |---|---|---|---|
@@ -211,7 +211,7 @@ All samples are from documentation, not recorded: shaped after the API reference
 }
 ```
 
-`GET /v1/metrics/?start_date=2026-11-01&end_date=2026-11-10&interval=day&timezone=UTC` (one period shown, trimmed):
+`GET /v1/metrics/?start_date=2026-11-01&end_date=2026-11-10&interval=day&timezone=UTC&metrics=revenue&metrics=net_revenue&...` (one `metrics` per field read; one period shown, trimmed):
 
 ```json
 {
@@ -310,7 +310,7 @@ Confirm with a real Polar organization before the adapter is used for real conne
 2. Whether refresh tokens rotate on every use, how long they last, and the exact error for a used, expired, or revoked refresh token (a `400 invalid_grant` is assumed from RFC 6749 section 5.2; `invalid_grant` is treated as revoked with `400` or `401`, and every other code is not).
 3. That every currency value from `GET /v1/metrics/` is in USD cents for organizations selling in other presentment currencies.
 4. Whether `revenue` in the metrics endpoint deducts refunds, and whether `revenue` minus `net_revenue` is exactly the fees Polar keeps (platform fee plus payment processing, without payout fees).
-5. That daily periods with `timezone=UTC` are stamped at 00:00 UTC, include today up to the request time, and that a request with no `metrics` parameter returns every field used here.
+5. That daily periods with `timezone=UTC` are stamped at 00:00 UTC and include today up to the request time, and that the `metrics` parameter the request names its fields with returns each of them under the same key.
 6. The status code when a token limited to some organizations is asked about another organization (`403`, `404`, or an empty result).
 7. Whether `created_after`, `started_after`, and `canceled_at_after` are inclusive, and whether `sorting=-started_at` is honored together with `started_after`.
 8. Whether revoking the refresh token also revokes the access token, or the other way round.
