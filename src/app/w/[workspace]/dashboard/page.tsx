@@ -10,14 +10,26 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import {
+  bucketEventCounts,
+  canonicalHidden,
+  chartMarkers,
+  HIDE_MARKER_PARAM,
+  isMarkerCategory,
+  MARKER_CATEGORIES,
+  shownCategories,
+  toggleHidden,
+  type MarkerCategory,
+} from "@/lib/dashboard/markers";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
-import { getTrendData } from "@/lib/data/trends";
+import { getTrendData, getTrendEventCounts } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
   appendScopeParams,
   buildScopeOptions,
   describeScope,
+  repeatedParam,
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
@@ -26,18 +38,25 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-// The page's one URL schema: the shared scope filter plus the trend period. Unknown or malformed
-// values fall back to the defaults rather than erroring, because the URL is user-editable; other
-// keys are ignored.
+// The page's one URL schema: the shared scope filter, the trend period, and the hidden event
+// marker categories. Unknown or malformed values fall back to the defaults rather than erroring,
+// because the URL is user-editable; other keys are ignored.
 const searchParamsSchema = ScopeSearchParamsSchema.extend({
   trend: z.enum(["daily", "monthly"]).catch("daily"),
+  [HIDE_MARKER_PARAM]: repeatedParam(isMarkerCategory, MARKER_CATEGORIES.length),
 });
 
-/** Dashboard link keeping the filter; the daily trend is the default and stays out of the URL. */
-function dashboardHref(basePath: string, scope: ScopeFilters, trend: TrendGranularity): string {
+type TrendView = Readonly<{ trend: TrendGranularity; hidden: readonly MarkerCategory[] }>;
+
+/**
+ * Dashboard link keeping the filter. The defaults (the daily trend, every marker shown) stay out
+ * of the URL, so a demo link carries only what differs.
+ */
+function dashboardHref(basePath: string, scope: ScopeFilters, { trend, hidden }: TrendView): string {
   const params = new URLSearchParams();
   appendScopeParams(params, scope);
   if (trend !== "daily") params.set("trend", trend);
+  for (const category of hidden) params.append(HIDE_MARKER_PARAM, category);
   const search = params.toString();
   return search === "" ? basePath : `${basePath}?${search}`;
 }
@@ -57,6 +76,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const access = await requireWorkspace(slug, "viewer");
   const parsed = searchParamsSchema.parse(await searchParams);
   const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
+  const view: TrendView = { trend: parsed.trend, hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]) };
 
   return (
     <>
@@ -65,7 +85,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
         description="Spend, usage, and allowances across every provider this workspace connects."
       />
       <Suspense fallback={<DashboardSkeleton />}>
-        <DashboardContent access={access} scope={scope} trend={parsed.trend} />
+        <DashboardContent access={access} scope={scope} view={view} />
       </Suspense>
     </>
   );
@@ -74,21 +94,24 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
 async function DashboardContent({
   access,
   scope,
-  trend,
+  view,
 }: {
   access: WorkspaceAccess;
   scope: ScopeFilters;
-  trend: TrendGranularity;
+  view: TrendView;
 }) {
   const { workspace, role } = access;
+  const { trend, hidden } = view;
   // Request data first: reading the clock before it would fail the prerender.
   await connection();
   const now = new Date();
+  const shown = shownCategories(hidden);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const [workspaceScope, data, trendData, alertsSummary] = await Promise.all([
+  const [workspaceScope, data, trendData, eventCounts, alertsSummary] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
+    getTrendEventCounts(workspace.id, trend, now, scope, shown),
     getUnacknowledgedSummary(workspace.id),
   ]);
   const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
@@ -110,7 +133,10 @@ async function DashboardContent({
   }
 
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
+  const timelinePath = workspacePath(workspace.slug, "timeline");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
+  const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
+  const counts = bucketEventCounts(eventCounts, trend, now);
   return (
     <DashboardView
       view={aggregateDashboard({ ...data, now })}
@@ -122,10 +148,24 @@ async function DashboardContent({
       alerts={alerts}
       trends={{
         granularity: trend,
-        series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
+        series,
         hrefs: {
-          daily: dashboardHref(dashboardPath, scope, "daily"),
-          monthly: dashboardHref(dashboardPath, scope, "monthly"),
+          daily: dashboardHref(dashboardPath, scope, { trend: "daily", hidden }),
+          monthly: dashboardHref(dashboardPath, scope, { trend: "monthly", hidden }),
+        },
+        markers: {
+          hidden,
+          bySeries: Object.fromEntries(
+            series.map((entry) => [
+              entry.key,
+              chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
+            ]),
+          ),
+          toggles: MARKER_CATEGORIES.map((category) => ({
+            category,
+            shown: shown.includes(category),
+            href: dashboardHref(dashboardPath, scope, { trend, hidden: toggleHidden(hidden, category) }),
+          })),
         },
       }}
     />
