@@ -475,13 +475,15 @@ ownerTest.describe("arriving data", () => {
         await expect(page).toHaveURL(/\/timeline$/);
         await expect(page.getByRole("heading", { name: "Earlier event", exact: true })).toBeVisible();
         const delivered = live.changesReceived();
+        const said = (await announcements()).length;
         await updateSpendSnapshot(snapshotId, amountMinor);
         // An event in the same sync shows when the timeline has refreshed past the spend change. It
-        // arrives on the page in view, so it is marked, including on a second visit.
+        // arrives on the page in view, so it is marked and announced, including on a second visit.
         const title = `Synced while away ${randomUUID().slice(0, 8)}`;
         await insertEvent(seeded, title);
         const row = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
         await expect(row.getByText(/^,?\s*New$/)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+        await expect.poll(async () => (await announcements()).slice(said)).toEqual(["1 new event."]);
         await expect.poll(live.changesReceived).toBeGreaterThanOrEqual(delivered + 2);
       }
 
@@ -508,7 +510,10 @@ ownerTest.describe("arriving data", () => {
       await updateSpendSnapshot(snapshotId, 7_000);
       await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(usd).toContainText("$70.00");
-      await expect.poll(async () => (await announcements()).slice(saidBefore)).toEqual(["Spend in USD updated."]);
+      // One sentence, for this sync alone (every card showing the spend is named): the return said nothing.
+      await expect
+        .poll(async () => (await announcements()).slice(saidBefore))
+        .toEqual([expect.stringContaining("Spend in USD updated.")]);
       await expect(updated).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
 
       // Away by link, back with the browser's back button: the same.
@@ -523,7 +528,9 @@ ownerTest.describe("arriving data", () => {
       expect(await animations()).toEqual(startedBefore);
       await updateSpendSnapshot(snapshotId, 9_000);
       await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
-      await expect.poll(async () => (await announcements()).slice(saidBefore)).toEqual(["Spend in USD updated."]);
+      await expect
+        .poll(async () => (await announcements()).slice(saidBefore))
+        .toEqual([expect.stringContaining("Spend in USD updated.")]);
     } finally {
       await deleteTestWorkspace(workspace);
     }
