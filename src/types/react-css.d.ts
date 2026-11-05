@@ -2,9 +2,13 @@
 // replacing the "react" module with an ambient declaration.
 export {};
 
-// Lets the count-up target travel as a typed inline custom property instead of a cast.
+// Lets the motion inputs in globals.css travel as typed inline custom properties instead of a cast:
+// the count-up range, the usage bar's starting scale, and an arriving event's edge color (#171).
 declare module "react" {
   interface CSSProperties {
     "--count-to"?: number;
+    "--count-from"?: number;
+    "--bar-from"?: number;
+    "--flash"?: string;
   }
 }
