@@ -194,7 +194,7 @@ jobs:
             echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
             echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
             # Alert email (#152) goes to the stack's mail catcher (supabase/config.toml
-            # [local_smtp], smtp_port 55425; e2e/alert-delivery.spec.ts reads it on port 55424).
+            # [local_smtp], smtp_port 55425; e2e/alert-email.spec.ts reads it on port 55424).
             echo "DEVMACRO_EMAIL_FROM=DevMacro alerts <alerts@example.com>"
             echo "DEVMACRO_SMTP_URL=smtp://127.0.0.1:55425"
             # Links in alert messages need the public origin in a production build: the
