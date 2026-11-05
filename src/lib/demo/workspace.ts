@@ -8,6 +8,9 @@ import { simulatedCredentialMetadata } from "@/lib/adapters/simulated/marker";
 import type { ProviderId } from "@/lib/adapters/types";
 import { alertRuleInputSchema, budgetInputSchema } from "@/lib/alerts/rule-schema";
 import { completeConnection } from "@/lib/connections/connect";
+import { PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
+import { publicationSummary } from "@/lib/public-metrics/display";
+import { projectPagePath } from "@/lib/public-metrics/project-page";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { demoAccountSeed } from "./history";
@@ -254,4 +257,65 @@ export async function createDemoAlerts(admin: Admin, input: Readonly<{ workspace
   ];
   const { error: ruleError } = await admin.from("alert_rules").insert(rules.map((rule) => ({ ...rule, ...audit })));
   if (ruleError) throw new Error(`Creating the demo alert rules failed (code ${ruleError.code}).`);
+}
+
+/** The demo project with a public page (#150), the page the public demo (#145) shows. */
+export const DEMO_PAGE_PROJECT = DEMO_PROJECT_NAMES[0];
+const DEMO_PAGE_SLUG = "storefront";
+
+/** Every metric the providers connected to a project can count, in definition order. */
+export function demoPublicMetricIds(providers: readonly ProviderId[]): PublicMetricId[] {
+  return PUBLIC_METRICS.filter((definition) => providers.includes(definition.provider)).map((definition) => definition.id);
+}
+
+/**
+ * Publishes every metric the demo page project's providers can count, exact and current, and turns
+ * its project page on (not indexable), through the same functions as the public metrics page, so
+ * each change writes its timeline event. Returns the page's address.
+ */
+export async function publishDemoProjectPage(
+  admin: Admin,
+  input: Readonly<{ workspaceId: string; workspaceSlug: string; userId: string }>,
+): Promise<string> {
+  const { data: project, error } = await admin
+    .from("projects")
+    .select("id, name")
+    .eq("workspace_id", input.workspaceId)
+    .eq("name", DEMO_PAGE_PROJECT)
+    .single();
+  if (error) throw new Error(`Reading the demo page project failed (code ${error.code}).`);
+  const { data: accounts, error: accountsError } = await admin
+    .from("external_accounts")
+    .select("connections!inner(provider)")
+    .eq("workspace_id", input.workspaceId)
+    .eq("project_id", project.id)
+    .limit(ACCOUNTS_LIMIT);
+  if (accountsError) throw new Error(`Reading the demo page project's accounts failed (code ${accountsError.code}).`);
+
+  const summary = publicationSummary("exact", 0);
+  for (const metricId of demoPublicMetricIds(accounts.map((account) => account.connections.provider))) {
+    // One at a time: each locks the project row, so parallel calls would only queue there.
+    const { error: publishError } = await admin.rpc("publish_metric", {
+      p_workspace_id: input.workspaceId,
+      p_project_id: project.id,
+      p_actor_id: input.userId,
+      p_metric_id: metricId,
+      p_rounding: "exact",
+      p_delay_days: 0,
+      p_title: `Published ${publicMetricDefinition(metricId).label}`,
+      p_body: `Project ${project.name}. ${summary}.`,
+    });
+    if (publishError) throw new Error(`Publishing a demo metric failed (code ${publishError.code}).`);
+  }
+
+  const { data: saved, error: pageError } = await admin.rpc("save_project_page", {
+    p_workspace_id: input.workspaceId,
+    p_project_id: project.id,
+    p_actor_id: input.userId,
+    p_slug: DEMO_PAGE_SLUG,
+    p_indexable: false,
+  });
+  if (pageError) throw new Error(`Turning on the demo project page failed (code ${pageError.code}).`);
+  if (saved !== "enabled") throw new Error(`Turning on the demo project page answered ${saved}.`);
+  return projectPagePath(input.workspaceSlug, DEMO_PAGE_SLUG);
 }

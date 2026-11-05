@@ -2,7 +2,8 @@
  * Builds a ready-to-demo workspace on the local Supabase stack (#166): a demo account owning one
  * workspace with every simulated provider connected, its accounts spread over three projects, a
  * Vercel budget and a Resend quota alert, and 90 days of history replayed through the real sync,
- * alert, and daily summary jobs.
+ * alert, and daily summary jobs. The first project then publishes every metric it can and turns
+ * on its public project page (#150).
  *
  *   npm run demo:seed
  *   npm run demo:seed -- --member you@example.com [--member someone@example.com] [--seed <text>]
@@ -30,6 +31,7 @@ import {
   createDemoAlerts,
   DEMO_USER_EMAIL,
   ensureDemoUser,
+  publishDemoProjectPage,
   resetDemoWorkspace,
   resolveMembers,
 } from "@/lib/demo/workspace";
@@ -122,6 +124,8 @@ async function main(): Promise<number> {
     },
   });
 
+  const pagePath = await publishDemoProjectPage(admin, { workspaceId: workspace.id, workspaceSlug: workspace.slug, userId });
+
   const origin = connectOrigin(DEFAULT_ORIGIN, process.env.NEXT_PUBLIC_SITE_URL);
   const providers = new Intl.ListFormat("en-US", { type: "conjunction" }).format(
     connections.map((connection) => providerName(connection.provider)),
@@ -130,6 +134,7 @@ async function main(): Promise<number> {
   console.log(`Demo workspace ready: ${DEMO_HISTORY_DAYS} days of simulated ${providers}.`);
   console.log(`  Dashboard: ${origin}${workspacePath(workspace.slug, "dashboard")}`);
   console.log(`  Timeline:  ${origin}${workspacePath(workspace.slug, "timeline")}`);
+  console.log(`  Public:    ${origin}${pagePath} (anyone can open it)`);
   console.log(`  Owner:     ${DEMO_USER_EMAIL} (made by the demo seed, has no sign-in)`);
   if (members.length > 0) {
     console.log(`  Admins:    ${members.map((member) => member.email).join(", ")}`);
