@@ -1,3 +1,4 @@
+import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
@@ -163,6 +164,8 @@ ownerTest.describe("managing projects as the owner", () => {
       await expect(dialog).toContainText("1 budget scoped to this project is deleted.");
       await expect(dialog).toContainText("1 alert rule scoped to this project or its budgets is deleted.");
       await expect(dialog.getByRole("button", { name: "Cancel" })).toBeFocused();
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
 
       await page.keyboard.press("Escape");
       await expect(dialog).toBeHidden();

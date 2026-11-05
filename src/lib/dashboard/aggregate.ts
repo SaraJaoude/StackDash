@@ -4,6 +4,8 @@
  *
  * Rules decided here, once:
  * - The latest row per (external account, metric key) is the current value.
+ * - Each amount is counted once (`countedSnapshots`): a total supersedes its breakdown, and a
+ *   longer billing window supersedes a day inside it.
  * - Money is grouped by currency and never added across currencies. Verified (from the provider)
  *   and estimated (calculated by DevMacro from a price list) amounts are kept apart.
  * - A value that is missing is `null` and shown as "Unavailable", never as 0.
@@ -193,21 +195,67 @@ export function isCurrentPeriod(row: SnapshotInput, now: Date): boolean {
 }
 
 /**
- * When an account reports both a total (`<prefix>.total`) and its breakdown (`<prefix>.<part>`)
- * for the same kind and currency, only the total is kept, so nothing is counted twice.
+ * Breakdowns are dropped so nothing is counted twice. Within one account, kind, and currency:
+ * - a total (`<prefix>.total`) supersedes its parts (`<prefix>.<part>`), as Vercel reports them;
+ * - a metric supersedes the keys one segment below it, as GitHub reports per product
+ *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`).
  */
 export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly T[]): T[] {
-  const totals = new Set<string>();
-  const groupOf = (row: T, prefix: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${prefix}`;
+  const groupOf = (row: T, key: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${key}`;
+  const parents = new Set<string>();
   for (const row of rows) {
-    if (row.metric_key.endsWith(".total")) totals.add(groupOf(row, row.metric_key.slice(0, -".total".length)));
+    parents.add(groupOf(row, row.metric_key.endsWith(".total") ? row.metric_key.slice(0, -".total".length) : row.metric_key));
   }
-  if (totals.size === 0) return [...rows];
   return rows.filter((row) => {
     if (row.metric_key.endsWith(".total")) return true;
-    const prefix = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
-    return !totals.has(groupOf(row, prefix));
+    return !parents.has(groupOf(row, row.metric_key.slice(0, row.metric_key.lastIndexOf("."))));
   });
+}
+
+const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
+
+/**
+ * Drops money that another row of the same account, kind, and currency already covers for a
+ * longer window: GitHub reports each product's spend for the month and again for each day of it
+ * (`github.daily_spend.<product>`), and the day is part of the month. Only a window that starts on
+ * a UTC day boundary covers others, so a rolling window (Stripe's last 30 days) never hides the
+ * month inside it; `isCurrentPeriod` then leaves the rolling window out. No clock, so it holds for
+ * one day of history as well as for the latest rows.
+ */
+export function dropSubWindows<T extends SnapshotInput>(rows: readonly T[]): T[] {
+  type Span = Readonly<{ group: string; start: number; end: number }>;
+  const spanOf = (row: T): Span | null =>
+    !ACCUMULATING_KINDS.has(row.kind) || row.currency === null || row.period_start === null || row.period_end === null
+      ? null
+      : {
+          group: `${row.external_account_id} ${row.kind} ${row.currency}`,
+          start: Date.parse(row.period_start),
+          end: Date.parse(row.period_end),
+        };
+  const covering = new Map<string, Span[]>();
+  for (const row of rows) {
+    const span = spanOf(row);
+    if (span === null || span.start % DAY_MS !== 0) continue;
+    const list = covering.get(span.group);
+    if (list === undefined) covering.set(span.group, [span]);
+    else list.push(span);
+  }
+  return rows.filter((row) => {
+    const span = spanOf(row);
+    if (span === null) return true;
+    return !(covering.get(span.group) ?? []).some(
+      (outer) => outer.start <= span.start && span.end <= outer.end && (outer.start < span.start || span.end < outer.end),
+    );
+  });
+}
+
+/**
+ * The rows every reading of current values starts from (dashboard, alerts, daily summary): the
+ * latest row per account and metric, with breakdowns and sub-windows dropped so each amount is
+ * counted once.
+ */
+export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[]): T[] {
+  return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows)));
 }
 
 /** Calculated by DevMacro from a price list (or otherwise derived), not reported by the provider. */
@@ -382,7 +430,14 @@ function providerSummary(
 ): ProviderSummary {
   const currentMoney = entries.filter(({ row }) => isCurrentPeriod(row, now));
   const spend = currentMoney.filter(({ row }) => row.kind === "verified_spend" || row.kind === "estimated_spend");
-  const firstSpendPeriod = spend.map(({ row }) => periodOf(row)).find((period) => period !== null) ?? null;
+  // The widest spend period (earliest start, then latest end), so row order never decides it.
+  const spendPeriod = spend.reduce<Period | null>((widest, { row }) => {
+    const period = periodOf(row);
+    if (period === null) return widest;
+    if (widest === null) return period;
+    const start = Date.parse(period.start) - Date.parse(widest.start);
+    return start < 0 || (start === 0 && Date.parse(period.end) > Date.parse(widest.end)) ? period : widest;
+  }, null);
   const allowances = buildAllowances(entries, accountNames, now);
   return {
     connectionId: connection.id,
@@ -402,7 +457,7 @@ function providerSummary(
       now,
     ).flatMap(({ verified, estimated }) => [verified, estimated].filter((value) => value !== null)),
     allowances,
-    billingPeriod: firstSpendPeriod ?? allowances.map((allowance) => allowance.period).find((p) => p !== null) ?? null,
+    billingPeriod: spendPeriod ?? allowances.map((allowance) => allowance.period).find((p) => p !== null) ?? null,
     resetsAt: earliestFutureReset(entries, now),
   };
 }
@@ -421,7 +476,7 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
   const projectNames = new Map(input.projects.map((project) => [project.id, project.name]));
 
   const entries: Entry[] = [];
-  for (const row of dropSupersededBreakdowns(latestSnapshots(input.snapshots))) {
+  for (const row of countedSnapshots(input.snapshots)) {
     const account = accounts.get(row.external_account_id);
     const connection = connections.get(row.connection_id);
     // Excluded accounts and rows whose account moved connection are skipped.

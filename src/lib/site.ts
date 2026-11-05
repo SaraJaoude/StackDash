@@ -20,6 +20,7 @@ export type Platform =
   | "Resend"
   | "Stripe"
   | "Supabase"
+  | "DigitalOcean"
   | "GitLab";
 
 export interface NavLink {
