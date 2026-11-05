@@ -321,7 +321,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs and provider callback URLs; falls back to the request origin | Public | Optional (set in production) |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs, provider callback URLs, and the `formulaUrl` links in the public metrics route; falls back to the request origin | Public | Optional (set in production) |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
