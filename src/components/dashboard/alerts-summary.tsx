@@ -5,7 +5,7 @@ import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import { RECENT_ANOMALY_DAYS, type RecentAnomalies } from "@/lib/data/anomalies";
 import type { UnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
-import { workspacePath } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 
 const TITLE_ID = "alerts-summary-title";
 

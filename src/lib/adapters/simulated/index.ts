@@ -16,6 +16,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 
 import { digitaloceanProfile } from "./digitalocean";
 import { githubProfile } from "./github";
+import { postHogProfile } from "./posthog";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedProfile } from "./simulation";
@@ -175,6 +176,7 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   stripe: createSimulatedAdapter(stripeProfile, "stripe"),
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
   digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean"),
+  posthog: createSimulatedAdapter(postHogProfile, "posthog"),
 };
 
 /** True only for the registry's own simulated adapters, compared by identity rather than id. */
