@@ -120,8 +120,16 @@ async function insertEvent(seeded: SeededConnection, title: string): Promise<voi
   if (error) throw new Error(`Inserting a live event failed (code ${error.code}).`);
 }
 
-/** This month's verified USD spend for the seeded account, dated today; returns the row id. */
-async function insertSpendSnapshot(seeded: SeededConnection, amountMinor: number): Promise<string> {
+type MoneyMetric = Readonly<{ kind: "verified_spend" | "recurring_revenue"; metricKey: string; label: string }>;
+
+const SPEND_METRIC: MoneyMetric = { kind: "verified_spend", metricKey: "fake.spend.month", label: "Spend this month" };
+
+/** A USD money value for this month for the seeded account, dated today (spend unless told); returns the row id. */
+async function insertMoneySnapshot(
+  seeded: SeededConnection,
+  amountMinor: number,
+  metric: MoneyMetric = SPEND_METRIC,
+): Promise<string> {
   const now = new Date();
   const { data, error } = await adminClient()
     .from("usage_snapshots")
@@ -129,9 +137,9 @@ async function insertSpendSnapshot(seeded: SeededConnection, amountMinor: number
       workspace_id: seeded.workspaceId,
       connection_id: seeded.connectionId,
       external_account_id: seeded.accountId,
-      metric_key: "fake.spend.month",
-      kind: "verified_spend",
-      label: "Spend this month",
+      metric_key: metric.metricKey,
+      kind: metric.kind,
+      label: metric.label,
       snapshot_date: now.toISOString().slice(0, 10),
       amount_minor: amountMinor,
       currency: "USD",
@@ -147,7 +155,7 @@ async function insertSpendSnapshot(seeded: SeededConnection, amountMinor: number
 }
 
 /** A later sync of the same day's snapshot: an UPDATE, the way a resync rewrites today's value. */
-async function updateSpendSnapshot(snapshotId: string, amountMinor: number): Promise<void> {
+async function updateMoneySnapshot(snapshotId: string, amountMinor: number): Promise<void> {
   const { error } = await adminClient()
     .from("usage_snapshots")
     .update({ amount_minor: amountMinor, retrieved_at: new Date().toISOString() })
@@ -239,7 +247,7 @@ ownerTest.describe("live updates", () => {
       await expect(usd).toHaveCount(0);
       await expectSubscribed(live);
 
-      await insertSpendSnapshot(seeded, 4_321);
+      await insertMoneySnapshot(seeded, 4_321);
 
       await expect(usd).toContainText("$43.21", { timeout: LIVE_TIMEOUT_MS });
     } finally {
@@ -336,6 +344,9 @@ const ARRIVAL_ANIMATIONS: readonly string[] = [
 // room for a slow first render.
 const HIGHLIGHT_CLEARED_MS = 10_000;
 
+// The live indicator's dot has no fill unless the channel is live (src/components/app/arrivals.tsx).
+const NO_FILL = "rgba(0, 0, 0, 0)";
+
 /**
  * Records the name of every arrival animation that starts on the page, from the first document
  * on, so "nothing animated" is an observed fact rather than a check that happened to run late.
@@ -383,6 +394,7 @@ ownerTest.describe("arriving data", () => {
       // Subscribed: the name is exactly "Live updates" and the visible word says Live.
       await expect(indicator).toHaveAccessibleName("Live updates");
       await expect(indicator.getByText("Live", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("live-dot")).not.toHaveCSS("background-color", NO_FILL);
       await expect(page.getByTestId("live-pulse")).toHaveCount(0);
       expect(await animations()).toEqual([]);
 
@@ -413,11 +425,62 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
+  ownerTest("says connecting until the channel joins, and offline, still retrying, when Realtime refuses it", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Live indicator states");
+    try {
+      // Stands in for Realtime: holds every join unanswered until `refusing`, then refuses each
+      // held join and every rejoin the client schedules on its own. Heartbeats are answered so
+      // the socket itself stays up.
+      const held: (() => void)[] = [];
+      let refusing = false;
+      await page.routeWebSocket(/\/realtime\/v1\/websocket/, (socket) => {
+        socket.onMessage((message) => {
+          if (typeof message !== "string") return;
+          const [joinRef, ref, topic, event] = FrameSchema.parse(JSON.parse(message));
+          const reply = (payload: unknown) => socket.send(JSON.stringify([joinRef, ref, topic, "phx_reply", payload]));
+          if (event === "heartbeat") reply({ status: "ok", response: {} });
+          if (event !== "phx_join") return;
+          const refuse = () => reply({ status: "error", response: { reason: "refused by the test" } });
+          if (refusing) refuse();
+          else held.push(refuse);
+        });
+      });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const indicator = page.getByRole("button", { name: "Live updates" });
+      const dot = page.getByTestId("live-dot");
+
+      // Connecting: the join is unanswered, so the word, the name, and the hollow dot agree.
+      await expect(indicator).toHaveAccessibleName("Live updates, connecting");
+      await expect(indicator.getByText("Connecting", { exact: true })).toBeVisible();
+      await expect(dot).toHaveCSS("background-color", NO_FILL);
+      await expect.poll(() => held.length).toBeGreaterThan(0);
+
+      // Offline: Realtime refuses the join. The client keeps rejoining, refused each time.
+      refusing = true;
+      for (const refuse of held.splice(0)) refuse();
+      await expect(indicator).toHaveAccessibleName("Live updates, offline");
+      await expect(indicator.getByText("Offline", { exact: true })).toBeVisible();
+      await expect(dot).toHaveCSS("background-color", NO_FILL);
+      await indicator.focus();
+      await expect(page.getByRole("tooltip")).toHaveText(
+        "Live updates stopped. Trying to reconnect; reload the page if this does not clear.",
+      );
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("tooltip")).toBeHidden();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("counts, pulses, and pings a changed dashboard value, and not after a period change", async ({ page }) => {
     const workspace = await createTestWorkspace("Arrival dashboard");
     try {
       const seeded = await seedConnection(workspace);
-      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
@@ -428,7 +491,7 @@ ownerTest.describe("arriving data", () => {
       await expectSubscribed(live);
       expect(await animations()).toEqual([]);
 
-      await updateSpendSnapshot(snapshotId, 5_000);
+      await updateMoneySnapshot(snapshotId, 5_000);
       await expect(usd).toContainText("$50.00", { timeout: LIVE_TIMEOUT_MS });
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible();
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
@@ -448,13 +511,52 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
+  ownerTest("marks the provider card when one recurring revenue rate changes, and leaves the other rate alone", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Arrival recurring revenue");
+    try {
+      const seeded = await seedConnection(workspace);
+      await insertMoneySnapshot(seeded, 1_000, {
+        kind: "recurring_revenue",
+        metricKey: "fake.mrr",
+        label: "Monthly recurring revenue",
+      });
+      const annualId = await insertMoneySnapshot(seeded, 12_000, {
+        kind: "recurring_revenue",
+        metricKey: "fake.arr",
+        label: "Annual recurring revenue",
+      });
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const card = page.getByRole("article", { name: "Fake live connection", exact: true });
+      await expect(card).toContainText("$120.00");
+      await expectSubscribed(live);
+      const announcements = await recordAnnouncements(page);
+      expect(await animations()).toEqual([]);
+
+      // Monthly and annual in the same currency have keys of their own, so only the annual rate counts.
+      await updateMoneySnapshot(annualId, 15_000);
+      await expect(card).toContainText("$150.00", { timeout: LIVE_TIMEOUT_MS });
+      await expect(card.getByText("Updated", { exact: true })).toBeVisible();
+      await expect.poll(announcements).toEqual([expect.stringContaining("Fake live connection updated.")]);
+      await expect.poll(animations).toEqual(expect.arrayContaining(["count-up", "alert-glow"]));
+      // One number counted: the annual rate. The monthly rate kept its value and did not count.
+      expect((await animations()).filter((name) => name === "count-up")).toHaveLength(1);
+      await expect(card).toContainText("$10.00");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("does not mark what changed while the page was out of view, on a link or a back navigation", async ({
     page,
   }) => {
     const workspace = await createTestWorkspace("Arrival navigation");
     try {
       const seeded = await seedConnection(workspace);
-      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
       await insertEvent(seeded, "Earlier event");
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
@@ -476,7 +578,7 @@ ownerTest.describe("arriving data", () => {
         await expect(page.getByRole("heading", { name: "Earlier event", exact: true })).toBeVisible();
         const delivered = live.changesReceived();
         const said = (await announcements()).length;
-        await updateSpendSnapshot(snapshotId, amountMinor);
+        await updateMoneySnapshot(snapshotId, amountMinor);
         // An event in the same sync shows when the timeline has refreshed past the spend change. It
         // arrives on the page in view, so it is marked and announced, including on a second visit.
         const title = `Synced while away ${randomUUID().slice(0, 8)}`;
@@ -507,7 +609,7 @@ ownerTest.describe("arriving data", () => {
       expect(await animations()).toEqual(startedBefore);
 
       // A sync that lands while the page shows is still marked and announced, and only it is.
-      await updateSpendSnapshot(snapshotId, 7_000);
+      await updateMoneySnapshot(snapshotId, 7_000);
       await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(usd).toContainText("$70.00");
       // One sentence, for this sync alone (every card showing the spend is named): the return said nothing.
@@ -526,7 +628,7 @@ ownerTest.describe("arriving data", () => {
       await settle();
       await expect(updated).toHaveCount(0);
       expect(await animations()).toEqual(startedBefore);
-      await updateSpendSnapshot(snapshotId, 9_000);
+      await updateMoneySnapshot(snapshotId, 9_000);
       await expect(updated).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect
         .poll(async () => (await announcements()).slice(saidBefore))
@@ -541,7 +643,7 @@ ownerTest.describe("arriving data", () => {
     const workspace = await createTestWorkspace("Arrival reduced motion");
     try {
       const seeded = await seedConnection(workspace);
-      const snapshotId = await insertSpendSnapshot(seeded, 4_321);
+      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/dashboard`);
@@ -553,7 +655,7 @@ ownerTest.describe("arriving data", () => {
       const announcements = await recordAnnouncements(page);
       await expect(usd.getByText("Updated", { exact: true })).toHaveCount(0);
 
-      await updateSpendSnapshot(snapshotId, 5_000);
+      await updateMoneySnapshot(snapshotId, 5_000);
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
