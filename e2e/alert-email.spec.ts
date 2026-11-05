@@ -137,6 +137,9 @@ ownerTest.describe("alert email", () => {
         await expect(button).toBeFocused();
         await visitor.keyboard.press("Enter");
         await expect(visitor.getByRole("status")).toContainText(`Alert emails for ${workspace.name} are off.`);
+        // Answered in place: focus moves to the confirmation, and the page keeps its title.
+        await expect(visitor.getByRole("status")).toBeFocused();
+        await expect(visitor).toHaveTitle(/Unsubscribe from alert emails/);
         expect((await new AxeBuilder({ page: visitor }).analyze()).violations).toEqual([]);
 
         // A broken link says so instead of failing.
