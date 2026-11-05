@@ -5,7 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import type { Database } from "@/lib/supabase/database.types";
 
-import type { PublicMetricStore, SnapshotPoint, SourceAccount } from "./engine";
+import type { SnapshotPoint, SourceAccount } from "./engine";
+import type { HistoryEvent, HistoryStore } from "./history";
 
 /*
  * The engine's reads for one project, against Supabase. Every query is scoped to the workspace and
@@ -29,7 +30,7 @@ export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
   workspaceId: string,
   projectId: string,
-): PublicMetricStore {
+): HistoryStore {
   return {
     async accounts(): Promise<SourceAccount[]> {
       const [accounts, connections] = await Promise.all([
@@ -151,6 +152,28 @@ export function createSupabaseMetricStore(
         .limit(limit);
       if (error) throw new Error("Failed to load recent events for public metrics", { cause: error });
       return data.map((row) => ({ typeId: row.type_id, occurredAt: new Date(row.occurred_at) }));
+    },
+
+    // The history cache (#150) pages through a window's events. Ordered like recentEvents, with
+    // the id as the tie-break, so pages never overlap or skip a row.
+    async eventPage({ accountIds, typeIds, before, offset, limit }): Promise<HistoryEvent[]> {
+      if (accountIds.length === 0 || typeIds.length === 0) return [];
+      const { data, error } = await db
+        .from("activity_events")
+        .select("id, external_account_id, type_id, occurred_at")
+        .eq("workspace_id", workspaceId)
+        .in("external_account_id", accountIds)
+        .in("type_id", typeIds)
+        .lte("occurred_at", before.toISOString())
+        .order("occurred_at", { ascending: false })
+        .order("id", { ascending: false })
+        .range(offset, offset + limit - 1);
+      if (error) throw new Error("Failed to load events for public metric history", { cause: error });
+      return data.flatMap((row) =>
+        row.external_account_id === null
+          ? []
+          : [{ id: row.id, accountId: row.external_account_id, typeId: row.type_id, occurredAt: new Date(row.occurred_at) }],
+      );
     },
   };
 }
