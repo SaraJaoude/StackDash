@@ -16,7 +16,7 @@ Give a key for an assistant every scope, so it can answer any question about the
 
 ## Connect a client
 
-Each example reads the key from the environment rather than writing it into a file you might share. Put it in `DEVMACRO_API_KEY` in your shell profile, and set `DEVMACRO_URL` to your DevMacro site, for example `https://your-devmacro-site.example.com` or `http://localhost:3000` for a local install.
+Claude Code and Cursor read the key from the environment each time they connect, so their configuration holds only the variable's name. Claude Desktop keeps the key in its own config file, so do not share that file. Put the key in `DEVMACRO_API_KEY` in your shell profile, and set `DEVMACRO_URL` to your DevMacro site, for example `https://your-devmacro-site.example.com` or `http://localhost:3000` for a local install.
 
 ### Claude Code
 
@@ -45,6 +45,8 @@ Open **Settings**, then **Developer**, then **Edit Config**, and add the server 
 ```
 
 Then quit and restart Claude Desktop. [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) connects Claude Desktop's local servers to a remote one and needs Node.js. The header goes through `AUTH_HEADER` because Claude Desktop on Windows does not escape spaces in `args` (mcp-remote README, "Custom Headers"). It accepts `http://localhost` for a local install.
+
+The key sits in `claude_desktop_config.json` in plain text. To keep it in a separate file you can lock down, put the line `Authorization: Bearer <your key>` in a file only you can read, and pass `"--header-file", "/path/to/devmacro-headers.txt"` in `args` in place of the `--header` pair and the `env` entry (mcp-remote README, "Custom Headers").
 
 For an instance on the public internet, a custom connector also works where your Claude plan offers request headers (a beta): **Customize**, **Connectors**, **Add custom connector**, the server URL, **No sign-in**, then an `authorization` request header with the value `Bearer` and your key ([Claude, custom connectors](https://claude.com/docs/connectors/custom/add-unlisted)). Claude connects to a custom connector from Anthropic's cloud, so it cannot reach a server on your own computer or private network.
 
