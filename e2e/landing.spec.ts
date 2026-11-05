@@ -46,6 +46,17 @@ test.describe("landing page", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
   });
 
+  test("the footer wordmark is the header's, announced as one word", async ({ page }) => {
+    await page.goto("/");
+
+    const header = page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true });
+    const footer = page.getByRole("contentinfo").getByRole("img", { name: "DevMacro", exact: true });
+    await expect(footer).toBeVisible();
+    const [headerSrc, footerSrc] = await Promise.all([header.getAttribute("src"), footer.getAttribute("src")]);
+    expect(headerSrc).toBeTruthy();
+    expect(footerSrc).toBe(headerSrc);
+  });
+
   test("the brand and sign in share one header row on a phone", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");
