@@ -1,0 +1,39 @@
+{
+  "droplets": [
+    {
+      "id": 3164444,
+      "name": "example.com",
+      "memory": 1024,
+      "vcpus": 1,
+      "disk": 25,
+      "status": "active",
+      "networks": {
+        "v4": [
+          {
+            "ip_address": "203.0.113.10",
+            "type": "public"
+          }
+        ]
+      },
+      "tags": [
+        "web"
+      ]
+    },
+    {
+      "id": 3164445,
+      "name": "worker",
+      "memory": 512,
+      "vcpus": 1,
+      "disk": 10,
+      "status": "active",
+      "networks": {
+        "v4": []
+      },
+      "tags": []
+    }
+  ],
+  "links": {},
+  "meta": {
+    "total": 2
+  }
+}
