@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { formatDateTime } from "@/lib/format";
+import { formatLondonTime } from "@/lib/format";
 import { ARRIVAL_HIGHLIGHT_MS, describeArrivals, type ArrivalReport } from "@/lib/realtime/arrivals";
 
 /**
@@ -243,8 +243,8 @@ export function LiveIndicator() {
           "Live updates are on. No new data since this page opened."
         ) : (
           <>
-            Live updates are on. Data last arrived{" "}
-            <time dateTime={lastArrivalAt}>{formatDateTime(lastArrivalAt)}</time>.
+            Live updates are on. Data last arrived at{" "}
+            <time dateTime={lastArrivalAt}>{formatLondonTime(lastArrivalAt)}</time> London time.
           </>
         )}
       </span>

@@ -64,6 +64,27 @@ export function formatDateTime(at: Instant): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
 }
 
+const TIME_OF_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * "14:05:09", the London time of day to the second. It carries no zone name because browsers name
+ * the London zone differently (Chromium says "GMT+0" where Node says "GMT"), so the caller says
+ * "London time" in words. For text rendered in the browser.
+ */
+export function formatLondonTime(at: Instant): string {
+  const parts: Partial<Record<Intl.DateTimeFormatPartTypes, string>> = {};
+  for (const part of TIME_OF_DAY_FORMAT.formatToParts(typeof at === "string" ? new Date(at) : at)) {
+    parts[part.type] = part.value;
+  }
+  return `${parts.hour}:${parts.minute}:${parts.second}`;
+}
+
 /**
  * "2026-10-01 to 2026-10-31". Billing periods are calendar facts on UTC day boundaries, so they are
  * shown as UTC dates; in Europe/London summer time a period ending at UTC midnight would otherwise
