@@ -167,7 +167,7 @@ Disclosed on the connect screen before redirecting:
 - **`billing:read`** reads the organization's billing overview, which also includes the account owner's name and email, the billing customer id, discount details, and the billing portal and invoices URLs. DevMacro drops all of those at the parse boundary and keeps only amounts, usage, limits, and the billing period.
 - **`query:read`** can run any read-only HogQL query in the granted projects, which reaches every event and person property, emails included. DevMacro runs exactly one fixed query, which returns counts per day, and never stores rows.
 - **`project:read`** returns each project's public project token (`phc_...`, the key the PostHog snippet sends events with). DevMacro drops it.
-- **`POSTHOG_OAUTH_PRIVATE_KEY`** signs every token request for every PostHog connection of the deployment. Store it only in the server environment, never in the database or logs. Rotating it replaces the published key at once, so refreshes keep working only if PostHog fetches the new JWKS before the next refresh (see Unverified).
+- **`POSTHOG_OAUTH_PRIVATE_KEY`** signs every token request for every PostHog connection of the deployment. Store it only in the server environment, never in the database or logs. The JWKS route publishes this one key only, so rotating it is a cutover: PostHog's zero-downtime rotation needs the new key published next to the old one first, which one variable cannot do. PostHog caches the JWKS for 1 hour whatever `Cache-Control` says, and re-fetches it early when an assertion names a key id it has not seen, at most once a minute (Provisioning, Publish your keys). So for up to a minute after a rotation, token refreshes and new connections can fail; the failed syncs are retried, and no connection is marked revoked. After a leak, PostHog can keep accepting the removed key for up to an hour.
 
 ## Limitations
 
@@ -175,6 +175,7 @@ Disclosed on the connect screen before redirecting:
 - One page of up to 100 organizations per grant, and up to 20 projects per organization for signups.
 - The `/query` endpoint is not meant for exports, and PostHog may rate limit or reject queries that look like one. DevMacro's single aggregated count per project per day is the documented "pull aggregated data into your own app" use, but PostHog's wording reserves the right to restrict it.
 - Signup counts follow PostHog's person model: merged or deleted persons change past counts, and DevMacro keeps the count as first reported.
+- One signing key at a time. Rotating `POSTHOG_OAUTH_PRIVATE_KEY` is a cutover: token calls can fail for up to a minute until PostHog re-fetches the JWKS, and are retried (Permission risks).
 - PostHog Cloud only (US and EU). A self-hosted PostHog has no billing service and would need its own host; not supported.
 
 ## Self-hosted registration
@@ -268,7 +269,7 @@ Confirm with a real PostHog account (#141) before relying on the adapter:
 7. Whether amounts can arrive as numbers rather than strings (the adapter refuses numbers as an unexpected shape).
 8. Whether `count()` arrives as a JSON number in query results (the adapter refuses strings).
 9. Token lifetimes and whether refresh tokens rotate.
-10. How long PostHog caches the JWKS after a key rotation.
+10. That the JWKS cache the provisioning guide documents (1 hour, an early re-fetch at most once a minute for a key id PostHog has not seen) applies to a consent-flow CIMD app as well. Permission risks and Limitations assume it does.
 11. That the revoke endpoint answers 200 with an empty body for a refresh token.
 
 ## Sources
@@ -277,7 +278,7 @@ All checked 2026-11-05.
 
 - [PostHog OAuth integration](https://posthog.com/docs/api/oauth) (CIMD, document rules, scope ceiling, server endpoints, token prefixes)
 - [OAuth development guide](https://posthog.com/handbook/engineering/oauth-development-guide) (PKCE flow, token response, access levels, introspection)
-- [Provisioning API, Sign requests with a key](https://posthog.com/docs/integrate/provisioning#sign-requests-with-a-key) (`private_key_jwt` claims, JWKS rules)
+- [Provisioning API, Sign requests with a key](https://posthog.com/docs/integrate/provisioning#sign-requests-with-a-key) (`private_key_jwt` claims, JWKS rules, JWKS cache and key rotation, assertion error messages)
 - [Authorization server metadata](https://oauth.posthog.com/.well-known/oauth-authorization-server) (`token_endpoint_auth_methods_supported`, `code_challenge_methods_supported`, `scopes_supported`)
 - [OpenAPI: billing_list](https://posthog.com/docs/open-api-spec/billing_list) (`GET /api/billing/`, `billing:read`)
 - [OpenAPI: billing_products_summary_retrieve](https://posthog.com/docs/open-api-spec/billing_products_summary_retrieve) (organization billing API is in beta)

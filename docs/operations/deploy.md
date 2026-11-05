@@ -169,6 +169,8 @@ Rotate `DEVMACRO_ENCRYPTION_KEY` without downtime by moving the old key into `DE
 
 To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cron job as described in [Jobs](jobs.md#register-the-pg_cron-job). Ticks fail with `401` between the two steps, and the next tick after the update catches up.
 
+To rotate `POSTHOG_OAUTH_PRIVATE_KEY`, generate a new key, set it, and deploy. It is a cutover: PostHog token calls can fail for up to a minute until PostHog fetches the new JWKS, and the affected syncs are retried. Details in [PostHog, Permission risks](../providers/posthog.md#permission-risks).
+
 ## 7. Schedule syncs (#89)
 
 After the production deployment exists and `CRON_SECRET` is set, register the `pg_cron` job in the production Supabase project (SQL editor). The SQL, the payload, how to change or remove the job, and how to read failed runs are in [Jobs, register the pg_cron job](jobs.md#register-the-pg_cron-job). Do not copy it here; keep one source.
