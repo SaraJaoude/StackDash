@@ -3,6 +3,7 @@
 import { useActionState, useId, useState } from "react";
 
 import { saveBudget, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { BUDGET_NAME_MAX } from "@/lib/alerts/rule-schema";
 
 import {
@@ -108,9 +109,9 @@ export function BudgetForm({
       <ScopeFields idPrefix={id} values={values} onChange={update} errors={errors} options={options} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add budget"}
-        </button>
+        </GuardedButton>
         {onCancel === undefined ? null : (
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
             Cancel
