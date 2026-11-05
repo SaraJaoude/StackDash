@@ -84,6 +84,12 @@ const STRING_RULES: readonly StringRule[] = [
     pattern: /\bsbp_[A-Za-z0-9]{16,}|\bsb_secret_[A-Za-z0-9_-]{8,}/g,
     replace: fullMask,
   },
+  // Polar access, refresh, organization, and personal tokens and client secrets (polar_at_,
+  // polar_rt_, polar_oat_, polar_pat_, polar_cs_).
+  {
+    pattern: /\bpolar_[a-z]{2,3}_[A-Za-z0-9]{16,}/g,
+    replace: fullMask,
+  },
   // Long hex blobs (hashes, encryption keys, legacy tokens).
   {
     pattern: /\b[0-9a-fA-F]{32,}\b/g,
