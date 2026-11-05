@@ -24,7 +24,8 @@ import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/d
 import { formatDateTime, formatRelative } from "@/lib/format";
 import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connection" };

@@ -11,7 +11,7 @@ const LONDON_DATE = new Intl.DateTimeFormat("en-CA", {
 const LONDON_WEEKDAY = new Intl.DateTimeFormat("en-US", { timeZone: TIMELINE_TIME_ZONE, weekday: "long" });
 
 /** The London calendar date (`YYYY-MM-DD`) an instant falls on. */
-function londonDate(at: Date): string {
+export function londonDate(at: Date): string {
   return LONDON_DATE.format(at);
 }
 

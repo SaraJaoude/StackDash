@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { PageSkeleton } from "@/components/app/page-skeleton";
-import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 
 // The workspace root has no content of its own; the timeline is its home. Access is checked
 // there, so this only refuses slugs that could never be valid. Params are read inside Suspense,
