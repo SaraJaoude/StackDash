@@ -408,8 +408,13 @@ connections need reconnecting.
 ```text
 src/
   proxy.ts                     content security policy and Supabase session refresh
+  instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
+    not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
+    global-not-found.tsx       document for URLs that match no route, rendered per request so its
+                               scripts carry the policy nonce
+    fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
     docs/                      the Markdown in docs/ published at /docs, one page per file
     auth/                      OAuth callback, error page, sign-out
