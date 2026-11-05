@@ -4,8 +4,9 @@
  * `run.ts` loads the inputs and records the results.
  *
  * Rules decided here, once:
- * - Metrics are reduced the way the dashboard reduces them (`latestSnapshots`, then
- *   `dropSupersededBreakdowns`), so an alert never disagrees with the number on screen.
+ * - Metrics are reduced the way the dashboard reduces them (`countedSnapshots`: the latest row
+ *   per metric, breakdowns and sub-windows dropped), so an alert never disagrees with the number
+ *   on screen and a GitHub day never moves the cycle key off its month.
  * - A threshold is crossed at or above it: 90 of 100 crosses a 90 percent rule, 89.99 does not.
  *   Percentages are compared in exact cross multiplication (`used * 100 >= threshold * included`),
  *   never as a rounded float.
@@ -30,12 +31,7 @@
  * - A rule that covers several allowances or accounts still records one alert per cycle (the
  *   unique key is per rule): when several cross at once, the one furthest past its allowance wins.
  */
-import {
-  dropSupersededBreakdowns,
-  isCurrentPeriod,
-  latestSnapshots,
-  type SnapshotInput,
-} from "@/lib/dashboard/aggregate";
+import { countedSnapshots, isCurrentPeriod, type SnapshotInput } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -450,7 +446,7 @@ function evaluateBudgetRule(
 /** Every threshold crossed by the current readings, one per (rule, cycle). Paused rules are skipped. */
 export function evaluateAlerts(input: EvaluateInput): AlertTrigger[] {
   const { now, names } = input;
-  const rows = dropSupersededBreakdowns(latestSnapshots(input.snapshots));
+  const rows = countedSnapshots(input.snapshots);
   const readings = allowanceReadings(rows, now);
   const budgets = new Map(input.budgets.map((budget) => [budget.id, budget]));
   return input.rules.flatMap((rule): AlertTrigger[] => {
