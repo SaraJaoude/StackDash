@@ -1,8 +1,8 @@
-import { createMcpHandler, originValidationResponse } from "@modelcontextprotocol/server";
+import { createMcpHandler, originValidationResponse, readRequestBody } from "@modelcontextprotocol/server";
 import { unstable_rethrow } from "next/navigation";
 
 import { authenticateApiRequest, rateLimitHeaders } from "@/lib/api/auth";
-import { apiErrorResponse } from "@/lib/api/errors";
+import { apiErrorResponse, invalidRequest } from "@/lib/api/errors";
 import { connectOrigin } from "@/lib/connections/oauth-state";
 import { log } from "@/lib/log/logger";
 import { authInfoFor, createDevMacroMcpServer, principalFrom } from "@/lib/mcp/server";
@@ -27,6 +27,22 @@ const handler = createMcpHandler(({ authInfo }) => createDevMacroMcpServer(princ
   onerror: (error) => log.warn("mcp.request_rejected", { message: error.message }),
 });
 
+/*
+ * Whether the body is a JSON-RPC batch. The SDK's 2025 leg dispatches every message of a batch
+ * array (up to 100), so one request, counted once against the key's limit, could run a hundred tool
+ * calls. Batches left the protocol in 2025-06-18, and no DevMacro client needs one. The check reads
+ * a copy, so the SDK still reads the original and answers a body that is too large or not JSON.
+ */
+async function isBatch(request: Request): Promise<boolean> {
+  const body = await readRequestBody(request.clone(), MAX_REQUEST_BODY_BYTES);
+  if (body.tooLarge) return false;
+  try {
+    return Array.isArray(JSON.parse(body.text));
+  } catch {
+    return false;
+  }
+}
+
 // Every MCP message is a POST (Streamable HTTP, Sending Messages). The endpoint keeps no sessions,
 // so it has no GET stream or DELETE, and Next.js answers those methods with 405.
 export async function POST(request: Request): Promise<Response> {
@@ -40,6 +56,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const { principal, rateLimit } = await authenticateApiRequest(request);
     headers = { ...headers, ...rateLimitHeaders(rateLimit) };
+    if (await isBatch(request)) throw invalidRequest("Send one JSON-RPC message per request.");
     const response = await handler.fetch(request, { authInfo: authInfoFor(principal) });
     const merged = new Headers(response.headers);
     for (const [name, value] of Object.entries(headers)) merged.set(name, value);

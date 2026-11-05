@@ -565,4 +565,53 @@ describe("the HTTP endpoint", () => {
     expect(response.status).toBe(413);
     expect(readCalls()).toEqual([]);
   });
+
+  it.each(["2025-03-26", "2025-11-25"])(
+    "refuses a JSON-RPC batch of two tool calls with 400 and reads no workspace data (protocol %s)",
+    async (version) => {
+      const { key } = generateApiKey();
+      const call = (id: number) => ({
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: { name: "list_projects", arguments: {} },
+      });
+      const response = await POST(
+        new Request(ENDPOINT, {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${key}`,
+            "content-type": "application/json",
+            accept: "application/json, text/event-stream",
+            "mcp-protocol-version": version,
+          },
+          body: JSON.stringify([call(1), call(2)]),
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect(response.headers.get("x-ratelimit-remaining")).not.toBeNull();
+      const body = ErrorResponseSchema.strict().parse(await response.json());
+      expect(body.error).toMatchObject({ code: "invalid_request", message: "Send one JSON-RPC message per request." });
+      expect(readCalls()).toEqual([]);
+    },
+  );
+
+  it("still answers a single tool call sent as one JSON-RPC message", async () => {
+    const { key } = generateApiKey();
+    const response = await POST(
+      new Request(ENDPOINT, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${key}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2025-03-26",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "list_projects", arguments: {} } }),
+      }),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(readCalls().map(([fn]) => fn)).toEqual(["api_workspaces", "api_projects"]);
+  });
 });

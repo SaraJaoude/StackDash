@@ -98,7 +98,7 @@ Every tool answers with JSON, both as `structuredContent` (with an `outputSchema
 ## Errors and limits
 
 - A key that is missing or does not work gets HTTP `401` with the REST API's error envelope and a reference id, before any MCP message is read. Past the rate limit it gets `429` with `Retry-After`.
-- The rate limit is the REST API's: 120 requests per key per minute. Every MCP message is one request, so the messages a client sends to connect count as well as each tool call.
+- The rate limit is the REST API's: 120 requests per key per minute. Every MCP message is one request, so the messages a client sends to connect count as well as each tool call. A JSON-RPC batch (an array of messages in one request) is refused with `400` and the API's error envelope, so one request never runs more than one tool call.
 - A tool the key's scopes do not allow, a malformed argument, or a changed cursor answers with a tool error the assistant can read (`isError: true`), saying what to do next. A failure on the server answers with a generic message and a reference id; the details are in the server log against that id.
 - A request from a web page on another site (an `Origin` header that is not this site) gets `403`, as the Streamable HTTP transport requires. A request body over 64 KiB gets `413`; no tool takes anything near that size.
 
