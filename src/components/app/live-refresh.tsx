@@ -4,6 +4,7 @@ import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from "@supabase/supab
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
 import { createRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
@@ -36,20 +37,32 @@ let mountCount = 0;
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level and the page
  * behaves as it did before live updates: it shows new data on the next navigation or reload.
+ * It tells the ArrivalProvider whether the channel is live and when each batch arrives, which the
+ * live indicator in the header shows (#171).
  */
 export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   // `refresh` is the app router's own method, stable across renders, unlike the object around it.
   const { refresh } = useRouter();
+  const arrivals = useArrivalControls();
 
   useEffect(() => {
     // The browser client is a singleton, so this channel shares the one socket of the page.
     const supabase = createClient();
+    // The newest commit among the changes delivered so far: the database's clock, not the browser's.
+    let lastCommitAt: string | null = null;
     const scheduler = createRefreshScheduler({
-      refresh,
+      refresh: () => {
+        arrivals?.arrived(lastCommitAt);
+        refresh();
+      },
       isHidden: () => document.visibilityState === "hidden",
     });
     const onVisibilityChange = () => scheduler.visibilityChanged();
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const onChange = ({ commit_timestamp: committedAt }: { commit_timestamp: string }) => {
+      if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
+      scheduler.notify();
+    };
 
     let channel: RealtimeChannel | undefined;
     let active = true;
@@ -59,13 +72,15 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       channel = supabase.channel(`workspace-live:${workspaceId}:${++mountCount}`);
       for (const table of LIVE_TABLES) {
         for (const event of LIVE_EVENTS) {
-          channel.on("postgres_changes", { event, schema: "public", table, filter }, scheduler.notify);
+          channel.on("postgres_changes", { event, schema: "public", table, filter }, onChange);
         }
       }
       channel.subscribe((status, error) => {
+        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) arrivals?.setStatus("live");
         if (status !== REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR && status !== REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
           return;
         }
+        arrivals?.setStatus("offline");
         // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
         // is server only), so it reads the same in devtools and in the Playwright console. The
         // fields hold no token; redaction masks one if a future error carries it.
@@ -92,8 +107,9 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       scheduler.dispose();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (channel !== undefined) void supabase.removeChannel(channel);
+      arrivals?.setStatus("connecting");
     };
-  }, [refresh, workspaceId]);
+  }, [refresh, workspaceId, arrivals]);
 
   return null;
 }

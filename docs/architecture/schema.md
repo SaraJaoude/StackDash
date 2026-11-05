@@ -17,6 +17,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
 | `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
 | `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
+| `20261105023129_published_metrics.sql` | `public_metric_id`, `published_metric_rounding`, `published_metrics`, and the publish, unpublish, and public read functions |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -50,6 +51,7 @@ erDiagram
   projects |o--o{ alert_rules : "scope"
   connections |o--o{ alert_rules : "scope"
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
+  projects ||--o{ published_metrics : "publishes"
   connections |o--o{ sync_jobs : "syncs"
   workspace_members ||--o| notification_preferences : "email setting"
   workspaces ||--o{ notification_destinations : "channels"
@@ -113,6 +115,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
+| `published_metrics` | viewer | none (service role functions, after an owner or admin check) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
 | `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
 | `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
@@ -165,6 +168,8 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 
 `src/components/app/live-refresh.tsx`, mounted once in the workspace layout, opens one channel per workspace for inserts and updates on those tables, filtered by `workspace_id`, and calls `router.refresh()` so the Server Components read again. Refreshes are debounced in `src/lib/realtime/refresh-scheduler.ts`: one 750 ms after the last change, and at least one every 3 s while changes keep arriving, so a sync writing many rows refreshes once or twice rather than per row. A hidden tab refreshes once when it is shown again. No row data is kept in the browser. Realtime checks each change against the subscriber's select policy, the same one the pages use, so a member only hears about their own workspace. The channel is removed when the layout unmounts.
 
+Arriving data is marked so a refresh is visible (#171). `src/components/app/arrivals.tsx` wraps the workspace layout: the components that show data keep what they rendered last time (event ids on the timeline, values by account and metric key on the dashboard, today's trend point) and compare it with the refreshed render, so only what changed is marked; the rules are in `src/lib/realtime/arrivals.ts`. A change is marked only when a batch arrived while the component was in view. A change of path, filters, page, or trend period resets the comparison, and so does leaving a page: with Cache Components, Next.js keeps recent pages mounted but hidden in React `<Activity>` and shows them again on return, so each component registers itself as in view from a layout effect, which hiding cleans up. A first load, a navigation, or a return to a page whose data changed while it was hidden never animates. A new event slides in with a severity-colored edge, a changed card pulses once and shows "Updated", its numbers count from the old value, a usage bar resizes, and today's trend point draws in and pings, all with the landing page keyframes in `src/app/globals.css`, each a second or less, using only properties that do not change layout. Under `prefers-reduced-motion: reduce` each becomes a static highlight that clears after 4 s. One polite live region per workspace says what a refresh brought ("3 new events. Spend in USD updated."). The live indicator in the header reads "Connecting", "Live", or "Offline" (its accessible name always starts "Live updates"), pulses once per batch, and shows the commit time of the newest change on hover and focus.
+
 `connection_credentials`, `oauth_states`, `access_invites`, and `profiles` are never published: `supabase/tests/database/07_realtime_publication.test.sql` pins the exact table list and fails if any of them is added. Replica identity stays the default, because inserts and updates carry the whole new row; only deletes would need `replica identity full`, and the screens do not listen for deletes.
 
 ## Retention defaults (#37)
@@ -175,11 +180,23 @@ The `supabase_realtime` publication holds the sync-written tables the workspace 
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
+| `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
 | `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
 | `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 
 Nothing is aggregated in the MVP.
+
+## Public metrics (#148)
+
+`published_metrics` records which metrics a workspace has made public, per project. What each metric is and how it is counted is in [Public metrics](public-metrics.md).
+
+- `metric_id` is the enum `public_metric_id`, the only list of publishable metrics; the code keys its definitions by the same enum through the generated types. Spend, budgets, and alert thresholds have no value in it. A row with no `metric_id` is a self-reported value with its own label, value (a whole number), and unit; `published_metrics_source` allows exactly one of the two shapes.
+- Rows are never edited except to revoke them (`revoked_at`, `revoked_by`), so the table is also the publication history. Partial unique indexes allow one live row per metric, and per self-reported label ignoring case, in a project.
+- Members read it as viewers. Nobody writes through the Data API: `publish_metric`, `publish_self_reported_metric`, `unpublish_metric`, and `unpublish_all_metrics` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.metric_published`, `devmacro.metric_unpublished`, or `devmacro.metrics_unpublished_all` timeline event in the same transaction.
+- `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
+- `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.
+- Not published to Realtime: the page that changes a publication refreshes itself, and the timeline hears the audit event through `activity_events`.
 
 ## Review against later plans
 

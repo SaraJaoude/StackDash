@@ -25,6 +25,7 @@ export const WORKSPACE_ACTIONS = [
   "manage_budgets",
   "manage_alert_channels",
   "receive_alert_email",
+  "publish_metrics",
   "manage_members",
   "rename_workspace",
   "manage_billing",
@@ -42,6 +43,8 @@ const REQUIRED_ROLE: Record<WorkspaceAction, WorkspaceRole> = {
   manage_alert_channels: "admin",
   // Recipients are owners and admins (#152, notification_recipients), never stored on a rule.
   receive_alert_email: "admin",
+  // Publishing makes numbers public (#148); viewers see what is published, nothing more.
+  publish_metrics: "admin",
   // Admins manage members too, except owners: see canManageMember.
   manage_members: "admin",
   rename_workspace: "admin",
@@ -57,6 +60,7 @@ const DENIED_REASON: Record<WorkspaceAction, string> = {
   manage_budgets: "Only owners and admins can manage budgets and alert rules.",
   manage_alert_channels: "Only owners and admins can add or change where alerts are posted.",
   receive_alert_email: "Only owners and admins receive alert emails for this workspace.",
+  publish_metrics: "Only owners and admins can publish or unpublish metrics.",
   manage_members: "Only owners and admins can invite, remove, or change members.",
   rename_workspace: "Only owners and admins can rename this workspace.",
   manage_billing: "Only owners can manage billing.",
