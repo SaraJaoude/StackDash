@@ -8,6 +8,7 @@ import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metri
 import { polarAdapter } from "@/lib/adapters/polar";
 import { postHogAdapter } from "@/lib/adapters/posthog";
 import { resendAdapter } from "@/lib/adapters/resend";
+import { sentryAdapter } from "@/lib/adapters/sentry";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
 import {
@@ -42,6 +43,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   digitalocean: digitaloceanAdapter,
   posthog: postHogAdapter,
   polar: polarAdapter,
+  sentry: sentryAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -652,6 +654,38 @@ describe("simulated numbers", () => {
       start: new Date("2026-11-19T00:00:00Z"),
       end: new Date("2026-11-20T00:00:00Z"),
     });
+  });
+
+  it("reports Sentry errors by outcome over the last 24 hours for each of three projects", async () => {
+    const credential = await connect(simulatedAdapters.sentry);
+    const accounts = await simulatedAdapters.sentry.listAccounts(credential, makeCtx(SPAN_START));
+    expect(accounts.map((account) => account.displayName)).toEqual(["web", "api", "ios"]);
+    const now = new Date("2026-11-20T15:00:00Z");
+    for (const account of accounts) {
+      const { metrics } = await simulatedAdapters.sentry.sync({ credential, externalAccountId: account.externalId }, makeCtx(now));
+      expect(metrics.map((item) => item.metricKey)).toEqual([
+        "sentry.errors.accepted",
+        "sentry.errors.filtered",
+        "sentry.errors.rate_limited",
+      ]);
+      for (const item of metrics) {
+        expect(item.timeframe).toEqual({ type: "period", start: new Date("2026-11-19T15:00:00Z"), end: now });
+      }
+      expect(quantity(metric(metrics, "sentry.errors.accepted"))).toBeGreaterThan(quantity(metric(metrics, "sentry.errors.filtered")));
+    }
+  });
+
+  it("puts at least one Sentry release in every project's 30 minute backfill, each on its own project", async () => {
+    const credential = await connect(simulatedAdapters.sentry);
+    const accounts = await simulatedAdapters.sentry.listAccounts(credential, makeCtx(SPAN_START));
+    for (const account of accounts) {
+      for (const minutes of [0, 7, 45, 90]) {
+        const { events } = await simulatedAdapters.sentry.sync({ credential, externalAccountId: account.externalId }, makeCtx(at(minutes)));
+        const releases = events.filter((event) => event.typeId === "sentry.release.created");
+        expect(releases.length, `${account.displayName} at minute ${minutes}`).toBeGreaterThan(0);
+        for (const event of releases) expect(event.externalAccountId).toBe(account.externalId);
+      }
+    }
   });
 
   it("lands the daily GitHub stars and Supabase summary events in the first minute of a UTC day", async () => {

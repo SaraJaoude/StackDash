@@ -34,6 +34,15 @@ export function adminClient(): Admin {
   return cached;
 }
 
+/** A connection page URL; group 1 is the connection id. */
+export const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
+
+/** The cron secret `POST /api/jobs/tick` checks, from the same env `adminClient` loads. */
+export function cronSecret(): string {
+  if (existsSync(".env.local")) process.loadEnvFile(".env.local");
+  return z.string().min(32).parse(process.env.CRON_SECRET);
+}
+
 async function userIdByEmail(admin: Admin, email: string): Promise<string> {
   const { data, error } = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (error) throw new Error(`Listing users failed: ${error.message}`);
