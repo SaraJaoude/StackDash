@@ -84,6 +84,33 @@ test.describe("landing page", () => {
     await expect(page.getByText("Example data.", { exact: false }).first()).toBeVisible();
   });
 
+  test("every built integration states its spend requirement and links to its provider page", async ({ page }) => {
+    await page.goto("/");
+
+    const integrations = page.locator("#integrations");
+    const built = await integrations
+      .getByRole("region", { name: "First" })
+      .getByRole("listitem")
+      .allTextContents();
+    // "GitHub and GitHub Actions" is one connection, listed as GitHub in the spend list.
+    const builtProviders = built.map((name) => name.replace(/ and GitHub Actions$/, ""));
+    const spendProviders = await integrations.locator("dl dt").allTextContents();
+    expect(spendProviders).toEqual(builtProviders);
+    for (const answer of await integrations.locator("dl dd").all()) {
+      await expect(answer).toContainText("Spend:");
+      await expect(answer).toContainText("Every plan:");
+    }
+
+    // Boundary: a planned provider gets no spend line until its adapter is built.
+    const planned = await integrations.getByRole("region", { name: "Next" }).getByRole("listitem").allTextContents();
+    expect(planned.length).toBeGreaterThan(0);
+    for (const provider of planned) expect(spendProviders).not.toContain(provider);
+
+    await integrations.locator("dl dt").getByRole("link", { name: "Vercel", exact: true }).click();
+    await expect(page).toHaveURL("/docs/providers/vercel");
+    await expect(page.getByRole("heading", { level: 1, name: "Vercel" })).toBeVisible();
+  });
+
   test.describe("live events feed", () => {
     // A fake clock drives the feed's interval, so no test waits on real seconds. The feed only
     // ticks once hydrated, so each step retries until the hydrated feed responds.
