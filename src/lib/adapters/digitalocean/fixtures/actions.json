@@ -1,0 +1,91 @@
+{
+  "actions": [
+    {
+      "id": 36804640,
+      "status": "in-progress",
+      "type": "reboot",
+      "started_at": "2026-11-05T11:40:00Z",
+      "completed_at": null,
+      "resource_id": 3164444,
+      "resource_type": "droplet",
+      "region": {
+        "name": "New York 3",
+        "slug": "nyc3"
+      },
+      "region_slug": "nyc3"
+    },
+    {
+      "id": 36804639,
+      "status": "completed",
+      "type": "destroy",
+      "started_at": "2026-11-05T10:00:00Z",
+      "completed_at": "2026-11-05T10:00:20Z",
+      "resource_id": 3164499,
+      "resource_type": "droplet",
+      "region": null,
+      "region_slug": "ams3"
+    },
+    {
+      "id": 36804638,
+      "status": "completed",
+      "type": "attach",
+      "started_at": "2026-11-05T09:30:00Z",
+      "completed_at": "2026-11-05T09:30:05Z",
+      "resource_id": 506,
+      "resource_type": "volume",
+      "region": null,
+      "region_slug": "nyc3"
+    },
+    {
+      "id": 36804637,
+      "status": "completed",
+      "type": "power_cycle",
+      "started_at": "2026-11-05T09:00:00Z",
+      "completed_at": "2026-11-05T09:00:40Z",
+      "resource_id": 3164445,
+      "resource_type": "droplet",
+      "region": null,
+      "region_slug": "nyc3"
+    },
+    {
+      "id": 36804636,
+      "status": "errored",
+      "type": "resize",
+      "started_at": "2026-11-04T16:29:21Z",
+      "completed_at": "2026-11-04T16:31:06Z",
+      "resource_id": 3164444,
+      "resource_type": "droplet",
+      "region": null,
+      "region_slug": "nyc3"
+    },
+    {
+      "id": 36804635,
+      "status": "completed",
+      "type": "create",
+      "started_at": "2026-11-03T16:29:21Z",
+      "completed_at": "2026-11-03T16:30:06Z",
+      "resource_id": 3164444,
+      "resource_type": "droplet",
+      "region": {
+        "name": "New York 3",
+        "slug": "nyc3"
+      },
+      "region_slug": "nyc3"
+    },
+    {
+      "id": 36804600,
+      "status": "completed",
+      "type": "create",
+      "started_at": "2026-10-20T08:00:00Z",
+      "completed_at": "2026-10-20T08:00:45Z",
+      "resource_id": 3164400,
+      "resource_type": "droplet",
+      "region": null,
+      "region_slug": "nyc3"
+    }
+  ],
+  "links": {},
+  "meta": {
+    "total": 7
+  }
+}
