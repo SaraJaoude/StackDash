@@ -32,7 +32,7 @@ test.describe("landing page", () => {
     }
   });
 
-  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
+  test("the header and footer show the same brand and lead to the docs and sign in", async ({ page }) => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
@@ -40,21 +40,18 @@ test.describe("landing page", () => {
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
+    // The footer wordmark is the header's image, so it reads "DevMacro" as one word (#127).
+    const [headerSrc, footerSrc] = await Promise.all(
+      [page.getByRole("banner"), page.getByRole("contentinfo")].map((region) =>
+        region.getByRole("img", { name: "DevMacro", exact: true }).getAttribute("src"),
+      ),
+    );
+    expect(headerSrc).toBeTruthy();
+    expect(footerSrc).toBe(headerSrc);
 
     await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL("/sign-in");
     await expect(page.getByRole("heading", { level: 1, name: "Sign in" })).toBeVisible();
-  });
-
-  test("the footer wordmark is the header's, announced as one word", async ({ page }) => {
-    await page.goto("/");
-
-    const header = page.getByRole("banner").getByRole("img", { name: "DevMacro", exact: true });
-    const footer = page.getByRole("contentinfo").getByRole("img", { name: "DevMacro", exact: true });
-    await expect(footer).toBeVisible();
-    const [headerSrc, footerSrc] = await Promise.all([header.getAttribute("src"), footer.getAttribute("src")]);
-    expect(headerSrc).toBeTruthy();
-    expect(footerSrc).toBe(headerSrc);
   });
 
   test("the brand and sign in share one header row on a phone", async ({ page }) => {
@@ -112,9 +109,10 @@ test.describe("landing page", () => {
       .allTextContents();
     // "GitHub and GitHub Actions" is one connection, listed as GitHub in the spend list.
     const builtProviders = built.map((name) => name.replace(/ and GitHub Actions$/, ""));
-    const spendProviders = await integrations.locator("dl dt").allTextContents();
+    const spendProviders = await integrations.getByRole("term").allTextContents();
     expect(spendProviders).toEqual(builtProviders);
-    for (const answer of await integrations.locator("dl dd").all()) {
+    await expect(integrations.getByRole("definition")).toHaveCount(spendProviders.length);
+    for (const answer of await integrations.getByRole("definition").all()) {
       await expect(answer).toContainText("Spend:");
       await expect(answer).toContainText("Every plan:");
     }
@@ -124,7 +122,7 @@ test.describe("landing page", () => {
     expect(planned.length).toBeGreaterThan(0);
     for (const provider of planned) expect(spendProviders).not.toContain(provider);
 
-    await integrations.locator("dl dt").getByRole("link", { name: "Vercel", exact: true }).click();
+    await integrations.getByRole("term").getByRole("link", { name: "Vercel", exact: true }).click();
     await expect(page).toHaveURL("/docs/providers/vercel");
     await expect(page.getByRole("heading", { level: 1, name: "Vercel" })).toBeVisible();
   });
