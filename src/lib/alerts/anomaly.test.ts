@@ -207,9 +207,10 @@ describe("findAnomalies", () => {
     expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([]);
   });
 
-  it("dates a one day period by its own day, even when it is read the day after", () => {
-    const rows = Array.from({ length: 15 }, (_, index) => {
-      const day = addUtcDays(DATE, index - 14);
+  /** Resend emails a day, one row per day for the 15 days to `last`, each stored the day after its own day. */
+  function emailsPerDay(last: string, daily: (day: string) => number): AnomalyRow[] {
+    return Array.from({ length: 15 }, (_, index) => {
+      const day = addUtcDays(last, index - 14);
       return row({
         connection_id: RESEND.id,
         metric_key: "resend.emails.daily",
@@ -217,14 +218,25 @@ describe("findAnomalies", () => {
         label: "Emails sent",
         currency: null,
         unit: "emails",
-        value: day === DATE ? 4000 : 1000,
+        value: daily(day),
         snapshot_date: addUtcDays(day, 1),
         period_start: `${day}T00:00:00.000Z`,
         period_end: `${addUtcDays(day, 1)}T00:00:00.000Z`,
       });
     });
-    const [anomaly] = findAnomalies({ date: DATE, rows, connections: [RESEND], mutes: [] });
-    expect(anomaly).toMatchObject({ value: 4000, usual: 1000, accrual: "daily", measure: EMAILS });
+  }
+
+  it("checks a one day period on the day before the summarized day, dated by its own day", () => {
+    // The summary for DATE + 1 runs before DATE + 1's row exists; DATE's row was stored on DATE + 1.
+    const rows = emailsPerDay(DATE, (day) => (day === DATE ? 4000 : 1000));
+    const anomalies = findAnomalies({ date: addUtcDays(DATE, 1), rows, connections: [RESEND], mutes: [] });
+    expect(anomalies).toEqual([expect.objectContaining({ date: DATE, value: 4000, usual: 1000, accrual: "daily", measure: EMAILS })]);
+  });
+
+  it("leaves a one day spike on the summarized day itself to the next day's summary", () => {
+    const rows = emailsPerDay(DATE, (day) => (day === DATE ? 4000 : 1000));
+    // The summary for DATE checks DATE - 1, an ordinary day, even though DATE's row is in the input.
+    expect(findAnomalies({ date: DATE, rows, connections: [RESEND], mutes: [] })).toEqual([]);
   });
 
   it("keeps verified and estimated values apart and labels which one fired", () => {
@@ -263,9 +275,10 @@ describe("findAnomalies", () => {
     );
     const anomalies = findAnomalies({ date: DATE, rows: [...month, ...days], connections: [github], mutes: [] });
     expect(anomalies.map((anomaly) => anomaly.metricKey)).toEqual(["github.spend.actions"]);
-    // Without the month, the day rows are the only source and fire on their own.
-    expect(findAnomalies({ date: DATE, rows: days, connections: [github], mutes: [] }).map((anomaly) => anomaly.metricKey)).toEqual([
-      "github.daily_spend.actions",
+    // Without the month, the day rows are the only source and fire on their own, one day period
+    // series checked by the next day's summary.
+    expect(findAnomalies({ date: addUtcDays(DATE, 1), rows: days, connections: [github], mutes: [] })).toEqual([
+      expect.objectContaining({ date: DATE, metricKey: "github.daily_spend.actions" }),
     ]);
   });
 
@@ -365,7 +378,7 @@ describe("anomaly event", () => {
     expect(unusualWords({ ratio: null, usual: 0, measure: USD })).toBe("up from a usual $0.00 a day");
   });
 
-  it("loads one day before the window and one day after the checked day", () => {
-    expect(anomalySnapshotRange(DATE)).toEqual({ from: "2026-10-05", to: "2026-10-21" });
+  it("loads one day before a running total's window, through the summarized day", () => {
+    expect(anomalySnapshotRange(DATE)).toEqual({ from: "2026-10-05", to: "2026-10-20" });
   });
 });

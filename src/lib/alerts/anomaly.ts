@@ -17,6 +17,13 @@
  *   running total that went down (a provider correction) makes the day unavailable, never zero.
  *   Rolling windows ("last 30 days", not on a day boundary) cannot be turned into daily amounts
  *   and are skipped.
+ * - The checked day depends on when its amount exists. The daily summary job for day D runs in
+ *   the first minute after D ends. A running total's reading for D is the last sync of D, so it is
+ *   checked on D. A provider reports a finished one day period the day after (Supabase daily
+ *   active users, a DigitalOcean SKU's day spend), stored under D + 1, so a series with a one day
+ *   account is checked on D - 1, the newest day whose row exists by then. The anomaly, its event,
+ *   and its dedupe key name the day checked, and the next day's job checks D, so no day is
+ *   skipped or checked twice.
  * - A series is one provider, one metric key, one currency or unit, and one source. Verified and
  *   estimated values are separate series and the event says which one it used. Accounts are added
  *   up the way trends add them: a day where an account that had started reporting has no amount
@@ -28,7 +35,7 @@
  *   kind, and currency is dropped (`dropSubWindows`: `github.daily_spend.actions` inside the
  *   month's `github.spend.actions`), so one spike is one event. `checkedRows` is that rule, and
  *   the alerts page lists only the metrics it keeps, so every mute silences something.
- * - The latest complete UTC day is compared with the 14 days before it. It needs at least 7 of
+ * - The checked day is compared with the 14 days before it. It needs at least 7 of
  *   them, and it fires only when all three hold: the day is at least twice the median, it is above
  *   the median by at least the minimum change for its currency or unit, and its modified z-score
  *   is above 3.5, the outlier cutoff Iglewicz and Hoaglin recommend (NIST/SEMATECH e-Handbook of
@@ -119,11 +126,11 @@ export function addUtcDays(date: string, days: number): string {
   return new Date(Date.parse(`${date}T00:00:00.000Z`) + days * DAY_MS).toISOString().slice(0, 10);
 }
 
-/** The first and last snapshot dates detection for `date` needs. */
+/** The first and last snapshot dates detection in the summary job for `date` needs. */
 export function anomalySnapshotRange(date: string): Readonly<{ from: string; to: string }> {
-  // One day before the window, for the first running total difference; one day after the checked
-  // day, because a provider reports a whole day's amount (a one day period) the day after.
-  return { from: addUtcDays(date, -ANOMALY_WINDOW_DAYS - 1), to: addUtcDays(date, 1) };
+  // One day before a running total's window, for its first difference. A one day period is
+  // checked a day earlier and stored the day after its own day, so `date` holds its newest row.
+  return { from: addUtcDays(date, -ANOMALY_WINDOW_DAYS - 1), to: date };
 }
 
 function median(sorted: readonly number[]): number {
@@ -309,9 +316,11 @@ function seriesAmounts(cells: readonly Cell[], days: readonly string[]): (number
 }
 
 /**
- * Every unusual series on `date` (`YYYY-MM-DD`, UTC), from rows narrowed to the workspace and to
- * `anomalySnapshotRange(date)`. Rows of connections not listed are ignored, and so are muted
- * metrics. Sorted by provider name, then label.
+ * Every unusual series for the summary of `date` (`YYYY-MM-DD`, UTC), from rows narrowed to the
+ * workspace and to `anomalySnapshotRange(date)`. A running total is checked on `date`, a series
+ * with a one day period on the day before, and each anomaly is dated by the day it checked. Rows
+ * of connections not listed are ignored, and so are muted metrics. Sorted by provider name, then
+ * label.
  */
 export function findAnomalies(input: {
   date: string;
@@ -320,11 +329,19 @@ export function findAnomalies(input: {
   mutes: readonly AnomalyMute[];
 }): Anomaly[] {
   const muted = new Set(input.mutes.map((mute) => `${mute.provider} ${mute.metric_key}`));
-  const days = Array.from({ length: ANOMALY_WINDOW_DAYS + 1 }, (_, index) => addUtcDays(input.date, index - ANOMALY_WINDOW_DAYS));
   const anomalies: Anomaly[] = [];
   for (const series of buildSeries(input.rows, input.connections)) {
     if (muted.has(`${series.provider} ${series.metricKey}`)) continue;
     const cells = [...series.accounts.values()].map(toCell);
+    const accrual: Accrual = cells.some((cell) => cell.accrual === "period_to_date") ? "period_to_date" : "daily";
+    // The summary job for `date` runs in the first minute after `date` ends, before any provider
+    // reports a finished one day period for `date` (Supabase daily active users, a DigitalOcean
+    // SKU's day): that row lands later, under the next snapshot date. So a series with a one day
+    // account is checked on the day before, the newest day whose row exists by then, and the next
+    // day's job checks `date` itself, so no day is skipped or checked twice. A running total's
+    // reading for `date` is the last sync of that day, so it is checked on `date`.
+    const date = cells.some((cell) => cell.accrual === "daily") ? addUtcDays(input.date, -1) : input.date;
+    const days = Array.from({ length: ANOMALY_WINDOW_DAYS + 1 }, (_, index) => addUtcDays(date, index - ANOMALY_WINDOW_DAYS));
     const amounts = seriesAmounts(cells, days);
     const spike = detectSpike(amounts.slice(0, -1), amounts.at(-1) ?? null, series.measure);
     if (spike === null) continue;
@@ -332,13 +349,13 @@ export function findAnomalies(input: {
       ...spike,
       // Money is shown in minor units; a median of two middle days can fall between two of them.
       usual: series.measure.type === "money" ? Math.round(spike.usual) : spike.usual,
-      date: input.date,
+      date,
       provider: series.provider,
       metricKey: series.metricKey,
       label: series.latest.label,
       measure: series.measure,
       source: series.source,
-      accrual: cells.some((cell) => cell.accrual === "period_to_date") ? "period_to_date" : "daily",
+      accrual,
       connectionId: series.connectionIds.size === 1 ? ([...series.connectionIds][0] ?? null) : null,
       externalAccountId: series.accounts.size === 1 ? ([...series.accounts.keys()][0] ?? null) : null,
     });

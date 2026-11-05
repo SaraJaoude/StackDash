@@ -18,9 +18,10 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
  *   is not added to its product's month again.
  * - The event's dedupe key names the day, so a job that runs twice writes one event.
- * - Anomaly detection (#169) runs in the same job, right after the summary is built, over the same
- *   day: one `devmacro.anomaly_detected` event per unusual metric, unless the workspace turned it
- *   off or muted the metric. See src/lib/alerts/anomaly.ts.
+ * - Anomaly detection (#169) runs in the same job, right after the summary is built: one
+ *   `devmacro.anomaly_detected` event per unusual metric, unless the workspace turned it off or
+ *   muted the metric. Running totals are checked on the summarized day, one day periods on the
+ *   day before, whose row the provider has stored by then. See src/lib/alerts/anomaly.ts.
  */
 
 export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
