@@ -265,6 +265,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"published_metrics": {
+                  Row: {
+                    "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"] | null,"project_id": string,"published_at": string,"published_by": string,"revoked_at": string | null,"revoked_by": string | null,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string | null,"self_reported_unit": string | null,"self_reported_value": number | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "delay_days"?: number,"id"?: string,"metric_id"?: Database["public"]['Enums']["public_metric_id"] | null,"project_id": string,"published_at"?: string,"published_by": string,"revoked_at"?: string | null,"revoked_by"?: string | null,"rounding"?: Database["public"]['Enums']["published_metric_rounding"],"self_reported_label"?: string | null,"self_reported_unit"?: string | null,"self_reported_value"?: number | null,"workspace_id": string
+                  }
+                  Update: {
+                    "delay_days"?: number,"id"?: string,"metric_id"?: Database["public"]['Enums']["public_metric_id"] | null,"project_id"?: string,"published_at"?: string,"published_by"?: string,"revoked_at"?: string | null,"revoked_by"?: string | null,"rounding"?: Database["public"]['Enums']["published_metric_rounding"],"self_reported_label"?: string | null,"self_reported_unit"?: string | null,"self_reported_value"?: number | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "published_metrics_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "published_metrics_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"sync_jobs": {
                   Row: {
                     "attempts": number,"connection_id": string | null,"created_at": string,"dedupe_key": string | null,"error_code": string | null,"error_reference": string | null,"finished_at": string | null,"id": string,"kind": Database["public"]['Enums']["sync_job_kind"],"locked_until": string | null,"max_attempts": number,"run_after": string,"started_at": string | null,"status": Database["public"]['Enums']["sync_job_status"],"workspace_id": string | null
@@ -452,6 +478,17 @@ isOneToOne: false
               "metric_key": string,"resets_at": string
             }[]
                            },
+"public_published_metrics":
+{ Args: { "p_project_id": string }; Returns: {
+              "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"published_at": string,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string,"self_reported_unit": string,"self_reported_value": number,"workspace_id": string
+            }[]
+                           },
+"publish_metric":
+{ Args: { "p_actor_id": string,"p_body": string,"p_delay_days": number,"p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_rounding": Database["public"]['Enums']["published_metric_rounding"],"p_title": string,"p_workspace_id": string }; Returns: string
+                           },
+"publish_self_reported_metric":
+{ Args: { "p_actor_id": string,"p_label": string,"p_project_id": string,"p_title": string,"p_unit": string,"p_value": number,"p_workspace_id": string }; Returns: string
+                           },
 "purge_activity_events":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
@@ -464,15 +501,27 @@ isOneToOne: false
 "purge_usage_snapshots":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"record_publication_event":
+{ Args: { "p_body": string,"p_dedupe_key": string,"p_title": string,"p_type_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
 "request_manual_sync":
 { Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
+                           },
+"require_published_metrics_admin":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"unpublish_all_metrics":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
+                           },
+"unpublish_metric":
+{ Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string
                            },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
                            }
           }
           Enums: {
-            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake","sync_job_kind": "sync"|"daily_summary"|"retention","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","sync_job_kind": "sync"|"daily_summary"|"retention","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -588,7 +637,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake"],"sync_job_kind": ["sync", "daily_summary", "retention"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"sync_job_kind": ["sync", "daily_summary", "retention"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const
