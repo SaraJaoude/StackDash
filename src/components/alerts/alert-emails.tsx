@@ -3,6 +3,7 @@
 import { useActionState, useId, useState } from "react";
 
 import { saveAlertEmails, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import type { EmailFrequency } from "@/lib/notifications/model";
 
 import { ErrorSummary, primaryButtonClass, submitWithoutReset } from "./form-controls";
@@ -54,9 +55,9 @@ export function AlertEmailsForm({ workspaceSlug, current }: { workspaceSlug: str
           })}
         </div>
       </fieldset>
-      <button type="submit" disabled={pending} className={primaryButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
         {pending ? "Saving" : "Save alert emails"}
-      </button>
+      </GuardedButton>
       <div role="status" aria-live="polite" className="text-sm">
         {!pending && state?.ok === true ? <p className="text-success">Alert email setting saved.</p> : null}
       </div>

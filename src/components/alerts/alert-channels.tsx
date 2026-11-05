@@ -9,6 +9,7 @@ import {
   updateAlertChannel,
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { ConfirmDelete } from "./confirm-delete";
 import {
@@ -228,9 +229,9 @@ export function ChannelForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <button type="submit" disabled={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add channel"}
-        </button>
+        </GuardedButton>
         {onCancel === undefined ? null : (
           <button type="button" onClick={onCancel} className={secondaryButtonClass}>
             Cancel
@@ -265,10 +266,10 @@ function TestButton({ workspaceSlug, destinationId, name }: { workspaceSlug: str
     <form action={formAction} className="contents">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="destinationId" value={destinationId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
         {pending ? "Sending" : "Send test message"}
         <span className="sr-only">: {name}</span>
-      </button>
+      </GuardedButton>
       <span role="status" aria-live="polite" className="basis-full text-sm">
         {pending || state === null ? null : failure === null ? (
           <span className="text-success">Test message sent to {name}.</span>
