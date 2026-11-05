@@ -12,6 +12,12 @@ Each tick does three things, then answers with counts only (no data, no errors i
    - `needs_attention`, `pending`, and `revoked` connections are never scheduled. They wait for the user to reconnect.
 
    It also queues the retention job once per UTC day (dedupe key `retention:YYYY-MM-DD`), and one daily summary job per workspace with a connection that is not revoked (dedupe key `daily_summary:<workspace id>:YYYY-MM-DD`, for the previous UTC day). The summary writes one `devmacro.daily_summary` timeline event with each provider's usage and spending for that day, labeled verified, estimated, or unavailable, and never adds currencies together.
+
+   Alert delivery (#152, #153) adds two more:
+   - **Alert dispatch**: one `alert_dispatch` job per workspace with a triggered alert not sent yet (at most one queued per workspace, unique index `sync_jobs_one_queued_alert_dispatch_per_workspace`). Alerts the syncs of one tick record go out with the next tick, together: one email per owner or admin set to "As each alert happens", and one post per channel that receives those rules. A delivery record per alert and target (`notification_deliveries`) means a retried job never sends anything twice, and `triggered_alerts` holds one row per rule per billing cycle, so each rule emails at most once per cycle. Channel posts retry within the job on 429 and 5xx; a target still failing is retried with the job's backoff, and each failure writes one `devmacro.notification_failed` timeline event with the reference id of the logged error. After the last attempt the alerts count as sent, so one broken channel cannot hold back later alerts. A channel that fails 3 times in a row, or answers with any other 4xx or a redirect (never followed), becomes "needs attention" and writes a `devmacro.channel_needs_attention` event.
+   - **Digest**: one `digest` job per workspace with a connection per UTC day (dedupe key `digest:<workspace id>:YYYY-MM-DD`, for the previous day). It sends the daily digest to members and channels set to daily, and on Mondays the weekly digest for the week before to those set to weekly.
+
+   Email goes through `DEVMACRO_SMTP_URL` or `DEVMACRO_RESEND_API_KEY` (see `.env.example`). Without either, email targets are skipped and channels still receive alerts. Locally, sent mail appears in the Supabase mail catcher at http://127.0.0.1:55424.
 2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job.
 3. **Run.** Runs the claimed jobs, three at a time, within a 50 second budget. Jobs not started when the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 
@@ -50,6 +56,7 @@ The daily retention job deletes, in batches of 1000 rows:
 - `usage_snapshots` with `snapshot_date` more than 13 months before today (UTC).
 - `activity_events` with `occurred_at` more than 13 months ago.
 - Finished `sync_jobs` (succeeded or failed) created more than 30 days ago. Queued and running jobs are never deleted.
+- Digest delivery records (`notification_deliveries` without a triggered alert) more than 30 days old. Alert delivery records go with their alert.
 
 Data exactly 13 months old is kept. Triggered alerts are kept while their rule exists. A run cut short by the tick budget is finished by the next run; running it twice is harmless.
 

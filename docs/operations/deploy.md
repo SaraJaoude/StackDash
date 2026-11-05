@@ -121,13 +121,17 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin) | The production URL. Also the origin of every provider callback URL |
+| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL and of the links in alert messages, which a production build will not send without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
 | `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
+| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails (#152). With Resend, an address on a domain verified in the Resend account |
+| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Set this or `DEVMACRO_SMTP_URL`, never both |
+| `DEVMACRO_SMTP_URL` | Secret | Unset on the hosted app (Resend sends) | Unset | Self-hosted installs: `smtps://user:password@host:port`. Locally `smtp://127.0.0.1:55425`, the mail catcher |
+| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels (#153) reach plain http and private addresses. Only for a self-hosted instance on its own network, and the e2e run |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
