@@ -413,6 +413,11 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"count_activity_events":
+{ Args: { "p_account_ids": (string)[],"p_from": string,"p_type_ids": (string)[],"p_until": string,"p_workspace_id": string }; Returns: {
+              "connection_id": string,"events": number,"type_id": string
+            }[]
+                           },
 "create_workspace":
 { Args: { "p_is_personal": boolean,"p_name": string,"p_user_id": string }; Returns: {
               "created_at": string,

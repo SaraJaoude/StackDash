@@ -136,6 +136,10 @@ Slugs are 10 random lowercase base32 characters, never derived from the name, an
 
 Each row keeps the adapter metric model: kind, value and unit or integer minor units and currency (never both), a period or a point in time, provenance, pricing source for estimates, and `retrieved_at`. Totals are only ever computed per currency.
 
+The dashboard's headline strip (#173) reads the same daily rows as running totals: a day's revenue or spend is the change in a billing period total since the previous day's reading, so a week or month window does not depend on any provider's billing period. A change that spans a window edge cannot be split, so the provider is shown as unavailable for that window instead of counting part of it. The rules and their tests are in `src/lib/dashboard/headline.ts`.
+
+Signups and deploys in that strip come from `public.count_activity_events(workspace_id, account_ids, type_ids, from, until)`: counts per connection and event type in a half open window, for the accounts the scope filter leaves in view. It is `security invoker`, so the `activity_events` select policy applies to the caller as it does on the timeline, and it reads `activity_events_workspace_timeline_idx`.
+
 ## Jobs
 
 `sync_jobs` is a queue claimed by `claim_sync_jobs(limit, lease_seconds)` with `for update skip locked`, so overlapping ticks never run a job twice. A running job whose lease expired is claimable again until it uses `max_attempts`. `pg_cron` and `pg_net` are installed by migration; the per-minute call to `POST /api/jobs/tick` carries the deployment URL and `CRON_SECRET`, so it is registered per environment, not in a migration.
