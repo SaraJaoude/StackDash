@@ -46,6 +46,12 @@ export function yearLabel(year: number, now: Date): string {
   return isYearComplete(year, now) ? String(year) : `${year} so far`;
 }
 
+/** The note under a year to date card: when the card starts to cover the whole year, as an ISO date. */
+export function yearToDateNote(year: number): string {
+  const end = formatUtcDate(new Date(Date.UTC(year + 1, 0, 1)));
+  return `${year} is not over yet. This card counts up to today and covers the whole year from ${end}.`;
+}
+
 /** The newest year with a card at `now`: this year to date (last year only at midnight on 1 January). */
 export function latestCardYear(now: Date): number {
   const year = now.getUTCFullYear();

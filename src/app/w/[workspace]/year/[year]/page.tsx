@@ -19,6 +19,7 @@ import {
   yearPeriod,
   yearProvenance,
   yearShareText,
+  yearToDateNote,
 } from "@/lib/public-metrics/yearly";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { yearInReviewPath } from "@/lib/workspaces/paths";
@@ -86,11 +87,7 @@ async function YearCardSection({ workspaceId, slug, year, now }: { workspaceId: 
           <h2 id="year-card-title" className="font-semibold">
             {complete ? yearPeriod(summary) : `Year to date: ${yearPeriod(summary)}`}
           </h2>
-          {complete ? null : (
-            <p className="mt-1 text-muted">
-              {year} is not over yet. This card counts up to today and covers the whole year from January 1, {year + 1}.
-            </p>
-          )}
+          {complete ? null : <p className="mt-1 text-muted">{yearToDateNote(year)}</p>}
         </div>
         <ShareDialog
           title={`Share your ${cardName}`}

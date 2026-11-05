@@ -12,6 +12,7 @@ import {
   yearFigures,
   yearLabel,
   yearShareText,
+  yearToDateNote,
 } from "./yearly";
 
 const NOW = new Date("2026-11-05T12:00:00Z");
@@ -136,6 +137,12 @@ describe("which years have a card", () => {
     expect(isYearComplete(2026, new Date("2027-01-01T00:00:00.000Z"))).toBe(true);
     expect(yearLabel(2026, new Date("2027-01-01T00:00:00.000Z"))).toBe("2026");
     expect(yearLabel(2025, NOW)).toBe("2025");
+  });
+
+  it("dates the end of the year to date as the next 1 January in ISO form (boundary: 2099 rolls into 2100)", () => {
+    expect(yearToDateNote(2026)).toBe("2026 is not over yet. This card counts up to today and covers the whole year from 2027-01-01.");
+    expect(yearToDateNote(2099)).toContain("covers the whole year from 2100-01-01.");
+    expect(yearToDateNote(2026)).not.toContain("January");
   });
 
   it.each([

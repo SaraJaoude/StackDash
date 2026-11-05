@@ -219,7 +219,9 @@ ownerTest.describe("yearly card", () => {
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/year/${year}$`));
       await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Your stack in ${year} so far`);
       await expect(page.getByRole("heading", { level: 2, name: new RegExp(`^Year to date: ${year}-01-01 to `) })).toBeVisible();
-      await expect(page.getByText(`${year} is not over yet.`)).toBeVisible();
+      await expect(page.getByText(`${year} is not over yet.`)).toHaveText(
+        `${year} is not over yet. This card counts up to today and covers the whole year from ${year + 1}-01-01.`,
+      );
       await expectImageLoaded(page.getByRole("img", { name: `Your ${year} year to date card. Its figures are listed below.` }), 1200);
       const figures = page.getByRole("definition");
       await expect(figures).toHaveCount(4);
