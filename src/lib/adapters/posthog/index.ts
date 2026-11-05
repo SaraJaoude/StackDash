@@ -266,9 +266,16 @@ function productName(product: BillingProduct): string {
   return product.name.length > PRODUCT_NAME_MAX ? `${product.name.slice(0, PRODUCT_NAME_MAX)}…` : product.name;
 }
 
+/**
+ * The product's unit as DevMacro shows it next to a count. PostHog names units in the singular
+ * (`event`, `recording`, `survey response`), so a lowercase noun gets a plural "s"; a symbol such as
+ * `GB` is kept as sent. A unit the metric model cannot store becomes `units`.
+ */
 function unitOf(product: BillingProduct): string {
   const unit = product.unit?.trim();
-  return unit !== undefined && unit.length <= 32 && UNIT_PATTERN.test(unit) ? unit : "units";
+  if (unit === undefined) return "units";
+  const plural = /^[a-z]+(?: [a-z]+)*$/.test(unit) && !unit.endsWith("s") ? `${unit}s` : unit;
+  return plural.length <= 32 && UNIT_PATTERN.test(plural) ? plural : "units";
 }
 
 /** Metered products with a key DevMacro can store: `usage_key` set and a lowercase type. */

@@ -5,7 +5,7 @@ import { validateAdapterEvents } from "../events";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { ASSERTION_AUDIENCE, CLIENT_ASSERTION_TYPE } from "./client-auth";
-import { MAX_SIGNUP_PROJECTS, postHogAdapter, SCOPES, usageLimitEvents } from "./index";
+import { billingMetrics, MAX_SIGNUP_PROJECTS, postHogAdapter, SCOPES, usageLimitEvents } from "./index";
 import { BillingResponseSchema } from "./schemas";
 // Every fixture below is from documentation, not recorded (no PostHog account yet, #141): the
 // sample shapes in docs/providers/posthog.md, trimmed, with synthetic ids, tokens, and values.
@@ -347,11 +347,11 @@ describe("sync", () => {
       start: new Date("2026-11-01T00:00:00.000Z"),
       end: new Date("2026-12-01T00:00:00.000Z"),
     });
-    expect(byKey(result.metrics, "posthog.product_analytics.usage")).toMatchObject({ value: 1_250_000, unit: "event" });
+    expect(byKey(result.metrics, "posthog.product_analytics.usage")).toMatchObject({ value: 1_250_000, unit: "events" });
     expect(byKey(result.metrics, "posthog.product_analytics.free")).toMatchObject({ kind: "included_allowance", value: 1_000_000 });
     expect(byKey(result.metrics, "posthog.product_analytics.free_remaining")).toMatchObject({ value: 0 });
     expect(byKey(result.metrics, "posthog.session_replay.spend")).toMatchObject({ amountMinor: 550 });
-    expect(byKey(result.metrics, "posthog.surveys.usage")).toMatchObject({ unit: "survey response" });
+    expect(byKey(result.metrics, "posthog.surveys.usage")).toMatchObject({ unit: "survey responses" });
     // Inclusion-only products carry no usage key and produce nothing.
     expect(result.metrics.some((metric) => metric.metricKey.startsWith("posthog.platform_and_support"))).toBe(false);
 
@@ -462,6 +462,51 @@ describe("sync", () => {
     const { ctx, calls } = harness(eu);
     await postHogAdapter.sync({ credential: { ...credential, metadata: { region: "eu" } }, externalAccountId: ORG_ID }, ctx);
     expect(new Set(calls.map((call) => call.url.origin))).toEqual(new Set([EU]));
+  });
+});
+
+describe("billingMetrics", () => {
+  const metricsFor = (billing: Record<string, unknown>) =>
+    billingMetrics(BillingResponseSchema.parse(billing), ORG_ID, NOW, "us");
+  const product = (fields: Record<string, unknown>) => ({
+    products: [{ type: "data_warehouse", name: "Data warehouse", usage_key: "rows_synced", current_usage: 10, ...fields }],
+  });
+
+  it.each([
+    ["a singular noun", "row", "rows"],
+    ["a noun already plural", "rows", "rows"],
+    ["a symbol", "GB", "GB"],
+    ["no unit", null, "units"],
+    ["a unit the metric model cannot store", "rows!", "units"],
+    ["a unit too long to store", "a".repeat(40), "units"],
+  ])("stores %s as a unit DevMacro can show", (_title, unit, expected) => {
+    expect(byKey(metricsFor(product({ unit })), "posthog.data_warehouse.usage")).toMatchObject({ unit: expected });
+  });
+
+  it("sends no allowance metrics for a product without a free allocation", () => {
+    for (const free of [null, 0]) {
+      const keys = metricsFor(product({ free_allocation: free })).map((metric) => metric.metricKey);
+      expect(keys).toEqual(["posthog.data_warehouse.usage"]);
+    }
+  });
+
+  it("never goes below zero free allocation left", () => {
+    const metrics = metricsFor(product({ free_allocation: 5, current_usage: 9 }));
+    expect(byKey(metrics, "posthog.data_warehouse.free_remaining")).toMatchObject({ value: 0 });
+  });
+
+  it("dates billing metrics at the read time when PostHog sends no billing period", () => {
+    const [spend] = metricsFor({ current_total_amount_usd: "0.00" });
+    expect(spend).toMatchObject({ metricKey: "posthog.spend.current", amountMinor: 0, timeframe: { type: "point", at: NOW } });
+    expect(spend).not.toHaveProperty("resetsAt");
+  });
+
+  it("skips a product whose type cannot be part of a metric key", () => {
+    expect(metricsFor({ products: [{ type: "Data-Warehouse", name: "x", usage_key: "rows", current_usage: 1 }] })).toEqual([]);
+  });
+
+  it("sends nothing for an empty billing overview", () => {
+    expect(metricsFor({})).toEqual([]);
   });
 });
 
