@@ -6,7 +6,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(49);
+select plan(54);
 
 -- Test helpers, rolled back with the transaction.
 create schema api_test;
@@ -378,8 +378,49 @@ select results_eq($$ select id from public.api_keys $$,
   $$ values ('b1620000-0000-4000-8000-000000000020'::uuid) $$,
   'manage: the owner of B lists the keys of workspace B only');
 
+-- ---------------------------------------------------------------------------
+-- The limit of 20 keys that are not revoked per workspace (api_keys_enforce_limit).
+-- ---------------------------------------------------------------------------
+select lives_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     values ('b1620000-0000-4000-8000-000000000010', 'New B', api_test.hash('pgtap-api-key-b-new'), 'dmk_pgtapKyM', '{usage:read}') $$,
+  'limit: the owner of B creates a key in workspace B');
+
+set local request.jwt.claims to '{"sub": "a1620000-0000-4000-8000-000000000001", "role": "authenticated"}';
+
+-- Workspace A holds 3 keys that are not revoked: Full A, Usage A, and Admin A, whose creator left
+-- but which still counts until it is revoked. 17 more reach the limit.
+select lives_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     select 'a1620000-0000-4000-8000-000000000010', 'Cap ' || i, api_test.hash('pgtap-cap-' || i),
+            'dmk_pgtapC' || lpad(i::text, 2, '0'), '{usage:read}'
+     from generate_series(1, 17) as i $$,
+  'limit: an admin creates keys up to the 20th that is not revoked');
+select throws_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'dmk_pgtapC18', '{usage:read}') $$,
+  '54000'::char(5), null::text,
+  'limit: a 21st key that is not revoked is refused with program_limit_exceeded');
+
+update public.api_keys set revoked_at = now() where token_prefix = 'dmk_pgtapC01';
+
+select lives_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes)
+     values ('a1620000-0000-4000-8000-000000000010', 'Cap 18', api_test.hash('pgtap-cap-18'), 'dmk_pgtapC18', '{usage:read}') $$,
+  'limit: revoking a key frees its place');
+
 reset role;
 reset request.jwt.claims;
+
+-- ---------------------------------------------------------------------------
+-- Scopes check: at least one scope, with no upper bound tied to the enum's size.
+-- ---------------------------------------------------------------------------
+select throws_ok(
+  $$ insert into public.api_keys (workspace_id, name, token_hash, token_prefix, scopes, created_by)
+     values ('b1620000-0000-4000-8000-000000000010', 'No scopes', api_test.hash('pgtap-no-scopes'), 'dmk_pgtapNoS', '{}',
+             'b1620000-0000-4000-8000-000000000001') $$,
+  '23514'::char(5), null::text,
+  'scopes check: a key with no scopes is refused');
 
 select * from finish();
 

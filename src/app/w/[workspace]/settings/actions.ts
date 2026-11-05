@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { generateApiKey } from "@/lib/api/keys";
 import { API_KEY_SCOPES } from "@/lib/api/scopes";
-import { countActiveApiKeys, MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
+import { MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction } from "@/lib/workspaces/access";
@@ -101,6 +101,8 @@ export type RevokeApiKeyResult = { ok: true; name: string } | ApiKeyActionFailur
 const API_KEY_NAME_MAX = 80;
 const OUT_OF_DATE = "This form is out of date. Reload the page and try again.";
 const INSUFFICIENT_PRIVILEGE = "42501";
+// Raised by api_keys_enforce_limit when the workspace already holds MAX_ACTIVE_API_KEYS keys.
+const PROGRAM_LIMIT_EXCEEDED = "54000";
 
 const createApiKeySchema = z
   .object({
@@ -159,12 +161,6 @@ export async function createApiKey(
   let generated: ReturnType<typeof generateApiKey>;
   try {
     const { workspace } = await requireWorkspaceAction(parsed.data.workspace, "manage_api_keys");
-    if ((await countActiveApiKeys(workspace.id)) >= MAX_ACTIVE_API_KEYS) {
-      return {
-        ok: false,
-        message: `This workspace already has ${MAX_ACTIVE_API_KEYS} working keys. Revoke one you no longer use, then create the new one.`,
-      };
-    }
     generated = generateApiKey();
     const supabase = await createClient();
     const { error } = await supabase.from("api_keys").insert({
@@ -174,6 +170,13 @@ export async function createApiKey(
       token_prefix: generated.tokenPrefix,
       scopes: parsed.data.scopes,
     });
+    // The database counts and refuses it, so two admins creating keys at once cannot both pass.
+    if (error?.code === PROGRAM_LIMIT_EXCEEDED) {
+      return {
+        ok: false,
+        message: `This workspace already has ${MAX_ACTIVE_API_KEYS} keys that are not revoked. Revoke one you no longer use, then create the new one.`,
+      };
+    }
     // Row level security refused it: the role changed after the check above.
     if (error?.code === INSUFFICIENT_PRIVILEGE) {
       throw new ForbiddenError("admin", actionDeniedReason("manage_api_keys"));

@@ -31,8 +31,10 @@ create table public.api_keys (
   -- "dmk_" plus the first 8 characters of the secret part: enough to tell keys apart, useless to
   -- authenticate with.
   token_prefix text not null constraint api_keys_token_prefix_format check (token_prefix ~ '^dmk_[A-Za-z0-9_-]{8}$'),
+  -- At least one scope and no nulls. No upper bound: adding a value to api_key_scope must not make
+  -- a key holding every scope invalid. Duplicates are harmless to `= any (scopes)`.
   scopes public.api_key_scope[] not null constraint api_keys_scopes_valid
-    check (cardinality(scopes) between 1 and 4 and array_position(scopes, null) is null),
+    check (cardinality(scopes) >= 1 and array_position(scopes, null) is null),
   created_by uuid default auth.uid() references auth.users (id) on delete set null,
   created_at timestamptz not null default now(),
   last_used_at timestamptz,
@@ -72,6 +74,40 @@ revoke execute on function public.api_keys_guard_revoke() from public, anon, aut
 create trigger api_keys_guard_revoke
   before update of revoked_at on public.api_keys
   for each row execute function public.api_keys_guard_revoke();
+
+-- A workspace holds at most 20 keys that are not revoked (MAX_ACTIVE_API_KEYS in
+-- src/lib/data/api-keys.ts). Enforced here rather than in the server action so two admins creating
+-- keys at once cannot both pass a count. Locking the workspace row serializes concurrent creates in
+-- one workspace; FOR NO KEY UPDATE does not block the foreign key checks of other inserts. Runs as
+-- definer so the count sees every key in the workspace whoever inserts; row level security still
+-- decides afterwards whether the insert is allowed at all. A key whose creator left still counts
+-- until it is revoked, which is the next step settings gives for it.
+create function public.api_keys_enforce_limit()
+  returns trigger
+  language plpgsql
+  security definer
+  set search_path = ''
+as $$
+declare
+  v_active int;
+begin
+  perform 1 from public.workspaces w where w.id = new.workspace_id for no key update;
+  select count(*) into v_active
+  from public.api_keys k
+  where k.workspace_id = new.workspace_id and k.revoked_at is null;
+  if v_active >= 20 then
+    raise exception 'workspace % already has % keys that are not revoked', new.workspace_id, v_active
+      using errcode = 'program_limit_exceeded', hint = 'Revoke a key before creating another.';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.api_keys_enforce_limit() from public, anon, authenticated;
+
+create trigger api_keys_enforce_limit
+  before insert on public.api_keys
+  for each row execute function public.api_keys_enforce_limit();
 
 -- ── api_key_request_windows (service role only) ─────────────────────────────────
 -- Per key, per minute request counter for the fixed window rate limit. Kept in Postgres rather than
