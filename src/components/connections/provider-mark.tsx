@@ -12,6 +12,8 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   digitalocean: "DigitalOcean",
   posthog: "PostHog",
   polar: "Polar",
+  sentry: "Sentry",
+  railway: "Railway",
   fake: null,
 };
 

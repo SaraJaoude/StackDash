@@ -6,7 +6,9 @@ import { ScopeFilter } from "@/components/filters/scope-filter";
 import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
+import { amountValues } from "@/lib/realtime/arrivals";
 
+import { ArrivalCard } from "./arrival-values";
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
 import { TrendChart } from "./trend-chart";
@@ -24,42 +26,51 @@ function Section({ title, description, children }: { title: string; description?
   );
 }
 
+type MoneyGroup = "spend" | "revenue";
+
+const GROUP_NOUNS: Record<MoneyGroup, string> = { spend: "Spend", revenue: "Revenue" };
+
 /**
  * One card per currency, each its own labeled region, so currencies are never read as one sum.
  * The columns follow the card list's own width rather than the viewport, because the same list
  * fills the whole row on its own and shares it when revenue sits beside spend.
  */
-function CurrencyCards({ amounts, noun, now }: { amounts: readonly CurrencyAmounts[]; noun: string; now: Date }) {
+function CurrencyCards({ amounts, group, now }: { amounts: readonly CurrencyAmounts[]; group: MoneyGroup; now: Date }) {
   return (
     <ul className="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
       {amounts.map((entry) => (
-        <CurrencyCard key={entry.currency} amounts={entry} noun={noun} now={now} />
+        <CurrencyCard key={entry.currency} amounts={entry} group={group} now={now} />
       ))}
     </ul>
   );
 }
 
 /** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
-function CurrencyCard({ amounts, noun, now }: { amounts: CurrencyAmounts; noun: string; now: Date }) {
+function CurrencyCard({ amounts, group, now }: { amounts: CurrencyAmounts; group: MoneyGroup; now: Date }) {
   const titleId = useId();
+  const noun = GROUP_NOUNS[group];
+  const title = `${noun} in ${amounts.currency}`;
   return (
     <li>
-      <section aria-labelledby={titleId} className="h-full rounded-xl border border-line bg-panel p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
-            {`${noun} in ${amounts.currency}`}
-          </h3>
-          {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
-        </div>
-        <div className="mt-2">
-          <CurrencyAmountsList
-            amounts={amounts}
-            now={now}
-            verifiedLabel={`Verified ${noun.toLowerCase()}`}
-            estimatedLabel={`Estimated ${noun.toLowerCase()}`}
-            headline
-          />
-        </div>
+      <section aria-labelledby={titleId} className="relative isolate h-full rounded-xl border border-line bg-panel p-4">
+        <ArrivalCard values={amountValues(group, [amounts])} label={title}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
+              {title}
+            </h3>
+            {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+          </div>
+          <div className="mt-2">
+            <CurrencyAmountsList
+              amounts={amounts}
+              group={group}
+              now={now}
+              verifiedLabel={`Verified ${noun.toLowerCase()}`}
+              estimatedLabel={`Estimated ${noun.toLowerCase()}`}
+              headline
+            />
+          </div>
+        </ArrivalCard>
       </section>
     </li>
   );
@@ -168,7 +179,7 @@ export function DashboardView({
             </p>
           ) : (
             <div className="@container">
-              <CurrencyCards amounts={view.totals} noun="Spend" now={now} />
+              <CurrencyCards amounts={view.totals} group="spend" now={now} />
             </div>
           )}
         </Section>
@@ -176,7 +187,7 @@ export function DashboardView({
         {hasRevenue ? (
           <Section title="Revenue this billing period" description="Money coming in, shown apart from spending.">
             <div className="@container">
-              <CurrencyCards amounts={view.revenue} noun="Revenue" now={now} />
+              <CurrencyCards amounts={view.revenue} group="revenue" now={now} />
             </div>
           </Section>
         ) : null}
@@ -217,26 +228,29 @@ function ProjectCard({ name, spend, now }: { name: string; spend: readonly Curre
   const titleId = useId();
   return (
     <li>
-      <section aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
-        <h3 id={titleId} className="font-semibold">
-          {name}
-        </h3>
-        <ul className="mt-3 space-y-4">
-          {spend.map((amounts) => (
-            <li key={amounts.currency}>
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
-                {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
-              </div>
-              <CurrencyAmountsList
-                amounts={amounts}
-                now={now}
-                verifiedLabel="Verified spend"
-                estimatedLabel="Estimated spend"
-              />
-            </li>
-          ))}
-        </ul>
+      <section aria-labelledby={titleId} className="relative isolate rounded-xl border border-line bg-panel p-5">
+        <ArrivalCard values={amountValues("spend", spend)} label={`${name} spend`}>
+          <h3 id={titleId} className="font-semibold">
+            {name}
+          </h3>
+          <ul className="mt-3 space-y-4">
+            {spend.map((amounts) => (
+              <li key={amounts.currency}>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+                  {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+                </div>
+                <CurrencyAmountsList
+                  amounts={amounts}
+                  group="spend"
+                  now={now}
+                  verifiedLabel="Verified spend"
+                  estimatedLabel="Estimated spend"
+                />
+              </li>
+            ))}
+          </ul>
+        </ArrivalCard>
       </section>
     </li>
   );

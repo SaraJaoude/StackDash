@@ -1,0 +1,25 @@
+{
+  "data": {
+    "workspace": {
+      "projects": {
+        "edges": [
+          {
+            "node": {
+              "id": "prj-shop",
+              "name": "shop"
+            }
+          },
+          {
+            "node": {
+              "id": "prj-docs",
+              "name": "docs"
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      }
+    }
+  }
+}

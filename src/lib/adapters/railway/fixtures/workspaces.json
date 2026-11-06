@@ -1,0 +1,16 @@
+{
+  "data": {
+    "me": {
+      "workspaces": [
+        {
+          "id": "ws-synthetic-1",
+          "name": "My Workspace"
+        },
+        {
+          "id": "ws-synthetic-2",
+          "name": "ACME Inc."
+        }
+      ]
+    }
+  }
+}

@@ -1,4 +1,7 @@
+import Link from "next/link";
+
 import { Section } from "@/components/section";
+import { getDoc } from "@/lib/docs";
 import { site } from "@/lib/site";
 
 interface IntegrationGroup {
@@ -8,21 +11,115 @@ interface IntegrationGroup {
   providers: readonly string[];
 }
 
-// Order from the OAuth research on issue #11. The first group connects through OAuth. The next
-// group does too, except ElevenLabs, which returns with a restricted API key (#49). The last group
-// waits because its usage data needs an admin key or partner approval, and says which.
+interface SpendAvailability {
+  provider: string;
+  /** The page under docs/providers that lists what is verified, estimated, and still unverified. */
+  docSlug: string;
+  /** What spend data the provider gives, and the plan or role it needs. */
+  spend: string;
+  /** What works without that plan or role. */
+  everyPlan: string;
+}
+
+// One row per built adapter, in the first group's order. Each line restates the "Verified,
+// estimated, unavailable" and "Plan restrictions" sections of docs/providers/<id>.md.
+const spendAvailability: readonly SpendAvailability[] = [
+  {
+    provider: "Vercel",
+    docSlug: "vercel",
+    spend: "Pro and Enterprise plans only. Vercel shares no billing data for Hobby accounts.",
+    everyPlan: "Deployments and projects.",
+  },
+  {
+    provider: "GitHub",
+    docSlug: "github",
+    spend: "Billed usage, Actions minutes, and Copilot AI Credits for accounts on GitHub's enhanced billing platform. For an organization, an owner installs the app.",
+    everyPlan: "Stars and forks.",
+  },
+  {
+    provider: "Resend",
+    docSlug: "resend",
+    spend: "None. Resend has no billing API.",
+    everyPlan: "Emails sent against the daily and monthly quota, with reset dates.",
+  },
+  {
+    provider: "Stripe",
+    docSlug: "stripe",
+    spend: "Stripe fees, on any account.",
+    everyPlan: "Payments, customers, subscriptions, and payouts.",
+  },
+  {
+    provider: "Supabase",
+    docSlug: "supabase",
+    spend: "None. No Supabase billing endpoint accepts OAuth.",
+    everyPlan: "Plan limits, project health, signups, and logins. Daily active users on Pro and above.",
+  },
+  {
+    provider: "DigitalOcean",
+    docSlug: "digitalocean",
+    spend: "Month to date usage, balance, and invoices on any team, if your team role can read billing.",
+    everyPlan: "Droplet actions and App Platform deployments.",
+  },
+  {
+    provider: "PostHog",
+    docSlug: "posthog",
+    spend: "Spend and projected spend per product on PostHog Cloud, for a member with billing access.",
+    everyPlan: "Signups per project.",
+  },
+  {
+    provider: "Railway",
+    docSlug: "railway",
+    spend: "Usage cost and an estimated bill on Free, Hobby, and Pro, if Railway lets your role read billing.",
+    everyPlan: "Deployments.",
+  },
+  {
+    provider: "Polar",
+    docSlug: "polar",
+    spend: "Polar fees, on any organization.",
+    everyPlan: "Revenue, orders, subscriptions, new customers, and refunds.",
+  },
+  {
+    provider: "Sentry",
+    docSlug: "sentry",
+    spend: "None. Sentry has no billing endpoint for integrations.",
+    everyPlan: "Errors per project, new issues, regressions, and releases.",
+  },
+];
+
+// Fails the build, not a visitor, when a provider page the list links to is renamed or removed.
+function providerDocHref(slug: string): string {
+  const doc = getDoc(["providers", slug]);
+  if (!doc) throw new Error(`docs/providers/${slug}.md is missing: the integrations section links to it`);
+  return doc.href;
+}
+
+// Order from the OAuth research on issue #11. The first group is every adapter built so far and
+// connects through OAuth. The next group does too, except ElevenLabs, which returns with a
+// restricted API key (#49). The last group waits because its usage data needs an admin key or
+// partner approval, and says which.
 const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
     dotClass: "bg-success",
     note: "In the first release",
-    providers: ["Vercel", "GitHub and GitHub Actions", "Resend", "Stripe", "Supabase"],
+    providers: [
+      "Vercel",
+      "GitHub and GitHub Actions",
+      "Resend",
+      "Stripe",
+      "Supabase",
+      "DigitalOcean",
+      "PostHog",
+      "Railway",
+      "Polar",
+      "Sentry",
+    ],
   },
   {
     stage: "Next",
     dotClass: "bg-warning",
     note: "Planned straight after",
-    providers: ["GitLab", "Railway", "Polar", "PostHog", "DigitalOcean", "Sentry", "ElevenLabs"],
+    providers: ["GitLab", "ElevenLabs"],
   },
   {
     stage: "Waiting",
@@ -61,6 +158,46 @@ export function Integrations() {
             </ul>
           </section>
         ))}
+      </div>
+
+      <p className="mt-8 max-w-3xl rounded-xl border border-line bg-panel/60 px-5 py-4 text-sm leading-6 text-muted">
+        <span className="font-medium text-foreground">Not yet tried with real accounts.</span> Every integration
+        in the first group is built from the provider&apos;s documentation and tested against sample responses
+        taken from it. None has been connected to a real account yet, so each provider&apos;s page in the docs
+        lists what is still unverified. Until Sentry approves the hosted integration for publication, only the
+        organization that registered it can install it.
+      </p>
+
+      <div className="mt-16 max-w-4xl">
+        <h3 className="text-xl font-semibold tracking-tight">Spend depends on the provider and your plan</h3>
+        <p className="mt-3 text-sm leading-6 text-muted">
+          {site.name} shows spend only where the provider reports it. Activity and quotas work on every plan,
+          free tiers included.
+        </p>
+        <dl className="mt-6 divide-y divide-line rounded-xl border border-line bg-panel">
+          {spendAvailability.map((row) => (
+            <div key={row.provider} className="grid gap-1 px-5 py-4 sm:grid-cols-[10rem_1fr] sm:gap-4">
+              <dt className="text-sm font-medium">
+                <Link
+                  href={providerDocHref(row.docSlug)}
+                  className="inline-flex min-h-6 items-center underline decoration-line-strong underline-offset-4 transition-colors hover:text-accent"
+                >
+                  {row.provider}
+                </Link>
+              </dt>
+              <dd className="space-y-1 text-sm leading-6 text-muted">
+                <p>
+                  <span className="text-foreground">Spend: </span>
+                  {row.spend}
+                </p>
+                <p>
+                  <span className="text-foreground">Every plan: </span>
+                  {row.everyPlan}
+                </p>
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
 
       <p className="mt-8 max-w-3xl rounded-xl border border-line bg-panel/60 px-5 py-4 text-sm leading-6 text-muted">

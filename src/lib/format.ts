@@ -48,6 +48,11 @@ const UTC_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
+/** "2026-11-05": the UTC calendar day of an instant, for windows that start on UTC day boundaries. */
+export function formatUtcDate(at: Instant): string {
+  return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 // en-GB names the London zone GMT or BST (en-CA says GMT+1). Its own date order is day first, so
 // the parts are assembled into the ISO order below.
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
@@ -68,6 +73,23 @@ export function formatDateTime(at: Instant): string {
     parts[part.type] = part.value;
   }
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
+}
+
+const TIME_OF_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * "14:05:09", the London time of day to the second. It carries no zone name because browsers name
+ * the London zone differently (Chromium says "GMT+0" where Node says "GMT"), so the caller says
+ * "London time" in words. For text rendered in the browser.
+ */
+export function formatLondonTime(at: Instant): string {
+  return TIME_OF_DAY_FORMAT.format(typeof at === "string" ? new Date(at) : at);
 }
 
 /**

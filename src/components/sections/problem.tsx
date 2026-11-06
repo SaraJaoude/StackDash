@@ -1,12 +1,14 @@
 import { Section } from "@/components/section";
 
+// Ordered by what DevMacro answers on a free plan first; spend comes last because it depends on the
+// provider's plan (see the integrations section).
 const questions: readonly string[] = [
-  "How much am I spending this month?",
-  "Which service is getting expensive?",
-  "How much of my included allowance is left?",
-  "When does my allowance reset?",
-  "Am I about to hit a usage limit?",
-  "What happened across my projects today?",
+  "What shipped across my projects today?",
+  "Did that launch bring in signups, or errors?",
+  "How many stars did my repository gain this week?",
+  "How many emails can I still send before the quota resets?",
+  "Will I hear about it before a limit is reached?",
+  "Where my plan allows it, what am I spending?",
 ];
 
 export function Problem() {

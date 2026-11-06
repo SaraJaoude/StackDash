@@ -1,4 +1,4 @@
--- Headline strip event counts (20261105003011_count_activity_events.sql): security invoker so the
+-- Headline strip event counts (20261105120700_count_activity_events.sql): security invoker so the
 -- activity_events select policy applies, half open windows, and only the accounts passed in.
 begin;
 

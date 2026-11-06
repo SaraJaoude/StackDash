@@ -3,6 +3,7 @@ import "server-only";
 import { createOAuthContext, getAdapter, loadOAuthClient } from "@/lib/adapters/registry";
 import { evaluateWorkspaceAlerts } from "@/lib/alerts/run";
 import { log, logError } from "@/lib/log/logger";
+import { createNotificationDeps } from "@/lib/notifications/deps";
 
 import { createSupabaseJobStore } from "./store";
 import type { SyncDeps } from "./sync-connection";
@@ -55,5 +56,6 @@ export function createJobDeps(): SyncDeps {
     logError,
     log,
     evaluateAlerts: evaluateWorkspaceAlerts,
+    notifications: createNotificationDeps,
   };
 }
