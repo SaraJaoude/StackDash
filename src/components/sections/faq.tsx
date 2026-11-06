@@ -25,7 +25,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Are the costs exact?",
-    answer: "Each number is labeled with where it came from. Verified cost comes from a provider's billing API. Estimated cost is calculated from usage and published pricing. Allowances, budgets, and credit balances are shown separately. Some providers report with a delay, so every account shows when it last synced.",
+    answer: `Each number is labeled with where it came from. Verified cost comes from a provider's billing API. Estimated cost is calculated from usage and published pricing. Allowances, budgets, and credit balances are shown separately. Some providers report with a delay, so every account shows when it last synced. Where spend or a quota is projected to the end of its period, the projection is labeled Estimate by ${site.name} and is never added to the amounts shown.`,
   },
   {
     question: "Can it track my ChatGPT Plus or Claude Pro usage?",
@@ -33,7 +33,7 @@ const faq: readonly FaqItem[] = [
   },
   {
     question: "Which services come first?",
-    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, and Sentry, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. GitLab and ElevenLabs are planned next. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
+    answer: "Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Railway, Polar, Sentry, and GitLab, all connected with OAuth. Each is built from the provider's documentation and has not been tried with a real account yet. ElevenLabs is planned next. Spend depends on the provider and your plan, and the integrations section lists what each one needs.",
   },
   {
     question: "Will it show OpenAI and Anthropic API spend?",
