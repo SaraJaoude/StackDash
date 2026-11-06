@@ -2,8 +2,10 @@ import "server-only";
 
 import { cache } from "react";
 
+import { joinAlertSnapshots, type AlertSnapshotInput } from "@/lib/alerts/evaluate";
 import type { BudgetValues } from "@/lib/alerts/rule-schema";
 import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
+import { getWorkspaceScope, loadSnapshots, snapshotWindowStart } from "@/lib/data/dashboard";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -77,6 +79,20 @@ export const listSnapshotCurrencies = cache(async (workspaceId: string): Promise
   for (const row of data) if (row.currency !== null) currencies.add(row.currency);
   return [...currencies].sort();
 });
+
+/**
+ * Spend rows for budget projections (#167): the verified and estimated spend in the dashboard's
+ * snapshot window for the whole workspace, joined the way alert evaluation joins them
+ * (`joinAlertSnapshots`). Rows of excluded accounts, or of an account that moved connection, are
+ * skipped. Call only after `requireWorkspace` has confirmed membership.
+ */
+export async function getBudgetSpendRows(workspaceId: string, now: Date): Promise<AlertSnapshotInput[]> {
+  const [scope, snapshots] = await Promise.all([
+    getWorkspaceScope(workspaceId),
+    loadSnapshots(workspaceId, snapshotWindowStart(now), "budget projections", ["verified_spend", "estimated_spend"]),
+  ]);
+  return joinAlertSnapshots(snapshots, scope.connections, scope.accounts);
+}
 
 export async function insertBudget(workspaceId: string, values: BudgetValues): Promise<void> {
   const supabase = await createClient();

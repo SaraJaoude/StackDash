@@ -31,6 +31,8 @@ const MANUAL_REVOKE_STEPS: Partial<Record<ProviderId, string>> = {
     "Uninstall the DevMacro GitHub App at github.com/settings/installations, or for an organization in the organization's settings under GitHub Apps.",
   stripe:
     "In the Stripe Dashboard, open Settings, then Installed apps, open the DevMacro app menu, and choose Uninstall. Only an administrator of the Stripe account can do this.",
+  gitlab:
+    "In GitLab, select your avatar, then Edit profile, then Access, then Applications, and under Authorized applications choose Revoke next to DevMacro.",
   resend: "In your Resend team settings, revoke DevMacro's access.",
   sentry: "In Sentry, open Settings, then Integrations, choose DevMacro, and choose Uninstall.",
 };

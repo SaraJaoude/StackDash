@@ -27,6 +27,7 @@ import {
   headlineWindows,
   type HeadlineWindowKind,
 } from "@/lib/dashboard/headline";
+import { projectDashboard } from "@/lib/dashboard/projection";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
@@ -155,11 +156,13 @@ async function DashboardContent({
 
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
+  const input = { ...data, now };
   // The page's URL is its scope: a new filter, trend period, or headline window resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
       <DashboardView
-        view={aggregateDashboard({ ...data, now })}
+        view={aggregateDashboard(input)}
+        projections={projectDashboard(input)}
         now={now}
         dashboardPath={dashboardPath}
         scope={scope}

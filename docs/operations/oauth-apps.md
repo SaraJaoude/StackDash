@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in), #115 (PostHog). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs nine registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
+Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in), #115 (PostHog), #112 (GitLab). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs twelve registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -30,6 +30,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 | Polar OAuth client | Polar, Account Settings, Developer | `<SITE_URL>/api/connections/polar/callback` | `organizations:read`, `metrics:read`, `orders:read`, `subscriptions:read`, `customers:read`, `refunds:read` | `POLAR_CLIENT_ID`, `POLAR_CLIENT_SECRET` |
 | Sentry integration | Sentry, Settings, Developer Settings, Public Integration | `<SITE_URL>/api/connections/sentry/callback` (Redirect URL) | `org:read`, `event:read`, `project:read` | `SENTRY_CLIENT_ID`, `SENTRY_CLIENT_SECRET`, `SENTRY_INTEGRATION_SLUG` |
 | Railway OAuth app | Railway, workspace settings, Developer, New OAuth App | `<SITE_URL>/api/connections/railway/callback` | `openid`, `email`, `profile`, `offline_access`, `workspace:viewer` (requested by the app, not set on the registration) | `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET` |
+| GitLab OAuth application | GitLab.com, avatar, Edit profile, Access, Applications | `<SITE_URL>/api/connections/gitlab/callback` | `read_api`, `read_user` | `GITLAB_CLIENT_ID`, `GITLAB_CLIENT_SECRET` |
 
 A provider whose variables are missing shows as not configured in the connection catalog; the other providers keep working.
 
@@ -179,6 +180,19 @@ Settings that must match the code:
 - Scopes are not set on the app: the authorize request asks for `openid email profile offline_access workspace:viewer` with `prompt=consent`, which Railway needs before it issues a refresh token.
 
 Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown once, right after the app is created. Railway has no token revocation endpoint, so disconnecting in DevMacro deletes the tokens and asks the user to remove the app in Railway.
+
+## GitLab OAuth application
+
+Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Registering the hosted application is deferred (#141), so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
+
+Settings that must match the code:
+
+- GitLab.com, avatar, **Edit profile**, **Access**, **Applications**, **Add new application**. To own it as a group, use the group's **Settings**, **Applications**.
+- **Redirect URI**: `<SITE_URL>/api/connections/gitlab/callback`.
+- **Confidential**: checked.
+- **Scopes**: `read_api` and `read_user`. Nothing else: never `api`, which is read and write.
+
+Variables: `GITLAB_CLIENT_ID` (the Application ID), `GITLAB_CLIENT_SECRET` (the Secret; **Renew secret** rotates it and stops the old one at once). GitLab.com only: a self-managed GitLab instance would need its own application and is not supported.
 
 ## After registering
 

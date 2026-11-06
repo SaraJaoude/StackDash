@@ -28,10 +28,10 @@ export async function getHeadlineSnapshots(
   const since = new Date(Date.parse(`${windows.previous.start}T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10);
   const [workspaceScope, money, dailyTotals] = await Promise.all([
     getWorkspaceScope(workspaceId),
-    loadSnapshots(workspaceId, since, "headline money", { kinds: ["revenue", "verified_spend", "estimated_spend"] }),
+    loadSnapshots(workspaceId, since, "headline money", ["revenue", "verified_spend", "estimated_spend"]),
     eventTypes.signupDailyTotals.length === 0
       ? []
-      : loadSnapshots(workspaceId, since, "headline signups", { kinds: ["usage"], metricKeys: eventTypes.signupDailyTotals }),
+      : loadSnapshots(workspaceId, since, "headline signups", ["usage"], eventTypes.signupDailyTotals),
   ]);
   return applyScope({ ...workspaceScope, snapshots: [...money, ...dailyTotals] }, scope).snapshots;
 }

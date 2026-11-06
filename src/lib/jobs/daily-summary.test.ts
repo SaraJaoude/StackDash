@@ -130,6 +130,8 @@ describe("daily summary (#64)", () => {
       "Example provider: Spending $40.00 (estimated)",
       "Example provider: Spending $12.34 (verified)",
       "Example provider: Requests this month 16,800 requests (verified)",
+      // Point readings with no reset say nothing about when the period ends.
+      "Example provider: Spending projection in USD unavailable (the end of the period is unknown)",
       "Vercel: Spending unavailable",
       "Vercel: Usage unavailable",
     ]);
@@ -151,6 +153,128 @@ describe("daily summary (#64)", () => {
     expect(body).not.toContain("17.50");
   });
 
+  describe("projection to the end of the period (#167)", () => {
+    const ACCOUNT = "44444444-4444-4444-8444-444444444444";
+    const NOVEMBER = { period_start: "2026-11-01T00:00:00.000Z", period_end: "2026-12-01T00:00:00.000Z", point_at: null };
+
+    /** One reading a day at 06:00 UTC from 2026-11-01, for the summary of 2026-11-05. */
+    function daily(connectionId: string, values: readonly number[], fields: Partial<MemorySnapshot> & Pick<MemorySnapshot, "metric_key" | "kind">) {
+      return values.map((value, index) => {
+        const date = `2026-11-0${index + 1}`;
+        const at = `${date}T06:00:00.000Z`;
+        return snapshot({
+          connection_id: connectionId,
+          external_account_id: ACCOUNT,
+          snapshot_date: date,
+          retrieved_at: at,
+          ...NOVEMBER,
+          ...(fields.kind === "verified_spend" ? { amount_minor: value, currency: "USD" } : { value, unit: "requests" }),
+          ...fields,
+        });
+      });
+    }
+
+    it("adds the spend projection and a quota's run-out date, labeled as estimates", async () => {
+      const { store, deps } = setup("2026-11-06T00:05:00.000Z");
+      const fake = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "fake", status: "needs_attention" });
+      const resets = { resets_at: "2026-12-01T00:00:00.000Z" };
+      store.snapshots.push(
+        ...daily(fake.id, [100, 200, 300, 400, 500], { metric_key: "fake.spend.month", kind: "verified_spend" }),
+        ...daily(fake.id, [400, 800, 1200, 1600, 2000], { metric_key: "fake.requests.month", kind: "usage", label: "Requests this month", ...resets }),
+        ...daily(fake.id, [3000], {
+          metric_key: "fake.requests.included",
+          kind: "included_allowance",
+          label: "Requests included in the plan",
+          snapshot_date: "2026-11-05",
+          retrieved_at: "2026-11-05T06:00:00.000Z",
+          ...resets,
+        }),
+        // After the summarized day: never part of it, not even of the projection.
+        ...daily(fake.id, [100, 200, 300, 400, 500, 99999], { metric_key: "fake.spend.month", kind: "verified_spend" }).slice(5),
+      );
+
+      await runTick(deps);
+      const body = summaries(store)[0]?.body ?? "";
+      expect(body.split("\n")).toEqual([
+        "Example provider: Spending $5.00 (verified)",
+        "Example provider: Requests this month 2,000 requests (verified)",
+        // 500 cents plus 100 a day from 2026-11-05 06:00 to 2026-12-01.
+        "Example provider: Spending on track for $30.75 by 2026-11-30 (estimate by DevMacro)",
+        "Example provider: Requests included in the plan runs out around 2026-11-07 (estimate by DevMacro)",
+      ]);
+    });
+
+    it("says why there is no projection with fewer than 3 days of data", async () => {
+      const { store, deps } = setup("2026-11-03T00:05:00.000Z");
+      const fake = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "fake", status: "needs_attention" });
+      store.snapshots.push(...daily(fake.id, [100, 200], { metric_key: "fake.spend.month", kind: "verified_spend" }));
+
+      await runTick(deps);
+      expect(summaries(store)[0]?.body).toContain("Example provider: Spending projection in USD unavailable (fewer than 3 days of data)");
+    });
+
+    it("projects GitHub's month once, not its SKU and day rows as amounts of their own (#137)", async () => {
+      const { store, deps } = setup("2026-11-06T00:05:00.000Z");
+      const github = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "github", status: "needs_attention" });
+      const spend = { kind: "verified_spend" } as const;
+      store.snapshots.push(
+        ...daily(github.id, [100, 200, 300, 400, 500], { ...spend, metric_key: "github.spend.actions" }),
+        ...daily(github.id, [100, 200, 300, 400, 500], { ...spend, metric_key: "github.spend.actions.actions_linux" }),
+        // A one day window each day: inside the month, so never projected on its own.
+        ...daily(github.id, [100, 100, 100, 100, 100], { ...spend, metric_key: "github.daily_spend.actions" }).map((row) => ({
+          ...row,
+          period_start: `${row.snapshot_date}T00:00:00.000Z`,
+          period_end: new Date(Date.parse(`${row.snapshot_date}T00:00:00.000Z`) + 86_400_000).toISOString(),
+        })),
+      );
+
+      await runTick(deps);
+      expect(summaries(store)[0]?.body?.split("\n")).toEqual([
+        "GitHub: Spending $5.00 (verified)",
+        "GitHub: Usage unavailable",
+        "GitHub: Spending on track for $30.75 by 2026-11-30 (estimate by DevMacro)",
+      ]);
+    });
+
+    it("says how many amounts held a sum back when only some could not be projected", async () => {
+      const { store, deps } = setup("2026-11-06T00:05:00.000Z");
+      const fake = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "fake", status: "needs_attention" });
+      store.snapshots.push(
+        ...daily(fake.id, [100, 200, 300, 400, 500], { metric_key: "fake.spend.month", kind: "verified_spend" }),
+        ...daily(fake.id, [10, 20, 30, 40, 50], { metric_key: "fake.spend.month", kind: "verified_spend" })
+          .slice(3)
+          .map((row) => ({ ...row, external_account_id: "55555555-5555-4555-8555-555555555555" })),
+      );
+
+      await runTick(deps);
+      expect(summaries(store)[0]?.body).toContain("Example provider: Spending projection in USD unavailable (1 of 2 amounts: fewer than 3 days of data)");
+    });
+
+    it("projects on the last day of the period instead of calling it ended", async () => {
+      const { store, deps } = setup("2026-12-01T00:05:00.000Z");
+      const fake = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "fake", status: "needs_attention" });
+      store.snapshots.push(
+        ...[28, 29, 30].map((day, index) =>
+          snapshot({
+            connection_id: fake.id,
+            external_account_id: ACCOUNT,
+            metric_key: "fake.spend.month",
+            kind: "verified_spend",
+            snapshot_date: `2026-11-${day}`,
+            retrieved_at: `2026-11-${day}T06:00:00.000Z`,
+            ...NOVEMBER,
+            amount_minor: (index + 1) * 100,
+            currency: "USD",
+          }),
+        ),
+      );
+
+      await runTick(deps);
+      // 300 cents on 2026-11-30 06:00 plus 100 a day for the 18 hours left.
+      expect(summaries(store)[0]?.body).toContain("Example provider: Spending on track for $3.75 by 2026-11-30 (estimate by DevMacro)");
+    });
+  });
+
   it("counts GitHub spend once, not again per SKU and per day (#137)", async () => {
     const { store, deps } = setup();
     const github = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "github", status: "needs_attention" });
@@ -163,7 +287,12 @@ describe("daily summary (#64)", () => {
     );
 
     await runTick(deps);
-    expect(summaries(store)[0]?.body?.split("\n")).toEqual(["GitHub: Spending $51.75 (verified)", "GitHub: Usage unavailable"]);
+    // The month alone is projected (one day of it so far); the SKU and the day are not amounts of their own.
+    expect(summaries(store)[0]?.body?.split("\n")).toEqual([
+      "GitHub: Spending $51.75 (verified)",
+      "GitHub: Usage unavailable",
+      "GitHub: Spending projection in USD unavailable (fewer than 3 days of data)",
+    ]);
   });
 
   it("still counts a GitHub day when another account reports the month (#137)", async () => {
@@ -179,6 +308,11 @@ describe("daily summary (#64)", () => {
 
     await runTick(deps);
     expect(summaries(store)[0]?.body).toContain("GitHub: Spending $64.27 (verified)");
+    // Neither amount can be projected, each for its own reason (the day's window has no end
+    // DevMacro can project to, the month has one day of data), so the line names both.
+    expect(summaries(store)[0]?.body).toContain(
+      "GitHub: Spending projection in USD unavailable (2 amounts: the end of the period is unknown, fewer than 3 days of data)",
+    );
   });
 });
 

@@ -5,6 +5,7 @@ import type { OAuthCredential } from "@/lib/adapters/types";
 import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
+import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
 
@@ -57,8 +58,8 @@ export type JobFailure = Readonly<{ errorCode: string; errorReference: string | 
 export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
 export type SummarySnapshot = SnapshotInput;
 
-// One workspace's connections, or one workspace's snapshots for one day. Far above any MVP
-// workspace (a few connections, tens of metrics each).
+// One workspace's connections, or one workspace's snapshots for the summary's history window. Far
+// above any MVP workspace (a few connections, tens of metrics each, one row a day).
 const SUMMARY_ROW_LIMIT = 5000;
 
 export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly AnomalyMute[] }>;
@@ -127,7 +128,8 @@ export interface JobStore {
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
-  listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
+  /** Snapshots dated `fromDate` to `toDate` (UTC dates, both inclusive), newest first. */
+  listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
   /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
   getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
   /** Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive. */
@@ -431,17 +433,22 @@ export function createSupabaseJobStore(): JobStore {
       return data;
     },
 
-    async listSnapshotsForDate(workspaceId, date) {
+    async listSnapshotsBetween(workspaceId, fromDate, toDate) {
       const { data, error } = await db
         .from("usage_snapshots")
         .select(
           "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
         )
         .eq("workspace_id", workspaceId)
-        .eq("snapshot_date", date)
+        .gte("snapshot_date", fromDate)
+        .lte("snapshot_date", toDate)
+        // The (workspace_id, snapshot_date desc) index. Newest first, so if the cap is reached the
+        // oldest days are the ones cut, and the projections lose history before the day's values.
+        .order("snapshot_date", { ascending: false })
         .order("id")
         .limit(SUMMARY_ROW_LIMIT);
       if (error) throw failure("summary snapshots read", error);
+      if (data.length === SUMMARY_ROW_LIMIT) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: data.length });
       return data;
     },
 

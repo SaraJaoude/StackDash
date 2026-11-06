@@ -1,0 +1,7 @@
+{
+  "access_token": "synthetic-gitlab-access-token-2",
+  "token_type": "bearer",
+  "expires_in": 7200,
+  "refresh_token": "synthetic-gitlab-refresh-token-2",
+  "created_at": 1628711391
+}

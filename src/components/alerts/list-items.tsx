@@ -239,6 +239,7 @@ export function BudgetListItem({
   name,
   amountLabel,
   scopeLabel,
+  projection,
   manage,
   afterDeleteFocusId,
 }: {
@@ -246,6 +247,8 @@ export function BudgetListItem({
   name: string;
   amountLabel: string;
   scopeLabel: string;
+  /** Where spend in the budget's scope is heading (#167), rendered on the server; null for none. */
+  projection: ReactNode;
   manage: BudgetRowManage | null;
   afterDeleteFocusId: string;
 }) {
@@ -256,6 +259,7 @@ export function BudgetListItem({
         <>
           <p>{amountLabel} a month, resets on the first</p>
           <p>Applies to {scopeLabel}</p>
+          {projection}
         </>
       }
       badges={<Badge tone="accent">Your budget</Badge>}
