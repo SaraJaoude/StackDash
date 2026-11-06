@@ -1,7 +1,12 @@
 import Link from "next/link";
+import { connection } from "next/server";
+import type { ReactNode } from "react";
 
+import { ProjectionNote } from "@/components/dashboard/value-meta";
 import { liveProviderIds } from "@/lib/adapters/types";
+import { inScope, scopedItem } from "@/lib/alerts/evaluate";
 import { DEFAULT_CURRENCIES, minorUnitsToDecimalString, type AlertScope, type ProviderId } from "@/lib/alerts/rule-schema";
+import { budgetProjectionText, projectSpend } from "@/lib/dashboard/projection";
 import {
   listAlertRuleChoices,
   listAlertRules,
@@ -11,7 +16,13 @@ import {
   type AlertRule,
   type ConnectionOption,
 } from "@/lib/data/alert-rules";
-import { listBudgetOptions, listBudgets, listSnapshotCurrencies } from "@/lib/data/budgets";
+import {
+  getBudgetSpendRows,
+  listBudgetOptions,
+  listBudgets,
+  listSnapshotCurrencies,
+  type Budget,
+} from "@/lib/data/budgets";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
@@ -65,7 +76,10 @@ export async function AlertSettings({
   budgetsAfter: string | null;
 }) {
   const canManage = canPerform(role, "manage_budgets");
-  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies, ruleChoices] = await Promise.all([
+  // Request data first: reading the clock before it would fail the prerender.
+  await connection();
+  const now = new Date();
+  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies, ruleChoices, spendRows] = await Promise.all([
     listAlertRules(workspace.id, rulesAfter),
     listBudgets(workspace.id, budgetsAfter),
     listScopeTargets(workspace.id),
@@ -74,7 +88,27 @@ export async function AlertSettings({
     listBudgetOptions(workspace.id),
     listSnapshotCurrencies(workspace.id),
     listAlertRuleChoices(workspace.id),
+    getBudgetSpendRows(workspace.id, now),
   ]);
+
+  /**
+   * Where the budget's spend is heading by the end of the period (#167), with "Projected to
+   * cross" when it reaches the amount. Shown only; it never raises an alert. Nothing when the
+   * budget's scope has no current spend in its currency.
+   */
+  function budgetProjection(budget: Budget): ReactNode {
+    const scoped = spendRows.filter((row) => row.currency === budget.currency && inScope(budget, scopedItem(row)));
+    const spend = projectSpend(scoped, now).find((projection) => projection.currency === budget.currency);
+    if (spend === undefined) return null;
+    const text = budgetProjectionText(spend, budget.amount_minor);
+    return (
+      <ProjectionNote
+        text={text}
+        estimate={spend.projection.status === "projected"}
+        {...(text.crosses ? { flag: "Projected to cross" } : {})}
+      />
+    );
+  }
 
   const projectNames = new Map(targets.projects.map((project) => [project.id, project.name]));
   const connectionsById = new Map(targets.connections.map((connection) => [connection.id, connection]));
@@ -335,6 +369,7 @@ export async function AlertSettings({
                 name={budget.name}
                 amountLabel={formatMinorAmount(budget.amount_minor, budget.currency)}
                 scopeLabel={scopeLabel(budget)}
+                projection={budgetProjection(budget)}
                 manage={
                   canManage
                     ? {

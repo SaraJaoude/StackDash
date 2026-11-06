@@ -13,6 +13,7 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import { projectDashboard } from "@/lib/dashboard/projection";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
@@ -127,11 +128,13 @@ async function DashboardContent({
 
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
+  const input = { ...data, now };
   // The page's URL is its scope: a new filter or trend period resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, trend)}>
       <DashboardView
-        view={aggregateDashboard({ ...data, now })}
+        view={aggregateDashboard(input)}
+        projections={projectDashboard(input)}
         now={now}
         dashboardPath={dashboardPath}
         scope={scope}

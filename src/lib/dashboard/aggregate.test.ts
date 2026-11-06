@@ -4,6 +4,8 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
 import {
   aggregateDashboard,
+  allowanceGroups,
+  allowanceUsage,
   dropSubWindows,
   dropSupersededBreakdowns,
   freshnessLabel,
@@ -12,6 +14,7 @@ import {
   isStale,
   latestSnapshots,
   percentUsed,
+  spendToCount,
   type AccountInput,
   type ConnectionInput,
   type DashboardInput,
@@ -516,6 +519,61 @@ describe("dropSubWindows", () => {
   it("drops a day inside a month for revenue too", () => {
     const revenue = { ...month, kind: "revenue" as const };
     expect(dropSubWindows([{ ...today, kind: "revenue" }, revenue])).toEqual([revenue]);
+  });
+});
+
+describe("spendToCount", () => {
+  const verified = money({ metric_key: "fake.spend.month", amount_minor: 500, currency: "USD" });
+  const estimate = money({ metric_key: "fake.cost.estimate", amount_minor: 900, currency: "USD", kind: "estimated_spend", provenance_source: "derived" });
+
+  it("counts verified spend and leaves out an estimate for the same account and currency", () => {
+    expect(spendToCount([verified, estimate], NOW)).toEqual([verified]);
+  });
+
+  it.each([
+    ["another account", { external_account_id: "a2" }],
+    ["another currency", { currency: "EUR" }],
+  ])("counts an estimate whose verified spend is in %s", (_name, overrides) => {
+    const other = { ...estimate, ...overrides };
+    expect(spendToCount([verified, other], NOW)).toEqual([verified, other]);
+  });
+
+  it("leaves out spend outside the current period, with no amount, and anything that is not spend", () => {
+    const ended = { ...verified, period_start: "2026-09-01T00:00:00.000Z", period_end: "2026-10-01T00:00:00.000Z" };
+    const noAmount = { ...verified, amount_minor: null };
+    const revenue = { ...verified, kind: "revenue" as const };
+    expect(spendToCount([ended, noAmount, revenue], NOW)).toEqual([]);
+  });
+});
+
+describe("allowanceGroups and allowanceUsage", () => {
+  const included = quantity({ metric_key: "resend.emails.monthly.limit", kind: "included_allowance", value: 3000, unit: "emails" });
+  const used = quantity({ metric_key: "resend.emails.monthly.used", kind: "usage", value: 100, unit: "emails" });
+
+  it("pairs rows of one account whose keys share everything before the last segment", () => {
+    const left = quantity({ metric_key: "resend.emails.monthly.remaining", kind: "remaining_allowance", value: 2900, unit: "emails" });
+    const [group, ...rest] = allowanceGroups([used, included, left]);
+    expect(rest).toEqual([]);
+    expect(group).toMatchObject({ accountId: "a1", prefix: "resend.emails.monthly", included, remaining: left, usage: [used] });
+    expect(group === undefined ? undefined : allowanceUsage(group, "emails")).toBe(used);
+  });
+
+  it("keeps other accounts and other prefixes apart", () => {
+    const groups = allowanceGroups([included, { ...used, external_account_id: "a2" }, { ...used, metric_key: "resend.emails.daily.used" }]);
+    expect(groups.map((group) => `${group.accountId} ${group.prefix}`)).toEqual(["a1 resend.emails.monthly", "a2 resend.emails.monthly", "a1 resend.emails.daily"]);
+  });
+
+  it("picks the first usage by key in the allowance's unit that the caller accepts", () => {
+    const [group] = allowanceGroups([
+      included,
+      { ...used, metric_key: "resend.emails.monthly.a", unit: "requests" },
+      { ...used, metric_key: "resend.emails.monthly.c" },
+      { ...used, metric_key: "resend.emails.monthly.b", value: null },
+    ]);
+    if (group === undefined) throw new Error("no group");
+    expect(allowanceUsage(group, "emails")?.metric_key).toBe("resend.emails.monthly.b");
+    expect(allowanceUsage(group, "emails", (row) => row.value !== null)?.metric_key).toBe("resend.emails.monthly.c");
+    expect(allowanceUsage(group, "minutes")).toBeUndefined();
   });
 });
 

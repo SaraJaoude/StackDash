@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   alertDedupeKey,
   evaluateAlerts,
+  joinAlertSnapshots,
   quantityCycleKey,
   type AlertNames,
   type AlertRuleInput,
@@ -518,5 +519,23 @@ describe("budget_percent", () => {
 
   it("never fires on spend in another currency", () => {
     expect(evaluate([budgetRule(1)], [spend(1_000_000, "EUR")])).toEqual([]);
+  });
+});
+
+describe("joinAlertSnapshots", () => {
+  const { provider: _provider, projectId: _projectId, ...stored } = used(10);
+  const connections = [{ id: "conn-resend", provider: "resend" as const }];
+
+  it("joins a row to its connection's provider and its account's project", () => {
+    const accounts = [{ id: "acct-resend", connection_id: "conn-resend", project_id: "project-acme" }];
+    expect(joinAlertSnapshots([stored], connections, accounts)).toEqual([{ ...stored, provider: "resend", projectId: "project-acme" }]);
+  });
+
+  it.each([
+    ["its account is not included", [], connections],
+    ["its account moved to another connection", [{ id: "acct-resend", connection_id: "conn-other", project_id: null }], connections],
+    ["its connection is not listed", [{ id: "acct-resend", connection_id: "conn-resend", project_id: null }], []],
+  ])("skips a row when %s", (_name, accounts, listed) => {
+    expect(joinAlertSnapshots([stored], listed, accounts)).toEqual([]);
   });
 });

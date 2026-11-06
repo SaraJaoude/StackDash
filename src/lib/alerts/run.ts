@@ -12,7 +12,7 @@ import {
   ALERT_TRIGGERED_TYPE_ID,
   alertDedupeKey,
   evaluateAlerts,
-  type AlertSnapshotInput,
+  joinAlertSnapshots,
   type ProviderId,
 } from "./evaluate";
 
@@ -121,16 +121,8 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
   if (accounts.error) throw new Error("Failed to load external accounts", { cause: accounts.error });
   if (projects.error) throw new Error("Failed to load projects", { cause: projects.error });
 
-  const providerOf = new Map(connections.data.map((connection) => [connection.id, connection.provider]));
-  const accountById = new Map(accounts.data.map((account) => [account.id, account]));
-  const joined: AlertSnapshotInput[] = [];
-  for (const row of snapshots) {
-    const account = accountById.get(row.external_account_id);
-    const provider = providerOf.get(row.connection_id);
-    // Excluded accounts and rows whose account moved connection are skipped, as on the dashboard.
-    if (account === undefined || provider === undefined || account.connection_id !== row.connection_id) continue;
-    joined.push({ ...row, provider, projectId: account.project_id });
-  }
+  // Excluded accounts and rows whose account moved connection are skipped, as on the dashboard.
+  const joined = joinAlertSnapshots(snapshots, connections.data, accounts.data);
 
   const triggers = evaluateAlerts({
     rules: rules.data,
