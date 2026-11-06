@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Browser, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { publishStars, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
 
@@ -200,8 +201,7 @@ ownerTest.describe("project pages as the owner", () => {
       await expect(page.getByRole("status").filter({ hasText: `The project page is on at /@${workspace.slug}/acme-web.` })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Project page" })).toBeFocused();
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

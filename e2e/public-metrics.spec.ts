@@ -2,6 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
@@ -138,8 +139,7 @@ ownerTest.describe("public metrics as the owner", () => {
       // Never an account name, even though the account has one.
       expect(JSON.stringify(published.body)).not.toContain("example-org");
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       const { data: events, error } = await adminClient()
         .from("activity_events")

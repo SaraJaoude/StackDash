@@ -14,6 +14,7 @@ import {
   syntheticUserClient,
   type SyntheticUser,
 } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
@@ -697,8 +698,7 @@ ownerTest.describe("arriving data", () => {
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
       // The static highlight and its label, scanned while they show.
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       // The static label clears on its own; nothing moved, scaled, or counted on the way.
       await expect(usd.getByText("Updated", { exact: true })).toBeHidden({ timeout: HIGHLIGHT_CLEARED_MS });
