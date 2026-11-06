@@ -61,7 +61,13 @@ describe("parseTickArgs", () => {
 
 type Harness = { deps: WatchDeps; lines: string[]; calls: string[]; controller: AbortController };
 
-function harness(options: { simulating: boolean; ticks: number; tick?: () => Promise<WatchTick> }): Harness {
+function harness(options: {
+  simulating: boolean;
+  ticks: number;
+  tick?: () => Promise<WatchTick>;
+  // How many connections each successive markSimulatedDue call made due; the last value repeats.
+  dueCounts?: readonly number[];
+}): Harness {
   const lines: string[] = [];
   const calls: string[] = [];
   const controller = new AbortController();
@@ -79,7 +85,9 @@ function harness(options: { simulating: boolean; ticks: number; tick?: () => Pro
     simulationEnabled: () => options.simulating,
     markSimulatedDue: async () => {
       calls.push("markDue");
-      return 1;
+      const counts = options.dueCounts ?? [1];
+      const marked = calls.filter((call) => call === "markDue").length;
+      return counts[Math.min(marked, counts.length) - 1] ?? 1;
     },
     now: () => NOW,
     sleep: async (ms) => {
@@ -120,6 +128,21 @@ describe("runWatch", () => {
     await runWatch(deps, 10);
     expect(calls).toEqual(["tick", "sleep 10000", "tick"]);
     expect(lines.filter((line) => line.includes("Provider simulation is off"))).toHaveLength(1);
+    // The one setting that turns streaming on, and that a running watcher must be restarted.
+    expect(lines.filter((line) => line.includes("add DEVMACRO_SIMULATE_PROVIDERS=1 to .env.local, restart this watcher"))).toHaveLength(1);
+  });
+
+  it("with simulation on but no active simulated connection, says how to connect one, once", async () => {
+    const { deps, lines } = harness({ simulating: true, ticks: 3, dueCounts: [0] });
+    await runWatch(deps, 10);
+    expect(lines.filter((line) => line.startsWith("No active simulated connection"))).toHaveLength(1);
+    expect(lines.some((line) => line.includes("DEVMACRO_SIMULATE_PROVIDERS=1"))).toBe(false);
+  });
+
+  it("stays quiet once a simulated connection is active, and says it again only if none is", async () => {
+    const { deps, lines } = harness({ simulating: true, ticks: 4, dueCounts: [0, 2, 2, 0] });
+    await runWatch(deps, 10);
+    expect(lines.filter((line) => line.startsWith("No active simulated connection"))).toHaveLength(2);
   });
 
   it("prints a failed tick and keeps going", async () => {
@@ -182,7 +205,7 @@ describe("countingEventWrites", () => {
 });
 
 describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () => {
-  it("pulls forward only active connections the simulator made, never a real one of the same provider", async () => {
+  it("makes every active simulated connection due and counts them, never touching a real one of the same provider", async () => {
     const store = new MemoryJobStore(() => NOW);
     const later = "2026-11-04T21:31:00.000Z";
     const simulated = { granted_scopes: [SIMULATED_SCOPE], next_sync_at: later };
@@ -194,15 +217,23 @@ describe("markSimulatedSyncsDue (memory store, mirroring the Postgres one)", () 
       granted_scopes: ["read:project"],
       next_sync_at: later,
     });
+    // Just connected: never scheduled, already due. It still counts, so the watcher is not told
+    // that nothing is simulated on the very first tick after connecting.
     const neverScheduled = store.addConnection({ workspace_id: "w1", provider: "vercel", granted_scopes: [SIMULATED_SCOPE] });
-    expect(await store.markSimulatedSyncsDue(NOW)).toBe(1);
+    expect(await store.markSimulatedSyncsDue(NOW)).toBe(2);
     expect(stripe.next_sync_at).toBe(NOW.toISOString());
+    expect(neverScheduled.next_sync_at).toBe(NOW.toISOString());
     expect(failed.next_sync_at).toBe(later);
     expect(realVercel.next_sync_at).toBe(later);
-    expect(neverScheduled.next_sync_at).toBeNull();
     // Every watch iteration asks again; the real connection is still never made due.
-    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(0);
+    expect(await store.markSimulatedSyncsDue(new Date(NOW.getTime() + 1000))).toBe(2);
     expect(realVercel.next_sync_at).toBe(later);
+  });
+
+  it("counts zero when only real connections exist", async () => {
+    const store = new MemoryJobStore(() => NOW);
+    store.addConnection({ workspace_id: "w1", provider: "fake", granted_scopes: ["usage:read"] });
+    expect(await store.markSimulatedSyncsDue(NOW)).toBe(0);
   });
 });
 

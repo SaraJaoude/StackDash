@@ -168,6 +168,10 @@ runs up to 10 queued jobs, and prints the counts as JSON. It needs no dev server
 few seconds of the tick, with no reload. In production `pg_cron` calls `POST /api/jobs/tick` every
 minute instead, see [Jobs](docs/operations/jobs.md).
 
+Most connections are due once an hour (Supabase every 15 minutes), and the Example provider adds a
+signup and a deployment each day, so running the tick again soon after usually brings nothing new.
+For data that keeps arriving, use step 10.
+
 ### 10. Simulate every provider and watch it update live (optional)
 
 Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, and Supabase
@@ -197,9 +201,21 @@ It is for local use only: the app refuses it on a Vercel production deployment.
    simulated connection on each tick (up to 100 jobs per tick), and prints one line per tick with
    the time and the number of jobs synced, events written, and failures. Press Ctrl+C to stop it
    after the current tick.
+
+   It reads `.env.local` once, when it starts: if you add the flag while a watcher is already
+   running, stop it and start it again.
 4. Open the dashboard and the timeline: deployments, payments, signups, and forks trickle in,
    spend and usage grow through the billing period, and the Resend daily quota crosses 75 and
    90 percent each evening, which triggers allowance alerts if you add them.
+
+If nothing new appears:
+
+- The first line of `jobs:tick -- --watch` says "Provider simulation is off": the flag is missing
+  from `.env.local`, or the watcher was started before you added it. Add it and restart the watcher
+  and `npm run dev`.
+- It says "No active simulated connection": connect providers from step 2, or open the ones that
+  need attention and reconnect them; a simulated connection that needs attention is not synced.
+  The Example provider from step 8 is not simulated.
 
 Remove the flag and restart to go back to the real providers. Simulated connections then refuse to
 sync rather than mix made-up data with real data: their next sync sends nothing to the provider
