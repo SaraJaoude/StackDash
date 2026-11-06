@@ -38,7 +38,10 @@ type CategoryInfo = Readonly<{
 }>;
 
 const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
-  // Finished deployments only: a started deployment has not shipped anything yet.
+  // Finished deployments only: a started deployment has not shipped anything yet. Railway's
+  // `crashed` and `removed` say what became of a deployment after it finished, usually one already
+  // counted as deployed, so they would count it twice. A Sentry release is a version, not a
+  // deployment: Sentry records deploys of a release separately, and its adapter does not read them.
   deployments: {
     label: "Deployments",
     one: "deployment",
@@ -47,15 +50,27 @@ const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
       "digitalocean.deployment.failed",
       "digitalocean.deployment.succeeded",
       "fake.deploy.succeeded",
+      "railway.deployment.deployed",
+      "railway.deployment.failed",
       "vercel.deployment.failed",
       "vercel.deployment.succeeded",
     ],
     owner: "provider",
   },
-  // Successful charges only: a failed or refunded charge, or an invoice issued, is not money that
-  // came in that day.
-  payments: { label: "Payments", one: "payment", many: "payments", typeIds: ["stripe.charge.succeeded"], owner: "provider" },
-  // A new Stripe customer counts as a signup: it is the only signup signal a Stripe-only workspace has.
+  // Successful charges and paid orders only, renewals included: a failed or refunded charge, a
+  // refund, or an invoice issued is not money that came in that day.
+  payments: {
+    label: "Payments",
+    one: "payment",
+    many: "payments",
+    typeIds: ["polar.order.paid", "stripe.charge.succeeded"],
+    owner: "provider",
+  },
+  // One event per person who signed up. A new Stripe customer counts: it is the only signup signal
+  // a Stripe-only workspace has. A started subscription does not (Stripe's or Polar's): an existing
+  // customer starts one too. `posthog.signups.daily` stays out: it is one event per project and day
+  // holding that day's total, so counting it would read "1 signup" for a day of 40. Stars count
+  // their daily event because that category is labeled "star events"; a signup marker says signups.
   signups: {
     label: "Signups",
     one: "signup",

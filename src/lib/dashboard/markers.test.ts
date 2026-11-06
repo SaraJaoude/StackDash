@@ -3,9 +3,14 @@ import { describe, expect, it } from "vitest";
 import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { githubAdapter } from "@/lib/adapters/github";
+import { polarAdapter } from "@/lib/adapters/polar";
+import { postHogAdapter } from "@/lib/adapters/posthog";
+import { railwayAdapter } from "@/lib/adapters/railway";
 import { resendAdapter } from "@/lib/adapters/resend";
+import { sentryAdapter } from "@/lib/adapters/sentry";
 import { stripeAdapter } from "@/lib/adapters/stripe";
 import { supabaseAdapter } from "@/lib/adapters/supabase";
+import type { LiveProviderId, ProviderAdapter } from "@/lib/adapters/types";
 import { vercelAdapter } from "@/lib/adapters/vercel";
 import { ALERT_TRIGGERED_TYPE_ID } from "@/lib/alerts/evaluate";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
@@ -113,10 +118,34 @@ describe("bucketEventCounts in daily buckets", () => {
     expect(counts).toEqual([{ provider: "digitalocean", category: "deployments", bucket: "2026-01-10", count: 5 }]);
   });
 
+  it("counts a finished Railway deployment, failed or not, on the Railway chart", () => {
+    const counts = bucketEventCounts(
+      [
+        row("2026-01-10", "railway.deployment.deployed", 3, "railway"),
+        row("2026-01-10", "railway.deployment.failed", 2, "railway"),
+      ],
+      "daily",
+      NOW,
+    );
+    expect(counts).toEqual([{ provider: "railway", category: "deployments", bucket: "2026-01-10", count: 5 }]);
+  });
+
+  it("counts a paid Polar order as a payment on the Polar chart", () => {
+    const counts = bucketEventCounts([row("2026-01-10", "polar.order.paid", 7, "polar")], "daily", NOW);
+    expect(counts).toEqual([{ provider: "polar", category: "payments", bucket: "2026-01-10", count: 7 }]);
+  });
+
   it.each([
     { name: "a type in no category", input: row("2026-01-10", "stripe.charge.refunded", 3, "stripe") },
     { name: "a started deployment", input: row("2026-01-10", "digitalocean.deployment.started", 2, "digitalocean") },
     { name: "an issued invoice", input: row("2026-01-10", "digitalocean.invoice.issued", 1, "digitalocean") },
+    { name: "a Railway deployment still building", input: row("2026-01-10", "railway.deployment.building", 2, "railway") },
+    { name: "a crashed Railway deployment", input: row("2026-01-10", "railway.deployment.crashed", 1, "railway") },
+    { name: "a removed Railway deployment", input: row("2026-01-10", "railway.deployment.removed", 4, "railway") },
+    { name: "a Polar refund", input: row("2026-01-10", "polar.refund.succeeded", 1, "polar") },
+    { name: "a started Polar subscription", input: row("2026-01-10", "polar.subscription.started", 2, "polar") },
+    { name: "a PostHog daily signup total", input: row("2026-01-10", "posthog.signups.daily", 1, "posthog") },
+    { name: "a Sentry release", input: row("2026-01-10", "sentry.release.created", 1, "sentry") },
     { name: "a zero count", input: row("2026-01-10", "vercel.deployment.succeeded", 0) },
   ])("drops $name", ({ input }) => {
     expect(bucketEventCounts([input], "daily", NOW)).toEqual([]);
@@ -233,17 +262,28 @@ describe("hidden categories in the URL", () => {
 });
 
 describe("category type ids", () => {
+  // Keyed by provider id, so a new live provider without an entry here fails the typecheck.
+  const adapters: Readonly<Record<LiveProviderId | "fake", ProviderAdapter>> = {
+    vercel: vercelAdapter,
+    github: githubAdapter,
+    resend: resendAdapter,
+    stripe: stripeAdapter,
+    supabase: supabaseAdapter,
+    digitalocean: digitaloceanAdapter,
+    posthog: postHogAdapter,
+    polar: polarAdapter,
+    sentry: sentryAdapter,
+    railway: railwayAdapter,
+    fake: fakeAdapter,
+  };
+
+  it("checks every adapter under its own provider id", () => {
+    expect(Object.entries(adapters).filter(([id, adapter]) => adapter.id !== id)).toEqual([]);
+  });
+
   it("names only event types an adapter declares, or DevMacro's alert event", () => {
     const declared = new Set(
-      [
-        digitaloceanAdapter,
-        fakeAdapter,
-        githubAdapter,
-        resendAdapter,
-        stripeAdapter,
-        supabaseAdapter,
-        vercelAdapter,
-      ].flatMap((adapter) => adapter.eventTypes.map((eventType) => eventType.id)),
+      Object.values(adapters).flatMap((adapter) => adapter.eventTypes.map((eventType) => eventType.id)),
     );
     declared.add(ALERT_TRIGGERED_TYPE_ID);
     expect(markerTypeIds(MARKER_CATEGORIES).filter((typeId) => !declared.has(typeId))).toEqual([]);
