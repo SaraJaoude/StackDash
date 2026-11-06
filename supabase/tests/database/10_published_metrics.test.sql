@@ -1,13 +1,14 @@
 -- Published metrics (#148): tenant isolation through the Data API, the role check in every
 -- publish function, the public read function returning live rows only, the publishable id list,
--- the audit events, unpublish everything, and account deletion.
+-- the audit events, unpublish everything, account deletion, and the cap on live self-reported
+-- values per project (#220).
 -- Rows are seeded as postgres (the migration owner, which bypasses RLS); members are impersonated
 -- through the same role and JWT claims PostgREST uses.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(49);
+select plan(55);
 
 -- Test helper, rolled back with the transaction: rows a statement touched as the current role, or
 -- -1 when Postgres refuses it (42501). A refused write is any result <= 0.
@@ -365,6 +366,63 @@ select ok(
   not exists (select 1 from public.published_metrics where published_by = 'a8000001-0000-4000-8000-000000000002')
   and exists (select 1 from public.published_metrics where published_by = 'a8000001-0000-4000-8000-000000000001' and revoked_at is null),
   'account deletion: the deleted admin''s rows are gone, the owner''s live row stays');
+
+-- ---------------------------------------------------------------------------
+-- At most 100 live self-reported values per project (#220), so the public read stays far below
+-- PostgREST's max_rows. Project B starts with 99 live values, revoked history, and an engine
+-- metric; only the live self-reported rows count.
+-- ---------------------------------------------------------------------------
+insert into public.published_metrics (workspace_id, project_id, self_reported_label, self_reported_value, self_reported_unit, published_by)
+select 'b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001', 'Value ' || n, n, 'things',
+       'b8000001-0000-4000-8000-000000000001'
+from generate_series(1, 99) as n;
+insert into public.published_metrics (workspace_id, project_id, self_reported_label, self_reported_value, self_reported_unit, published_by,
+                                      revoked_at, revoked_by)
+select 'b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001', 'Old ' || n, n, 'things',
+       'b8000001-0000-4000-8000-000000000001', now(), 'b8000001-0000-4000-8000-000000000001'
+from generate_series(1, 5) as n;
+insert into public.published_metrics (workspace_id, project_id, metric_id, published_by)
+values ('b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001', 'github-stars',
+        'b8000001-0000-4000-8000-000000000001');
+
+select is(
+  public.publish_self_reported_metric('b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001',
+    'b8000001-0000-4000-8000-000000000001', 'Value 100', 100, 'things', 'Published Value 100 (self-reported)', null),
+  'published',
+  'publish_self_reported_metric: the 100th live value is published (boundary: exactly the cap)');
+select is(
+  public.publish_self_reported_metric('b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001',
+    'b8000001-0000-4000-8000-000000000001', 'Value 101', 101, 'things', 'Published Value 101 (self-reported)', null),
+  'limit_reached',
+  'publish_self_reported_metric: a 101st live value is refused (boundary: one past the cap)');
+select ok(
+  (select count(*) from public.published_metrics
+   where project_id = 'b8000003-0000-4000-8000-000000000001' and metric_id is null and revoked_at is null) = 100
+  and not exists (select 1 from public.activity_events where title = 'Published Value 101 (self-reported)'),
+  'publish_self_reported_metric: a refused value writes no row and no audit event');
+
+set local role service_role;
+select is(
+  (select count(*)::int from public.public_published_metrics('b8000003-0000-4000-8000-000000000001')),
+  101,
+  'public_published_metrics: a project at the cap returns its 100 values and its engine metric');
+reset role;
+
+select is(
+  public.publish_self_reported_metric('a8000002-0000-4000-8000-000000000001', 'a8000003-0000-4000-8000-000000000002',
+    'a8000001-0000-4000-8000-000000000001', 'Value 101', 101, 'things', 't', null),
+  'published',
+  'publish_self_reported_metric: the cap is per project, so another project still publishes');
+
+select is(
+  public.unpublish_metric('b8000002-0000-4000-8000-000000000001',
+    (select id from public.published_metrics where self_reported_label = 'Value 1' and revoked_at is null),
+    'b8000001-0000-4000-8000-000000000001', 'Unpublished Value 1')
+  || ' ' ||
+  public.publish_self_reported_metric('b8000002-0000-4000-8000-000000000001', 'b8000003-0000-4000-8000-000000000001',
+    'b8000001-0000-4000-8000-000000000001', 'Value 101', 101, 'things', 't', null),
+  'unpublished published',
+  'publish_self_reported_metric: unpublishing one value makes room for another (boundary: one under the cap)');
 
 select * from finish();
 

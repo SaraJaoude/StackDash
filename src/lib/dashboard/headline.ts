@@ -14,7 +14,7 @@
  *   be split, so it makes its connection unavailable for that window instead of counting a part.
  *   A total read after its period ended (an invoice) is not a running total and does not count,
  *   and neither does an estimate its adapter declares a projection of the whole period
- *   (`ProviderAdapter.projectedSpend`), on any day it is read.
+ *   (`isDeclaredProjection`, the rule every reading of spend shares), on any day it is read.
  * - A connection is available for a figure in a window only when every series it reports covers
  *   every day of the window up to the last required day (yesterday for the current window, since
  *   today is still running). Otherwise it is named unavailable and none of its amounts count.
@@ -37,7 +37,14 @@ import { formatList, formatMoney, formatQuantity } from "@/lib/format";
 import { divideMinorUnits } from "@/lib/money";
 import { providerName } from "@/lib/providers";
 
-import { dropSubWindows, dropSupersededBreakdowns, isEstimated, type ConnectionInput, type SnapshotInput } from "./aggregate";
+import {
+  dropSubWindows,
+  dropSupersededBreakdowns,
+  isDeclaredProjection,
+  isEstimated,
+  type ConnectionInput,
+  type SnapshotInput,
+} from "./aggregate";
 import { compareValues, type TrendComparison } from "./trends";
 
 export const HEADLINE_WINDOW_KINDS = ["week", "month"] as const;
@@ -217,11 +224,9 @@ function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string
 
 function buildMoneySeries(rows: readonly SnapshotInput[], projectedSpend: readonly string[]): MoneySeries[] {
   const seriesKey = (row: SnapshotInput) => `${row.connection_id} ${row.external_account_id} ${row.kind} ${row.metric_key} ${row.currency ?? ""}`;
-  // A declared projection (PostHog's projected spend, Railway's estimated bill, the Example
-  // provider's month estimate) is what the whole period is expected to cost, not money spent so
-  // far, on every day it is read, its period's last day included. It is left out before a
-  // projection's long window could hide a day's estimate inside it.
-  const spent = rows.filter((row) => isRunningTotal(row) && !projectedSpend.includes(row.metric_key));
+  // A declared projection is left out (`isDeclaredProjection`) before a projection's long window
+  // could hide a day's estimate inside it.
+  const spent = rows.filter((row) => isRunningTotal(row) && !isDeclaredProjection(row, projectedSpend));
   const byDay = groupBy(spent, (row) => row.snapshot_date);
   // Each day's amounts once, by the rules of the dashboard's current values (`countedSnapshots`):
   // a total supersedes its breakdowns, and a longer window supersedes a day inside it, such as

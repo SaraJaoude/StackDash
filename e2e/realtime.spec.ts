@@ -21,6 +21,18 @@ import { expectSubscribed, FrameSchema, LIVE_TIMEOUT_MS, SubscribedSchema, watch
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
 // seeds its own workspaces, and the rows go in with the service role, the way a sync writes them.
 
+// What a test reads from a postgres_changes payload: the table, the event type, and the row's
+// workspace, plus its title for an activity event.
+const LiveChangeSchema = z
+  .object({
+    data: z.object({
+      table: z.string(),
+      type: z.string(),
+      record: z.object({ workspace_id: z.string(), title: z.string().optional() }),
+    }),
+  })
+  .transform(({ data }) => data);
+
 type SeededConnection = Readonly<{ workspaceId: string; connectionId: string; accountId: string }>;
 
 /** A fake connection with one account, the parents every synced row points at. */
@@ -262,12 +274,37 @@ ownerTest.describe("live updates", () => {
       });
       await expect.poll(() => subscription.delivered().length, { timeout: LIVE_TIMEOUT_MS }).toBeGreaterThan(0);
 
-      // The page filter: the viewer's tab heard about the sentinel and nothing else.
-      expect(viewerLive.changes().length).toBe(1);
+      // A non-member: nothing about `ownersOnly` reached the viewer's tab on any table, and of the
+      // events, only the sentinel. The viewer is not a member of `ownersOnly`, so the page filter
+      // and row level security both stand in the way here. The connection seeded for `viewers`
+      // before the tab subscribed may arrive as well (#226), so the events written after
+      // subscribing are what is counted, not every change the tab received.
+      const viewerChanges = z.array(LiveChangeSchema).parse(viewerLive.changes());
+      expect(viewerChanges.filter(({ record }) => record.workspace_id !== viewers.id)).toEqual([]);
+      expect(viewerChanges.filter(({ table }) => table === "activity_events")).toEqual([
+        { table: "activity_events", type: "INSERT", record: { workspace_id: viewers.id, title: sentinelTitle } },
+      ]);
       await expect(viewerPage.getByRole("heading", { name: ownerOnlyTitle })).toHaveCount(0);
       // Row level security: the binding filtered on `ownersOnly` delivered nothing.
       expect(z.array(DeliveredEventSchema).parse(subscription.delivered())).toEqual([
         { workspace_id: viewers.id, title: sentinelTitle },
+      ]);
+
+      // The page filter alone: the owner is a member of both workspaces, so row level security
+      // lets the sentinel through to the owner and only the `ownersOnly` filter keeps it off the
+      // owner's tab. The sentinel's arrival elsewhere says nothing about the owner's socket, so an
+      // `ownersOnly` row written after the sentinel is the anchor: once it arrives on the owner's
+      // channel, in WAL order, the sentinel is not still on its way there.
+      const anchorTitle = `Owner anchor ${randomUUID().slice(0, 8)}`;
+      await insertEvent(ownersOnlyConnection, anchorTitle);
+      await expect(page.getByRole("heading", { name: anchorTitle, exact: true })).toBeVisible({
+        timeout: LIVE_TIMEOUT_MS,
+      });
+      const ownerChanges = z.array(LiveChangeSchema).parse(ownerLive.changes());
+      expect(ownerChanges.filter(({ record }) => record.workspace_id !== ownersOnly.id)).toEqual([]);
+      expect(ownerChanges.filter(({ table }) => table === "activity_events")).toEqual([
+        { table: "activity_events", type: "INSERT", record: { workspace_id: ownersOnly.id, title: ownerOnlyTitle } },
+        { table: "activity_events", type: "INSERT", record: { workspace_id: ownersOnly.id, title: anchorTitle } },
       ]);
     } finally {
       await Promise.all([viewerContext.close(), outside?.close()]);

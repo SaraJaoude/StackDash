@@ -64,11 +64,6 @@ export const TokenResponseSchema = z.object({
   scope: z.string().optional(),
 });
 
-// RFC 6749 error body used by the token endpoint (not Resend's usual API error shape).
-export const OAuthErrorSchema = z.object({
-  error: z.string().min(1),
-});
-
 // `limit` is null when the plan has no cap. Daily is null on paid sending plans; monthly is
 // documented as always a number, but paid-plan shapes are unverified (docs/providers/resend.md,
 // Unverified 11), so null is accepted for both.

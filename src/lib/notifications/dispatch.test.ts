@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
+import type { ConnectionInput, DashboardInput, SnapshotInput } from "@/lib/dashboard/aggregate";
 import { EmailSendError } from "@/lib/email/send";
 import type { ClaimedJob } from "@/lib/jobs/store";
 
@@ -431,6 +433,53 @@ describe("runDigestJob", () => {
 
 describe("digestFigures", () => {
   it("is empty for a workspace with nothing synced", () => {
-    expect(digestFigures({ connections: [], accounts: [], projects: [], snapshots: [], now: NOW })).toEqual({ allowances: [], spend: [] });
+    const empty = { connections: [], accounts: [], projects: [], snapshots: [], projectedSpend: declaredProjectedSpend, now: NOW };
+    expect(digestFigures(empty)).toEqual({ allowances: [], spend: [] });
+  });
+
+  it("never reports a provider's declared projection as spend (#223)", () => {
+    const november = { period_start: "2026-11-01T00:00:00.000Z", period_end: "2026-12-01T00:00:00.000Z" };
+    const money = (metricKey: string, kind: SnapshotInput["kind"], amountMinor: number): SnapshotInput => ({
+      connection_id: "c1",
+      external_account_id: "a1",
+      metric_key: metricKey,
+      kind,
+      label: metricKey,
+      snapshot_date: "2026-11-05",
+      value: null,
+      unit: null,
+      amount_minor: amountMinor,
+      currency: "USD",
+      ...november,
+      point_at: null,
+      resets_at: november.period_end,
+      retrieved_at: "2026-11-05T08:30:00.000Z",
+      provenance_source: kind === "estimated_spend" ? "derived" : "provider_api",
+      pricing_source: null,
+    });
+    const posthog: ConnectionInput = {
+      id: "c1",
+      provider: "posthog",
+      display_name: "PostHog",
+      status: "active",
+      last_synced_at: null,
+      poll_interval_seconds: 3600,
+      granted_scopes: [],
+    };
+    const input = (snapshots: SnapshotInput[]): DashboardInput => ({
+      connections: [posthog],
+      accounts: [{ id: "a1", connection_id: "c1", display_name: "Example organization", project_id: null }],
+      projects: [],
+      snapshots,
+      projectedSpend: declaredProjectedSpend,
+      now: NOW,
+    });
+    const projection = money("posthog.spend.projected", "estimated_spend", 2_986);
+    // Beside spend so far, only the spend so far; alone, no spend at all.
+    const period = { start: november.period_start, end: november.period_end };
+    expect(digestFigures(input([money("posthog.spend.current", "verified_spend", 0), projection])).spend).toEqual([
+      { connectionName: "PostHog", currency: "USD", verifiedMinor: 0, estimatedMinor: null, period },
+    ]);
+    expect(digestFigures(input([projection])).spend).toEqual([]);
   });
 });

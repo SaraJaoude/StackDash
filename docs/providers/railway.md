@@ -118,7 +118,7 @@ Measurements: `CPU_USAGE`, `MEMORY_USAGE_GB`, `NETWORK_TX_GB`, `DISK_USAGE_GB`. 
 | `railway.usage.network_egress` | usage, GB, billing period | `usage`, `NETWORK_TX_GB` |
 | `railway.usage.volume` | usage, GB-minutes, billing period | `usage`, `DISK_USAGE_GB` |
 | `railway.spend.usage` | verified spend, USD, billing period | `customer.currentUsage` ("cached and may not be up to date") |
-| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173) |
+| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, anomaly detection, or the dashboard's own projections (#173, #223) |
 | `railway.credits.balance` | credit balance, USD, at sync time | `customer.creditBalance` |
 | `railway.plan.memory_per_service`, `vcpu_per_service`, `replicas_per_service`, `volume_per_service` | included allowance, at sync time | `workspace.plan` and the pricing page's default plan resources |
 
@@ -128,7 +128,7 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 
 - Money: `currentUsage` and `creditBalance` are JSON numbers, read as US dollars (see Unverified). Each is read at 12 decimal places, converted exactly, and rounded once to cents, half to even (`src/lib/money.ts`).
 - Estimate: Railway's `estimatedUsage` is described as "the estimated total cost of the project at the end of the current billing cycle" but returns one quantity per measurement and project. DevMacro multiplies each by the unit price and rounds the sum once. Unit prices from the [pricing page](https://docs.railway.com/pricing/plans) (checked 2026-11-05): CPU $0.000463 per vCPU per minute, memory $0.000231 per GB per minute, egress $0.05 per GB, volume storage $0.000003472222222 per GB per minute. Builds are free and not measured.
-- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, because the dashboard adds up every estimated spend in a currency; a separate usage estimate would be counted twice.
+- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, and it is declared a projection for the whole period, so no reading of spend counts it as money spent so far (#223).
 - Reset: every billing period metric carries the period end as its reset time.
 - Quantities: CPU and memory are priced per minute, so their measurements are read as vCPU-minutes and GB-minutes; egress is in GB.
 - Plan limits per service, replicas included (pricing page, "Default plan resources"): Free 0.5 GB memory, 1 vCPU, 1 replica, 0.5 GB volume; Hobby 48 GB, 48 vCPU, 6 replicas, 5 GB volume; Pro 1 TB (stored as 1,000 GB), 1,000 vCPU, 42 replicas, 1 TB volume.
@@ -160,7 +160,7 @@ The first sync looks back 7 days. The cursor is the latest status time seen; eac
 | CPU, memory, egress, and volume used this billing period | Verified quantities; units unverified |
 | Usage cost so far (`currentUsage`) | Verified, but cached by Railway and possibly behind |
 | Credit balance and billing period | Verified |
-| Bill for the whole period | Estimated (DevMacro: Railway's quantity estimate times published prices, plus the plan fee) |
+| Bill for the whole period | Estimated (DevMacro: Railway's quantity estimate times published prices, plus the plan fee). Stored, but never shown or counted as spend this billing period (#223) |
 | Plan limits per service | Estimated (from the plan and the pricing page) |
 | Any billing value when Railway refuses viewer access to billing | Unavailable; deployments still sync |
 | Invoices, payment methods, usage limits | Not collected |

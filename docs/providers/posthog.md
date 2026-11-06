@@ -88,14 +88,16 @@ Fields read, everything else is dropped at the parse boundary (including `accoun
 | Field | Becomes |
 |---|---|
 | `current_total_amount_usd_after_discount`, else `current_total_amount_usd` | `posthog.spend.current`, verified spend |
-| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173). Sent only beside a current total, so the dashboard's own projections (#167) never take it as spend so far |
+| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, anomaly detection, or the dashboard's own projections (#173, #223). Sent whenever PostHog returns it, with or without a current total, since nothing counts it either way |
 | `billing_period.current_period_start`, `current_period_end` | Timeframe and reset time of every billing metric |
 | `products[].current_usage`, `unit` | `posthog.<type>.usage` |
 | `products[].free_allocation` | `posthog.<type>.free` (included allowance) and `posthog.<type>.free_remaining` |
-| `products[].current_amount_usd` | `posthog.<type>.spend`, verified spend |
+| `products[].current_amount_usd` | `posthog.spend.current.<type>`, verified spend: a breakdown of `posthog.spend.current`, so the dashboard, alerts, daily summary, and headline count the organization total once and never add the products to it (#204) |
 | `products[].usage_limit`, `has_exceeded_limit` | Usage limit events (below) |
 
 Only products with a `usage_key` (metered) and a lowercase `type` produce metrics; inclusion-only products such as Platform and support have no usage. A product's free allocation of zero or null produces no allowance metric.
+
+Before #204 each product's spend was stored as `posthog.<type>.spend`, beside the total rather than below it, and the dashboard added the two together. Rows already stored under that name are read as breakdowns of `posthog.spend.current` (`dropSupersededBreakdowns` in `src/lib/dashboard/aggregate.ts`), so they never count beside the total either.
 
 ### Organizations: `GET /api/organizations/?limit=100`
 
@@ -144,7 +146,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 | Value | Status |
 |---|---|
 | Spend so far in the billing period, total and per product | Verified (PostHog's billed figures; the period is provisional until invoiced) |
-| Projected spend for the period | Estimated (PostHog's projection, labeled estimated with its source) |
+| Projected spend for the period | Estimated (PostHog's projection). Stored, but never shown or counted as spend this billing period (#223) |
 | Usage, free allocation, and free allocation left per product | Verified |
 | Billing limit per product, as a timeline event | Verified when PostHog returns `usage_limit` |
 | Signups per project per day | Verified counts of person profiles created, with the caveat in Signups |

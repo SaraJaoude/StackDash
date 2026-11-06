@@ -4,6 +4,9 @@
  *
  * Rules decided here, once:
  * - The latest row per (external account, metric key) is the current value.
+ * - A declared projection (`ProviderAdapter.projectedSpend`) is what the whole billing period is
+ *   expected to cost, not money spent so far, so no reading of current values counts it
+ *   (`isDeclaredProjection`, applied by `countedSnapshots` and the headline strip alike).
  * - Each amount is counted once (`countedSnapshots`): a total supersedes its breakdown, and a
  *   longer billing window supersedes a day inside it.
  * - Money is grouped by currency and never added across currencies. Verified (from the provider)
@@ -59,6 +62,8 @@ export type DashboardInput = Readonly<{
   /** Only the accounts included in the dashboard; snapshots of any other account are ignored. */
   accounts: readonly AccountInput[];
   projects: readonly ProjectInput[];
+  /** Estimated spend metric keys the adapters declare projections (`ProviderAdapter.projectedSpend`). */
+  projectedSpend: readonly string[];
   now: Date;
 }>;
 
@@ -206,10 +211,19 @@ export function isCurrentPeriod(row: SnapshotInput, now: Date): boolean {
 }
 
 /**
+ * Rows PostHog stored before #204 named each product's spend `posthog.<type>.spend`; it is now
+ * `posthog.spend.current.<type>`, a breakdown of the organization's `posthog.spend.current`. Old rows
+ * stay in the read windows for weeks (`SNAPSHOT_WINDOW_DAYS` on the dashboard), so they are read as
+ * the breakdowns they are. Decided on #204: delete this once no stored row carries the old name.
+ */
+const LEGACY_POSTHOG_PRODUCT_SPEND = /^posthog\.[a-z0-9_]+\.spend$/;
+
+/**
  * Breakdowns are dropped so nothing is counted twice. Within one account, kind, and currency:
  * - a total (`<prefix>.total`) supersedes its parts (`<prefix>.<part>`), as Vercel reports them;
  * - a metric supersedes the keys one segment below it, as GitHub reports per product
- *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`).
+ *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`), and PostHog per
+ *   organization (`posthog.spend.current`) and per product (`posthog.spend.current.session_replay`).
  */
 export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly T[]): T[] {
   const groupOf = (row: T, key: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${key}`;
@@ -218,8 +232,10 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
     parents.add(groupOf(row, row.metric_key.endsWith(".total") ? row.metric_key.slice(0, -".total".length) : row.metric_key));
   }
   return rows.filter((row) => {
-    if (row.metric_key.endsWith(".total")) return true;
-    return !parents.has(groupOf(row, row.metric_key.slice(0, row.metric_key.lastIndexOf("."))));
+    const key = row.metric_key;
+    if (key.endsWith(".total")) return true;
+    const parent = LEGACY_POSTHOG_PRODUCT_SPEND.test(key) ? "posthog.spend.current" : key.slice(0, key.lastIndexOf("."));
+    return !parents.has(groupOf(row, parent));
   });
 }
 
@@ -261,12 +277,23 @@ export function dropSubWindows<T extends SnapshotInput>(rows: readonly T[]): T[]
 }
 
 /**
- * The rows every reading of current values starts from (dashboard, alerts, daily summary): the
- * latest row per account and metric, with breakdowns and sub-windows dropped so each amount is
- * counted once.
+ * Whether an adapter declares the row's metric a projection for the whole billing period (PostHog's
+ * projected spend, Railway's estimated bill, the Example provider's month estimate): what the
+ * period is expected to cost, not money spent so far, on every day it is read, its period's last
+ * day included. The one rule for every reading of spend, the headline strip's included.
  */
-export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[]): T[] {
-  return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows)));
+export function isDeclaredProjection(row: Pick<SnapshotInput, "metric_key">, projectedSpend: readonly string[]): boolean {
+  return projectedSpend.includes(row.metric_key);
+}
+
+/**
+ * The rows every reading of current values starts from (dashboard, digests, alerts, projections,
+ * daily summary): declared projections left out, then the latest row per account and metric, with
+ * breakdowns and sub-windows dropped so each amount is counted once. A projection goes first, so
+ * its whole-period window never hides a day's estimate inside it.
+ */
+export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[], projectedSpend: readonly string[]): T[] {
+  return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows.filter((row) => !isDeclaredProjection(row, projectedSpend)))));
 }
 
 /**
@@ -502,13 +529,17 @@ function recurringRevenueOf(entries: readonly Entry[], now: Date): RecurringReve
 function providerSummary(
   connection: ConnectionInput,
   entries: readonly Entry[],
+  projections: readonly Entry[],
   accountNames: ReadonlyMap<string, string>,
   now: Date,
 ): ProviderSummary {
   const currentMoney = entries.filter(({ row }) => isCurrentPeriod(row, now));
   const spend = currentMoney.filter(({ row }) => row.kind === "verified_spend" || row.kind === "estimated_spend");
-  // The widest spend period (earliest start, then latest end), so row order never decides it.
-  const spendPeriod = spend.reduce<Period | null>((widest, { row }) => {
+  // The widest period of the spend and of the declared projections (earliest start, then latest
+  // end), so row order never decides it. A projection is not spend, but the period it projects is
+  // the billing period: the Example provider's spend so far ends tomorrow, its estimate with the month.
+  const periodRows = [...spend, ...projections.filter(({ row }) => isCurrentPeriod(row, now))];
+  const spendPeriod = periodRows.reduce<Period | null>((widest, { row }) => {
     const period = periodOf(row);
     if (period === null) return widest;
     if (widest === null) return period;
@@ -553,25 +584,32 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
   const accountNames = new Map([...accounts.values()].map((account) => [account.id, account.display_name]));
   const projectNames = new Map(input.projects.map((project) => [project.id, project.name]));
 
-  const entries: Entry[] = [];
-  for (const row of countedSnapshots(input.snapshots)) {
-    const account = accounts.get(row.external_account_id);
-    const connection = connections.get(row.connection_id);
-    // Excluded accounts and rows whose account moved connection are skipped.
-    if (account === undefined || connection === undefined || account.connection_id !== connection.id) continue;
-    entries.push({ row, connection });
-  }
+  // Excluded accounts and rows whose account moved connection are skipped.
+  const joined = (rows: readonly SnapshotInput[]): Entry[] =>
+    rows.flatMap((row) => {
+      const account = accounts.get(row.external_account_id);
+      const connection = connections.get(row.connection_id);
+      return account === undefined || connection === undefined || account.connection_id !== connection.id ? [] : [{ row, connection }];
+    });
+  const entries = joined(countedSnapshots(input.snapshots, input.projectedSpend));
+  // Read for the billing period only (`providerSummary`), never counted.
+  const projections = joined(latestSnapshots(input.snapshots.filter((row) => isDeclaredProjection(row, input.projectedSpend))));
 
   const currentSpend = entries.filter(
     ({ row }) => (row.kind === "verified_spend" || row.kind === "estimated_spend") && isCurrentPeriod(row, now),
   );
 
-  const byConnection = new Map<string, Entry[]>();
-  for (const entry of entries) {
-    const list = byConnection.get(entry.connection.id);
-    if (list === undefined) byConnection.set(entry.connection.id, [entry]);
-    else list.push(entry);
-  }
+  const byConnection = (list: readonly Entry[]): Map<string, Entry[]> => {
+    const grouped = new Map<string, Entry[]>();
+    for (const entry of list) {
+      const group = grouped.get(entry.connection.id);
+      if (group === undefined) grouped.set(entry.connection.id, [entry]);
+      else group.push(entry);
+    }
+    return grouped;
+  };
+  const entriesByConnection = byConnection(entries);
+  const projectionsByConnection = byConnection(projections);
 
   const byProjectEntries = new Map<string | null, Entry[]>();
   for (const entry of currentSpend) {
@@ -600,7 +638,15 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
       entries.filter(({ row }) => row.kind === "revenue" && isCurrentPeriod(row, now)),
       now,
     ),
-    byProvider: visible.map((connection) => providerSummary(connection, byConnection.get(connection.id) ?? [], accountNames, now)),
+    byProvider: visible.map((connection) =>
+      providerSummary(
+        connection,
+        entriesByConnection.get(connection.id) ?? [],
+        projectionsByConnection.get(connection.id) ?? [],
+        accountNames,
+        now,
+      ),
+    ),
     byProject,
   };
 }

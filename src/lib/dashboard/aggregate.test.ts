@@ -1,11 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { AdapterMetric } from "@/lib/adapters/metrics";
+import { billingMetrics as postHogBillingMetrics } from "@/lib/adapters/posthog";
+import { BillingResponseSchema } from "@/lib/adapters/posthog/schemas";
+import { billingMetrics as railwayBillingMetrics } from "@/lib/adapters/railway";
+import { BillingDataSchema } from "@/lib/adapters/railway/schemas";
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { toSnapshotRow } from "@/lib/jobs/ingest";
 
 import {
   aggregateDashboard,
   allowanceGroups,
   allowanceUsage,
+  countedSnapshots,
   dropSubWindows,
   dropSupersededBreakdowns,
   freshnessLabel,
@@ -17,6 +25,7 @@ import {
   spendToCount,
   type AccountInput,
   type ConnectionInput,
+  type CurrencyAmounts,
   type DashboardInput,
   type ProjectInput,
   type SnapshotInput,
@@ -85,8 +94,11 @@ function quantity(
 }
 
 function input(snapshots: SnapshotInput[], overrides: Partial<DashboardInput> = {}): DashboardInput {
-  return { snapshots, connections: [connection], accounts, projects, now: NOW, ...overrides };
+  return { snapshots, connections: [connection], accounts, projects, projectedSpend: declaredProjectedSpend, now: NOW, ...overrides };
 }
+
+// An estimate of spend so far; `fake.cost.estimate` is the month's projection (#223), so not this.
+const SPEND_ESTIMATE_KEY = "fake.spend.estimated";
 
 describe("aggregateDashboard totals", () => {
   it("keeps two currencies apart and never adds them", () => {
@@ -108,7 +120,7 @@ describe("aggregateDashboard totals", () => {
       input([
         money({ metric_key: "fake.spend.month", amount_minor: 1_000, currency: "USD" }),
         money({
-          metric_key: "fake.cost.estimate",
+          metric_key: SPEND_ESTIMATE_KEY,
           kind: "estimated_spend",
           amount_minor: 2_500,
           currency: "USD",
@@ -129,7 +141,7 @@ describe("aggregateDashboard totals", () => {
     const view = aggregateDashboard(
       input([
         money({
-          metric_key: "fake.cost.estimate",
+          metric_key: SPEND_ESTIMATE_KEY,
           kind: "estimated_spend",
           amount_minor: 2_500,
           currency: "USD",
@@ -267,6 +279,82 @@ describe("aggregateDashboard GitHub spend levels (#137)", () => {
   });
 });
 
+describe("aggregateDashboard PostHog spend (#204)", () => {
+  // The reproduction on #204: an organization billed $18.03 so far, $14.45 of it product analytics
+  // and $3.58 session replay, in the shape `GET /api/billing/` returns it.
+  const billing = {
+    current_total_amount_usd: "18.03",
+    projected_total_amount_usd: "41.20",
+    billing_period: { current_period_start: MONTH.period_start, current_period_end: MONTH.period_end },
+    products: [
+      { type: "product_analytics", name: "Product analytics", usage_key: "events", unit: "event", current_usage: 1_289_000, free_allocation: 1_000_000, current_amount_usd: "14.45" },
+      { type: "session_replay", name: "Session replay", usage_key: "recordings", unit: "recording", current_usage: 5_716, free_allocation: 5_000, current_amount_usd: "3.58" },
+    ],
+  };
+  const posthog: ConnectionInput = { ...connection, provider: "posthog", display_name: "PostHog org" };
+
+  /** What one sync at `at` stores: the adapter's own `billingMetrics` through the sync's `toSnapshotRow`. */
+  function synced(at: string, account = "a1"): SnapshotInput[] {
+    return postHogBillingMetrics(BillingResponseSchema.parse(billing), account, new Date(at), "us").map((metric) => ({
+      ...money({ metric_key: metric.metricKey, amount_minor: null, currency: null }),
+      ...toSnapshotRow(metric, { id: "c1", workspace_id: "w1" }, { id: account }),
+    }));
+  }
+
+  /** The same sync as PostHog's rows were stored before #204: each product's spend as `posthog.<type>.spend`. */
+  function syncedBefore204(at: string): SnapshotInput[] {
+    return synced(at).map((row) => {
+      const product = /^posthog\.spend\.current\.([a-z_]+)$/.exec(row.metric_key)?.[1];
+      return product === undefined ? row : { ...row, metric_key: `posthog.${product}.spend` };
+    });
+  }
+
+  const verifiedSum = (rows: readonly SnapshotInput[]) =>
+    rows.filter((row) => row.kind === "verified_spend").reduce((sum, row) => sum + (row.amount_minor ?? 0), 0);
+
+  it("reports each product's spend one segment below the organization total", () => {
+    expect(synced("2026-10-15T11:30:00.000Z").filter((row) => row.kind === "verified_spend").map((row) => [row.metric_key, row.amount_minor])).toEqual([
+      ["posthog.spend.current", 1_803],
+      ["posthog.spend.current.product_analytics", 1_445],
+      ["posthog.spend.current.session_replay", 358],
+    ]);
+  });
+
+  it("counts one sync's verified spend as the organization total, not its products again", () => {
+    const counted = countedSnapshots(synced("2026-10-15T11:30:00.000Z"), declaredProjectedSpend);
+    expect(verifiedSum(counted)).toBe(1_803);
+    expect(counted.filter((row) => row.kind === "verified_spend").map((row) => row.metric_key)).toEqual(["posthog.spend.current"]);
+  });
+
+  it("shows current_total_amount_usd on the spend card, the totals, and the project", () => {
+    const view = aggregateDashboard(input(synced("2026-10-15T11:30:00.000Z"), { connections: [posthog] }));
+    expect(view.byProvider[0]?.spend.map(({ currency, verified }) => [currency, verified?.amountMinor])).toEqual([["USD", 1_803]]);
+    expect(view.totals.map(({ currency, verified }) => [currency, verified?.amountMinor])).toEqual([["USD", 1_803]]);
+    expect(view.byProject[0]?.spend[0]?.verified?.amountMinor).toBe(1_803);
+  });
+
+  it.each([
+    ["read on an earlier day", "2026-10-14T23:30:00.000Z"],
+    ["read earlier on the same day, as on the day the new keys ship", "2026-10-15T08:00:00.000Z"],
+  ])("never counts products stored under the old key beside the total, %s", (_name, before) => {
+    const rows = [...syncedBefore204(before), ...synced("2026-10-15T11:30:00.000Z")];
+    expect(verifiedSum(countedSnapshots(rows, declaredProjectedSpend))).toBe(1_803);
+    const view = aggregateDashboard(input(rows, { connections: [posthog] }));
+    expect(view.byProvider[0]?.spend[0]?.verified?.amountMinor).toBe(1_803);
+  });
+
+  it("counts an old sync on its own as its total too", () => {
+    expect(verifiedSum(countedSnapshots(syncedBefore204("2026-10-14T23:30:00.000Z"), declaredProjectedSpend))).toBe(1_803);
+  });
+
+  it("keeps an old-keyed product when its account reported no total", () => {
+    const [product] = syncedBefore204("2026-10-15T11:30:00.000Z").filter((row) => row.metric_key === "posthog.session_replay.spend");
+    if (product === undefined) throw new Error("expected the session replay row");
+    const otherAccount = synced("2026-10-15T11:30:00.000Z", "a2").filter((row) => row.metric_key === "posthog.spend.current");
+    expect(dropSupersededBreakdowns([...otherAccount, product])).toContain(product);
+  });
+});
+
 describe("aggregateDashboard billing period", () => {
   it("shows the whole month when the Fake provider reports month to date spend and a month estimate, in either order", () => {
     // As the Fake adapter reports them: verified spend from the month start to tomorrow, and an
@@ -297,6 +385,94 @@ describe("aggregateDashboard billing period", () => {
     ]) {
       expect(aggregateDashboard(input(rows)).byProvider[0]?.billingPeriod).toEqual({ start: cycle.period_start, end: cycle.period_end });
     }
+  });
+});
+
+describe("aggregateDashboard declared projections (#223)", () => {
+  const november = new Date("2026-11-05T12:00:00.000Z");
+  const readAt = new Date("2026-11-05T11:30:00.000Z");
+  const period = { start: "2026-11-01T00:00:00.000Z", end: "2026-12-01T00:00:00.000Z" };
+  const posthog: ConnectionInput = { ...connection, id: "c-posthog", provider: "posthog", display_name: "PostHog (Example organization)" };
+  const railway: ConnectionInput = { ...connection, id: "c-railway", provider: "railway", display_name: "Railway (Example workspace)" };
+
+  /**
+   * What one sync stores, through the adapter's own billing metrics and the sync's `toSnapshotRow`,
+   * read back with every nullable column present, as the stores read it.
+   */
+  function synced(owner: ConnectionInput, metrics: readonly AdapterMetric[]): SnapshotInput[] {
+    return metrics.map((metric) => {
+      const row = toSnapshotRow(metric, { id: owner.id, workspace_id: "w1" }, { id: `a-${owner.provider}` });
+      return {
+        ...row,
+        value: row.value ?? null,
+        unit: row.unit ?? null,
+        amount_minor: row.amount_minor ?? null,
+        currency: row.currency ?? null,
+        period_start: row.period_start ?? null,
+        period_end: row.period_end ?? null,
+        point_at: row.point_at ?? null,
+        resets_at: row.resets_at ?? null,
+        pricing_source: row.pricing_source ?? null,
+      };
+    });
+  }
+
+  // The demo seed on 2026-11-05: PostHog has billed nothing yet and projects $29.86 for the period;
+  // Railway has used $7.13 and estimates the whole period's bill.
+  const posthogRows = synced(
+    posthog,
+    postHogBillingMetrics(
+      BillingResponseSchema.parse({
+        current_total_amount_usd: "0.00",
+        projected_total_amount_usd: "29.86",
+        billing_period: { current_period_start: period.start, current_period_end: period.end },
+      }),
+      "org-1",
+      readAt,
+      "us",
+    ),
+  );
+  const railwayRows = synced(
+    railway,
+    railwayBillingMetrics(
+      BillingDataSchema.parse({
+        workspace: { plan: "HOBBY", customer: { billingPeriod: period, currentUsage: 7.13, creditBalance: 0 } },
+        usage: [],
+        estimatedUsage: [{ measurement: "CPU_USAGE", estimatedValue: 80_000, projectId: "prj-shop" }],
+      }),
+      "ws-1",
+      readAt,
+    ),
+  );
+
+  function view(owner: ConnectionInput, snapshots: SnapshotInput[]) {
+    const ownerAccounts: AccountInput[] = [{ id: `a-${owner.provider}`, connection_id: owner.id, display_name: "Example", project_id: "p1" }];
+    return aggregateDashboard(input(snapshots, { connections: [owner], accounts: ownerAccounts, now: november }));
+  }
+
+  const cases = [
+    { name: "PostHog", owner: posthog, rows: posthogRows, verifiedMinor: 0 },
+    { name: "Railway", owner: railway, rows: railwayRows, verifiedMinor: 713 },
+  ];
+
+  it.each(cases)("$name: counts only the verified spend beside a declared projection", ({ owner, rows, verifiedMinor }) => {
+    // The adapter really does send a projection with an amount, so leaving it out is the rule at work.
+    expect(rows.filter((row) => declaredProjectedSpend.includes(row.metric_key)).map((row) => (row.amount_minor ?? 0) > 0)).toEqual([true]);
+    const result = view(owner, rows);
+    const usd = (amounts: readonly CurrencyAmounts[] | undefined) =>
+      amounts?.map(({ currency, verified, estimated }) => [currency, verified?.amountMinor ?? null, estimated]);
+    expect(usd(result.totals)).toEqual([["USD", verifiedMinor, null]]);
+    expect(usd(result.byProvider[0]?.spend)).toEqual([["USD", verifiedMinor, null]]);
+    expect(usd(result.byProject[0]?.spend)).toEqual([["USD", verifiedMinor, null]]);
+  });
+
+  it.each(cases)("$name: shows no spend for a declared projection with no verified spend in its currency", ({ owner, rows }) => {
+    const result = view(owner, rows.filter((row) => declaredProjectedSpend.includes(row.metric_key)));
+    expect(result.totals).toEqual([]);
+    expect(result.byProvider[0]?.spend).toEqual([]);
+    expect(result.byProject).toEqual([]);
+    // Not spend, but still the billing period it projects.
+    expect(result.byProvider[0]?.billingPeriod).toEqual(period);
   });
 });
 

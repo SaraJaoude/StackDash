@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { EventType } from "@/lib/adapters/events";
-import { signupMetric } from "@/lib/adapters/posthog";
+import { billingMetrics, signupMetric } from "@/lib/adapters/posthog";
+import { BillingResponseSchema } from "@/lib/adapters/posthog/schemas";
 import { declaredEventTypes, declaredProjectedSpend, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { toSnapshotRow } from "@/lib/jobs/ingest";
 import { providerName } from "@/lib/providers";
 
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
@@ -172,6 +174,45 @@ function postHogTotals(
         pricing_source: null,
       };
     });
+}
+
+/**
+ * PostHog's spend so far, read late every day: the real adapter's `billingMetrics` as the sync stores
+ * it (`toSnapshotRow`), the organization total and each product's spend below it, 70 and 30 percent
+ * of the total. Days before `renamedOn` keep each product's spend under the key used before #204,
+ * `posthog.<type>.spend`, as rows stored then still are.
+ */
+function postHogSpend(options: Readonly<{ perDay: number; from: string; to: string; renamedOn: string }>): SnapshotInput[] {
+  const usd = (minor: number) => (minor / 100).toFixed(2);
+  return dates(options.from, options.to).flatMap((date) => {
+    const total = options.perDay * Number(date.slice(8, 10));
+    const analytics = Math.round(total * 0.7);
+    const billing = BillingResponseSchema.parse({
+      current_total_amount_usd: usd(total),
+      billing_period: { current_period_start: monthStart(date), current_period_end: nextMonthStart(date) },
+      products: [
+        { type: "product_analytics", name: "Product analytics", usage_key: "events", unit: "event", current_usage: total * 100, current_amount_usd: usd(analytics) },
+        { type: "session_replay", name: "Session replay", usage_key: "recordings", unit: "recording", current_usage: total, current_amount_usd: usd(total - analytics) },
+      ],
+    });
+    const account = { id: `${posthog.id}-account` };
+    return billingMetrics(billing, account.id, new Date(`${date}T23:00:00.000Z`), "us").map((metric) => {
+      const row: SnapshotInput = {
+        value: null,
+        unit: null,
+        amount_minor: null,
+        currency: null,
+        period_start: null,
+        period_end: null,
+        point_at: null,
+        resets_at: null,
+        pricing_source: null,
+        ...toSnapshotRow(metric, { id: posthog.id, workspace_id: "w1" }, account),
+      };
+      const product = /^posthog\.spend\.current\.([a-z_]+)$/.exec(row.metric_key)?.[1];
+      return product === undefined || date >= options.renamedOn ? row : { ...row, metric_key: `posthog.${product}.spend` };
+    });
+  });
 }
 
 const NO_EVENTS = { current: [], previous: [] } as const;
@@ -358,6 +399,22 @@ describe("buildHeadline money", () => {
     }));
     const strip = headline({ snapshots: [...month, ...daily, ...rolling], connections: [github] });
     expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(200);
+  });
+
+  // PostHog reports its organization's spend so far and each product's spend in the same period.
+  it.each([
+    ["every day stored under the current keys", "2026-10-01"],
+    ["the days before the rename stored under the old product keys (#204)", "2026-11-03"],
+  ])("counts PostHog's spend once, the organization total and not its products again: %s", (_name, renamedOn) => {
+    const spend = postHogSpend({ perDay: 100, from: "2026-10-01", to: "2026-11-05", renamedOn });
+    const week = headline({ snapshots: spend, connections: [posthog] });
+    expect(line(week.spend.lines, "USD")?.verified).toEqual({
+      value: 400,
+      comparison: { status: "change", direction: "same", percent: 0, previous: 400 },
+    });
+    expect(week.spend.included).toEqual(["PostHog"]);
+    const month = headline({ snapshots: spend, connections: [posthog], kind: "month" });
+    expect(line(month.spend.lines, "USD")?.verified?.value).toBe(500);
   });
 
   it("leaves out a final total read after its period ended, such as DigitalOcean's last invoice", () => {

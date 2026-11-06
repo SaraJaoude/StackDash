@@ -1,3 +1,4 @@
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
 import { countedSnapshots, isCurrentPeriod, type ProviderId } from "@/lib/dashboard/aggregate";
@@ -23,7 +24,8 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *   or unavailable (no snapshot that day), never shown as 0 when missing.
  * - Money is summed per provider and currency only, never across currencies, and each amount
  *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
- *   is not added to its product's month again.
+ *   is not added to its product's month again, and a provider's declared projection for the
+ *   period (PostHog's projected spend, Railway's estimated bill) is not spending at all.
  * - Spend is what the dashboard counts toward the current billing period (`isCurrentPeriod`, as
  *   of the end of the summarized day), so the line agrees with the provider card: a period that
  *   had ended when it was read is a final total, not this period's spending (DigitalOcean's last
@@ -107,10 +109,15 @@ function lines(provider: ProviderInfo, rows: readonly SummarySnapshot[], now: Da
 }
 
 /** Projection lines for one provider, as of `now`, from its rows up to the summarized day. */
-function projectionLines(provider: ProviderInfo, history: readonly SummarySnapshot[], now: Date): string[] {
-  const quotas = [...projectAllowances(history, now).values()].sort((a, b) => a.label.localeCompare(b.label));
+function projectionLines(
+  provider: ProviderInfo,
+  history: readonly SummarySnapshot[],
+  projectedSpend: readonly string[],
+  now: Date,
+): string[] {
+  const quotas = [...projectAllowances(history, projectedSpend, now).values()].sort((a, b) => a.label.localeCompare(b.label));
   return [
-    ...projectSpend(history, now).map(spendProjectionLine),
+    ...projectSpend(history, projectedSpend, now).map(spendProjectionLine),
     ...quotas.flatMap((quota) => quotaProjectionLine(quota) ?? []),
   ].map((part) => `${provider.name}: ${part}`);
 }
@@ -118,13 +125,15 @@ function projectionLines(provider: ProviderInfo, history: readonly SummarySnapsh
 /**
  * Builds the summary event, or null when the workspace has no connections. Pure: the caller
  * passes the connections, the snapshots of the summarized day and the days before it (see
- * SUMMARY_HISTORY_DAYS; later days are ignored), and the provider lookup.
+ * SUMMARY_HISTORY_DAYS; later days are ignored), the adapters' declared projections, and the
+ * provider lookup.
  */
 export function buildDailySummary(input: {
   workspaceId: string;
   date: string;
   connections: readonly SummaryConnection[];
   snapshots: readonly SummarySnapshot[];
+  projectedSpend: readonly string[];
   provider: (id: ProviderId) => ProviderInfo;
 }): EventRow | null {
   if (input.connections.length === 0) return null;
@@ -136,7 +145,10 @@ export function buildDailySummary(input: {
     if (provider === undefined || row.snapshot_date > input.date) continue;
     byProvider.get(provider)?.history.push(row);
   }
-  for (const row of countedSnapshots(input.snapshots.filter((candidate) => candidate.snapshot_date === input.date))) {
+  for (const row of countedSnapshots(
+    input.snapshots.filter((candidate) => candidate.snapshot_date === input.date),
+    input.projectedSpend,
+  )) {
     const provider = providerOf.get(row.connection_id);
     if (provider !== undefined) byProvider.get(provider)?.day.push(row);
   }
@@ -158,7 +170,10 @@ export function buildDailySummary(input: {
     severity: "info",
     title: `Daily summary for ${input.date}`,
     body: providers
-      .flatMap(({ info, day, history }) => [...lines(info, day, projectedAt), ...projectionLines(info, history, projectedAt)])
+      .flatMap(({ info, day, history }) => [
+        ...lines(info, day, projectedAt),
+        ...projectionLines(info, history, input.projectedSpend, projectedAt),
+      ])
       .join("\n"),
     url: null,
     occurred_at: endOfDay.toISOString(),
@@ -200,11 +215,12 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
     date,
     connections,
     snapshots,
+    projectedSpend: declaredProjectedSpend,
     provider: (id) => providerInfo(deps.getAdapter, id),
   });
   if (event === null) return { status: "succeeded" };
   const anomalies = anomalySettings.enabled
-    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes })
+    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes, projectedSpend: declaredProjectedSpend })
     : [];
   await deps.store.insertEvents([event, ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly))]);
   if (anomalies.length > 0) deps.log.info("anomalies.detected", { workspaceId, date, count: anomalies.length });

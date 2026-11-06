@@ -54,6 +54,7 @@ export const UNAVAILABLE_LABELS: Record<UnavailableReason, string> = {
   no_data: "No data yet",
   not_enough_history: "Not enough history yet",
   stale: "Not synced in the last 2 days",
+  too_many_accounts: "Not computed: too many accounts",
 };
 
 /** "Exact, current" or "Rounded down to 100, 7 days late": how a publication is shown. */

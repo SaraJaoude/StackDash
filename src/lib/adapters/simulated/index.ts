@@ -100,6 +100,7 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     eventTypes: real.eventTypes,
     ...(real.signupDailyTotals === undefined ? {} : { signupDailyTotals: real.signupDailyTotals }),
     ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
+    ...(real.beta === undefined ? {} : { beta: real.beta }),
     oauth: {
       authorizeUrl: FAKE_AUTHORIZE_PATH,
       // Never requested: `exchangeCode` mints the credential in memory.

@@ -7,6 +7,7 @@ import {
   fetchJson,
   PermissionMissingError,
   ProviderUnavailableError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import { UnitSchema, type AdapterMetric, type Timeframe } from "../metrics";
@@ -23,7 +24,6 @@ import {
 import { CLIENT_ASSERTION_TYPE, createClientAssertion, loadSigningKey } from "./client-auth";
 import {
   BillingResponseSchema,
-  OAuthErrorSchema,
   OrganizationListSchema,
   ProjectListSchema,
   SignupQueryResponseSchema,
@@ -87,6 +87,10 @@ const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // is read live on every sync, not copied from a price list.
 export const PROJECTED_PRICING_SOURCE = "PostHog's own projection for the billing period, from its billing overview";
 const CURRENCY = "USD";
+// The organization's spend so far. Each product's spend is a breakdown of it, keyed one segment
+// below (`posthog.spend.current.<type>`), so the dashboard counts the total and drops the products
+// (`dropSupersededBreakdowns`, #204).
+const CURRENT_SPEND_METRIC_KEY = "posthog.spend.current";
 // PostHog's estimate of the whole billing period's bill, declared as projected spend.
 const PROJECTED_SPEND_METRIC_KEY = "posthog.spend.projected";
 
@@ -133,18 +137,6 @@ function readCursor(cursor: string | undefined, ctx: OAuthContext): string | und
   // Our own value came back unreadable: start again from the backfill window rather than fail.
   ctx.logger.warn("posthog.sync.cursor_unreadable", { provider: "posthog" });
   return undefined;
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /** Client authentication for every token endpoint call: a fresh assertion each time. */
@@ -356,18 +348,17 @@ export function billingMetrics(
     metrics.push({
       ...base,
       kind: "verified_spend",
-      metricKey: "posthog.spend.current",
+      metricKey: CURRENT_SPEND_METRIC_KEY,
       label: "Spend so far this billing period",
       amountMinor: decimalToMinorUnits(current, CURRENCY),
       currency: CURRENCY,
       provenance: fromApi,
     });
   }
-  // Only beside the current total: the dashboard's own projections (#167, `spendToCount`) take
-  // estimated spend for an account with no verified spend in that currency, so a projection sent
-  // alone would be projected forward again as if it were spend so far.
+  // Declared a projection (`projectedSpend`), so no reading of spend counts it as spent so far,
+  // with or without a current total beside it (#223).
   const projected = billing.projected_total_amount_usd_after_discount ?? billing.projected_total_amount_usd;
-  if (current != null && projected != null) {
+  if (projected != null) {
     metrics.push({
       ...base,
       kind: "estimated_spend",
@@ -415,7 +406,7 @@ export function billingMetrics(
       metrics.push({
         ...base,
         kind: "verified_spend",
-        metricKey: `${key}.spend`,
+        metricKey: `${CURRENT_SPEND_METRIC_KEY}.${product.type}`,
         label: `${name} spend so far`,
         amountMinor: decimalToMinorUnits(product.current_amount_usd, CURRENCY),
         currency: CURRENCY,

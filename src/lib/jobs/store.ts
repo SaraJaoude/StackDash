@@ -59,15 +59,16 @@ export type JobFailure = Readonly<{ errorCode: string; errorReference: string | 
 export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
 export type SummarySnapshot = SnapshotInput;
 
-// One workspace's connections, or one workspace's snapshots for the summary's history window. Far
-// above any MVP workspace (a few connections, tens of metrics each, one row a day).
-const SUMMARY_ROW_LIMIT = 5000;
+// One workspace's connections, or one workspace's snapshots for the summary's history window, read
+// in pages of the Data API's row cap (readAllPages). Far above any MVP workspace (a few
+// connections, tens of metrics each, one row a day).
+export const SUMMARY_ROW_LIMIT = 5000;
 
 export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly AnomalyMute[] }>;
 
 // Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
 // (readAllPages). The total bound is far above any MVP workspace.
-const ANOMALY_ROW_LIMIT = 20_000;
+export const ANOMALY_ROW_LIMIT = 20_000;
 const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const;
 // Mutes per workspace: one per metric a person chose to silence.
 const ANOMALY_MUTE_LIMIT = 1000;
@@ -132,7 +133,11 @@ export interface JobStore {
   listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
   /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
   getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
-  /** Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive. */
+  /**
+   * Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive, oldest
+   * day first, then by id: findAnomalies keeps the first of two rows of one day it cannot tell
+   * apart. A read stopped at its bound leaves out the oldest days, never the newest (#219).
+   */
   listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]>;
 
   /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
@@ -422,34 +427,42 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async listSummaryConnections(workspaceId) {
-      const { data, error } = await db
-        .from("connections")
-        .select("id, provider")
-        .eq("workspace_id", workspaceId)
-        .neq("status", "revoked")
-        .order("id")
-        .limit(SUMMARY_ROW_LIMIT);
-      if (error) throw failure("summary connections read", error);
-      return data;
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("connections")
+          .select("id, provider")
+          .eq("workspace_id", workspaceId)
+          .neq("status", "revoked")
+          .order("id")
+          .range(from, to);
+        if (error) throw failure("summary connections read", error);
+        return data;
+      }, SUMMARY_ROW_LIMIT);
+      if (!complete) log.warn("daily_summary.connections_truncated", { workspaceId, rows: rows.length });
+      return rows;
     },
 
     async listSnapshotsBetween(workspaceId, fromDate, toDate) {
-      const { data, error } = await db
-        .from("usage_snapshots")
-        .select(
-          "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
-        )
-        .eq("workspace_id", workspaceId)
-        .gte("snapshot_date", fromDate)
-        .lte("snapshot_date", toDate)
-        // The (workspace_id, snapshot_date desc) index. Newest first, so if the cap is reached the
-        // oldest days are the ones cut, and the projections lose history before the day's values.
-        .order("snapshot_date", { ascending: false })
-        .order("id")
-        .limit(SUMMARY_ROW_LIMIT);
-      if (error) throw failure("summary snapshots read", error);
-      if (data.length === SUMMARY_ROW_LIMIT) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: data.length });
-      return data;
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select(
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+          )
+          .eq("workspace_id", workspaceId)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          // The (workspace_id, snapshot_date desc) index. Newest first, so if the bound is reached
+          // the oldest days are the ones cut, and the projections lose history before the day's
+          // values. `id` last makes the order total, so pages neither skip nor repeat a row.
+          .order("snapshot_date", { ascending: false })
+          .order("id")
+          .range(from, to);
+        if (error) throw failure("summary snapshots read", error);
+        return data;
+      }, SUMMARY_ROW_LIMIT);
+      if (!complete) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: rows.length });
+      return rows;
     },
 
     async getAnomalySettings(workspaceId) {
@@ -469,7 +482,9 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async listAnomalySnapshots(workspaceId, fromDate, toDate) {
-      // Pages in order over usage_snapshots_workspace_date_idx; bounded by ANOMALY_ROW_LIMIT.
+      // Pages newest first over usage_snapshots_workspace_date_idx (workspace_id, snapshot_date
+      // desc), bounded by ANOMALY_ROW_LIMIT: a cut read loses the oldest history, never the
+      // checked day (#219).
       const { rows, complete } = await readAllPages(async (from, to) => {
         const { data, error } = await db
           .from("usage_snapshots")
@@ -481,14 +496,17 @@ export function createSupabaseJobStore(): JobStore {
           .is("point_at", null)
           .gte("snapshot_date", fromDate)
           .lte("snapshot_date", toDate)
-          .order("snapshot_date")
+          .order("snapshot_date", { ascending: false })
           .order("id")
           .range(from, to);
         if (error) throw failure("anomaly snapshots read", error);
         return data;
       }, ANOMALY_ROW_LIMIT);
       if (!complete) log.warn("anomaly.snapshots_truncated", { workspaceId, rows: rows.length });
-      return rows;
+      // Back to oldest first, then by id, the order a complete read gave the rules: findAnomalies
+      // keeps the first of two rows of one day it cannot tell apart. The sort is stable, so the
+      // id order within each day stays.
+      return rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     },
   };
 }

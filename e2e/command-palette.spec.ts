@@ -77,12 +77,17 @@ function trigger(page: Page) {
 }
 
 /**
- * The palette shortcut for the page's own platform. The Desktop Chrome device reports a Windows
- * user agent even on a Mac, so Playwright's `ControlOrMeta` (which follows the host) is not used.
+ * True when the page's own platform is Apple's, where the palette shortcut uses Cmd. The Desktop
+ * Chrome device reports a Windows user agent even on a Mac, so Playwright's `ControlOrMeta`
+ * (which follows the host) is not used.
  */
+async function applePlatform(page: Page): Promise<boolean> {
+  return page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+}
+
+/** The palette shortcut for the page's own platform. */
 async function pressPaletteShortcut(page: Page): Promise<void> {
-  const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
-  await page.keyboard.press(apple ? "Meta+K" : "Control+K");
+  await page.keyboard.press((await applePlatform(page)) ? "Meta+K" : "Control+K");
 }
 
 /**
@@ -98,6 +103,48 @@ async function openWith(dialog: Locator, open: () => Promise<void>): Promise<voi
     if (!(await dialog.isVisible())) await open();
     await expect(dialog).toBeVisible({ timeout: 1_000 });
   }).toPass({ timeout: 15_000 });
+}
+
+type KeyInit = Readonly<Pick<KeyboardEventInit, "key" | "metaKey" | "ctrlKey" | "shiftKey">>;
+
+/**
+ * Closes `dialog` and presses `key` in the same task, then waits for the dialog's close event.
+ * Chromium hides a closed dialog and returns focus at once but fires `close` on the next animation
+ * frame, so the key lands before the event, as a fast press on a busy page does (#225). The dialog
+ * closes through `close()`, or through `closeKey` pressed where focus is, when one is given.
+ */
+async function closeThenPress(dialog: Locator, key: KeyInit, closeKey: KeyInit | null = null): Promise<void> {
+  await dialog.evaluate(
+    async (element, { init, closeInit }) => {
+      if (!(element instanceof HTMLDialogElement)) throw new Error("The locator is not a dialog.");
+      const press = (keyInit: KeyInit) =>
+        (document.activeElement ?? document).dispatchEvent(
+          new KeyboardEvent("keydown", { ...keyInit, bubbles: true, cancelable: true }),
+        );
+      const late = Promise.withResolvers<void>();
+      element.addEventListener("close", () => late.resolve(), { once: true });
+      if (closeInit === null) element.close();
+      else press(closeInit);
+      if (element.open) throw new Error("The dialog did not close.");
+      press(init);
+      await late.promise;
+    },
+    { init: key, closeInit: closeKey },
+  );
+}
+
+/**
+ * Presses Escape and waits for `dialog`'s close event, which is when the palette restores focus.
+ * The browser moves focus back before that event, so a focus check alone could pass too early.
+ */
+async function escapeAndWaitForClose(page: Page, dialog: Locator): Promise<void> {
+  const closeEvent = await dialog.evaluateHandle((element) => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    element.addEventListener("close", () => resolve(), { once: true });
+    return { fired: promise };
+  });
+  await page.keyboard.press("Escape");
+  await closeEvent.evaluate(({ fired }) => fired);
 }
 
 ownerTest.describe("command palette as the owner", () => {
@@ -287,6 +334,86 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(combobox(page)).toBeFocused();
       await expect(combobox(page)).toHaveValue("");
       await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // The late close event must not empty the reopened palette's results or take its return focus.
+  ownerTest("reopens with every result when the shortcut beats the last close event", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette fast reopen");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      await openWith(palette(page), () => pressPaletteShortcut(page));
+      await combobox(page).fill("nothing matches this");
+      await expect(palette(page).getByRole("option")).toHaveCount(0);
+
+      const apple = await applePlatform(page);
+      await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple });
+      await expect(palette(page)).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expect(combobox(page)).toHaveValue("");
+      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+      await expect(combobox(page)).toHaveAttribute("aria-expanded", "true");
+
+      await escapeAndWaitForClose(page, palette(page));
+      await expect(palette(page)).toBeHidden();
+      await expect(navLink).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Same race for the shortcut list: the late event must not take the reopened list's return focus.
+  ownerTest("reopens the shortcut list when ? beats the last close event", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette fast help");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+      await openWith(shortcuts, () => page.keyboard.press("Shift+Slash"));
+
+      await closeThenPress(shortcuts, { key: "?", shiftKey: true });
+      await expect(shortcuts).toBeVisible();
+      await expect(shortcuts.getByRole("button", { name: "Close" })).toBeFocused();
+
+      await escapeAndWaitForClose(page, shortcuts);
+      await expect(shortcuts).toBeHidden();
+      await expect(navLink).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Same race after choosing "Show keyboard shortcuts": that request belonged to the earlier close,
+  // so the reopened palette's own close must restore focus rather than open the list.
+  ownerTest("drops a shortcut list request when the shortcut beats its close event", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette fast choose");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      await openWith(palette(page), () => pressPaletteShortcut(page));
+      await combobox(page).fill("shortcuts");
+      await expect(palette(page).getByRole("option", { name: "Show keyboard shortcuts" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+
+      const apple = await applePlatform(page);
+      await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple }, { key: "Enter" });
+      const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+      await expect(palette(page)).toBeVisible();
+      await expect(shortcuts).toBeHidden();
+      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+
+      await escapeAndWaitForClose(page, palette(page));
+      await expect(palette(page)).toBeHidden();
+      await expect(shortcuts).toBeHidden();
+      await expect(navLink).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }

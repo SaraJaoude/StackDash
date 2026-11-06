@@ -493,6 +493,7 @@ export class MemoryJobStore implements JobStore {
           row.snapshot_date >= fromDate &&
           row.snapshot_date <= toDate,
       )
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date) || a.id.localeCompare(b.id))
       .map((row) => this.#toSnapshotInput(row));
   }
 

@@ -4,6 +4,7 @@ import {
   InvalidResponseError,
   PermissionMissingError,
   fetchJson,
+  readOAuthErrorCode,
 } from "@/lib/adapters/errors";
 import type { ActivityEvent, EventSeverity, EventType } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
@@ -25,7 +26,6 @@ import {
   CustomerSchema,
   MetricPeriodSchema,
   MetricsResponseSchema,
-  OAuthErrorSchema,
   OrderSchema,
   OrganizationSchema,
   RefundSchema,
@@ -194,19 +194,6 @@ const REFUND_REASONS: Readonly<Record<string, string>> = {
   tax_refund: "tax refund",
   vat_reverse_charge_correction: "VAT reverse charge correction",
 };
-
-// A local copy of the Resend and DigitalOcean helper until #200 shares it from `../errors`.
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
-}
 
 /**
  * Token endpoint call, for the code exchange and the refresh. Only `invalid_grant` (RFC 6749

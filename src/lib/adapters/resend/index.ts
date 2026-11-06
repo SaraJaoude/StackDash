@@ -5,6 +5,7 @@ import {
   fetchJson,
   InvalidResponseError,
   PermissionMissingError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -22,7 +23,6 @@ import {
   DomainListResponseSchema,
   domainStatuses,
   EmailMetricsResponseSchema,
-  OAuthErrorSchema,
   RESEND_ISSUER,
   TokenResponseSchema,
   UsageResponseSchema,
@@ -166,18 +166,6 @@ function oauthHeaders(ctx: OAuthContext): Record<string, string> {
     Accept: "application/json",
     "User-Agent": RESEND_USER_AGENT,
   };
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**
@@ -426,6 +414,10 @@ export const resendAdapter: ProviderAdapter = {
     "Domain names and their verification status",
   ],
   eventTypes,
+  // In beta until #241 settles whether a live Resend callback carries `iss`: once #228 lands,
+  // `exchangeCode` refuses a callback without it, which would fail every Resend connection. Remove
+  // this declaration to drop the catalog's "Beta" badge.
+  beta: { reason: "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail." },
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,
@@ -456,10 +448,11 @@ export const resendAdapter: ProviderAdapter = {
   },
 
   async exchangeCode({ code, redirectUri, codeVerifier, callbackParams }, ctx) {
-    // RFC 9207: the server advertises `iss` on the callback; a different issuer is a mix-up attack.
-    const iss = callbackParams.iss;
-    if (iss !== undefined && iss !== RESEND_ISSUER) {
-      throw new InvalidResponseError("Resend callback carried an unexpected issuer");
+    // RFC 9207 section 2.4: Resend's discovery document sets
+    // `authorization_response_iss_parameter_supported`, so a callback without `iss`, or with
+    // another issuer, is refused as a possible mix-up attack.
+    if (callbackParams["iss"] !== RESEND_ISSUER) {
+      throw new InvalidResponseError("Resend callback did not carry Resend as its issuer");
     }
     if (codeVerifier === undefined || !CODE_VERIFIER.test(codeVerifier)) {
       throw new TypeError("Resend requires a PKCE code verifier of 43 to 128 unreserved characters");

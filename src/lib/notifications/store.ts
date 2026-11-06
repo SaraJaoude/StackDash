@@ -1,5 +1,6 @@
 import "server-only";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { loadSnapshots } from "@/lib/alerts/run";
 import { severityFor } from "@/lib/alerts/evaluate";
 import { snapshotWindowStart } from "@/lib/data/dashboard";
@@ -8,9 +9,11 @@ import {
   loadDestinationSecret,
   updateDestinationHealth,
 } from "@/lib/data/notification-destinations";
+import { log } from "@/lib/log/logger";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { TablesInsert } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
 import type { NotificationStore } from "./dispatch";
 import { deliveryKey, sumDailyCounts, type DeliveryAlert } from "./model";
@@ -31,7 +34,9 @@ const ALERT_COLUMNS = "id, rule_id, title, message, threshold_label, is_estimate
 const CONNECTIONS_LIMIT = 100;
 const ACCOUNTS_LIMIT = 1000;
 const PROJECTS_LIMIT = 500;
-const DELIVERIES_LIMIT = 5000;
+// Deliveries already made for one dispatch's subjects (up to DISPATCH_ALERT_LIMIT alerts, each to
+// every recipient and channel), read in pages of the Data API's row cap (readAllPages).
+export const DELIVERIES_LIMIT = 5000;
 // A weekly digest reads 7 days per account, and a restated day adds a row or two.
 const DAILY_COUNTS_LIMIT = 1000;
 
@@ -185,14 +190,23 @@ export function createSupabaseNotificationStore(): NotificationStore {
 
     async listDeliveries(workspaceId, subjectKeys) {
       if (subjectKeys.length === 0) return new Set();
-      const { data, error } = await db
-        .from("notification_deliveries")
-        .select("subject_key, target_key")
-        .eq("workspace_id", workspaceId)
-        .in("subject_key", [...subjectKeys])
-        .limit(DELIVERIES_LIMIT);
-      if (error) throw failure("deliveries read", error);
-      return new Set(data.map((row) => deliveryKey(row.subject_key, row.target_key)));
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("notification_deliveries")
+          .select("subject_key, target_key")
+          .eq("workspace_id", workspaceId)
+          .in("subject_key", [...subjectKeys])
+          // (workspace_id, subject_key, target_key) is unique, so the order is total and pages
+          // neither skip nor repeat a row.
+          .order("subject_key")
+          .order("target_key")
+          .range(from, to);
+        if (error) throw failure("deliveries read", error);
+        return data;
+      }, DELIVERIES_LIMIT);
+      // A key left out is a message sent again if this dispatch is a retry.
+      if (!complete) log.warn("notifications.deliveries_truncated", { workspaceId, subjects: subjectKeys.length, rows: rows.length });
+      return new Set(rows.map((row) => deliveryKey(row.subject_key, row.target_key)));
     },
 
     async recordDeliveries(records) {
@@ -260,7 +274,14 @@ export function createSupabaseNotificationStore(): NotificationStore {
       if (connections.error) throw failure("connections read", connections.error);
       if (accounts.error) throw failure("accounts read", accounts.error);
       if (projects.error) throw failure("projects read", projects.error);
-      return { connections: connections.data, accounts: accounts.data, projects: projects.data, snapshots, now };
+      return {
+        connections: connections.data,
+        accounts: accounts.data,
+        projects: projects.data,
+        snapshots,
+        projectedSpend: declaredProjectedSpend,
+        now,
+      };
     },
 
     async countHighlights(workspaceId, start, end) {

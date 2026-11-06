@@ -4,9 +4,10 @@
  * `run.ts` loads the inputs and records the results.
  *
  * Rules decided here, once:
- * - Metrics are reduced the way the dashboard reduces them (`countedSnapshots`: the latest row
- *   per metric, breakdowns and sub-windows dropped), so an alert never disagrees with the number
- *   on screen and a GitHub day never moves the cycle key off its month.
+ * - Metrics are reduced the way the dashboard reduces them (`countedSnapshots`: declared
+ *   projections left out, the latest row per metric, breakdowns and sub-windows dropped), so an
+ *   alert never disagrees with the number on screen, a provider's projection for the period never
+ *   counts as spend, and a GitHub day never moves the cycle key off its month.
  * - A threshold is crossed at or above it: 90 of 100 crosses a 90 percent rule, 89.99 does not.
  *   Percentages are compared in exact cross multiplication (`used * 100 >= threshold * included`),
  *   never as a rounded float.
@@ -88,6 +89,8 @@ export type EvaluateInput = Readonly<{
   snapshots: readonly AlertSnapshotInput[];
   budgets: readonly BudgetInput[];
   names: AlertNames;
+  /** Estimated spend metric keys the adapters declare projections (`ProviderAdapter.projectedSpend`). */
+  projectedSpend: readonly string[];
   now: Date;
 }>;
 
@@ -487,7 +490,7 @@ function evaluateBudgetRule(
 /** Every threshold crossed by the current readings, one per (rule, cycle). Paused rules are skipped. */
 export function evaluateAlerts(input: EvaluateInput): AlertTrigger[] {
   const { now, names } = input;
-  const rows = countedSnapshots(input.snapshots);
+  const rows = countedSnapshots(input.snapshots, input.projectedSpend);
   const readings = allowanceReadings(rows, now);
   const budgets = new Map(input.budgets.map((budget) => [budget.id, budget]));
   return input.rules.flatMap((rule): AlertTrigger[] => {

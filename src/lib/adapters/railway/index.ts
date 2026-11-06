@@ -13,6 +13,7 @@ import {
   fetchJson,
   InvalidResponseError,
   PermissionMissingError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventSeverity, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -31,7 +32,6 @@ import {
   DeploymentsDataSchema,
   GraphqlEnvelopeSchema,
   measurements,
-  OAuthErrorSchema,
   ProjectsDataSchema,
   RAILWAY_ISSUER,
   TokenResponseSchema,
@@ -365,8 +365,8 @@ function minorUnits(value: Decimal): number {
  * (unverified, docs/providers/railway.md); each is converted exactly and rounded once, half to
  * even (src/lib/money.ts). The bill estimate sums every project's estimated quantity times its
  * unit price at full precision, rounds that once, and adds the plan's fee for usage beyond what
- * the fee includes. It is the only estimated spend metric, because the dashboard totals every
- * estimated spend of a currency.
+ * the fee includes. It is the only estimated spend metric, and it is declared a projection for the
+ * whole period (`projectedSpend`), so no reading of spend counts it as spent so far (#223).
  */
 export function billingMetrics(
   billing: BillingData,
@@ -461,18 +461,6 @@ export function billingMetrics(
 
 function basicAuthorization(ctx: OAuthContext): string {
   return `Basic ${btoa(`${ctx.client.clientId}:${ctx.client.clientSecret.reveal()}`)}`;
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**

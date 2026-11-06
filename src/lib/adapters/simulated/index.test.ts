@@ -196,13 +196,14 @@ describe("isProviderSimulationEnabled", () => {
 });
 
 describe("simulated adapter declarations", () => {
-  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, and capabilities", (id) => {
+  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, beta, and capabilities", (id) => {
     const simulated = simulatedAdapters[id];
     expect(simulated.id).toBe(REAL[id].id);
     expect(simulated.displayName).toBe(REAL[id].displayName);
     expect(simulated.eventTypes).toBe(REAL[id].eventTypes);
     expect(simulated.signupDailyTotals).toBe(REAL[id].signupDailyTotals);
     expect(simulated.projectedSpend).toBe(REAL[id].projectedSpend);
+    expect(simulated.beta).toBe(REAL[id].beta);
     expect(simulated.capabilities).toBe(REAL[id].capabilities);
     expect(simulated.pollIntervalSeconds).toBe(60);
     expect(simulated.oauth.pkce).toBe(false);
@@ -320,8 +321,9 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     }
   });
 
-  // The headline (#173) counts an estimate as spend so far unless its adapter declares it a
-  // projection, so an estimate for a period running past the day it was read must be declared.
+  // Every reading of spend (the headline #173, and since #223 the dashboard, summary, and alerts
+  // too) counts an estimate as spend so far unless its adapter declares it a projection, so an
+  // estimate for a period running past the day it was read must be declared.
   it("declares as projected spend every estimate for a period that runs past the day it was read", () => {
     const declared = REAL[id].projectedSpend ?? [];
     const estimates = results.flatMap(({ result }) => result.metrics).filter((item) => item.kind === "estimated_spend");
@@ -331,23 +333,6 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     );
     expect([...new Set(projections.map((item) => item.metricKey))].filter((key) => !declared.includes(key))).toEqual([]);
     for (const key of declared) expect(estimates.some((item) => item.metricKey === key)).toBe(true);
-  });
-
-  // The dashboard's own projections (#167, `spendToCount`) take estimated spend only for an account
-  // with no verified spend in that currency, so a provider's projection is never extrapolated as
-  // spend so far while its account also reports what it spent. The real adapters hold it too:
-  // PostHog's `billingMetrics` sends its projection only beside the current total.
-  it("reports verified spend beside every declared projection, in the same account and currency", () => {
-    const declared = REAL[id].projectedSpend ?? [];
-    for (const { result } of results) {
-      const verified = new Set(
-        result.metrics.flatMap((item) => (item.kind === "verified_spend" ? [`${item.externalAccountId} ${item.currency}`] : [])),
-      );
-      for (const item of result.metrics) {
-        if (item.kind !== "estimated_spend" || !declared.includes(item.metricKey)) continue;
-        expect(verified).toContain(`${item.externalAccountId} ${item.currency}`);
-      }
-    }
   });
 
   it("trickles events in, at most 10 a tick like the group test, with no dedupe key repeated across chained syncs", () => {
@@ -627,6 +612,25 @@ describe("simulated numbers", () => {
     expect(revenue[0]).toBeLessThanOrEqual(revenue[1] ?? 0);
     expect(revenue[1]).toBeLessThan(revenue[2] ?? 0);
     expect(revenue[3]).toBeLessThan(revenue[2] ?? 0);
+  });
+
+  // The dashboard counts the organization total and drops each product's spend as its breakdown
+  // (`dropSupersededBreakdowns`, #204), so the products must sit one segment below the total.
+  it("reports the PostHog organization's spend so far with each product's spend one segment below it", async () => {
+    const [early, late] = await metricsAt(simulatedAdapters.posthog, [new Date("2026-11-03T09:00:00Z"), new Date("2026-11-27T09:00:00Z")]);
+    if (early === undefined || late === undefined) throw new Error("expected metrics");
+    const verified = late.filter((item) => item.kind === "verified_spend");
+    expect(verified.map((item) => item.metricKey).sort()).toEqual([
+      "posthog.spend.current",
+      "posthog.spend.current.feature_flags",
+      "posthog.spend.current.product_analytics",
+      "posthog.spend.current.session_replay",
+    ]);
+    const total = amount(metric(late, "posthog.spend.current"));
+    expect(total).toBeGreaterThan(amount(metric(early, "posthog.spend.current")));
+    // The products add up to the total, give or take a cent each: each is rounded on its own.
+    const products = verified.filter((item) => item.metricKey !== "posthog.spend.current").map(amount);
+    expect(Math.abs(products.reduce((sum, value) => sum + value, 0) - total)).toBeLessThanOrEqual(products.length);
   });
 
   it("reports GitHub stars per repository and in total, plus Actions minutes and spend", async () => {

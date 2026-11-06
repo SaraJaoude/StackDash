@@ -160,17 +160,7 @@ type EngineRow = Readonly<{
   publishedAt: string;
 }>;
 
-/** Computes each live engine row at its own delay. Exported for the in-app settings page. */
-export async function computePublishedEngineMetrics(
-  store: PublicMetricStore,
-  rows: readonly EngineRow[],
-  now: Date,
-): Promise<PublishedEngineMetric[]> {
-  const requests = rows.map((row) => ({
-    metricId: row.metricId,
-    asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS),
-  }));
-  const computed = await computePublicMetrics(store, requests);
+function toPublishedEngineMetrics(rows: readonly EngineRow[], computed: readonly ComputedMetric[]): PublishedEngineMetric[] {
   return rows.map((row, index) => {
     const result = computed[index];
     if (result === undefined) throw new Error("computePublicMetrics returned fewer results than requested");
@@ -192,6 +182,31 @@ export async function computePublishedEngineMetrics(
   });
 }
 
+/** Computes each live engine row at its own delay. Exported for the in-app settings page. */
+export async function computePublishedEngineMetrics(
+  store: PublicMetricStore,
+  rows: readonly EngineRow[],
+  now: Date,
+): Promise<PublishedEngineMetric[]> {
+  const computed = await computePublicMetrics(
+    store,
+    rows.map((row) => ({ metricId: row.metricId, asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS) })),
+  );
+  return toPublishedEngineMetrics(rows, computed);
+}
+
+/** Each live engine row with no value, for `reason`: the settings page when nothing can be computed. */
+export function unavailablePublishedEngineMetrics(rows: readonly EngineRow[], now: Date, reason: UnavailableReason): PublishedEngineMetric[] {
+  return toPublishedEngineMetrics(
+    rows,
+    rows.map((row) => ({
+      metricId: row.metricId,
+      asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS),
+      result: { status: "unavailable", reason },
+    })),
+  );
+}
+
 export function selfReportedMetric(row: Readonly<{ id: string; label: string; value: number; unit: string; publishedAt: string }>): PublishedSelfReportedMetric {
   return {
     kind: "self_reported",
@@ -205,6 +220,9 @@ export function selfReportedMetric(row: Readonly<{ id: string; label: string; va
   };
 }
 
+// One request holds every live row: the unique indexes keep engine rows at one per definition, and
+// publish_self_reported_metric keeps self-reported rows at SELF_REPORTED_LIVE_MAX per project, so a
+// project has far fewer than PostgREST's max_rows (#220).
 async function liveRows(projectId: string): Promise<LiveRow[]> {
   const { data, error } = await createAdminClient().rpc("public_published_metrics", { p_project_id: projectId });
   if (error) throw new Error("Failed to load published metrics", { cause: error });

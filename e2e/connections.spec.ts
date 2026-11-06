@@ -154,6 +154,33 @@ ownerTest.describe("connecting a provider as the owner", () => {
     }
   });
 
+  ownerTest("marks Resend as beta in the catalog with a reason a keyboard or screen reader user reaches", async ({ page }) => {
+    const workspace = await createTestWorkspace("Beta badge");
+    try {
+      await page.goto(`/w/${workspace.slug}/connections`);
+      const providers = page.getByRole("list", { name: "Providers" });
+      const cards = providers.getByRole("listitem");
+      const reason = "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail.";
+
+      // The word and the reason as visible text, and the reason as the connect link's description.
+      const resend = cards.filter({ has: page.getByRole("heading", { level: 3, name: "Resend", exact: true }) });
+      await expect(resend.getByText("Beta", { exact: true })).toBeVisible();
+      await expect(resend.getByText(reason)).toBeVisible();
+      await expect(resend.getByRole("link", { name: "Connect Resend" })).toHaveAccessibleDescription(reason);
+
+      // Declared by the Resend adapter only: another card has neither.
+      const vercel = cards.filter({ has: page.getByRole("heading", { level: 3, name: "Vercel", exact: true }) });
+      await expect(vercel.getByRole("link", { name: "Connect Vercel" })).toBeVisible();
+      await expect(vercel.getByText("Beta", { exact: true })).toHaveCount(0);
+      await expect(vercel.getByRole("link", { name: "Connect Vercel" })).toHaveAccessibleDescription("");
+      await expect(providers.getByText("Beta", { exact: true })).toHaveCount(1);
+
+      await expectNoAxeViolations(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("keeps two connections of the same provider separate", async ({ page }) => {
     const workspace = await createTestWorkspace("Connect twice");
     try {
