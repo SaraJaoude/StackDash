@@ -1,8 +1,7 @@
-import { createClient } from "@supabase/supabase-js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { log } from "@/lib/log/logger";
-import type { Database } from "@/lib/supabase/database.types";
+import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest";
 
 import { computePublicMetrics, SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
@@ -10,15 +9,12 @@ import { createSupabaseMetricStore } from "./supabase-store";
 import { computeTrend } from "./trend";
 
 /*
- * The Supabase store against a fake PostgREST that behaves like the real one on the point that
- * matters here: it answers at most `max_rows` (1000, supabase/config.toml) rows per request,
- * whatever `limit` asks for, and says nothing about the rows it left out (#209). The client is the
- * real supabase-js client with `fetch` replaced, so the store's queries are the ones it sends in
- * production. Every result is compared with the in-memory store holding the same rows: the
- * engine's own answer for that data.
+ * The Supabase store against the fake PostgREST (src/lib/supabase/fake-postgrest.ts), which answers
+ * at most `max_rows` rows per request and says nothing about the rows it left out (#209). Every
+ * result is compared with the in-memory store holding the same rows: the engine's own answer for
+ * that data.
  */
 
-const MAX_ROWS = 1000;
 const AS_OF = new Date("2026-11-05T12:00:00Z");
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -27,96 +23,8 @@ const PROJECT_ID = "20900000-0000-4000-8000-000000000002";
 const CONNECTION_ID = "20900000-0000-4000-8000-000000000003";
 const STARS = "github.stars.total";
 
-type Cell = string | number | boolean | null | readonly string[];
-type Row = Readonly<Record<string, Cell>>;
-type PageRequest = Readonly<{ table: string; offset: number; limit: number | null; returned: number }>;
-
 function uuid(prefix: number, index: number): string {
   return `${String(prefix).padStart(8, "0")}-0000-4000-8000-${String(index).padStart(12, "0")}`;
-}
-
-/** The values of a PostgREST `in.(...)` list; postgrest-js quotes a value only when it must. */
-function inList(rest: string): Set<string> {
-  const inner = rest.replace(/^\(/, "").replace(/\)$/, "");
-  return new Set([...inner.matchAll(/"((?:[^"\\]|\\.)*)"|([^,]+)/g)].map((match) => match[1] ?? match[2] ?? ""));
-}
-
-/** One PostgREST filter (`eq.x`, `in.(a,b)`, `not.is.null`, ...) as a test on a cell, or null when the fake does not know it. */
-function predicate(filter: string): ((value: string | null) => boolean) | null {
-  if (filter === "is.null") return (value) => value === null;
-  if (filter === "not.is.null") return (value) => value !== null;
-  const dot = filter.indexOf(".");
-  const operand = filter.slice(dot + 1);
-  switch (filter.slice(0, dot)) {
-    case "eq":
-      return (value) => value === operand;
-    case "neq":
-      return (value) => value !== null && value !== operand;
-    case "gte":
-      return (value) => value !== null && value >= operand;
-    case "lte":
-      return (value) => value !== null && value <= operand;
-    case "in": {
-      const values = inList(operand);
-      return (value) => value !== null && values.has(value);
-    }
-    default:
-      return null;
-  }
-}
-
-function compareBy(order: string): (a: Row, b: Row) => number {
-  const keys = order.split(",").map((part) => {
-    const [column = "", direction = "asc"] = part.split(".");
-    return { column, sign: direction === "desc" ? -1 : 1 };
-  });
-  return (a, b) => {
-    for (const { column, sign } of keys) {
-      const left = String(a[column]);
-      const right = String(b[column]);
-      if (left !== right) return left < right ? -sign : sign;
-    }
-    return 0;
-  };
-}
-
-const RESERVED: Readonly<Record<string, true>> = { select: true, order: true, limit: true, offset: true };
-
-/** A Supabase client over in-memory tables that, like PostgREST, returns at most MAX_ROWS rows a request. */
-function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>) {
-  const requests: PageRequest[] = [];
-  const fakeFetch: typeof fetch = async (input) => {
-    const url = new URL(input instanceof Request ? input.url : String(input));
-    const table = url.pathname.split("/").at(-1) ?? "";
-    const source = tables[table];
-    const filters = [...url.searchParams].flatMap(([column, filter]) => (RESERVED[column] === true ? [] : [{ column, test: predicate(filter) }]));
-    // A query the fake cannot answer fails as PostgREST would, rather than answer wrongly.
-    if (source === undefined || filters.some((filter) => filter.test === null)) {
-      return new Response(JSON.stringify({ message: `The fake PostgREST cannot answer ${url.search} on ${table}` }), { status: 400 });
-    }
-    let rows = source.filter((row) =>
-      filters.every(({ column, test }) => {
-        const cell = row[column];
-        return test?.(cell === undefined || cell === null ? null : String(cell)) === true;
-      }),
-    );
-    const order = url.searchParams.get("order");
-    if (order !== null) rows = rows.toSorted(compareBy(order));
-    const offset = Number(url.searchParams.get("offset") ?? 0);
-    const limitParam = url.searchParams.get("limit");
-    const limit = limitParam === null ? null : Number(limitParam);
-    // max_rows: whatever the request asked for, never more than this, and no error.
-    const page = rows.slice(offset, offset + Math.min(limit ?? MAX_ROWS, MAX_ROWS));
-    const columns = (url.searchParams.get("select") ?? "*").split(",");
-    const body = page.map((row) => (columns[0] === "*" ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
-    requests.push({ table, offset, limit, returned: body.length });
-    return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
-  };
-  const db = createClient<Database>("http://postgrest.test", "test-key", {
-    auth: { persistSession: false, autoRefreshToken: false },
-    global: { fetch: fakeFetch },
-  });
-  return { db, requests };
 }
 
 /** `accountCount` GitHub accounts of one project, each with a star count per day for `dayCount` days. */
