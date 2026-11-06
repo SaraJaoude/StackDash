@@ -96,8 +96,17 @@ export async function findUserId(admin: Admin, email: string): Promise<string | 
   return data.users.find((user) => user.email === email)?.id ?? null;
 }
 
+/** GitHub profile fields Supabase Auth keeps in `user_metadata`, beside the username. */
+export type GitHubMetadata = Readonly<{ full_name?: string; name?: string; avatar_url?: string }>;
+
 /** Creates the user or resets the password of the existing one. Returns the user id. */
-export async function ensureUser(admin: Admin, email: string, userName: string, password: string): Promise<string> {
+export async function ensureUser(
+  admin: Admin,
+  email: string,
+  userName: string,
+  password: string,
+  metadata: GitHubMetadata = {},
+): Promise<string> {
   // The invite comes first: the before-user-created hook refuses emails that are not invited.
   const { error: inviteError } = await admin
     .from("access_invites")
@@ -115,7 +124,7 @@ export async function ensureUser(admin: Admin, email: string, userName: string, 
     email,
     password,
     email_confirm: true,
-    user_metadata: { user_name: userName },
+    user_metadata: { ...metadata, user_name: userName },
   });
   if (error) throw new Error(`Creating ${email} failed: ${error.message}`);
   return data.user.id;
@@ -167,16 +176,17 @@ export type SyntheticUser = Readonly<{
 
 /**
  * A brand new invited user with its own personal workspace, signed in, for tests that must not
- * touch the shared e2e users (account deletion). Remove it with `removeSyntheticUser`.
+ * touch the shared e2e users (account deletion). `metadata` stands in for the profile a GitHub
+ * sign-in would write. Remove it with `removeSyntheticUser`.
  */
-export async function createSyntheticUser(label: string): Promise<SyntheticUser> {
+export async function createSyntheticUser(label: string, metadata: GitHubMetadata = {}): Promise<SyntheticUser> {
   const env = authEnv();
   const admin = authAdminClient(env);
   const suffix = randomUUID().slice(0, 8);
   const email = `e2e-${label}-${suffix}@example.com`;
   const userName = `e2e-${label}-${suffix}`;
   const password = randomBytes(24).toString("base64url");
-  const id = await ensureUser(admin, email, userName, password);
+  const id = await ensureUser(admin, email, userName, password, metadata);
   return { id, email, userName, cookies: await signInCookies(env, email, password) };
 }
 

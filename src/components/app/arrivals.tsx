@@ -272,9 +272,13 @@ export function LiveIndicator() {
             className={`relative size-2 rounded-full ${status === "live" ? "bg-success" : "border border-muted"}`}
           />
         </span>
-        {/* The whole name, and the visible word for sight; the tooltip describes the state. */}
+        {/* The whole name, and the visible word for sight; the tooltip describes the state. Below
+            sm the phone header row has no room for the word (#175, #198): the dot's shape (filled
+            or hollow) still says it, and the name and tooltip are unchanged. */}
         <span className="sr-only">{text.name}</span>
-        <span aria-hidden="true">{text.word}</span>
+        <span aria-hidden="true" className="hidden sm:inline">
+          {text.word}
+        </span>
       </button>
       <span
         role="tooltip"

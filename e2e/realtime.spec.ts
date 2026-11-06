@@ -226,7 +226,7 @@ ownerTest.describe("live updates", () => {
       await expect(page.getByRole("heading", { name: "No activity yet" })).toHaveCount(0);
 
       // Leaving the workspace removes the subscription.
-      await page.getByRole("link", { name: "Account", exact: true }).click();
+      await page.getByRole("link", { name: /^Account: / }).click();
       await expect(page).toHaveURL(/\/account$/);
       await expect.poll(live.left, { timeout: LIVE_TIMEOUT_MS }).toBe(true);
     } finally {

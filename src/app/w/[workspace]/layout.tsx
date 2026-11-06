@@ -3,6 +3,7 @@ import { unstable_rethrow } from "next/navigation";
 import { connection } from "next/server";
 import { Suspense } from "react";
 
+import { AccountLink } from "@/components/app/account-link";
 import { AppNav } from "@/components/app/app-nav";
 import { ArrivalProvider, LiveIndicator } from "@/components/app/arrivals";
 import { CommandPalette } from "@/components/app/command-palette";
@@ -11,7 +12,7 @@ import { SignOutButton } from "@/components/app/sign-out-button";
 import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { Wordmark } from "@/components/wordmark";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
-import { requireUser } from "@/lib/auth/session";
+import { requireUser, type SessionUser } from "@/lib/auth/session";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import {
   getWorkspaceMembership,
@@ -50,7 +51,7 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
       <div className="flex flex-1 flex-col">
         <header className="sticky top-0 z-40 border-b border-line bg-background/90 backdrop-blur-md">
           <div className="mx-auto w-full max-w-6xl px-4 sm:px-6">
-            <div className="flex h-14 items-center gap-2 sm:gap-3">
+            <div className="flex h-14 items-center gap-1.5 sm:gap-3">
               <Link href="/app" className="inline-flex min-h-6 shrink-0 items-center">
                 <Wordmark />
               </Link>
@@ -74,19 +75,19 @@ export default async function WorkspaceLayout({ children, params }: LayoutProps<
   );
 }
 
-/** Membership for the slug in the URL, or null for an invalid slug or a non-member. */
-async function loadMembership(slug: string): Promise<WorkspaceMembership | null> {
+/** The signed-in user, and their membership for the slug in the URL (null for an invalid slug or a non-member). */
+async function loadMembership(slug: string): Promise<{ user: SessionUser; membership: WorkspaceMembership | null }> {
   // Session verification reads the clock; see requireWorkspace.
   await connection();
   const user = await requireUser(isWorkspaceSlug(slug) ? workspaceHome(slug) : "/app");
-  if (!isWorkspaceSlug(slug)) return null;
-  return getWorkspaceMembership(user.id, slug);
+  if (!isWorkspaceSlug(slug)) return { user, membership: null };
+  return { user, membership: await getWorkspaceMembership(user.id, slug) };
 }
 
 async function HeaderControls({ params }: { params: WorkspaceParams }) {
   const { workspace: slug } = await params;
   await connection();
-  const [membership, workspaces] = await Promise.all([loadMembership(slug), listMyWorkspaces()]);
+  const [{ user, membership }, workspaces] = await Promise.all([loadMembership(slug), listMyWorkspaces()]);
   if (membership) {
     // Schedules the write for after the response; it never holds up this render.
     await rememberWorkspace(membership.workspace.id);
@@ -102,7 +103,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
           .map(({ slug: workspaceSlug, name }) => ({ slug: workspaceSlug, name, href: workspaceHome(workspaceSlug) }))}
         currentSlug={membership ? membership.workspace.slug : null}
       />
-      <div className="ml-auto flex shrink-0 items-center gap-3">
+      <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-3">
         {membership ? <LiveIndicator /> : null}
         {membership ? (
           <span className="hidden rounded-full border border-line px-2 py-0.5 font-mono text-[11px] font-medium leading-none tracking-wide text-muted sm:inline">
@@ -110,12 +111,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
             {roleLabel(membership.role)}
           </span>
         ) : null}
-        <Link
-          href="/account"
-          className="inline-flex min-h-9 items-center rounded-md px-2 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
-        >
-          Account
-        </Link>
+        <AccountLink profile={user.profile} />
         <SignOutButton />
       </div>
     </>
@@ -160,7 +156,7 @@ async function HeaderPalette({ membership }: { membership: WorkspaceMembership }
 
 async function HeaderNav({ params }: { params: WorkspaceParams }) {
   const { workspace: slug } = await params;
-  const membership = await loadMembership(slug);
+  const { membership } = await loadMembership(slug);
   // Without a membership the page shows "not found"; links into that workspace would only repeat it.
   if (!membership) return null;
   // The palette sits at the end of the nav row rather than in the crowded top row, so it fits
