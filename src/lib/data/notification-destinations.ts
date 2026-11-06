@@ -2,14 +2,17 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { decryptSecret, DecryptionFailedError, encryptSecret, UnknownEncryptionKeyError } from "@/lib/crypto/credentials";
 import { encryptedFromRow, encryptedToColumns } from "@/lib/data/credentials";
+import { log } from "@/lib/log/logger";
 import type { ChannelSecret } from "@/lib/notifications/channels";
 import type { DeliveryDestination, DestinationKind, DigestFrequency } from "@/lib/notifications/model";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Tables, TablesUpdate } from "@/lib/supabase/database.types";
+import type { Database, Tables, TablesUpdate } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 import { createClient } from "@/lib/supabase/server";
 
 /*
@@ -43,9 +46,12 @@ export type DestinationRow = Pick<
 const DESTINATION_COLUMNS =
   "id, kind, name, url_host, all_rules, digest, status, consecutive_failures, last_error_code, last_error_reference, last_delivered_at, created_at";
 
-// A workspace has a handful of channels; rules are bounded the same way the alert evaluation bounds them.
+// A workspace has a handful of channels.
 export const DESTINATIONS_LIMIT = 50;
-const RULE_LINKS_LIMIT = 5000;
+// Rule links of one workspace (or one channel), read in pages of the Data API's row cap
+// (readAllPages). Neither rules nor channels are capped when they are made, so the bound is
+// reachable and logged when reached.
+export const RULE_LINKS_LIMIT = 5000;
 
 function failure(operation: string, error: { code: string }): Error {
   return new Error(`notification destinations ${operation} failed (code ${error.code}).`);
@@ -61,7 +67,9 @@ const secretSchema = z
   .object({ v: z.literal(1), url: z.url(), signingSecret: z.string().min(1).optional() })
   .strict();
 
-function linksByDestination(links: ReadonlyArray<{ destination_id: string; rule_id: string }>): Map<string, string[]> {
+type RuleLink = Readonly<{ destination_id: string; rule_id: string }>;
+
+function linksByDestination(links: readonly RuleLink[]): Map<string, string[]> {
   const byDestination = new Map<string, string[]>();
   for (const link of links) {
     const list = byDestination.get(link.destination_id);
@@ -69,6 +77,29 @@ function linksByDestination(links: ReadonlyArray<{ destination_id: string; rule_
     else list.push(link.rule_id);
   }
   return byDestination;
+}
+
+/**
+ * The rule links of the workspace, or of one channel when `destinationId` is given, in primary key
+ * order (destination_id, rule_id), which is total, so pages neither skip nor repeat a link. A link
+ * left out shows a rule as unlinked and keeps its alerts from the channel, so a read stopped at
+ * RULE_LINKS_LIMIT is logged.
+ */
+async function readRuleLinks(
+  db: SupabaseClient<Database>,
+  workspaceId: string,
+  destinationId: string | null,
+  operation: string,
+): Promise<RuleLink[]> {
+  const { rows, complete } = await readAllPages(async (from, to) => {
+    let query = db.from("alert_rule_destinations").select("destination_id, rule_id").eq("workspace_id", workspaceId);
+    if (destinationId !== null) query = query.eq("destination_id", destinationId);
+    const { data, error } = await query.order("destination_id").order("rule_id").range(from, to);
+    if (error) throw failure(operation, error);
+    return data;
+  }, RULE_LINKS_LIMIT);
+  if (!complete) log.warn("notification_destinations.rule_links_truncated", { workspaceId, destinationId, rows: rows.length });
+  return rows;
 }
 
 /** The workspace's channels, oldest first, with the rules each one receives. */
@@ -82,16 +113,10 @@ export async function listDestinations(workspaceId: string): Promise<Destination
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(DESTINATIONS_LIMIT),
-    supabase
-      .from("alert_rule_destinations")
-      .select("destination_id, rule_id")
-      .eq("workspace_id", workspaceId)
-      .order("destination_id")
-      .limit(RULE_LINKS_LIMIT),
+    readRuleLinks(supabase, workspaceId, null, "list rule links"),
   ]);
   if (destinations.error) throw failure("list", destinations.error);
-  if (links.error) throw failure("list rule links", links.error);
-  const rules = linksByDestination(links.data);
+  const rules = linksByDestination(links);
   return destinations.data.map((row) => ({ ...row, rule_ids: rules.get(row.id) ?? [] }));
 }
 
@@ -223,12 +248,11 @@ export async function getDeliveryDestination(workspaceId: string, destinationId:
       .eq("workspace_id", workspaceId)
       .eq("id", destinationId)
       .maybeSingle(),
-    db.from("alert_rule_destinations").select("rule_id").eq("workspace_id", workspaceId).eq("destination_id", destinationId).limit(RULE_LINKS_LIMIT),
+    readRuleLinks(db, workspaceId, destinationId, "read rule links"),
   ]);
   if (destination.error) throw failure("read", destination.error);
-  if (links.error) throw failure("read rule links", links.error);
   if (destination.data === null) return null;
-  return toDeliveryDestination(destination.data, links.data.map((link) => link.rule_id));
+  return toDeliveryDestination(destination.data, links.map((link) => link.rule_id));
 }
 
 export function toDeliveryDestination(
@@ -258,11 +282,10 @@ export async function listDeliveryDestinations(workspaceId: string): Promise<Del
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(DESTINATIONS_LIMIT),
-    db.from("alert_rule_destinations").select("destination_id, rule_id").eq("workspace_id", workspaceId).order("destination_id").limit(RULE_LINKS_LIMIT),
+    readRuleLinks(db, workspaceId, null, "list rule links for delivery"),
   ]);
   if (destinations.error) throw failure("list for delivery", destinations.error);
-  if (links.error) throw failure("list rule links for delivery", links.error);
-  const rules = linksByDestination(links.data);
+  const rules = linksByDestination(links);
   return destinations.data.map((row) => toDeliveryDestination(row, rules.get(row.id) ?? []));
 }
 
