@@ -23,6 +23,15 @@ import { publicMetricDefinition, type PublicMetricId } from "./definitions";
 export const STALE_AFTER_MS = 48 * 60 * 60 * 1000;
 /** Newest events read for a streak. A longer run is reported as at least this many. */
 export const STREAK_EVENT_LIMIT = 1000;
+/**
+ * Where a store may stop one `snapshots` read (#209). A store that stops there returns the newest
+ * rows, newest `snapshot_date` first, so a read this full may be missing rows of its oldest day and
+ * of every day before it. A formula below reads at most two keys over three days, one row per
+ * account, key, and day, of at most 200 accounts (ACCOUNTS_LIMIT in supabase-store.ts): 1200 rows,
+ * far below this. The long reads of a history or a trend treat the oldest day of a full read as not
+ * loaded (history.ts, trend.ts).
+ */
+export const SNAPSHOT_READ_MAX_ROWS = 10_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** One included external account of the project, with what the engine needs from its connection. */
@@ -57,7 +66,10 @@ export type StoredEvent = Readonly<{ accountId: string; typeId: string; occurred
  */
 export interface PublicMetricStore {
   accounts(): Promise<readonly SourceAccount[]>;
-  /** Quantity snapshots of `metricKeys` with `fromDate <= snapshot_date <= toDate`. */
+  /**
+   * Quantity snapshots of `metricKeys` with `fromDate <= snapshot_date <= toDate`. A store may stop
+   * at SNAPSHOT_READ_MAX_ROWS rows, keeping the newest days.
+   */
   snapshots(query: Readonly<{ accountIds: readonly string[]; metricKeys: readonly string[]; fromDate: string; toDate: string }>): Promise<readonly SnapshotPoint[]>;
   /** The UTC day (`YYYY-MM-DD`) of the oldest quantity snapshot of `metricKey`, or null. */
   earliestSnapshotDate(query: Readonly<{ accountIds: readonly string[]; metricKey: string }>): Promise<string | null>;
@@ -108,6 +120,18 @@ const unavailable = (reason: UnavailableReason): MetricValue => ({ status: "unav
 
 function utcDate(at: Date): string {
   return at.toISOString().slice(0, 10);
+}
+
+/**
+ * The first day a `snapshots` read holds every row of, or null when it holds them all. A store
+ * that stops a read stops it at exactly SNAPSHOT_READ_MAX_ROWS rows, possibly part way through its
+ * oldest day, so such a read holds the days after that one in full. A read of any other length was
+ * not stopped (the in-memory store never stops one).
+ */
+export function snapshotsWholeFrom(points: readonly SnapshotPoint[]): string | null {
+  if (points.length !== SNAPSHOT_READ_MAX_ROWS) return null;
+  const oldest = points.reduce((min, point) => (point.snapshotDate < min ? point.snapshotDate : min), points[0]?.snapshotDate ?? "");
+  return utcDate(new Date(Date.parse(`${oldest}T00:00:00Z`) + DAY_MS));
 }
 
 function minDate(dates: readonly Date[]): Date {

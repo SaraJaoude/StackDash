@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { MAX_ROWS_PER_REQUEST } from "@/lib/supabase/paging";
+
 import type { PublicMetricId } from "./definitions";
-import { computePublicMetrics, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
+import { computePublicMetrics, SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
 import {
   computeMetricHistories,
   firstEventMilestones,
   HISTORY_DAYS,
-  HISTORY_EVENT_PAGES,
-  HISTORY_PAGE_ROWS,
+  HISTORY_EVENT_ROWS,
   historyMoments,
   historySummary,
   preloadHistoryStore,
@@ -76,6 +77,20 @@ function counted(base: HistoryStore): { store: HistoryStore; reads: () => number
   };
 }
 
+/** Wraps a store so a snapshot read stops at SNAPSHOT_READ_MAX_ROWS rows, newest days first, as the Supabase store's does. */
+function capped(base: HistoryStore): HistoryStore {
+  return {
+    accounts: () => base.accounts(),
+    snapshots: async (query) =>
+      (await base.snapshots(query)).toSorted((a, b) => b.snapshotDate.localeCompare(a.snapshotDate)).slice(0, SNAPSHOT_READ_MAX_ROWS),
+    earliestSnapshotDate: (query) => base.earliestSnapshotDate(query),
+    countEvents: (query) => base.countEvents(query),
+    earliestEvent: (query) => base.earliestEvent(query),
+    recentEvents: (query) => base.recentEvents(query),
+    eventPage: (query) => base.eventPage(query),
+  };
+}
+
 /** What the engine answers at each moment when asked one by one, without the cache. */
 async function computedOneByOne(store: HistoryStore, metricId: PublicMetricId, asOf: Date, days = HISTORY_DAYS) {
   return computePublicMetrics(
@@ -129,7 +144,7 @@ describe("computeMetricHistories", () => {
   });
 
   it("falls back to the real store, and still agrees, when the events are more than it loads (boundary)", async () => {
-    const many = HISTORY_EVENT_PAGES * HISTORY_PAGE_ROWS + 500;
+    const many = HISTORY_EVENT_ROWS + 500;
     // Every 15 minutes, newest first, so the loaded pages stop well inside the 90 day window.
     const events = Array.from({ length: many }, (_, index) => deployment(index / 4 + 0.1, index % 900 === 450));
     const base = new MemoryMetricStore(ACCOUNTS, [], events);
@@ -140,16 +155,31 @@ describe("computeMetricHistories", () => {
     ]);
     expect(counts).toEqual(await computedOneByOne(base, "vercel-deployments-30d", AS_OF));
     expect(streaks).toEqual(await computedOneByOne(base, "vercel-deployment-streak", AS_OF));
-    expect(reads()).toBeGreaterThan(HISTORY_EVENT_PAGES + 2);
+    expect(reads()).toBeGreaterThan(HISTORY_EVENT_ROWS / MAX_ROWS_PER_REQUEST + 2);
   });
 
-  it("treats a full snapshot read as cut short and still agrees (boundary)", async () => {
-    // 12 accounts of 130 days is more rows than one read returns.
+  it("treats the oldest day of a snapshot read stopped at its bound as not loaded, and still agrees (boundary: SNAPSHOT_READ_MAX_ROWS)", async () => {
+    // 90 accounts over the 120 days a 30 day history reads (from 2026-07-09): 10,800 rows, so the
+    // read stops part way through a day, with some of its accounts read and the rest not.
+    const accounts = Array.from({ length: 90 }, (_, index) => account({ accountId: `gh-${index}` }));
+    const points = accounts.flatMap((entry) => Array.from({ length: 130 }, (_, daysAgo) => starPoint(daysAgo, 500 - daysAgo, entry.accountId)));
+    const base = capped(new MemoryMetricStore(accounts, points, []));
+    const window = { accountIds: accounts.map((entry) => entry.accountId), metricKeys: ["github.stars.total"], fromDate: "2026-07-09", toDate: "2026-11-05" };
+    expect(await base.snapshots(window)).toHaveLength(SNAPSHOT_READ_MAX_ROWS);
+    const [history] = await computeMetricHistories(base, [{ metricId: "github-stars-gained-30d", asOf: AS_OF }]);
+    expect(history).toEqual(await computedOneByOne(base, "github-stars-gained-30d", AS_OF));
+  });
+
+  it("loads a snapshot read of more than one request's rows in full (boundary: max_rows)", async () => {
+    // 12 accounts of 130 days: more rows than one request returns, far fewer than the bound.
     const accounts = Array.from({ length: 12 }, (_, index) => account({ accountId: `gh-${index}` }));
     const points = accounts.flatMap((entry) => Array.from({ length: 130 }, (_, daysAgo) => starPoint(daysAgo, 500 - daysAgo, entry.accountId)));
-    expect(points.length).toBeGreaterThan(HISTORY_PAGE_ROWS);
+    expect(points.length).toBeGreaterThan(MAX_ROWS_PER_REQUEST);
     const base = new MemoryMetricStore(accounts, points, []);
-    const [history] = await computeMetricHistories(base, [{ metricId: "github-stars-gained-30d", asOf: AS_OF }]);
+    const { store, reads } = counted(capped(base));
+    const [history] = await computeMetricHistories(store, [{ metricId: "github-stars-gained-30d", asOf: AS_OF }]);
+    // One accounts read and one snapshot read: nothing fell back to the store.
+    expect(reads()).toBe(2);
     expect(history).toEqual(await computedOneByOne(base, "github-stars-gained-30d", AS_OF));
   });
 
@@ -178,7 +208,7 @@ describe("preloadHistoryStore", () => {
   });
 
   it("reads the real store for events since a moment older than it loaded, and still agrees (boundary)", async () => {
-    const events = Array.from({ length: HISTORY_EVENT_PAGES * HISTORY_PAGE_ROWS + 500 }, (_, index) => deployment(index / 4 + 0.1));
+    const events = Array.from({ length: HISTORY_EVENT_ROWS + 500 }, (_, index) => deployment(index / 4 + 0.1));
     const base = new MemoryMetricStore(ACCOUNTS, [], events);
     const { store, reads } = counted(base);
     const cached = await preloadHistoryStore(store, STREAK, new Date(AS_OF.getTime() - 30 * DAY_MS), AS_OF);

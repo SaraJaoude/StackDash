@@ -1,5 +1,13 @@
 import { publicMetricDefinition, type PublicMetricId } from "./definitions";
-import { computePublicMetrics, STALE_AFTER_MS, type ComputedMetric, type PublicMetricStore, type SnapshotPoint, type StoredEvent } from "./engine";
+import {
+  computePublicMetrics,
+  snapshotsWholeFrom,
+  STALE_AFTER_MS,
+  type ComputedMetric,
+  type PublicMetricStore,
+  type SnapshotPoint,
+  type StoredEvent,
+} from "./engine";
 import { MemoryMetricStore } from "./memory-store";
 
 /*
@@ -15,9 +23,9 @@ import { MemoryMetricStore } from "./memory-store";
  * - The event read is one request of TREND_EVENTS_LIMIT rows, newest first. When it is cut, rows
  *   at or before its oldest event may be missing, so a moment that needs them has no value rather
  *   than an understated one.
- * - The snapshot read keeps the Supabase store's own cap and order (newest first), so a cut list
- *   loses the oldest baselines, which the engine reports as not enough history, as it does for a
- *   published value.
+ * - The snapshot read is one store read, newest first. When the store stopped it at
+ *   SNAPSHOT_READ_MAX_ROWS (engine.ts), its oldest day may be missing rows, so a moment whose
+ *   window reaches that day has no value rather than one summed over some of the accounts (#209).
  *
  * Pure apart from the injected store, so it is unit tested against the in-memory store.
  */
@@ -38,6 +46,8 @@ type SharedReads = Readonly<{
   rows: MemoryMetricStore;
   /** The oldest event of the event read when it was cut at TREND_EVENTS_LIMIT, else null. */
   cutAt: Date | null;
+  /** The first day the snapshot read holds in full when it was cut, else null. */
+  snapshotsFrom: string | null;
   /** Reads that are the same at every moment, asked of `store` once. */
   earliestEvents: Map<string, Promise<Date | null>>;
   earliestSnapshotDates: Map<string, Promise<string | null>>;
@@ -50,7 +60,7 @@ function readOnce<T>(cache: Map<string, Promise<T>>, query: object, read: () => 
   return pending;
 }
 
-/** The shared rows, for one moment; `covered` turns false when it needed rows the cut read lost. */
+/** The shared rows, for one moment; `covered` turns false when it needed rows a cut read lost. */
 class MomentStore implements PublicMetricStore {
   covered = true;
 
@@ -61,6 +71,8 @@ class MomentStore implements PublicMetricStore {
   }
 
   snapshots(query: Parameters<PublicMetricStore["snapshots"]>[0]) {
+    const { snapshotsFrom } = this.shared;
+    if (snapshotsFrom !== null && query.fromDate < snapshotsFrom) this.covered = false;
     return this.shared.rows.snapshots(query);
   }
 
@@ -89,7 +101,7 @@ class MomentStore implements PublicMetricStore {
   }
 }
 
-/** `metricId` computed at each of `moments`, in order; null where the cut event read cannot tell. */
+/** `metricId` computed at each of `moments`, in order; null where a cut read cannot tell. */
 export async function computeTrend(store: PublicMetricStore, metricId: PublicMetricId, moments: readonly Date[]): Promise<(ComputedMetric | null)[]> {
   if (moments.length === 0) return [];
   const first = Math.min(...moments.map((moment) => moment.getTime()));
@@ -128,6 +140,7 @@ export async function computeTrend(store: PublicMetricStore, metricId: PublicMet
     store,
     rows: new MemoryMetricStore(accounts, points, events),
     cutAt: events.length >= TREND_EVENTS_LIMIT ? (events.at(-1)?.occurredAt ?? null) : null,
+    snapshotsFrom: snapshotsWholeFrom(points),
     earliestEvents: new Map(),
     earliestSnapshotDates: new Map(),
   };

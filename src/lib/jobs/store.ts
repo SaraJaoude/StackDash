@@ -8,6 +8,7 @@ import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
 /*
  * Persistence for the job system (#44). The runner, scheduler, and retention job only talk to a
@@ -65,8 +66,7 @@ const SUMMARY_ROW_LIMIT = 5000;
 export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly AnomalyMute[] }>;
 
 // Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
-// (`max_rows` in supabase/config.toml). The total bound is far above any MVP workspace.
-const ANOMALY_PAGE_SIZE = 1000;
+// (readAllPages). The total bound is far above any MVP workspace.
 const ANOMALY_ROW_LIMIT = 20_000;
 const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const;
 // Mutes per workspace: one per metric a person chose to silence.
@@ -469,9 +469,8 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async listAnomalySnapshots(workspaceId, fromDate, toDate) {
-      const rows: AnomalyRow[] = [];
       // Pages in order over usage_snapshots_workspace_date_idx; bounded by ANOMALY_ROW_LIMIT.
-      for (let offset = 0; offset < ANOMALY_ROW_LIMIT; offset += ANOMALY_PAGE_SIZE) {
+      const { rows, complete } = await readAllPages(async (from, to) => {
         const { data, error } = await db
           .from("usage_snapshots")
           .select(
@@ -484,11 +483,11 @@ export function createSupabaseJobStore(): JobStore {
           .lte("snapshot_date", toDate)
           .order("snapshot_date")
           .order("id")
-          .range(offset, offset + ANOMALY_PAGE_SIZE - 1);
+          .range(from, to);
         if (error) throw failure("anomaly snapshots read", error);
-        rows.push(...data);
-        if (data.length < ANOMALY_PAGE_SIZE) break;
-      }
+        return data;
+      }, ANOMALY_ROW_LIMIT);
+      if (!complete) log.warn("anomaly.snapshots_truncated", { workspaceId, rows: rows.length });
       return rows;
     },
   };

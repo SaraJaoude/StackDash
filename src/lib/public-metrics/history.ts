@@ -1,9 +1,11 @@
 import type { ProviderId } from "@/lib/adapters/types";
 import { formatQuantity } from "@/lib/format";
+import { MAX_ROWS_PER_REQUEST, readAllPages } from "@/lib/supabase/paging";
 
 import { publicMetricDefinition, type PublicMetricId } from "./definitions";
 import {
   computePublicMetrics,
+  snapshotsWholeFrom,
   STALE_AFTER_MS,
   type ComputedMetric,
   type PublicMetricStore,
@@ -26,13 +28,8 @@ import {
 export const HISTORY_DAYS = 90;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Rows per page of the history reads. Supabase's API returns at most 1,000 rows per request
- * (`max_rows` in supabase/config.toml), so a read that comes back this full may have been cut short.
- */
-export const HISTORY_PAGE_ROWS = 1000;
-/** Pages of events loaded at most. Older windows fall back to the real store. */
-export const HISTORY_EVENT_PAGES = 5;
+/** Events loaded at most, in pages of one request each. Older windows fall back to the real store. */
+export const HISTORY_EVENT_ROWS = 5 * MAX_ROWS_PER_REQUEST;
 
 /** A stored event with the id the cache deduplicates it by. */
 export type HistoryEvent = StoredEvent & Readonly<{ id: string }>;
@@ -71,7 +68,7 @@ function sourceReads(metricId: PublicMetricId): Readonly<{ metricKeys: string[];
 /**
  * A read-through cache over `base` for computing `metricIds` at moments between `from` and `to`.
  * Snapshots are loaded per key back to the oldest day any formula reads; events newest first from
- * `to`, up to `HISTORY_EVENT_PAGES` pages. A read that came back full may be cut short, so its
+ * `to`, up to `HISTORY_EVENT_ROWS`. A read that stopped at its bound may be cut short, so its
  * oldest day (or moment) is treated as not loaded. Queries inside what was loaded are answered
  * from memory with the real store's filters; the rest go to `base`.
  */
@@ -91,15 +88,14 @@ export async function preloadHistoryStore(
   const toDate = utcDate(to);
 
   const loadEvents = async (): Promise<{ events: HistoryEvent[]; complete: boolean }> => {
-    const byId = new Map<string, HistoryEvent>();
     if (accountIds.length === 0 || typeIds.length === 0) return { events: [], complete: true };
-    for (let page = 0; page < HISTORY_EVENT_PAGES; page += 1) {
-      // Sequential on purpose: each page is only needed if the one before it came back full.
-      const rows = await base.eventPage({ accountIds, typeIds, before: to, offset: page * HISTORY_PAGE_ROWS, limit: HISTORY_PAGE_ROWS });
-      for (const row of rows) byId.set(row.id, row);
-      if (rows.length < HISTORY_PAGE_ROWS) return { events: [...byId.values()], complete: true };
-    }
-    return { events: [...byId.values()], complete: false };
+    const { rows, complete } = await readAllPages(
+      (offset, last) => base.eventPage({ accountIds, typeIds, before: to, offset, limit: last - offset + 1 }),
+      HISTORY_EVENT_ROWS,
+    );
+    // An event written while the pages were read shifts the later pages, so one can come twice.
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    return { events: [...byId.values()], complete };
   };
 
   const [snapshotReads, eventRead] = await Promise.all([
@@ -113,12 +109,7 @@ export async function preloadHistoryStore(
   metricKeys.forEach((metricKey, index) => {
     const rows = snapshotReads[index] ?? [];
     points.push(...rows);
-    const oldest = rows.reduce<string | null>((min, row) => (min === null || row.snapshotDate < min ? row.snapshotDate : min), null);
-    // A full read lost rows of its oldest day, so that day counts as not loaded.
-    snapshotsFrom.set(
-      metricKey,
-      rows.length >= HISTORY_PAGE_ROWS && oldest !== null ? utcDate(new Date(Date.parse(`${oldest}T00:00:00Z`) + DAY_MS)) : fromDate,
-    );
+    snapshotsFrom.set(metricKey, snapshotsWholeFrom(rows) ?? fromDate);
   });
 
   const events = [...eventRead.events].sort((a, b) => b.occurredAt.getTime() - a.occurredAt.getTime());

@@ -3,9 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import { log } from "@/lib/log/logger";
 import type { Database } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
-import type { SnapshotPoint, SourceAccount } from "./engine";
+import { SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint, type SourceAccount } from "./engine";
 import type { HistoryEvent, HistoryStore } from "./history";
 
 /*
@@ -21,11 +23,10 @@ type MetricKind = Database["public"]["Enums"]["metric_kind"];
 // Quantities only: even a mistyped metric key in a definition cannot read an amount of money.
 const QUANTITY_KINDS: readonly MetricKind[] = ["usage", "included_allowance", "remaining_allowance"];
 
-// Bounds. A project groups a handful of accounts; every snapshot read covers at most three days, so
-// a few rows per account and key whatever the window, and these are far above what one metric reads.
+// Bounds. A project groups a handful of accounts. A snapshot read is paged (#209): PostgREST
+// returns at most 1000 rows a request, and a history or trend window of many accounts holds more.
 const ACCOUNTS_LIMIT = 200;
 const CONNECTIONS_LIMIT = 200;
-const SNAPSHOTS_LIMIT = 5000;
 
 export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
@@ -69,37 +70,43 @@ export function createSupabaseMetricStore(
 
     async snapshots({ accountIds, metricKeys, fromDate, toDate }): Promise<SnapshotPoint[]> {
       if (accountIds.length === 0 || metricKeys.length === 0) return [];
-      const { data, error } = await db
-        .from("usage_snapshots")
-        .select("external_account_id, metric_key, snapshot_date, value, period_start, period_end, resets_at, retrieved_at")
-        .eq("workspace_id", workspaceId)
-        .in("external_account_id", accountIds)
-        .in("metric_key", metricKeys)
-        .in("kind", QUANTITY_KINDS)
-        .not("value", "is", null)
-        .gte("snapshot_date", fromDate)
-        .lte("snapshot_date", toDate)
-        // Newest first, so a cut-off list loses the oldest days (a missing baseline), never today.
-        .order("snapshot_date", { ascending: false })
-        .order("id", { ascending: true })
-        .limit(SNAPSHOTS_LIMIT);
-      if (error) throw new Error("Failed to load snapshots for public metrics", { cause: error });
-      return data.flatMap((row) =>
-        row.value === null
-          ? []
-          : [
-              {
-                accountId: row.external_account_id,
-                metricKey: row.metric_key,
-                snapshotDate: row.snapshot_date,
-                value: row.value,
-                periodStart: row.period_start === null ? null : new Date(row.period_start),
-                periodEnd: row.period_end === null ? null : new Date(row.period_end),
-                resetsAt: row.resets_at === null ? null : new Date(row.resets_at),
-                retrievedAt: new Date(row.retrieved_at),
-              },
-            ],
-      );
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select("external_account_id, metric_key, snapshot_date, value, period_start, period_end, resets_at, retrieved_at")
+          .eq("workspace_id", workspaceId)
+          .in("external_account_id", accountIds)
+          .in("metric_key", metricKeys)
+          .in("kind", QUANTITY_KINDS)
+          .not("value", "is", null)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          // Newest first, so a read stopped at the bound loses the oldest days, never today. The
+          // id makes the order total. A sync inserting today's rows between two pages shifts the
+          // later pages, so a row can come back twice; the engine keeps one reading per account and
+          // day (newestByAccount, the baseline lookup in snapshotChange), so a repeat changes no number.
+          .order("snapshot_date", { ascending: false })
+          .order("id", { ascending: true })
+          .range(from, to);
+        if (error) throw new Error("Failed to load snapshots for public metrics", { cause: error });
+        return data;
+      }, SNAPSHOT_READ_MAX_ROWS);
+      // Callers see the cut by the row count (snapshotsWholeFrom in engine.ts), so the mapping below
+      // must keep every row.
+      if (!complete) log.warn("public_metrics.snapshots_truncated", { workspaceId, projectId, fromDate, toDate, rows: rows.length });
+      return rows.map((row) => {
+        if (row.value === null) throw new Error("usage_snapshots returned a null value the query excluded");
+        return {
+          accountId: row.external_account_id,
+          metricKey: row.metric_key,
+          snapshotDate: row.snapshot_date,
+          value: row.value,
+          periodStart: row.period_start === null ? null : new Date(row.period_start),
+          periodEnd: row.period_end === null ? null : new Date(row.period_end),
+          resetsAt: row.resets_at === null ? null : new Date(row.resets_at),
+          retrievedAt: new Date(row.retrieved_at),
+        };
+      });
     },
 
     async earliestSnapshotDate({ accountIds, metricKey }): Promise<string | null> {
