@@ -17,6 +17,7 @@ import { PROVIDER_NAMES } from "@/lib/providers";
 import { digitaloceanProfile } from "./digitalocean";
 import { githubProfile } from "./github";
 import { postHogProfile } from "./posthog";
+import { gitlabProfile } from "./gitlab";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
 import { polarProfile } from "./polar";
@@ -183,6 +184,7 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   polar: createSimulatedAdapter(polarProfile, "polar"),
   sentry: createSimulatedAdapter(sentryProfile, "sentry"),
   railway: createSimulatedAdapter(railwayProfile, "railway"),
+  gitlab: createSimulatedAdapter(gitlabProfile, "gitlab"),
 };
 
 /** True only for the registry's own simulated adapters, compared by identity rather than id. */

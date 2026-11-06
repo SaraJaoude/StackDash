@@ -1,0 +1,36 @@
+{
+  "data": {
+    "namespace": {
+      "actualSizeLimit": 10737418240,
+      "rootStorageStatistics": {
+        "storageSize": 3221225472
+      }
+    },
+    "ciMinutesUsage": {
+      "nodes": [
+        {
+          "monthIso8601": "2026-11-01",
+          "minutes": 312
+        }
+      ]
+    },
+    "ciMinutesProjectMonthlyUsage": {
+      "nodes": [
+        {
+          "minutes": 250,
+          "project": {
+            "id": "gid://gitlab/Project/9",
+            "fullPath": "group1/html5-boilerplate"
+          }
+        },
+        {
+          "minutes": 62,
+          "project": {
+            "id": "gid://gitlab/Project/10",
+            "fullPath": "group1/api"
+          }
+        }
+      ]
+    }
+  }
+}

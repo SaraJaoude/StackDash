@@ -3,6 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { ProviderUnavailableError } from "@/lib/adapters/errors";
 import { validateAdapterEvents, type ActivityEvent } from "@/lib/adapters/events";
+import { gitlabAdapter, metricKeys as gitlabMetricKeys } from "@/lib/adapters/gitlab";
 import { githubAdapter } from "@/lib/adapters/github";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
 import { polarAdapter } from "@/lib/adapters/polar";
@@ -46,6 +47,7 @@ const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   polar: polarAdapter,
   sentry: sentryAdapter,
   railway: railwayAdapter,
+  gitlab: gitlabAdapter,
 };
 
 const MINUTE_MS = 60_000;
@@ -743,6 +745,30 @@ describe("simulated numbers", () => {
       expect(final.length, id).toBeLessThanOrEqual(1);
       for (const event of final) expect(event.occurredAt.getTime()).toBeGreaterThan(building.occurredAt.getTime());
     }
+  });
+
+  it("takes GitLab compute minutes past 75 and then 90 percent of the Free quota late in the month, resetting with a new one", async () => {
+    const samples = await metricsAt(simulatedAdapters.gitlab, [
+      new Date("2026-11-10T12:00:00Z"),
+      new Date("2026-11-25T12:00:00Z"),
+      new Date("2026-11-29T12:00:00Z"),
+      new Date("2026-12-01T01:00:00Z"),
+    ]);
+    const percents = samples.map(
+      (metrics) => (100 * quantity(metric(metrics, gitlabMetricKeys.minutesUsed))) / quantity(metric(metrics, gitlabMetricKeys.minutesIncluded)),
+    );
+    expect(percents[0]).toBeLessThan(75);
+    expect(percents[1]).toBeGreaterThanOrEqual(75);
+    expect(percents[2]).toBeGreaterThanOrEqual(90);
+    expect(percents[3]).toBeLessThan(5);
+    const [early] = samples;
+    if (early === undefined) throw new Error("expected metrics");
+    expect(metric(early, gitlabMetricKeys.minutesIncluded).provenance).toMatchObject({ source: "derived" });
+    // The namespace total is the sum of its projects, each under its own key.
+    const projects = early.filter((item) => /^gitlab\.compute_minutes\.project\.p\d+\.month$/.test(item.metricKey));
+    expect(projects).toHaveLength(3);
+    expect(projects.reduce((sum, item) => sum + quantity(item), 0)).toBe(quantity(metric(early, gitlabMetricKeys.minutesUsed)));
+    expect(quantity(metric(early, gitlabMetricKeys.storageUsed))).toBeLessThan(quantity(metric(early, gitlabMetricKeys.storageLimit)));
   });
 
   it("lands the daily GitHub stars and Supabase summary events in the first minute of a UTC day", async () => {

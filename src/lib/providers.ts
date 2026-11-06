@@ -19,6 +19,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   polar: "Polar",
   sentry: "Sentry",
   railway: "Railway",
+  gitlab: "GitLab",
   fake: "Example provider",
 };
 
@@ -34,6 +35,7 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   polar: "Polar",
   sentry: "Sentry",
   railway: "Railway",
+  gitlab: "GitLab",
   fake: null,
 };
 

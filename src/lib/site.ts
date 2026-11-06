@@ -24,7 +24,8 @@ export type Platform =
   | "PostHog"
   | "Polar"
   | "Sentry"
-  | "Railway";
+  | "Railway"
+  | "GitLab";
 
 export interface NavLink {
   label: string;

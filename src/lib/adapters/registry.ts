@@ -6,6 +6,7 @@ import { digitaloceanAdapter } from "./digitalocean";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { postHogAdapter } from "./posthog";
+import { gitlabAdapter } from "./gitlab";
 import { railwayAdapter } from "./railway";
 import { resendAdapter } from "./resend";
 import { polarAdapter } from "./polar";
@@ -43,6 +44,7 @@ const liveAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   polar: polarAdapter,
   sentry: sentryAdapter,
   railway: railwayAdapter,
+  gitlab: gitlabAdapter,
 };
 
 /** Read on every call, not at module load, so the flag can never be baked into a build. */

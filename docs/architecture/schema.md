@@ -26,6 +26,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
 | `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
 | `20261105120600_activity_event_counts.sql` | `activity_event_counts` for the trend event markers |
+| `20261105120800_provider_gitlab.sql` | `provider_id` gains `gitlab` |
 | `20261105150000_public_share_surfaces.sql` | `share_surface`, `public_rate_limit_counters` and `bump_public_rate_limit`, `published_metric_views` and `record_published_metric_view`, and their retention purges |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.

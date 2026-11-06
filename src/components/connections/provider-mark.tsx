@@ -14,6 +14,7 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   polar: "Polar",
   sentry: "Sentry",
   railway: "Railway",
+  gitlab: "GitLab",
   fake: null,
 };
 
