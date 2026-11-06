@@ -91,6 +91,22 @@ describe("createSupabaseJobStore listAnomalySnapshots", () => {
     const spend = vercelSpend(3);
     const [first] = spend;
     if (first === undefined) throw new Error("expected spend rows");
+    const kept: StoredRow[] = [
+      ...spend,
+      // One reading of each other kind detection reads; a single day has no history, so neither fires.
+      { ...first, id: uuid(8, 1), metric_key: "vercel.spend.estimate", kind: "estimated_spend", label: "Vercel estimated spend", snapshot_date: "2026-10-05" },
+      {
+        ...first,
+        id: uuid(8, 2),
+        metric_key: "vercel.usage.bandwidth",
+        kind: "usage",
+        label: "Vercel bandwidth",
+        value: 12,
+        unit: "GB",
+        amount_minor: null,
+        currency: null,
+      },
+    ];
     const skipped: StoredRow[] = [
       // Another workspace, a point in time reading, a level, and a day before the range.
       { ...first, id: uuid(9, 1), workspace_id: OTHER_WORKSPACE_ID },
@@ -98,13 +114,13 @@ describe("createSupabaseJobStore listAnomalySnapshots", () => {
       { ...first, id: uuid(9, 3), kind: "credit_balance" },
       { ...first, id: uuid(9, 4), snapshot_date: addUtcDays(anomalySnapshotRange(DATE).from, -1) },
     ];
-    const { store } = storeOver([...skipped, ...spend].toReversed());
+    const { store } = storeOver([...skipped, ...kept].toReversed());
     const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
     const range = anomalySnapshotRange(DATE);
 
     const rows = await store.listAnomalySnapshots(WORKSPACE_ID, range.from, range.to);
 
-    expect(rows).toEqual(oldestFirst(spend).map(asRead));
+    expect(rows).toEqual(oldestFirst(kept).map(asRead));
     expect(warn).not.toHaveBeenCalled();
     expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([
       expect.objectContaining({ date: DATE, metricKey: "vercel.spend.total", value: 3 * SPIKE_DAILY_MINOR, usual: 3 * USUAL_DAILY_MINOR }),
