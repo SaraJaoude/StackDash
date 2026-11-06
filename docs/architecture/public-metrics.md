@@ -34,6 +34,8 @@ A metric that cannot be computed honestly says why instead of showing a number:
 
 Partial data always understates, never overstates: an account added in the middle of a window adds only what it saw, and a missing start-of-window reading is replaced by the next day's (a shorter window), never an earlier one.
 
+A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it refuses to compute anything rather than publish a smaller number (#220). The public route, badges, and cards then answer `503` like any failed read, and the error is logged. The connections behind the accounts are read by id, so that read can never be cut.
+
 ### Rounding and delay
 
 Each publication chooses how the value is shown:
@@ -55,6 +57,8 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 | `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics are no longer public. |
 
 "Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics-148).
+
+A project holds at most 100 live self-reported values. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them (#220).
 
 ## Reading published values
 
