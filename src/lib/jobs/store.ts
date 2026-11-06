@@ -2,6 +2,7 @@ import "server-only";
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -60,6 +61,16 @@ export type SummarySnapshot = SnapshotInput;
 // workspace (a few connections, tens of metrics each).
 const SUMMARY_ROW_LIMIT = 5000;
 
+export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly AnomalyMute[] }>;
+
+// Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
+// (`max_rows` in supabase/config.toml). The total bound is far above any MVP workspace.
+const ANOMALY_PAGE_SIZE = 1000;
+const ANOMALY_ROW_LIMIT = 20_000;
+const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const;
+// Mutes per workspace: one per metric a person chose to silence.
+const ANOMALY_MUTE_LIMIT = 1000;
+
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
 
 export interface JobStore {
@@ -104,12 +115,27 @@ export interface JobStore {
   purgeJobs(before: Date, limit: number): Promise<number>;
   /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
   purgeOAuthStates(before: Date, limit: number): Promise<number>;
+  /** Deletes public rate limit counters whose minute started before `before` (#149). */
+  purgeRateLimitCounters(before: Date, limit: number): Promise<number>;
+  /** Deletes published metric view counts of UTC days before `beforeDate` (#149). */
+  purgeMetricViews(beforeDate: string, limit: number): Promise<number>;
+  /** Deletes digest delivery records delivered before `before`; alert records go with their alert. */
+  purgeNotificationDeliveries(before: Date, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
   listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
+  /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
+  getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
+  /** Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive. */
+  listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]>;
+
+  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
+  enqueueAlertDispatches(): Promise<number>;
+  /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
+  enqueueDigests(date: string): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -354,6 +380,36 @@ export function createSupabaseJobStore(): JobStore {
       return data;
     },
 
+    async purgeRateLimitCounters(before, limit) {
+      const { data, error } = await db.rpc("purge_public_rate_limit_counters", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_public_rate_limit_counters", error);
+      return data;
+    },
+
+    async purgeMetricViews(beforeDate, limit) {
+      const { data, error } = await db.rpc("purge_published_metric_views", { p_before: beforeDate, p_limit: limit });
+      if (error) throw failure("purge_published_metric_views", error);
+      return data;
+    },
+
+    async purgeNotificationDeliveries(before, limit) {
+      const { data, error } = await db.rpc("purge_notification_deliveries", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_notification_deliveries", error);
+      return data;
+    },
+
+    async enqueueAlertDispatches() {
+      const { data, error } = await db.rpc("enqueue_alert_dispatches");
+      if (error) throw failure("enqueue_alert_dispatches", error);
+      return data;
+    },
+
+    async enqueueDigests(date) {
+      const { data, error } = await db.rpc("enqueue_digests", { p_date: date });
+      if (error) throw failure("enqueue_digests", error);
+      return data;
+    },
+
     async enqueueDailySummaries(date) {
       const { data, error } = await db.rpc("enqueue_daily_summaries", { p_date: date });
       if (error) throw failure("enqueue_daily_summaries", error);
@@ -384,6 +440,46 @@ export function createSupabaseJobStore(): JobStore {
         .limit(SUMMARY_ROW_LIMIT);
       if (error) throw failure("summary snapshots read", error);
       return data;
+    },
+
+    async getAnomalySettings(workspaceId) {
+      const [workspace, mutes] = await Promise.all([
+        db.from("workspaces").select("anomaly_detection_enabled").eq("id", workspaceId).maybeSingle(),
+        db
+          .from("anomaly_mutes")
+          .select("provider, metric_key")
+          .eq("workspace_id", workspaceId)
+          .order("created_at")
+          .limit(ANOMALY_MUTE_LIMIT),
+      ]);
+      if (workspace.error) throw failure("anomaly settings read", workspace.error);
+      if (mutes.error) throw failure("anomaly mutes read", mutes.error);
+      // A workspace deleted since the job was queued has nothing left to check.
+      return { enabled: workspace.data?.anomaly_detection_enabled ?? false, mutes: mutes.data };
+    },
+
+    async listAnomalySnapshots(workspaceId, fromDate, toDate) {
+      const rows: AnomalyRow[] = [];
+      // Pages in order over usage_snapshots_workspace_date_idx; bounded by ANOMALY_ROW_LIMIT.
+      for (let offset = 0; offset < ANOMALY_ROW_LIMIT; offset += ANOMALY_PAGE_SIZE) {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select(
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+          )
+          .eq("workspace_id", workspaceId)
+          .in("kind", [...ANOMALY_KINDS])
+          .is("point_at", null)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          .order("snapshot_date")
+          .order("id")
+          .range(offset, offset + ANOMALY_PAGE_SIZE - 1);
+        if (error) throw failure("anomaly snapshots read", error);
+        rows.push(...data);
+        if (data.length < ANOMALY_PAGE_SIZE) break;
+      }
+      return rows;
     },
   };
 }

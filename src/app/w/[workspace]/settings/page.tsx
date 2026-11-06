@@ -1,13 +1,21 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
+import Link from "next/link";
 import { Suspense } from "react";
 
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LockIcon, MailIcon } from "@/components/icons";
+import { connectOrigin } from "@/lib/connections/oauth-state";
+import { API_KEYS_LIST_LIMIT, listApiKeys } from "@/lib/data/api-keys";
+import { formatDateTime } from "@/lib/format";
+import { mcpEndpointUrl } from "@/lib/mcp/setup";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
+import { ApiKeysManager, type ApiKeyItem } from "./api-keys";
+import { AssistantSetup } from "./assistant-setup";
 import { RenameWorkspaceForm } from "./rename-workspace-form";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -26,6 +34,26 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
   const { workspace: slug } = await params;
   const { user, workspace, role } = await requireWorkspace(slug, "viewer");
   const canRename = canPerform(role, "rename_workspace");
+  const canManageKeys = canPerform(role, "manage_api_keys");
+  // Row level security shows keys to owners and admins only, so viewers are not asked to load them.
+  const apiKeys = canManageKeys ? await listApiKeys(workspace.id) : null;
+  const apiKeyItems: ApiKeyItem[] =
+    apiKeys?.keys.map((key) => ({
+      id: key.id,
+      name: key.name,
+      tokenPrefix: key.token_prefix,
+      scopes: key.scopes,
+      created: formatDateTime(key.created_at),
+      lastUsed: key.last_used_at === null ? null : formatDateTime(key.last_used_at),
+      revoked: key.revoked_at === null ? null : formatDateTime(key.revoked_at),
+      creatorLeft: key.creator_left,
+    })) ?? [];
+  // The MCP URL users paste into an assistant: NEXT_PUBLIC_SITE_URL when set, otherwise this
+  // request's own origin, as the sitemap does.
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  const endpointUrl = mcpEndpointUrl(connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL));
 
   return (
     <>
@@ -67,6 +95,36 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
           </div>
         </dl>
       </section>
+
+      <section aria-labelledby="api-keys-title" className="mt-6 rounded-xl border border-line bg-panel">
+        <div className="border-b border-line px-6 py-4">
+          <h2 id="api-keys-title" className="text-sm font-semibold">
+            API keys
+          </h2>
+          <p className="mt-1 text-sm text-muted">
+            Let your own scripts, tools, and dashboards read this workspace through the REST API. Keys can only read,
+            and each one reads only what you choose.{" "}
+            <Link href="/docs/api" className="text-foreground underline underline-offset-2">
+              Read the API guide
+            </Link>
+          </p>
+        </div>
+        {apiKeys === null ? (
+          <p className="flex items-center gap-2 px-6 py-5 text-sm text-muted">
+            <LockIcon className="shrink-0" />
+            <span>{actionDeniedReason("manage_api_keys")}</span>
+          </p>
+        ) : (
+          <ApiKeysManager
+            workspaceSlug={workspace.slug}
+            keys={apiKeyItems}
+            hasMore={apiKeys.hasMore}
+            listLimit={API_KEYS_LIST_LIMIT}
+          />
+        )}
+      </section>
+
+      <AssistantSetup endpointUrl={endpointUrl} canManageKeys={canManageKeys} />
 
       {/* No action: inviting teammates is not built yet, and there is nothing to link to. */}
       <EmptyState

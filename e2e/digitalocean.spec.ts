@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
  * DigitalOcean (#116), end to end. The web server simulates the live providers
@@ -11,8 +11,6 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixture
  * `chromium`. The adapter's sync itself is covered by src/lib/adapters/digitalocean/index.test.ts
  * and the simulator's tests.
  */
-
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
 
 ownerTest.describe("DigitalOcean", () => {
   ownerTest("connects from the catalog with the keyboard and is labeled simulated", async ({ page }) => {

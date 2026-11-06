@@ -22,7 +22,7 @@ select ok(
 
 -- The ids the adapters already use stay valid next to the new one.
 select lives_ok(
-  $$ select array['vercel', 'github', 'resend', 'stripe', 'supabase', 'fake', 'digitalocean', 'posthog', 'gitlab']::public.provider_id[] $$,
+  $$ select array['vercel', 'github', 'resend', 'stripe', 'supabase', 'fake', 'digitalocean', 'posthog', 'polar', 'sentry', 'railway', 'gitlab']::public.provider_id[] $$,
   'provider gitlab: every existing provider id and gitlab cast to public.provider_id'
 );
 

@@ -32,7 +32,7 @@ test.describe("landing page", () => {
     }
   });
 
-  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
+  test("the header and footer show the same brand and lead to the docs and sign in", async ({ page }) => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
@@ -40,6 +40,14 @@ test.describe("landing page", () => {
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
+    // The footer wordmark is the header's image, so it reads "DevMacro" as one word (#127).
+    const [headerSrc, footerSrc] = await Promise.all(
+      [page.getByRole("banner"), page.getByRole("contentinfo")].map((region) =>
+        region.getByRole("img", { name: "DevMacro", exact: true }).getAttribute("src"),
+      ),
+    );
+    expect(headerSrc).toBeTruthy();
+    expect(footerSrc).toBe(headerSrc);
 
     await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL("/sign-in");
@@ -82,6 +90,41 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     await expect(page.getByText("Example data.", { exact: false }).first()).toBeVisible();
+  });
+
+  test("the preview names Copilot spend in AI Credits, not premium requests", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByText("AI Credits beyond the plan")).toBeVisible();
+    await expect(page.getByText(/premium requests/i)).toHaveCount(0);
+  });
+
+  test("every built integration states its spend requirement and links to its provider page", async ({ page }) => {
+    await page.goto("/");
+
+    const integrations = page.locator("#integrations");
+    const built = await integrations
+      .getByRole("region", { name: "First" })
+      .getByRole("listitem")
+      .allTextContents();
+    // "GitHub and GitHub Actions" is one connection, listed as GitHub in the spend list.
+    const builtProviders = built.map((name) => name.replace(/ and GitHub Actions$/, ""));
+    const spendProviders = await integrations.getByRole("term").allTextContents();
+    expect(spendProviders).toEqual(builtProviders);
+    await expect(integrations.getByRole("definition")).toHaveCount(spendProviders.length);
+    for (const answer of await integrations.getByRole("definition").all()) {
+      await expect(answer).toContainText("Spend:");
+      await expect(answer).toContainText("Every plan:");
+    }
+
+    // Boundary: a planned provider gets no spend line until its adapter is built.
+    const planned = await integrations.getByRole("region", { name: "Next" }).getByRole("listitem").allTextContents();
+    expect(planned.length).toBeGreaterThan(0);
+    for (const provider of planned) expect(spendProviders).not.toContain(provider);
+
+    await integrations.getByRole("term").getByRole("link", { name: "Vercel", exact: true }).click();
+    await expect(page).toHaveURL("/docs/providers/vercel");
+    await expect(page.getByRole("heading", { level: 1, name: "Vercel" })).toBeVisible();
   });
 
   test.describe("live events feed", () => {

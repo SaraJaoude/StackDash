@@ -6,7 +6,7 @@ Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for 
 
 Related pages:
 
-- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and the five provider apps.
+- [OAuth apps](oauth-apps.md): register the sign-in OAuth app and one app per provider.
 - [Jobs](jobs.md): the sync scheduler, the tick route, and the `pg_cron` registration.
 - `.env.example`: one line per variable, what it is for and where to get it.
 
@@ -121,13 +121,18 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin) | The production URL. Also the origin of every provider callback URL |
+| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the sitemap's addresses, of a public project page's canonical address and preview image, and of the links in alert messages, which a production build will not send without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
 | `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
+| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails (#152). With Resend, an address on a domain verified in the Resend account |
+| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Set this or `DEVMACRO_SMTP_URL`, never both |
+| `DEVMACRO_SMTP_URL` | Secret | Unset on the hosted app (Resend sends) | Unset | Self-hosted installs: `smtps://user:password@host:port`. Locally `smtp://127.0.0.1:55425`, the mail catcher |
+| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels (#153) reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
+| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes (#149). Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
@@ -147,6 +152,13 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `DIGITALOCEAN_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `POSTHOG_OAUTH_CLIENT_ID` | Server only | Yes, exactly `<SITE_URL>/oauth/posthog/client-metadata` | Optional | [OAuth apps, PostHog client ID metadata document](oauth-apps.md#posthog-client-id-metadata-document) |
 | `POSTHOG_OAUTH_PRIVATE_KEY` | Secret | Yes | Optional | Same. Paste the PEM; `\n` escapes are accepted |
+| `POLAR_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Polar OAuth client](oauth-apps.md#polar-oauth-client) |
+| `POLAR_CLIENT_SECRET` | Secret | Yes | Optional | Same |
+| `SENTRY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Sentry integration](oauth-apps.md#sentry-integration) |
+| `SENTRY_CLIENT_SECRET` | Secret | Yes | Optional | Same. Also signs the token refresh |
+| `SENTRY_INTEGRATION_SLUG` | Server only | Yes | Optional | Same |
+| `RAILWAY_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, Railway OAuth app](oauth-apps.md#railway-oauth-app) |
+| `RAILWAY_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `GITLAB_CLIENT_ID` | Server only | Yes | Optional | [OAuth apps, GitLab OAuth application](oauth-apps.md#gitlab-oauth-application) |
 | `GITLAB_CLIENT_SECRET` | Secret | Yes | Optional | Same |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Test only | **Must be unset** | **Unset** | Only local development and end-to-end runs set it to `1` |
@@ -218,7 +230,7 @@ Run every check against the production URL and write down the deployment URL you
 ## What stays Eddie's
 
 - Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and the five provider apps ([OAuth apps](oauth-apps.md)), and entering their secrets.
+- Registering the sign-in OAuth app and one app per provider ([OAuth apps](oauth-apps.md)), and entering their secrets.
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.

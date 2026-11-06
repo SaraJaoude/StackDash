@@ -34,6 +34,7 @@ const MANUAL_REVOKE_STEPS: Partial<Record<ProviderId, string>> = {
   gitlab:
     "In GitLab, select your avatar, then Edit profile, then Access, then Applications, and under Authorized applications choose Revoke next to DevMacro.",
   resend: "In your Resend team settings, revoke DevMacro's access.",
+  sentry: "In Sentry, open Settings, then Integrations, choose DevMacro, and choose Uninstall.",
 };
 
 /** The steps that remove DevMacro's access at the provider by hand. */
