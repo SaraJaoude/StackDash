@@ -335,7 +335,8 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
 
   // The dashboard's own projections (#167, `spendToCount`) take estimated spend only for an account
   // with no verified spend in that currency, so a provider's projection is never extrapolated as
-  // spend so far while its account also reports what it spent.
+  // spend so far while its account also reports what it spent. The real adapters hold it too:
+  // PostHog's `billingMetrics` sends its projection only beside the current total.
   it("reports verified spend beside every declared projection, in the same account and currency", () => {
     const declared = REAL[id].projectedSpend ?? [];
     for (const { result } of results) {

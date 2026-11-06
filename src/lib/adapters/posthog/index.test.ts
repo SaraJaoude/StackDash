@@ -584,6 +584,20 @@ describe("billingMetrics", () => {
     expect(spend).not.toHaveProperty("resetsAt");
   });
 
+  it("sends PostHog's projection beside the current total", () => {
+    const keys = metricsFor({ current_total_amount_usd: "1.00", projected_total_amount_usd: "3.00" }).map((metric) => metric.metricKey);
+    expect(keys).toEqual(["posthog.spend.current", "posthog.spend.projected"]);
+  });
+
+  // With no verified spend beside it, the dashboard's own projections (#167) would take the
+  // projection as spend so far and project it forward again.
+  it("sends no projection when PostHog reports no current total", () => {
+    for (const current of [{}, { current_total_amount_usd: null }]) {
+      const billing = { ...current, projected_total_amount_usd: "3.00", projected_total_amount_usd_after_discount: "2.40" };
+      expect(metricsFor(billing)).toEqual([]);
+    }
+  });
+
   it("reads a billing period whatever its interval says", () => {
     const [spend] = metricsFor({
       current_total_amount_usd: "1.00",
