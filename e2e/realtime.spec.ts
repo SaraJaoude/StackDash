@@ -417,8 +417,7 @@ ownerTest.describe("arriving data", () => {
       // Focus shows when data last arrived; Escape hides it.
       await indicator.focus();
       await expect(page.getByRole("tooltip")).toContainText("Data last arrived");
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
       await page.keyboard.press("Escape");
       await expect(page.getByRole("tooltip")).toBeHidden();
     } finally {

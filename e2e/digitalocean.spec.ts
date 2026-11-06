@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -29,14 +30,14 @@ ownerTest.describe("DigitalOcean", () => {
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connect DigitalOcean");
       const permissions = page.getByRole("region", { name: "Permissions DigitalOcean will ask you to grant" });
       await expect(permissions.getByText(/^Simulated\. DevMacro makes up example DigitalOcean data/)).toBeVisible();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       await page.getByRole("button", { name: "Continue to DigitalOcean" }).focus();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(CONNECTION_URL);
       await expect(page.getByRole("region", { name: "Status" }).getByText("Simulated", { exact: true })).toBeVisible();
       await expect(page.getByText("Example team").first()).toBeVisible();
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
