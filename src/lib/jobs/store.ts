@@ -132,7 +132,11 @@ export interface JobStore {
   listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
   /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
   getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
-  /** Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive. */
+  /**
+   * Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive, oldest
+   * day first, then by id: findAnomalies keeps the first of two rows of one day it cannot tell
+   * apart. A read stopped at its bound leaves out the oldest days, never the newest (#219).
+   */
   listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]>;
 
   /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
