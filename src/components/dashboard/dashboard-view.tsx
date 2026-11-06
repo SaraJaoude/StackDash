@@ -10,6 +10,7 @@ import {
   type MarkerCategory,
   type TrendMarker,
 } from "@/lib/dashboard/markers";
+import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 import { amountValues } from "@/lib/realtime/arrivals";
@@ -19,6 +20,7 @@ import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
 import { TrendChart } from "./trend-chart";
 import { MarkerShape } from "./trend-markers";
+import { SpendProjectionNote } from "./value-meta";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   const titleId = useId();
@@ -42,18 +44,45 @@ const GROUP_NOUNS: Record<MoneyGroup, string> = { spend: "Spend", revenue: "Reve
  * The columns follow the card list's own width rather than the viewport, because the same list
  * fills the whole row on its own and shares it when revenue sits beside spend.
  */
-function CurrencyCards({ amounts, group, now }: { amounts: readonly CurrencyAmounts[]; group: MoneyGroup; now: Date }) {
+function CurrencyCards({
+  amounts,
+  group,
+  now,
+  projections = [],
+}: {
+  amounts: readonly CurrencyAmounts[];
+  group: MoneyGroup;
+  now: Date;
+  /** Spend projections to the end of the period (#167), matched by currency. */
+  projections?: readonly SpendProjection[];
+}) {
   return (
     <ul className="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
       {amounts.map((entry) => (
-        <CurrencyCard key={entry.currency} amounts={entry} group={group} now={now} />
+        <CurrencyCard
+          key={entry.currency}
+          amounts={entry}
+          group={group}
+          now={now}
+          projection={projections.find((projection) => projection.currency === entry.currency)}
+        />
       ))}
     </ul>
   );
 }
 
 /** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
-function CurrencyCard({ amounts, group, now }: { amounts: CurrencyAmounts; group: MoneyGroup; now: Date }) {
+function CurrencyCard({
+  amounts,
+  group,
+  now,
+  projection,
+}: {
+  amounts: CurrencyAmounts;
+  group: MoneyGroup;
+  now: Date;
+  projection: SpendProjection | undefined;
+}) {
   const titleId = useId();
   const noun = GROUP_NOUNS[group];
   const title = `${noun} in ${amounts.currency}`;
@@ -77,6 +106,7 @@ function CurrencyCard({ amounts, group, now }: { amounts: CurrencyAmounts; group
               headline
             />
           </div>
+          <SpendProjectionNote projection={projection} partsNote="Each provider card shows its own projection or the reason there is none." />
         </ArrivalCard>
       </section>
     </li>
@@ -163,6 +193,7 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
 
 export function DashboardView({
   view,
+  projections,
   now,
   dashboardPath,
   scope,
@@ -172,6 +203,8 @@ export function DashboardView({
   trends,
 }: {
   view: View;
+  /** Spend and quota projections to the end of the period (#167). */
+  projections: DashboardProjections;
   now: Date;
   dashboardPath: string;
   scope: ScopeFilters;
@@ -207,7 +240,7 @@ export function DashboardView({
             </p>
           ) : (
             <div className="@container">
-              <CurrencyCards amounts={view.totals} group="spend" now={now} />
+              <CurrencyCards amounts={view.totals} group="spend" now={now} projections={projections.totals} />
             </div>
           )}
         </Section>
@@ -229,7 +262,13 @@ export function DashboardView({
         ) : (
           <ul className="grid gap-4 lg:grid-cols-2">
             {view.byProvider.map((summary) => (
-              <ProviderCard key={summary.connectionId} summary={summary} now={now} />
+              <ProviderCard
+                key={summary.connectionId}
+                summary={summary}
+                spendProjections={projections.byConnection.get(summary.connectionId) ?? []}
+                quotaProjections={projections.quotas}
+                now={now}
+              />
             ))}
           </ul>
         )}

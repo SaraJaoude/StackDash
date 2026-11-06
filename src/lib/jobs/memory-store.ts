@@ -156,14 +156,13 @@ export class MemoryJobStore implements JobStore {
   }
 
   async markSimulatedSyncsDue(at: Date): Promise<number> {
-    let moved = 0;
+    let due = 0;
     for (const row of this.connections) {
       if (row.status !== "active" || !isSimulatedConnection(row)) continue;
-      if (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= at.getTime()) continue;
       row.next_sync_at = at.toISOString();
-      moved += 1;
+      due += 1;
     }
-    return moved;
+    return due;
   }
 
   async enqueueSync(key: ConnectionKey): Promise<boolean> {
@@ -468,9 +467,10 @@ export class MemoryJobStore implements JobStore {
       .map(({ id, provider }) => ({ id, provider }));
   }
 
-  async listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]> {
+  async listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]> {
     return this.snapshots
-      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date === date)
+      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date >= fromDate && row.snapshot_date <= toDate)
+      .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
       .map((row) => this.#toSnapshotInput(row));
   }
 

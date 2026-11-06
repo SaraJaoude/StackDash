@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-import { PlatformLogo, ServerIcon, ShieldIcon } from "@/components/icons";
+import { GaugeIcon, PlatformLogo, ServerIcon, ShieldIcon } from "@/components/icons";
 import {
   freshnessLabel,
   type ConnectionStatus,
@@ -8,6 +8,7 @@ import {
   type ProviderId,
   type ValueSource,
 } from "@/lib/dashboard/aggregate";
+import { spendProjectionText, type ProjectionText, type SpendProjection } from "@/lib/dashboard/projection";
 import { formatDateTime } from "@/lib/format";
 import { providerName, providerPlatform } from "@/lib/providers";
 
@@ -87,12 +88,50 @@ export function ProvenanceBadge({ provenance }: { provenance: Provenance }) {
       </span>
     );
   }
+  return <EstimateBadge label="Estimated" />;
+}
+
+/** The dashed "approximately" badge, for an estimated value or a projection. */
+function EstimateBadge({ label }: { label: string }) {
   return (
     <span className="inline-flex items-center gap-1 rounded-full border border-dashed border-warning/60 px-2 py-0.5 text-xs font-medium text-warning">
       <EstimateIcon />
-      Estimated
+      {label}
     </span>
   );
+}
+
+/**
+ * A projection to the end of a period (#167): the figure, labeled "Estimate by DevMacro" in words
+ * with the estimate icon, and how it was calculated in text. `estimate` is false when nothing was
+ * projected (why is in the text) or the figure is an observed reading. `flag` is a short status in
+ * words, such as "Projected to cross", shown as a badge with its own icon.
+ */
+export function ProjectionNote({ text, estimate, flag }: { text: ProjectionText; estimate: boolean; flag?: string }) {
+  return (
+    <div className="mt-3 rounded-lg border border-dashed border-line-strong p-3">
+      <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+        {flag === undefined ? null : (
+          <span className="inline-flex items-center gap-1 rounded-full border border-warning px-2 py-0.5 text-xs font-semibold text-warning">
+            <GaugeIcon width={14} height={14} />
+            {flag}
+          </span>
+        )}
+        <span>{text.headline}</span>
+        {estimate ? <EstimateBadge label="Estimate by DevMacro" /> : null}
+      </p>
+      <p className="mt-1 text-xs leading-5 text-muted">{text.explanation}</p>
+    </div>
+  );
+}
+
+/**
+ * The spend projection for one currency, or nothing when there is no current spend in it.
+ * `partsNote` says where the amounts of a total are shown one by one (see `spendProjectionText`).
+ */
+export function SpendProjectionNote({ projection, partsNote }: { projection: SpendProjection | undefined; partsNote?: string }) {
+  if (projection === undefined) return null;
+  return <ProjectionNote text={spendProjectionText(projection, partsNote)} estimate={projection.projection.status === "projected"} />;
 }
 
 /** Where a value came from: the provider for verified values, the price list for estimates. */
