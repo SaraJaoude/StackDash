@@ -321,7 +321,7 @@ describe("daily summary (#64)", () => {
 
   describe("spend the dashboard counts for the current period, and nothing else (#215, #176)", () => {
     const cents = (minor: number): Decimal => ({ coefficient: BigInt(minor), scale: 2 });
-    const OCTOBER_INVOICE_MINOR = 12_597;
+    const OCTOBER_INVOICE_MINOR = 12_710;
 
     /**
      * What one DigitalOcean sync at `at` stores, through the adapter's own metric builders and the
@@ -365,9 +365,9 @@ describe("daily summary (#64)", () => {
     }
 
     it("counts DigitalOcean's month to date once, without its last invoice or yesterday's SKU estimates", async () => {
-      // The demo seed's 2026-11-05: one sync late each day, $21.04 so far in November, and
-      // October's $125.97 invoice read again on every day. The summary said $147.01 (verified).
-      const usage = [421, 842, 1262, 1683, 2104];
+      // The demo seed's 2026-11-05: one sync late each day, $19.91 so far in November, and
+      // October's $127.10 invoice read again on every day. The summary said $147.01 (verified).
+      const usage = [395, 791, 1175, 1583, 1991];
       const body = await digitaloceanSummary("2026-11-05", (id) =>
         usage.flatMap((usageMinor, index) =>
           digitaloceanRows(id, `2026-11-0${index + 1}T23:59:50.000Z`, {
@@ -378,9 +378,9 @@ describe("daily summary (#64)", () => {
         ),
       );
       expect(body).toEqual([
-        "DigitalOcean: Spending $21.04 (verified)",
-        // $21.04 plus $4.2075 a day (four days from $4.21) for the 25 days left.
-        "DigitalOcean: Spending on track for $126.23 by 2026-11-30 (estimate by DevMacro)",
+        "DigitalOcean: Spending $19.91 (verified)",
+        // $19.91 plus $3.99 a day (four days from $3.95) for the 25 days left.
+        "DigitalOcean: Spending on track for $119.66 by 2026-11-30 (estimate by DevMacro)",
       ]);
     });
 
