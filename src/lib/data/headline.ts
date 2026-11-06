@@ -1,12 +1,40 @@
 import "server-only";
 
+import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import type { DateRange, EventCount, HeadlineEvents, HeadlineEventTypes, HeadlineWindows } from "@/lib/dashboard/headline";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { createClient } from "@/lib/supabase/server";
 
-import { getWorkspaceScope } from "./dashboard";
+import { getWorkspaceScope, loadSnapshots } from "./dashboard";
 
 const DAY_MS = 86_400_000;
+
+/**
+ * The snapshot rows the headline's money and daily signup totals read, narrowed to `scope`: the
+ * money kinds and the declared daily totals, from the day before the previous window (that day's
+ * reading is where the window's first amount starts) to today. Read on their own rather than
+ * from the trend history, so the allowance and usage rows that make up most of a busy workspace's
+ * history do not count toward the read cap. The cap still applies (`loadSnapshots`, 10,000 rows
+ * each, newest first): past it the oldest days are left out, so the previous window is named
+ * unavailable and the figures lose their comparison, with a `dashboard.snapshots_truncated`
+ * warning. Call only after `requireWorkspace` has confirmed membership.
+ */
+export async function getHeadlineSnapshots(
+  workspaceId: string,
+  scope: ScopeFilters,
+  windows: HeadlineWindows,
+  eventTypes: HeadlineEventTypes,
+): Promise<SnapshotInput[]> {
+  const since = new Date(Date.parse(`${windows.previous.start}T00:00:00.000Z`) - DAY_MS).toISOString().slice(0, 10);
+  const [workspaceScope, money, dailyTotals] = await Promise.all([
+    getWorkspaceScope(workspaceId),
+    loadSnapshots(workspaceId, since, "headline money", { kinds: ["revenue", "verified_spend", "estimated_spend"] }),
+    eventTypes.signupDailyTotals.length === 0
+      ? []
+      : loadSnapshots(workspaceId, since, "headline signups", { kinds: ["usage"], metricKeys: eventTypes.signupDailyTotals }),
+  ]);
+  return applyScope({ ...workspaceScope, snapshots: [...money, ...dailyTotals] }, scope).snapshots;
+}
 
 /**
  * Signup and deploy counts per connection and event type for both headline windows, and each

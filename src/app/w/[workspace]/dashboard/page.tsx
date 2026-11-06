@@ -30,7 +30,7 @@ import {
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
-import { getHeadlineEvents } from "@/lib/data/headline";
+import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
 import { getTrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
@@ -125,14 +125,16 @@ async function DashboardContent({
   const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
-  const [workspaceScope, data, trendData, alertsSummary, headlineEvents, recentAnomalies] = await Promise.all([
-    getWorkspaceScope(workspace.id),
-    getDashboardData(workspace.id, snapshotWindowStart(now), scope),
-    getTrendData(workspace.id, now, scope),
-    getUnacknowledgedSummary(workspace.id),
-    getHeadlineEvents(workspace.id, scope, windows, eventTypes),
-    getRecentAnomalies(workspace.id, anomaliesSince),
-  ]);
+  const [workspaceScope, data, trendData, alertsSummary, headlineSnapshots, headlineEvents, recentAnomalies] =
+    await Promise.all([
+      getWorkspaceScope(workspace.id),
+      getDashboardData(workspace.id, snapshotWindowStart(now), scope),
+      getTrendData(workspace.id, now, scope),
+      getUnacknowledgedSummary(workspace.id),
+      getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
+      getHeadlineEvents(workspace.id, scope, windows, eventTypes),
+      getRecentAnomalies(workspace.id, anomaliesSince),
+    ]);
   const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
@@ -166,9 +168,8 @@ async function DashboardContent({
         filterParams={viewParams(view)}
         headline={
           <HeadlineStrip
-            // The trend history reaches 13 months back, so it holds both windows and the readings before them.
             strip={buildHeadline({
-              snapshots: trendData.snapshots,
+              snapshots: headlineSnapshots,
               connections: trendData.connections,
               events: headlineEvents,
               eventTypes,

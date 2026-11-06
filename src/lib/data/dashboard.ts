@@ -41,20 +41,28 @@ export function snapshotWindowStart(now: Date): string {
   return new Date(now.getTime() - SNAPSHOT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
 }
 
+/** Narrows a snapshot read to some kinds and, when `metricKeys` is given, to those metrics of them. */
+export type SnapshotSelection = Readonly<{ kinds: readonly SnapshotInput["kind"][]; metricKeys?: readonly string[] }>;
+
 /**
  * The workspace's snapshots dated `sinceDate` or later, newest first, as one paged query on the
- * `(workspace_id, snapshot_date desc)` index. `purpose` names the caller in the truncation warning.
+ * `(workspace_id, snapshot_date desc)` index, narrowed to `selection` when one is given. `purpose`
+ * names the caller in the truncation warning.
  */
-export async function loadSnapshots(workspaceId: string, sinceDate: string, purpose: string): Promise<SnapshotInput[]> {
+export async function loadSnapshots(
+  workspaceId: string,
+  sinceDate: string,
+  purpose: string,
+  selection?: SnapshotSelection,
+): Promise<SnapshotInput[]> {
   const supabase = await createClient();
   const rows: SnapshotInput[] = [];
   for (let page = 0; page < SNAPSHOT_MAX_PAGES; page += 1) {
     const from = page * SNAPSHOT_PAGE_SIZE;
-    const { data, error } = await supabase
-      .from("usage_snapshots")
-      .select(SNAPSHOT_COLUMNS)
-      .eq("workspace_id", workspaceId)
-      .gte("snapshot_date", sinceDate)
+    let query = supabase.from("usage_snapshots").select(SNAPSHOT_COLUMNS).eq("workspace_id", workspaceId).gte("snapshot_date", sinceDate);
+    if (selection !== undefined) query = query.in("kind", [...selection.kinds]);
+    if (selection?.metricKeys !== undefined) query = query.in("metric_key", [...selection.metricKeys]);
+    const { data, error } = await query
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })
       .range(from, from + SNAPSHOT_PAGE_SIZE - 1);
