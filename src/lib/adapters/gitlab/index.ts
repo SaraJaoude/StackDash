@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError } from "../errors";
+import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError, readOAuthErrorCode } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
@@ -17,7 +17,6 @@ import {
   MergeRequestsSchema,
   NamespaceSchema,
   NamespacesSchema,
-  OAuthErrorSchema,
   PipelinesSchema,
   ProjectsSchema,
   ReleasesSchema,
@@ -361,18 +360,6 @@ function bearer(credential: OAuthCredential): Record<string, string> {
 
 function getJson<T>(ctx: OAuthContext, credential: OAuthCredential, url: URL, schema: z.ZodType<T>): Promise<T> {
   return fetchJson(ctx, url, { method: "GET", headers: bearer(credential) }, schema);
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**

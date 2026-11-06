@@ -30,11 +30,6 @@ export const TokenResponseSchema = z.object({
   scoped_organizations: z.array(z.string()).nullable().optional(),
 });
 
-// RFC 6749 section 5.2 error body from the token endpoint.
-export const OAuthErrorSchema = z.object({
-  error: z.string().min(1),
-});
-
 // `GET /api/organizations/` (PaginatedOrganizationList). Only the id and name are kept.
 export const OrganizationListSchema = z.object({
   count: count.optional(),

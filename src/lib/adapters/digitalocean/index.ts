@@ -2,7 +2,7 @@ import { z } from "zod";
 import { formatMoney } from "@/lib/format";
 import { addDecimals, InvalidDecimalError, toMinorUnits, type Decimal } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError } from "../errors";
+import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError, readOAuthErrorCode } from "../errors";
 import type { ActivityEvent, EventSeverity, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
@@ -25,7 +25,6 @@ import {
   InsightsSchema,
   InvoiceItemsSchema,
   InvoicesSchema,
-  OAuthErrorSchema,
   TokenResponseSchema,
   type Action,
   type App,
@@ -250,18 +249,6 @@ function parseScopes(scope: string | undefined, fallback: readonly string[]): re
   // RFC 6749 section 5.1: an omitted scope means the requested (or previously granted) scope.
   if (scope === undefined) return fallback;
   return scope.split(" ").filter((value) => value.length > 0);
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**
