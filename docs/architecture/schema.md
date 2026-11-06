@@ -29,6 +29,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120700_count_activity_events.sql` | `count_activity_events` (security invoker): activity event counts per connection and type in a half open window, for the dashboard headline (#173) |
 | `20261105120800_provider_gitlab.sql` | `provider_id` gains `gitlab` |
 | `20261105150000_public_share_surfaces.sql` | `share_surface`, `public_rate_limit_counters` and `bump_public_rate_limit`, `published_metric_views` and `record_published_metric_view`, and their retention purges |
+| `20261106090000_activity_event_daily_counts.sql` | `activity_event_daily_counts`, the event count rollup kept by triggers on `activity_events`, and `rebuild_activity_event_daily_counts` with its backfill; `activity_event_counts` reads the rollup (#201) |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -48,6 +49,7 @@ erDiagram
   workspaces ||--o{ alert_rules : "owns"
   workspaces ||--o{ anomaly_mutes : "owns"
   workspaces ||--o{ activity_events : "owns"
+  workspaces ||--o{ activity_event_daily_counts : "event counts per UTC day"
   workspaces ||--o{ sync_jobs : "owns (null for instance jobs)"
   profiles }o--o| workspaces : "last_workspace_id"
   connections ||--o| connection_credentials : "secret (service role only)"
@@ -130,6 +132,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `anomaly_mutes` | viewer | admin adds and removes; never updated |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
+| `activity_event_daily_counts` | viewer | none, not even the service role: only the `activity_events` triggers and `rebuild_activity_event_daily_counts` (service role) write it |
 | `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
 | `published_metric_views` | viewer | none (service role function) |
 | `public_rate_limit_counters` | none | none (service role function) |
@@ -203,7 +206,7 @@ Arriving data is marked so a refresh is visible (#171). `src/components/app/arri
 
 ## Trend event markers (#168)
 
-The dashboard trend charts mark how many deployments, payments, signups, star events, and triggered alerts happened in each UTC day or month. PostgREST cannot group rows, so `public.activity_event_counts(workspace_id, since, bucket, type_ids, providers, account_ids)` counts them: one row per UTC day or UTC month (`bucket` is `day` or `month`), provider, and type id with events, from the first UTC instant of `since`, with `bucket_start` the bucket's first day. Grouping by month in the database keeps the monthly chart's result to one PostgREST response. It is `security definer` and checks membership once before reading any row, so a non-member counts nothing; as `security invoker` the `activity_events` select policy ran `has_workspace_role` once per scanned row, which `explain (analyze, buffers)` on #191 showed was most of the cost. Every call is planned for its own window (`plan_cache_mode = force_custom_plan`), because one generic plan cannot fit both 30 days and 13 months. Only `authenticated` may call it: the migration revokes the execute that Supabase's default privileges give `anon` and `service_role` on every new function, and the pgTAP shape check pins both. The provider and account filters behave like the timeline's: an empty provider list or a null account list means any, and otherwise events with no provider or no account (DevMacro's own events) are left out, so a marker counts exactly what its timeline link lists. `src/lib/dashboard/markers.ts` lists which type ids form each category and records why similar events stay out. Its unit test fails if an id is not declared by an adapter, and it lists the adapters by provider id, so a new provider without an entry fails the typecheck until someone decides which of its events are markers.
+The dashboard trend charts mark how many deployments, payments, signups, star events, and triggered alerts happened in each UTC day or month. PostgREST cannot group rows, so `public.activity_event_counts(workspace_id, since, bucket, type_ids, providers, account_ids)` counts them: one row per UTC day or UTC month (`bucket` is `day` or `month`), provider, and type id with events, from the first UTC instant of `since`, with `bucket_start` the bucket's first day. Grouping by month in the database keeps the monthly chart's result to one PostgREST response. It is `security definer` and checks membership once before reading any row, so a non-member counts nothing; as `security invoker` the `activity_events` select policy ran `has_workspace_role` once per scanned row, which `explain (analyze, buffers)` on #191 showed was most of the cost. Since #201 it sums `activity_event_daily_counts` instead of reading events: one row per workspace, UTC day, type id, provider, and external account, kept equal to `activity_events` in the same transaction by statement level triggers on insert, update, delete, and truncate. Every writer, the retention purge, and the foreign key actions (cascades from workspaces and connections, `set null` from external accounts) therefore keep it current without knowing it exists, and an insert skipped by a dedupe conflict counts nothing. `rebuild_activity_event_daily_counts(workspace_id)` (service role) recounts one workspace from its events and can run again at any time; the migration runs it for every workspace as the backfill. Over 2.3 million synthetic events in one workspace, 13 months went from 763 ms to 1.7 ms and 30 days from 55 ms to 0.7 ms, as a member, with `explain (analyze, buffers)`; `supabase/tests/database/20_activity_event_daily_counts.test.sql` proves the rollup equals the raw events after each kind of change. Only `authenticated` may call it: the migration revokes the execute that Supabase's default privileges give `anon` and `service_role` on every new function, and the pgTAP shape check pins both. The provider and account filters behave like the timeline's: an empty provider list or a null account list means any, and otherwise events with no provider or no account (DevMacro's own events) are left out, so a marker counts exactly what its timeline link lists. `src/lib/dashboard/markers.ts` lists which type ids form each category and records why similar events stay out. Its unit test fails if an id is not declared by an adapter, and it lists the adapters by provider id, so a new provider without an entry fails the typecheck until someone decides which of its events are markers.
 
 ## Public REST API (#162)
 
@@ -235,6 +238,7 @@ The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticate
 |---|---|---|
 | `usage_snapshots` | 13 months by `snapshot_date` | `usage_snapshots_snapshot_date_idx` |
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
+| `activity_event_daily_counts` | as long as the events it counts: the `activity_events` delete trigger removes a day's row when the purge deletes the day's last event | not applicable (keyed by the trigger) |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
 | `anomaly_mutes` | until a person unmutes the metric (cascade on workspace delete) | not applicable |
