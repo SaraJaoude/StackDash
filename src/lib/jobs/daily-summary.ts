@@ -220,7 +220,7 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
   });
   if (event === null) return { status: "succeeded" };
   const anomalies = anomalySettings.enabled
-    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes })
+    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes, projectedSpend: declaredProjectedSpend })
     : [];
   await deps.store.insertEvents([event, ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly))]);
   if (anomalies.length > 0) deps.log.info("anomalies.detected", { workspaceId, date, count: anomalies.length });

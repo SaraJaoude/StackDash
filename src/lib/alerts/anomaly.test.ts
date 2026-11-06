@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { TrendMeasure } from "@/lib/dashboard/trends";
 
 import {
@@ -28,6 +29,11 @@ const DATE = "2026-10-20";
 /** Runs detection on the last day of `series`, with every earlier day (up to 14) as history. */
 function lastDay(series: readonly (number | null)[], measure: TrendMeasure = USD) {
   return detectSpike(series.slice(-15, -1), series.at(-1) ?? null, measure);
+}
+
+/** Detection with the adapters' declared projections, as the daily summary job runs it. */
+function anomaliesFor(input: Omit<Parameters<typeof findAnomalies>[0], "projectedSpend">) {
+  return findAnomalies({ ...input, projectedSpend: declaredProjectedSpend });
 }
 
 /** Which days of `series` fire, checking each day against the 14 before it. */
@@ -162,7 +168,7 @@ describe("findAnomalies", () => {
   const spikeOnDate = (date: string) => (date === DATE ? 40_000 : 10_000);
 
   it("turns a month to date total into daily amounts and names the spike", () => {
-    const anomalies = findAnomalies({ date: DATE, rows: monthToDate(spikeOnDate), connections: [VERCEL], mutes: [] });
+    const anomalies = anomaliesFor({ date: DATE, rows: monthToDate(spikeOnDate), connections: [VERCEL], mutes: [] });
     expect(anomalies).toEqual([
       expect.objectContaining({
         date: DATE,
@@ -181,14 +187,14 @@ describe("findAnomalies", () => {
 
   it("finds nothing on a normal day after the spike", () => {
     const rows = monthToDate((date) => (date === "2026-10-18" ? 40_000 : 10_000));
-    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([]);
   });
 
   it("skips the first day of a period, where once a period charges land", () => {
     const rows = monthToDate(() => 10_000).map((snapshot) =>
       snapshot.snapshot_date === "2026-10-01" ? { ...snapshot, amount_minor: 90_000 } : snapshot,
     );
-    expect(findAnomalies({ date: "2026-10-01", rows, connections: [VERCEL], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: "2026-10-01", rows, connections: [VERCEL], mutes: [] })).toEqual([]);
   });
 
   it("reads a running total whose period ends tomorrow, one day long on the 1st, as month to date", () => {
@@ -196,7 +202,7 @@ describe("findAnomalies", () => {
       ...snapshot,
       period_end: `${addUtcDays(snapshot.snapshot_date, 1)}T00:00:00.000Z`,
     }));
-    const [anomaly] = findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] });
+    const [anomaly] = anomaliesFor({ date: DATE, rows, connections: [VERCEL], mutes: [] });
     expect(anomaly).toMatchObject({ value: 40_000, usual: 10_000, accrual: "period_to_date" });
   });
 
@@ -204,7 +210,7 @@ describe("findAnomalies", () => {
     const rows = monthToDate(spikeOnDate).map((snapshot) =>
       snapshot.snapshot_date === addUtcDays(DATE, -1) ? { ...snapshot, amount_minor: 0 } : snapshot,
     );
-    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([]);
   });
 
   /** Resend emails a day, one row per day for the 15 days to `last`, each stored the day after its own day. */
@@ -229,21 +235,33 @@ describe("findAnomalies", () => {
   it("checks a one day period on the day before the summarized day, dated by its own day", () => {
     // The summary for DATE + 1 runs before DATE + 1's row exists; DATE's row was stored on DATE + 1.
     const rows = emailsPerDay(DATE, (day) => (day === DATE ? 4000 : 1000));
-    const anomalies = findAnomalies({ date: addUtcDays(DATE, 1), rows, connections: [RESEND], mutes: [] });
+    const anomalies = anomaliesFor({ date: addUtcDays(DATE, 1), rows, connections: [RESEND], mutes: [] });
     expect(anomalies).toEqual([expect.objectContaining({ date: DATE, value: 4000, usual: 1000, accrual: "daily", measure: EMAILS })]);
   });
 
   it("leaves a one day spike on the summarized day itself to the next day's summary", () => {
     const rows = emailsPerDay(DATE, (day) => (day === DATE ? 4000 : 1000));
     // The summary for DATE checks DATE - 1, an ordinary day, even though DATE's row is in the input.
-    expect(findAnomalies({ date: DATE, rows, connections: [RESEND], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: DATE, rows, connections: [RESEND], mutes: [] })).toEqual([]);
   });
 
   it("keeps verified and estimated values apart and labels which one fired", () => {
     const estimated = monthToDate(spikeOnDate, { kind: "estimated_spend", provenance_source: "derived", metric_key: "vercel.spend.estimate" });
     const verified = monthToDate(() => 10_000);
-    const anomalies = findAnomalies({ date: DATE, rows: [...verified, ...estimated], connections: [VERCEL], mutes: [] });
+    const anomalies = anomaliesFor({ date: DATE, rows: [...verified, ...estimated], connections: [VERCEL], mutes: [] });
     expect(anomalies.map((anomaly) => [anomaly.metricKey, anomaly.source])).toEqual([["vercel.spend.estimate", "estimated"]]);
+  });
+
+  // PostHog's projected spend, Railway's estimated bill, and the Example provider's month estimate.
+  it.each(declaredProjectedSpend)("never fires %s, a declared projection, alone or beside verified spend", (metricKey) => {
+    // A re-estimate that jumps fourfold on the day, read as a running total over the month.
+    const projection = monthToDate(spikeOnDate, { kind: "estimated_spend", provenance_source: "derived", metric_key: metricKey });
+    expect(anomaliesFor({ date: DATE, rows: projection, connections: [VERCEL], mutes: [] })).toEqual([]);
+    const verified = monthToDate(() => 10_000);
+    expect(anomaliesFor({ date: DATE, rows: [...verified, ...projection], connections: [VERCEL], mutes: [] })).toEqual([]);
+    // The same rows under an undeclared key fire, so the declaration is what keeps them quiet.
+    const undeclared = findAnomalies({ date: DATE, rows: projection, connections: [VERCEL], mutes: [], projectedSpend: [] });
+    expect(undeclared.map((anomaly) => [anomaly.metricKey, anomaly.source])).toEqual([[metricKey, "estimated"]]);
   });
 
   it("never fires a breakdown beside its total or its parent", () => {
@@ -254,7 +272,7 @@ describe("findAnomalies", () => {
       ...monthToDate(spikeOnDate, { metric_key: "github.spend.actions.actions_linux", connection_id: "gh" }),
     ];
     const github: AnomalyConnection = { id: "gh", provider: "github" };
-    const keys = findAnomalies({ date: DATE, rows, connections: [VERCEL, github], mutes: [] }).map((anomaly) => anomaly.metricKey);
+    const keys = anomaliesFor({ date: DATE, rows, connections: [VERCEL, github], mutes: [] }).map((anomaly) => anomaly.metricKey);
     expect(keys).toEqual(["github.spend.actions", "vercel.spend.total"]);
   });
 
@@ -273,11 +291,11 @@ describe("findAnomalies", () => {
         period_end: `${addUtcDays(snapshot.snapshot_date, 1)}T00:00:00.000Z`,
       }),
     );
-    const anomalies = findAnomalies({ date: DATE, rows: [...month, ...days], connections: [github], mutes: [] });
+    const anomalies = anomaliesFor({ date: DATE, rows: [...month, ...days], connections: [github], mutes: [] });
     expect(anomalies.map((anomaly) => anomaly.metricKey)).toEqual(["github.spend.actions"]);
     // Without the month, the day rows are the only source and fire on their own, one day period
     // series checked by the next day's summary.
-    expect(findAnomalies({ date: addUtcDays(DATE, 1), rows: days, connections: [github], mutes: [] })).toEqual([
+    expect(anomaliesFor({ date: addUtcDays(DATE, 1), rows: days, connections: [github], mutes: [] })).toEqual([
       expect.objectContaining({ date: DATE, metricKey: "github.daily_spend.actions" }),
     ]);
   });
@@ -286,7 +304,7 @@ describe("findAnomalies", () => {
     // Each reading's window ends when it was read, so a later one spans every earlier one; the
     // sub-window rule runs per snapshot date and must not drop the history.
     const rows = monthToDate(spikeOnDate).map((snapshot) => ({ ...snapshot, period_end: snapshot.retrieved_at }));
-    expect(findAnomalies({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([
+    expect(anomaliesFor({ date: DATE, rows, connections: [VERCEL], mutes: [] })).toEqual([
       expect.objectContaining({ metricKey: "vercel.spend.total", value: 40_000, usual: 10_000 }),
     ]);
   });
@@ -295,9 +313,9 @@ describe("findAnomalies", () => {
     const allowance = monthToDate(spikeOnDate, { kind: "included_allowance", metric_key: "vercel.allowance.included" });
     const point = monthToDate(spikeOnDate, { metric_key: "vercel.spend.point", period_start: null, period_end: null, point_at: `${DATE}T12:00:00.000Z` });
     const stranger = monthToDate(spikeOnDate, { connection_id: "unknown", metric_key: "vercel.spend.other" });
-    expect(findAnomalies({ date: DATE, rows: [...allowance, ...point, ...stranger], connections: [VERCEL], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: DATE, rows: [...allowance, ...point, ...stranger], connections: [VERCEL], mutes: [] })).toEqual([]);
     expect(
-      findAnomalies({ date: DATE, rows: monthToDate(spikeOnDate), connections: [VERCEL], mutes: [{ provider: "vercel", metric_key: "vercel.spend.total" }] }),
+      anomaliesFor({ date: DATE, rows: monthToDate(spikeOnDate), connections: [VERCEL], mutes: [{ provider: "vercel", metric_key: "vercel.spend.total" }] }),
     ).toEqual([]);
   });
 
@@ -305,10 +323,10 @@ describe("findAnomalies", () => {
     const other = "a0000000-0000-4000-8000-000000000002";
     const first = monthToDate(spikeOnDate);
     const second = monthToDate(() => 10_000, { external_account_id: other });
-    const [anomaly] = findAnomalies({ date: DATE, rows: [...first, ...second], connections: [VERCEL], mutes: [] });
+    const [anomaly] = anomaliesFor({ date: DATE, rows: [...first, ...second], connections: [VERCEL], mutes: [] });
     expect(anomaly).toMatchObject({ value: 50_000, usual: 20_000, externalAccountId: null, connectionId: VERCEL.id });
     const gap = second.filter((snapshot) => snapshot.snapshot_date !== DATE);
-    expect(findAnomalies({ date: DATE, rows: [...first, ...gap], connections: [VERCEL], mutes: [] })).toEqual([]);
+    expect(anomaliesFor({ date: DATE, rows: [...first, ...gap], connections: [VERCEL], mutes: [] })).toEqual([]);
   });
 });
 
@@ -326,7 +344,7 @@ describe("checkedRows", () => {
       }),
       row({ snapshot_date: DATE, metric_key: "vercel.allowance.included", kind: "included_allowance", amount_minor: 2000 }),
     ];
-    expect(checkedRows(rows).map((snapshot) => snapshot.metric_key)).toEqual(["github.spend.actions"]);
+    expect(checkedRows(rows, declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["github.spend.actions"]);
   });
 
   it("keeps a lone breakdown or day row when its parent or month is missing that day", () => {
@@ -338,12 +356,22 @@ describe("checkedRows", () => {
       period_end: `${addUtcDays(DATE, 1)}T00:00:00.000Z`,
     });
     const month = row({ snapshot_date: addUtcDays(DATE, -1), metric_key: "github.spend.actions", amount_minor: 1000 });
-    expect(checkedRows([month, day]).map((snapshot) => snapshot.metric_key)).toEqual(["github.spend.actions", "github.daily_spend.actions"]);
+    expect(checkedRows([month, day], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual([
+      "github.spend.actions",
+      "github.daily_spend.actions",
+    ]);
+  });
+
+  it("leaves a declared projection out, so the alerts page never offers to mute it (#223)", () => {
+    const spent = row({ snapshot_date: DATE, metric_key: "posthog.spend.current", amount_minor: 0 });
+    const projected = row({ snapshot_date: DATE, metric_key: "posthog.spend.projected", kind: "estimated_spend", amount_minor: 2986 });
+    expect(checkedRows([spent, projected], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["posthog.spend.current"]);
+    expect(checkedRows([projected], declaredProjectedSpend)).toEqual([]);
   });
 });
 
 describe("anomaly event", () => {
-  const [anomaly] = findAnomalies({
+  const [anomaly] = anomaliesFor({
     date: DATE,
     rows: monthToDate((date) => (date === DATE ? 41_200 : 10_300)),
     connections: [VERCEL],
