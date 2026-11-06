@@ -19,11 +19,9 @@ Each tick does three things, then answers with counts only (no data, no errors i
    - **Alert dispatch**: one `alert_dispatch` job per workspace with a triggered alert not sent yet (at most one open, queued or running, per workspace, unique index `sync_jobs_one_open_alert_dispatch_per_workspace`, so a second dispatch never sends what a running one is sending; an alert that fires meanwhile goes out with the first tick after it finishes). Alerts the syncs of one tick record go out with the next tick, together: one email per owner or admin set to "As each alert happens", and one post per channel that receives those rules, up to 4 targets at a time. A delivery record per alert and target (`notification_deliveries`) means a retried job never sends anything twice, and `triggered_alerts` holds one row per rule per billing cycle, so each rule emails at most once per cycle. Channel posts retry within the job on 429 and 5xx; a target still failing is retried with the job's backoff, and each failure writes one `devmacro.notification_failed` timeline event with the reference id of the logged error. After the last attempt the alerts count as sent, so one broken channel cannot hold back later alerts. A channel that fails 3 times in a row, or answers with any other 4xx or a redirect (never followed), becomes "needs attention" and writes a `devmacro.channel_needs_attention` event. So does a webhook whose host resolves to a private network address, or whose URL this instance no longer allows: the URL rules and the private address check (`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS`) are applied each time a message is posted, and the post connects only to the addresses that were checked. So does a channel whose sealed URL cannot be read, for example after a key rotation that lost the old key: the alerts page says so, and the channel needs removing and adding again with its URL.
 
      The Discord embed and Slack Block Kit messages follow the vendors' documentation (the sources are listed at the top of `src/lib/notifications/channels.ts`). They are unconfirmed against a live Discord or Slack webhook until the manual check on #153 is done. A test message to a generic webhook, with its signature, is checked end to end by `e2e/alert-channels.spec.ts`.
-
    - **Digest**: one `digest` job per workspace with a connection per UTC day (dedupe key `digest:<workspace id>:YYYY-MM-DD`, for the previous day). It sends the daily digest to members and channels set to daily, and on Mondays the weekly digest for the week before to those set to weekly. Its highlights count the period's timeline events (deployments, signups, star events, payments), with PostHog's daily signup counts summed for the days that ended in the period.
 
    Email goes through `DEVMACRO_SMTP_URL` or `DEVMACRO_RESEND_API_KEY` (see `.env.example`). Without either, email targets are skipped and channels still receive alerts. Locally, sent mail appears in the Supabase mail catcher at http://127.0.0.1:55424.
-
 2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job.
 3. **Run.** Runs the claimed jobs, three at a time, within a 50 second budget. Jobs not started when the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 
@@ -40,10 +38,10 @@ For each included external account of the connection:
 
 ### Failures and retries
 
-| Adapter error                                                              | Connection                    | Job                                                                                                     |
-| -------------------------------------------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `auth_revoked`, `permission_missing`, no stored credential                 | `needs_attention` at once     | Failed, no retry                                                                                        |
-| `rate_limited`                                                             | Stays `active` while retrying | Retried after `Retry-After` (at most a day), or the backoff below when absent                           |
+| Adapter error | Connection | Job |
+|---|---|---|
+| `auth_revoked`, `permission_missing`, no stored credential | `needs_attention` at once | Failed, no retry |
+| `rate_limited` | Stays `active` while retrying | Retried after `Retry-After` (at most a day), or the backoff below when absent |
 | `provider_unavailable`, `timeout`, `invalid_response`, anything unexpected | Stays `active` while retrying | Retried with exponential backoff and full jitter: a random delay in [0, min(1 h, 60 s x 2^(attempt-1))] |
 
 After 5 attempts the job fails and the connection becomes `failed`; the scheduler tries it again once an hour, one attempt per run, until a sync succeeds. Every failure records `last_error_code` and `last_error_reference` (the reference id in the server logs).

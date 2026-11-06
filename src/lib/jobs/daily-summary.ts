@@ -1,9 +1,5 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
-import {
-  anomalyEvent,
-  anomalySnapshotRange,
-  findAnomalies,
-} from "@/lib/alerts/anomaly";
+import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
 import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
 import {
   PROJECTION_WINDOW_POINTS,
@@ -16,12 +12,7 @@ import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
 import { utcDate } from "./ingest";
-import type {
-  ClaimedJob,
-  EventRow,
-  SummaryConnection,
-  SummarySnapshot,
-} from "./store";
+import type { ClaimedJob, EventRow, SummaryConnection, SummarySnapshot } from "./store";
 import type { JobOutcome, SyncDeps } from "./sync-connection";
 
 /*
@@ -68,58 +59,24 @@ export function dailySummaryEventKey(date: string): string {
 
 type Source = "verified" | "estimated";
 
-type ProviderInfo = Readonly<{
-  name: string;
-  usage: boolean;
-  spending: boolean;
-}>;
+type ProviderInfo = Readonly<{ name: string; usage: boolean; spending: boolean }>;
 
-function lines(
-  provider: ProviderInfo,
-  rows: readonly SummarySnapshot[],
-): string[] {
-  const spend = new Map<
-    string,
-    { source: Source; currency: string; amountMinor: number }
-  >();
-  const usage = new Map<
-    string,
-    { source: Source; label: string; unit: string; value: number }
-  >();
+function lines(provider: ProviderInfo, rows: readonly SummarySnapshot[]): string[] {
+  const spend = new Map<string, { source: Source; currency: string; amountMinor: number }>();
+  const usage = new Map<string, { source: Source; label: string; unit: string; value: number }>();
 
   for (const row of rows) {
-    if (
-      (row.kind === "verified_spend" || row.kind === "estimated_spend") &&
-      row.amount_minor !== null &&
-      row.currency !== null
-    ) {
-      const source: Source =
-        row.kind === "verified_spend" ? "verified" : "estimated";
+    if ((row.kind === "verified_spend" || row.kind === "estimated_spend") && row.amount_minor !== null && row.currency !== null) {
+      const source: Source = row.kind === "verified_spend" ? "verified" : "estimated";
       const key = `${source} ${row.currency}`;
       const current = spend.get(key);
-      if (current === undefined)
-        spend.set(key, {
-          source,
-          currency: row.currency,
-          amountMinor: row.amount_minor,
-        });
+      if (current === undefined) spend.set(key, { source, currency: row.currency, amountMinor: row.amount_minor });
       else current.amountMinor += row.amount_minor;
-    } else if (
-      row.kind === "usage" &&
-      row.value !== null &&
-      row.unit !== null
-    ) {
-      const source: Source =
-        row.provenance_source === "derived" ? "estimated" : "verified";
+    } else if (row.kind === "usage" && row.value !== null && row.unit !== null) {
+      const source: Source = row.provenance_source === "derived" ? "estimated" : "verified";
       const key = `${source} ${row.metric_key} ${row.unit}`;
       const current = usage.get(key);
-      if (current === undefined)
-        usage.set(key, {
-          source,
-          label: row.label,
-          unit: row.unit,
-          value: row.value,
-        });
+      if (current === undefined) usage.set(key, { source, label: row.label, unit: row.unit, value: row.value });
       else current.value += row.value;
     }
   }
@@ -127,25 +84,15 @@ function lines(
   const parts: string[] = [];
   if (spend.size > 0) {
     const sorted = [...spend.values()].sort(
-      (a, b) =>
-        a.source.localeCompare(b.source) ||
-        a.currency.localeCompare(b.currency),
+      (a, b) => a.source.localeCompare(b.source) || a.currency.localeCompare(b.currency),
     );
-    for (const item of sorted)
-      parts.push(
-        `Spending ${formatMoney(item.amountMinor, item.currency)} (${item.source})`,
-      );
+    for (const item of sorted) parts.push(`Spending ${formatMoney(item.amountMinor, item.currency)} (${item.source})`);
   } else if (provider.spending) {
     parts.push("Spending unavailable");
   }
   if (usage.size > 0) {
-    const sorted = [...usage.values()].sort((a, b) =>
-      a.label.localeCompare(b.label),
-    );
-    for (const item of sorted)
-      parts.push(
-        `${item.label} ${formatQuantity(item.value, item.unit)} (${item.source})`,
-      );
+    const sorted = [...usage.values()].sort((a, b) => a.label.localeCompare(b.label));
+    for (const item of sorted) parts.push(`${item.label} ${formatQuantity(item.value, item.unit)} (${item.source})`);
   } else if (provider.usage) {
     parts.push("Usage unavailable");
   }
@@ -154,14 +101,8 @@ function lines(
 }
 
 /** Projection lines for one provider, as of `now`, from its rows up to the summarized day. */
-function projectionLines(
-  provider: ProviderInfo,
-  history: readonly SummarySnapshot[],
-  now: Date,
-): string[] {
-  const quotas = [...projectAllowances(history, now).values()].sort((a, b) =>
-    a.label.localeCompare(b.label),
-  );
+function projectionLines(provider: ProviderInfo, history: readonly SummarySnapshot[], now: Date): string[] {
+  const quotas = [...projectAllowances(history, now).values()].sort((a, b) => a.label.localeCompare(b.label));
   return [
     ...projectSpend(history, now).map(spendProjectionLine),
     ...quotas.flatMap((quota) => quotaProjectionLine(quota) ?? []),
@@ -181,25 +122,15 @@ export function buildDailySummary(input: {
   provider: (id: ProviderId) => ProviderInfo;
 }): EventRow | null {
   if (input.connections.length === 0) return null;
-  const providerOf = new Map(
-    input.connections.map((connection) => [connection.id, connection.provider]),
-  );
-  const byProvider = new Map<
-    ProviderId,
-    { day: SummarySnapshot[]; history: SummarySnapshot[] }
-  >();
-  for (const connection of input.connections)
-    byProvider.set(connection.provider, { day: [], history: [] });
+  const providerOf = new Map(input.connections.map((connection) => [connection.id, connection.provider]));
+  const byProvider = new Map<ProviderId, { day: SummarySnapshot[]; history: SummarySnapshot[] }>();
+  for (const connection of input.connections) byProvider.set(connection.provider, { day: [], history: [] });
   for (const row of input.snapshots) {
     const provider = providerOf.get(row.connection_id);
     if (provider === undefined || row.snapshot_date > input.date) continue;
     byProvider.get(provider)?.history.push(row);
   }
-  for (const row of countedSnapshots(
-    input.snapshots.filter(
-      (candidate) => candidate.snapshot_date === input.date,
-    ),
-  )) {
+  for (const row of countedSnapshots(input.snapshots.filter((candidate) => candidate.snapshot_date === input.date))) {
     const provider = providerOf.get(row.connection_id);
     if (provider !== undefined) byProvider.get(provider)?.day.push(row);
   }
@@ -221,10 +152,7 @@ export function buildDailySummary(input: {
     severity: "info",
     title: `Daily summary for ${input.date}`,
     body: providers
-      .flatMap(({ info, day, history }) => [
-        ...lines(info, day),
-        ...projectionLines(info, history, projectedAt),
-      ])
+      .flatMap(({ info, day, history }) => [...lines(info, day), ...projectionLines(info, history, projectedAt)])
       .join("\n"),
     url: null,
     occurred_at: endOfDay.toISOString(),
@@ -232,10 +160,7 @@ export function buildDailySummary(input: {
   };
 }
 
-function providerInfo(
-  getAdapter: (id: ProviderId) => ProviderAdapter,
-  id: ProviderId,
-): ProviderInfo {
+function providerInfo(getAdapter: (id: ProviderId) => ProviderAdapter, id: ProviderId): ProviderInfo {
   const name = providerName(id);
   try {
     const { capabilities } = getAdapter(id);
@@ -246,36 +171,24 @@ function providerInfo(
   }
 }
 
-export async function runDailySummaryJob(
-  job: ClaimedJob,
-  deps: SyncDeps,
-): Promise<JobOutcome> {
-  if (job.workspace_id === null)
-    return { status: "failed", errorCode: "invalid_job", errorReference: null };
+export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOutcome> {
+  if (job.workspace_id === null) return { status: "failed", errorCode: "invalid_job", errorReference: null };
   const workspaceId = job.workspace_id;
   // The job key names the summarized day; it is set when the job is queued, so a job created a
   // moment after midnight still reports on the day the scheduler meant.
-  const keyed = job.dedupe_key?.match(
-    /^daily_summary:[^:]+:(\d{4}-\d{2}-\d{2})$/,
-  )?.[1];
+  const keyed = job.dedupe_key?.match(/^daily_summary:[^:]+:(\d{4}-\d{2}-\d{2})$/)?.[1];
   const date = keyed ?? summaryDate(new Date(job.created_at));
   const range = anomalySnapshotRange(date);
-  const [connections, snapshots, anomalySettings, anomalyRows] =
-    await Promise.all([
-      deps.store.listSummaryConnections(workspaceId),
-      deps.store.listSnapshotsBetween(
-        workspaceId,
-        utcDate(
-          new Date(
-            Date.parse(`${date}T00:00:00.000Z`) -
-              (SUMMARY_HISTORY_DAYS - 1) * DAY_MS,
-          ),
-        ),
-        date,
-      ),
-      deps.store.getAnomalySettings(workspaceId),
-      deps.store.listAnomalySnapshots(workspaceId, range.from, range.to),
-    ]);
+  const [connections, snapshots, anomalySettings, anomalyRows] = await Promise.all([
+    deps.store.listSummaryConnections(workspaceId),
+    deps.store.listSnapshotsBetween(
+      workspaceId,
+      utcDate(new Date(Date.parse(`${date}T00:00:00.000Z`) - (SUMMARY_HISTORY_DAYS - 1) * DAY_MS)),
+      date,
+    ),
+    deps.store.getAnomalySettings(workspaceId),
+    deps.store.listAnomalySnapshots(workspaceId, range.from, range.to),
+  ]);
   const event = buildDailySummary({
     workspaceId,
     date,
@@ -285,22 +198,9 @@ export async function runDailySummaryJob(
   });
   if (event === null) return { status: "succeeded" };
   const anomalies = anomalySettings.enabled
-    ? findAnomalies({
-        date,
-        rows: anomalyRows,
-        connections,
-        mutes: anomalySettings.mutes,
-      })
+    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes })
     : [];
-  await deps.store.insertEvents([
-    event,
-    ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly)),
-  ]);
-  if (anomalies.length > 0)
-    deps.log.info("anomalies.detected", {
-      workspaceId,
-      date,
-      count: anomalies.length,
-    });
+  await deps.store.insertEvents([event, ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly))]);
+  if (anomalies.length > 0) deps.log.info("anomalies.detected", { workspaceId, date, count: anomalies.length });
   return { status: "succeeded" };
 }

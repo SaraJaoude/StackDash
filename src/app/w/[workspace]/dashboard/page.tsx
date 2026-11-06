@@ -16,11 +16,7 @@ import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import { projectDashboard } from "@/lib/dashboard/projection";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
-import {
-  getDashboardData,
-  getWorkspaceScope,
-  snapshotWindowStart,
-} from "@/lib/data/dashboard";
+import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getTrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
@@ -30,15 +26,8 @@ import {
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
-import {
-  isYearComplete,
-  latestCardYear,
-  yearLabel,
-} from "@/lib/public-metrics/yearly";
-import {
-  requireWorkspace,
-  type WorkspaceAccess,
-} from "@/lib/workspaces/access";
+import { isYearComplete, latestCardYear, yearLabel } from "@/lib/public-metrics/yearly";
+import { requireWorkspace, type WorkspaceAccess } from "@/lib/workspaces/access";
 import { workspacePath, yearInReviewPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
@@ -52,11 +41,7 @@ const searchParamsSchema = ScopeSearchParamsSchema.extend({
 });
 
 /** Dashboard link keeping the filter; the daily trend is the default and stays out of the URL. */
-function dashboardHref(
-  basePath: string,
-  scope: ScopeFilters,
-  trend: TrendGranularity,
-): string {
+function dashboardHref(basePath: string, scope: ScopeFilters, trend: TrendGranularity): string {
   const params = new URLSearchParams();
   appendScopeParams(params, scope);
   if (trend !== "daily") params.set("trend", trend);
@@ -66,9 +51,7 @@ function dashboardHref(
 
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.
-export default function DashboardPage(
-  props: PageProps<"/w/[workspace]/dashboard">,
-) {
+export default function DashboardPage(props: PageProps<"/w/[workspace]/dashboard">) {
   return (
     <Suspense fallback={<PageSkeleton />}>
       <DashboardPageContent {...props} />
@@ -76,18 +59,11 @@ export default function DashboardPage(
   );
 }
 
-async function DashboardPageContent({
-  params,
-  searchParams,
-}: PageProps<"/w/[workspace]/dashboard">) {
+async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[workspace]/dashboard">) {
   const { workspace: slug } = await params;
   const access = await requireWorkspace(slug, "viewer");
   const parsed = searchParamsSchema.parse(await searchParams);
-  const scope: ScopeFilters = {
-    providers: parsed.provider,
-    projects: parsed.project,
-    accounts: parsed.account,
-  };
+  const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
   const reviewYear = latestCardYear(now);
@@ -98,13 +74,8 @@ async function DashboardPageContent({
         title="Dashboard"
         description="Spend, usage, and allowances across every provider this workspace connects."
         actions={
-          <Link
-            href={yearInReviewPath(access.workspace.slug, reviewYear)}
-            className={secondaryButtonClass}
-          >
-            {isYearComplete(reviewYear, now)
-              ? `Your ${reviewYear} in review`
-              : `Your ${yearLabel(reviewYear, now)}`}
+          <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={secondaryButtonClass}>
+            {isYearComplete(reviewYear, now) ? `Your ${reviewYear} in review` : `Your ${yearLabel(reviewYear, now)}`}
           </Link>
         }
       />
@@ -129,24 +100,15 @@ async function DashboardContent({
   await connection();
   const now = new Date();
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const anomaliesSince = new Date(
-    now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000,
-  ).toISOString();
-  const [workspaceScope, data, trendData, alertsSummary, recentAnomalies] =
-    await Promise.all([
-      getWorkspaceScope(workspace.id),
-      getDashboardData(workspace.id, snapshotWindowStart(now), scope),
-      getTrendData(workspace.id, now, scope),
-      getUnacknowledgedSummary(workspace.id),
-      getRecentAnomalies(workspace.id, anomaliesSince),
-    ]);
-  const alerts = (
-    <AlertsSummary
-      workspace={workspace}
-      summary={alertsSummary}
-      anomalies={recentAnomalies}
-    />
-  );
+  const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
+  const [workspaceScope, data, trendData, alertsSummary, recentAnomalies] = await Promise.all([
+    getWorkspaceScope(workspace.id),
+    getDashboardData(workspace.id, snapshotWindowStart(now), scope),
+    getTrendData(workspace.id, now, scope),
+    getUnacknowledgedSummary(workspace.id),
+    getRecentAnomalies(workspace.id, anomaliesSince),
+  ]);
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
@@ -156,13 +118,8 @@ async function DashboardContent({
           icon={<GaugeIcon width={20} height={20} />}
           title="Connect your first provider"
           description="Connect a provider to see what you have spent, how much allowance is left, and when it resets."
-          action={{
-            href: workspacePath(workspace.slug, "connections"),
-            label: "Connect a provider",
-          }}
-          deniedReason={
-            canConnect ? undefined : actionDeniedReason("manage_connections")
-          }
+          action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
+          deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
         />
         {alerts}
       </>
@@ -186,12 +143,7 @@ async function DashboardContent({
         alerts={alerts}
         trends={{
           granularity: trend,
-          series: buildTrends(
-            trendData.snapshots,
-            trendData.connections,
-            trend,
-            now,
-          ),
+          series: buildTrends(trendData.snapshots, trendData.connections, trend, now),
           hrefs: {
             daily: dashboardHref(dashboardPath, scope, "daily"),
             monthly: dashboardHref(dashboardPath, scope, "monthly"),

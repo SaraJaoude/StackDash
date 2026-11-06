@@ -1,23 +1,9 @@
 import { useId } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import type {
-  Allowance,
-  ProviderSummary,
-  QuantityValue,
-} from "@/lib/dashboard/aggregate";
-import {
-  quotaProjectionText,
-  type AllowanceProjection,
-  type QuotaProjection,
-  type SpendProjection,
-} from "@/lib/dashboard/projection";
-import {
-  formatDateTime,
-  formatPercent,
-  formatPeriod,
-  formatQuantity,
-} from "@/lib/format";
+import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
+import { quotaProjectionText, type AllowanceProjection, type QuotaProjection, type SpendProjection } from "@/lib/dashboard/projection";
+import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 import {
   allowanceKey,
@@ -41,15 +27,7 @@ import {
   Unavailable,
 } from "./value-meta";
 
-function QuantityCell({
-  label,
-  valueKey,
-  value,
-}: {
-  label: string;
-  valueKey: string;
-  value: QuantityValue | null;
-}) {
+function QuantityCell({ label, valueKey, value }: { label: string; valueKey: string; value: QuantityValue | null }) {
   return (
     <div>
       <dt className="text-xs font-medium text-muted">{label}</dt>
@@ -73,63 +51,29 @@ function QuantityCell({
   );
 }
 
-function AllowanceCard({
-  allowance,
-  quota,
-  now,
-}: {
-  allowance: Allowance;
-  quota: QuotaProjection | undefined;
-  now: Date;
-}) {
+function AllowanceCard({ allowance, quota, now }: { allowance: Allowance; quota: QuotaProjection | undefined; now: Date }) {
   const titleId = useId();
-  const parts = [
-    allowance.included,
-    allowance.used,
-    allowance.remaining,
-  ].filter((value) => value !== null);
+  const parts = [allowance.included, allowance.used, allowance.remaining].filter((value) => value !== null);
   // The oldest part decides "Updated", and one stale part marks the card stale.
   const oldest = parts.reduce<QuantityValue | null>(
-    (current, value) =>
-      current === null ||
-      Date.parse(value.retrievedAt) < Date.parse(current.retrievedAt)
-        ? value
-        : current,
+    (current, value) => (current === null || Date.parse(value.retrievedAt) < Date.parse(current.retrievedAt) ? value : current),
     null,
   );
   const stale = parts.some((value) => value.stale);
   const percent = allowance.percentUsed;
   return (
     <li>
-      <article
-        aria-labelledby={titleId}
-        className="relative isolate rounded-lg border border-line bg-panel-raised p-4"
-      >
-        <ArrivalCard
-          values={allowanceValues(allowance)}
-          label={`${allowance.label} for ${allowance.accountName}`}
-        >
+      <article aria-labelledby={titleId} className="relative isolate rounded-lg border border-line bg-panel-raised p-4">
+        <ArrivalCard values={allowanceValues(allowance)} label={`${allowance.label} for ${allowance.accountName}`}>
           <h5 id={titleId} className="text-sm font-semibold">
             {allowance.label}
           </h5>
           <p className="text-xs text-muted">{allowance.accountName}</p>
           {/* Two columns once provider cards sit two to a row, so quantities and their badges fit. */}
           <dl className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-2">
-            <QuantityCell
-              label="Included"
-              valueKey={allowanceKey(allowance, "included")}
-              value={allowance.included}
-            />
-            <QuantityCell
-              label="Used"
-              valueKey={allowanceKey(allowance, "used")}
-              value={allowance.used}
-            />
-            <QuantityCell
-              label="Remaining"
-              valueKey={allowanceKey(allowance, "remaining")}
-              value={allowance.remaining}
-            />
+            <QuantityCell label="Included" valueKey={allowanceKey(allowance, "included")} value={allowance.included} />
+            <QuantityCell label="Used" valueKey={allowanceKey(allowance, "used")} value={allowance.used} />
+            <QuantityCell label="Remaining" valueKey={allowanceKey(allowance, "remaining")} value={allowance.remaining} />
             <div>
               <dt className="text-xs font-medium text-muted">Percent used</dt>
               <dd className="mt-1 font-mono font-semibold tabular-nums">
@@ -148,33 +92,18 @@ function AllowanceCard({
           </dl>
           {percent === null ? null : (
             // The number above is the accessible value; the bar only repeats it visually.
-            <div
-              aria-hidden="true"
-              className="mt-3 h-1.5 overflow-hidden rounded-full bg-line"
-            >
+            <div aria-hidden="true" className="mt-3 h-1.5 overflow-hidden rounded-full bg-line">
               <ArrivalBar
                 valueKey={allowanceKey(allowance, "percent")}
                 percent={percent}
-                className={
-                  percent >= 100
-                    ? "bg-danger"
-                    : percent >= 80
-                      ? "bg-warning"
-                      : "bg-accent"
-                }
+                className={percent >= 100 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-accent"}
               />
             </div>
           )}
           <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
             <div className="flex gap-1">
               <dt className="text-muted">Billing period:</dt>
-              <dd>
-                {allowance.period === null ? (
-                  <Unavailable />
-                ) : (
-                  formatPeriod(allowance.period)
-                )}
-              </dd>
+              <dd>{allowance.period === null ? <Unavailable /> : formatPeriod(allowance.period)}</dd>
             </div>
             <div className="flex gap-1">
               <dt className="text-muted">Resets:</dt>
@@ -182,28 +111,17 @@ function AllowanceCard({
                 {allowance.resetsAt === null ? (
                   <Unavailable />
                 ) : (
-                  <time dateTime={allowance.resetsAt}>
-                    {formatDateTime(allowance.resetsAt)}
-                  </time>
+                  <time dateTime={allowance.resetsAt}>{formatDateTime(allowance.resetsAt)}</time>
                 )}
               </dd>
             </div>
           </dl>
           {quota === undefined ? null : (
-            <ProjectionNote
-              text={quotaProjectionText(quota)}
-              estimate={
-                quota.status === "runs_out" || quota.status === "within"
-              }
-            />
+            <ProjectionNote text={quotaProjectionText(quota)} estimate={quota.status === "runs_out" || quota.status === "within"} />
           )}
           {oldest === null ? null : (
             <div className="mt-2">
-              <Freshness
-                retrievedAt={oldest.retrievedAt}
-                stale={stale}
-                now={now}
-              />
+              <Freshness retrievedAt={oldest.retrievedAt} stale={stale} now={now} />
             </div>
           )}
         </ArrivalCard>
@@ -239,10 +157,7 @@ export function ProviderCard({
   };
   return (
     <li>
-      <article
-        aria-labelledby={titleId}
-        className="relative isolate h-full rounded-xl border border-line bg-panel p-4"
-      >
+      <article aria-labelledby={titleId} className="relative isolate h-full rounded-xl border border-line bg-panel p-4">
         <ArrivalCard values={values} label={summary.name}>
           <header className="flex flex-wrap items-start gap-3">
             <ProviderMark provider={summary.provider} />
@@ -261,11 +176,7 @@ export function ProviderCard({
               {summary.lastSyncedAt === null ? (
                 <p className="text-xs text-muted">Not synced yet</p>
               ) : (
-                <Freshness
-                  retrievedAt={summary.lastSyncedAt}
-                  stale={summary.stale}
-                  now={now}
-                />
+                <Freshness retrievedAt={summary.lastSyncedAt} stale={summary.stale} now={now} />
               )}
             </div>
           </header>
@@ -273,13 +184,7 @@ export function ProviderCard({
           <dl className="mt-4 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
             <div className="flex gap-1">
               <dt className="text-muted">Billing period:</dt>
-              <dd>
-                {summary.billingPeriod === null ? (
-                  <Unavailable />
-                ) : (
-                  formatPeriod(summary.billingPeriod)
-                )}
-              </dd>
+              <dd>{summary.billingPeriod === null ? <Unavailable /> : formatPeriod(summary.billingPeriod)}</dd>
             </div>
             <div className="flex gap-1">
               <dt className="text-muted">Next reset:</dt>
@@ -287,17 +192,13 @@ export function ProviderCard({
                 {summary.resetsAt === null ? (
                   <Unavailable />
                 ) : (
-                  <time dateTime={summary.resetsAt}>
-                    {formatDateTime(summary.resetsAt)}
-                  </time>
+                  <time dateTime={summary.resetsAt}>{formatDateTime(summary.resetsAt)}</time>
                 )}
               </dd>
             </div>
           </dl>
 
-          <h4 className="mt-5 text-sm font-semibold">
-            Spend this billing period
-          </h4>
+          <h4 className="mt-5 text-sm font-semibold">Spend this billing period</h4>
           {summary.spend.length === 0 ? (
             <p className="mt-1 text-sm">
               <Unavailable />
@@ -306,9 +207,7 @@ export function ProviderCard({
             <ul className="mt-2 space-y-4">
               {summary.spend.map((amounts) => (
                 <li key={amounts.currency}>
-                  <p className="mb-1 font-mono text-xs font-medium text-muted">
-                    {amounts.currency}
-                  </p>
+                  <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
                   <CurrencyAmountsList
                     amounts={amounts}
                     group="spend"
@@ -316,11 +215,7 @@ export function ProviderCard({
                     verifiedLabel="Verified spend"
                     estimatedLabel="Estimated spend"
                   />
-                  <SpendProjectionNote
-                    projection={spendProjections.find(
-                      (projection) => projection.currency === amounts.currency,
-                    )}
-                  />
+                  <SpendProjectionNote projection={spendProjections.find((projection) => projection.currency === amounts.currency)} />
                 </li>
               ))}
             </ul>
@@ -337,11 +232,7 @@ export function ProviderCard({
                 <li key={`${credit.currency}-${credit.provenance.status}`}>
                   <MoneyValueBlock
                     value={credit}
-                    valueKey={amountKey(
-                      "credit",
-                      credit.currency,
-                      credit.provenance.status,
-                    )}
+                    valueKey={amountKey("credit", credit.currency, credit.provenance.status)}
                     now={now}
                   />
                 </li>
@@ -351,15 +242,11 @@ export function ProviderCard({
 
           {summary.revenue.length === 0 ? null : (
             <>
-              <h4 className="mt-5 text-sm font-semibold">
-                Revenue this billing period
-              </h4>
+              <h4 className="mt-5 text-sm font-semibold">Revenue this billing period</h4>
               <ul className="mt-2 space-y-4">
                 {summary.revenue.map((amounts) => (
                   <li key={amounts.currency}>
-                    <p className="mb-1 font-mono text-xs font-medium text-muted">
-                      {amounts.currency}
-                    </p>
+                    <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
                     <CurrencyAmountsList
                       amounts={amounts}
                       group="revenue"
@@ -380,15 +267,9 @@ export function ProviderCard({
               <dl className="mt-2 grid gap-4 sm:grid-cols-2">
                 {summary.recurringRevenue.map((rate) => (
                   <div key={rate.key}>
-                    <dt className="text-xs font-medium text-muted">
-                      {rate.label}
-                    </dt>
+                    <dt className="text-xs font-medium text-muted">{rate.label}</dt>
                     <dd className="mt-1">
-                      <MoneyValueBlock
-                        value={rate.value}
-                        valueKey={recurringKey(rate)}
-                        now={now}
-                      />
+                      <MoneyValueBlock value={rate.value} valueKey={recurringKey(rate)} now={now} />
                     </dd>
                   </div>
                 ))}
@@ -401,12 +282,7 @@ export function ProviderCard({
               <h4 className="mt-5 text-sm font-semibold">Allowances</h4>
               <ul className="mt-2 space-y-3">
                 {summary.allowances.map((allowance) => (
-                  <AllowanceCard
-                    key={allowance.key}
-                    allowance={allowance}
-                    quota={quotaProjections.get(allowance.key)?.quota}
-                    now={now}
-                  />
+                  <AllowanceCard key={allowance.key} allowance={allowance} quota={quotaProjections.get(allowance.key)?.quota} now={now} />
                 ))}
               </ul>
             </>

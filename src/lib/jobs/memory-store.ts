@@ -30,19 +30,12 @@ export type MemoryAccount = Tables<"external_accounts">;
 export type MemoryJob = Tables<"sync_jobs">;
 export type MemorySnapshot = SnapshotRow & { id: string };
 export type MemoryEvent = EventRow & { id: string };
-export type MemoryOAuthState = Pick<
-  Tables<"oauth_states">,
-  "state" | "workspace_id" | "expires_at"
->;
+export type MemoryOAuthState = Pick<Tables<"oauth_states">, "state" | "workspace_id" | "expires_at">;
 export type MemoryRateLimitCounter = Tables<"public_rate_limit_counters">;
 export type MemoryMetricView = Tables<"published_metric_views">;
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
-  return (
-    job.kind === "sync" &&
-    job.connection_id === connectionId &&
-    (job.status === "queued" || job.status === "running")
-  );
+  return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
 }
 
 export class MemoryJobStore implements JobStore {
@@ -61,11 +54,7 @@ export class MemoryJobStore implements JobStore {
   anomalyMutes: Array<AnomalyMute & { workspace_id: string }> = [];
   /** Workspaces with a triggered alert not dispatched yet, as triggered_alerts would answer. */
   undispatchedAlertWorkspaces: string[] = [];
-  notificationDeliveries: Array<{
-    id: string;
-    triggered_alert_id: string | null;
-    delivered_at: string;
-  }> = [];
+  notificationDeliveries: Array<{ id: string; triggered_alert_id: string | null; delivered_at: string }> = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -73,10 +62,7 @@ export class MemoryJobStore implements JobStore {
     return this.now().toISOString();
   }
 
-  addConnection(
-    fields: Pick<MemoryConnection, "workspace_id" | "provider"> &
-      Partial<MemoryConnection>,
-  ): MemoryConnection {
+  addConnection(fields: Pick<MemoryConnection, "workspace_id" | "provider"> & Partial<MemoryConnection>): MemoryConnection {
     const row: MemoryConnection = {
       id: crypto.randomUUID(),
       status: "active",
@@ -103,11 +89,7 @@ export class MemoryJobStore implements JobStore {
   }
 
   addAccount(
-    fields: Pick<
-      MemoryAccount,
-      "workspace_id" | "connection_id" | "external_id"
-    > &
-      Partial<MemoryAccount>,
+    fields: Pick<MemoryAccount, "workspace_id" | "connection_id" | "external_id"> & Partial<MemoryAccount>,
   ): MemoryAccount {
     const row: MemoryAccount = {
       id: crypto.randomUUID(),
@@ -124,13 +106,8 @@ export class MemoryJobStore implements JobStore {
     return row;
   }
 
-  #connection({
-    workspaceId,
-    connectionId,
-  }: ConnectionKey): MemoryConnection | undefined {
-    return this.connections.find(
-      (row) => row.id === connectionId && row.workspace_id === workspaceId,
-    );
+  #connection({ workspaceId, connectionId }: ConnectionKey): MemoryConnection | undefined {
+    return this.connections.find((row) => row.id === connectionId && row.workspace_id === workspaceId);
   }
 
   #job(jobId: string): MemoryJob {
@@ -141,20 +118,11 @@ export class MemoryJobStore implements JobStore {
 
   #insertSync(workspaceId: string, connectionId: string): boolean {
     if (this.jobs.some((job) => isOpenSync(job, connectionId))) return false;
-    this.jobs.push(
-      this.newJob({
-        workspace_id: workspaceId,
-        connection_id: connectionId,
-        kind: "sync",
-      }),
-    );
+    this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: connectionId, kind: "sync" }));
     return true;
   }
 
-  newJob(
-    fields: Pick<MemoryJob, "workspace_id" | "connection_id" | "kind"> &
-      Partial<MemoryJob>,
-  ): MemoryJob {
+  newJob(fields: Pick<MemoryJob, "workspace_id" | "connection_id" | "kind"> & Partial<MemoryJob>): MemoryJob {
     return {
       id: crypto.randomUUID(),
       status: "queued",
@@ -178,14 +146,12 @@ export class MemoryJobStore implements JobStore {
       .filter(
         (row) =>
           (row.status === "active" || row.status === "failed") &&
-          (row.next_sync_at === null ||
-            new Date(row.next_sync_at).getTime() <= now) &&
+          (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= now) &&
           !this.jobs.some((job) => isOpenSync(job, row.id)),
       )
       .slice(0, limit);
     let queued = 0;
-    for (const row of due)
-      if (this.#insertSync(row.workspace_id, row.id)) queued += 1;
+    for (const row of due) if (this.#insertSync(row.workspace_id, row.id)) queued += 1;
     return queued;
   }
 
@@ -193,11 +159,7 @@ export class MemoryJobStore implements JobStore {
     let moved = 0;
     for (const row of this.connections) {
       if (row.status !== "active" || !isSimulatedConnection(row)) continue;
-      if (
-        row.next_sync_at === null ||
-        new Date(row.next_sync_at).getTime() <= at.getTime()
-      )
-        continue;
+      if (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= at.getTime()) continue;
       row.next_sync_at = at.toISOString();
       moved += 1;
     }
@@ -209,44 +171,30 @@ export class MemoryJobStore implements JobStore {
     return this.#insertSync(key.workspaceId, key.connectionId);
   }
 
-  async requestManualSync(
-    key: ConnectionKey & Readonly<{ cooldownSeconds: number }>,
-  ): Promise<ManualSyncResult> {
+  async requestManualSync(key: ConnectionKey & Readonly<{ cooldownSeconds: number }>): Promise<ManualSyncResult> {
     const connection = this.#connection(key);
     if (connection === undefined) return "not_found";
     const now = this.now().getTime();
     if (
       connection.last_sync_requested_at !== null &&
-      new Date(connection.last_sync_requested_at).getTime() >
-        now - key.cooldownSeconds * 1000
+      new Date(connection.last_sync_requested_at).getTime() > now - key.cooldownSeconds * 1000
     ) {
       return "cooldown";
     }
     connection.last_sync_requested_at = this.#nowIso();
-    return this.#insertSync(key.workspaceId, key.connectionId)
-      ? "queued"
-      : "already_queued";
+    return this.#insertSync(key.workspaceId, key.connectionId) ? "queued" : "already_queued";
   }
 
   async enqueueRetention(dedupeKey: string): Promise<boolean> {
     if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) return false;
-    this.jobs.push(
-      this.newJob({
-        workspace_id: null,
-        connection_id: null,
-        kind: "retention",
-        dedupe_key: dedupeKey,
-      }),
-    );
+    this.jobs.push(this.newJob({ workspace_id: null, connection_id: null, kind: "retention", dedupe_key: dedupeKey }));
     return true;
   }
 
   async claimJobs(limit: number, leaseSeconds: number): Promise<ClaimedJob[]> {
     const now = this.now().getTime();
     const expired = (job: MemoryJob) =>
-      job.status === "running" &&
-      job.locked_until !== null &&
-      new Date(job.locked_until).getTime() < now;
+      job.status === "running" && job.locked_until !== null && new Date(job.locked_until).getTime() < now;
     for (const job of this.jobs) {
       if (expired(job) && job.attempts >= job.max_attempts) {
         job.status = "failed";
@@ -259,14 +207,9 @@ export class MemoryJobStore implements JobStore {
       .filter(
         (job) =>
           job.attempts < job.max_attempts &&
-          ((job.status === "queued" &&
-            new Date(job.run_after).getTime() <= now) ||
-            expired(job)),
+          ((job.status === "queued" && new Date(job.run_after).getTime() <= now) || expired(job)),
       )
-      .sort(
-        (a, b) =>
-          a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id),
-      )
+      .sort((a, b) => a.run_after.localeCompare(b.run_after) || a.id.localeCompare(b.id))
       .slice(0, limit);
     for (const job of claimable) {
       job.status = "running";
@@ -275,27 +218,16 @@ export class MemoryJobStore implements JobStore {
       job.started_at = this.#nowIso();
       job.finished_at = null;
     }
-    return claimable.map(
-      ({
-        id,
-        workspace_id,
-        connection_id,
-        kind,
-        attempts,
-        max_attempts,
-        created_at,
-        dedupe_key,
-      }) => ({
-        id,
-        workspace_id,
-        connection_id,
-        kind,
-        attempts,
-        max_attempts,
-        created_at,
-        dedupe_key,
-      }),
-    );
+    return claimable.map(({ id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key }) => ({
+      id,
+      workspace_id,
+      connection_id,
+      kind,
+      attempts,
+      max_attempts,
+      created_at,
+      dedupe_key,
+    }));
   }
 
   async releaseJob(jobId: string): Promise<void> {
@@ -317,11 +249,7 @@ export class MemoryJobStore implements JobStore {
     });
   }
 
-  async retryJob(
-    jobId: string,
-    runAfter: Date,
-    failure: JobFailure,
-  ): Promise<void> {
+  async retryJob(jobId: string, runAfter: Date, failure: JobFailure): Promise<void> {
     Object.assign(this.#job(jobId), {
       status: "queued",
       locked_until: null,
@@ -331,11 +259,7 @@ export class MemoryJobStore implements JobStore {
     });
   }
 
-  async failJob(
-    jobId: string,
-    finishedAt: Date,
-    failure: JobFailure,
-  ): Promise<void> {
+  async failJob(jobId: string, finishedAt: Date, failure: JobFailure): Promise<void> {
     Object.assign(this.#job(jobId), {
       status: "failed",
       locked_until: null,
@@ -348,87 +272,39 @@ export class MemoryJobStore implements JobStore {
   async getConnection(key: ConnectionKey) {
     const row = this.#connection(key);
     if (row === undefined) return null;
-    const {
-      id,
-      workspace_id,
-      provider,
-      status,
-      display_name,
-      authorized_account_label,
-      poll_interval_seconds,
-      consecutive_failures,
-      missing_scopes,
-    } = row;
-    return {
-      id,
-      workspace_id,
-      provider,
-      status,
-      display_name,
-      authorized_account_label,
-      poll_interval_seconds,
-      consecutive_failures,
-      missing_scopes,
-    };
+    const { id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes } = row;
+    return { id, workspace_id, provider, status, display_name, authorized_account_label, poll_interval_seconds, consecutive_failures, missing_scopes };
   }
 
   async listIncludedAccounts({ workspaceId, connectionId }: ConnectionKey) {
     return this.accounts
-      .filter(
-        (row) =>
-          row.workspace_id === workspaceId &&
-          row.connection_id === connectionId &&
-          row.included,
-      )
-      .map(({ id, external_id, display_name, sync_cursor }) => ({
-        id,
-        external_id,
-        display_name,
-        sync_cursor,
-      }));
+      .filter((row) => row.workspace_id === workspaceId && row.connection_id === connectionId && row.included)
+      .map(({ id, external_id, display_name, sync_cursor }) => ({ id, external_id, display_name, sync_cursor }));
   }
 
-  async updateConnection(
-    key: ConnectionKey,
-    patch: ConnectionPatch,
-  ): Promise<void> {
+  async updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void> {
     const row = this.#connection(key);
     if (row === undefined) return;
     Object.assign(row, patch, { updated_at: this.#nowIso() });
   }
 
-  async loadCredential({
-    connectionId,
-  }: ConnectionKey): Promise<OAuthCredential | null> {
+  async loadCredential({ connectionId }: ConnectionKey): Promise<OAuthCredential | null> {
     return this.credentials.get(connectionId) ?? null;
   }
 
-  async saveCredential(
-    { connectionId }: ConnectionKey,
-    credential: OAuthCredential,
-  ): Promise<void> {
+  async saveCredential({ connectionId }: ConnectionKey, credential: OAuthCredential): Promise<void> {
     this.credentials.set(connectionId, credential);
     this.savedCredentials.push(credential);
   }
 
-  async latestResets(
-    workspaceId: string,
-    externalAccountId: string,
-  ): Promise<Map<string, string | null>> {
+  async latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>> {
     const latest = new Map<string, MemorySnapshot>();
     for (const row of this.snapshots) {
-      if (
-        row.workspace_id !== workspaceId ||
-        row.external_account_id !== externalAccountId
-      )
-        continue;
+      if (row.workspace_id !== workspaceId || row.external_account_id !== externalAccountId) continue;
       const current = latest.get(row.metric_key);
-      if (current === undefined || row.snapshot_date > current.snapshot_date)
-        latest.set(row.metric_key, row);
+      if (current === undefined || row.snapshot_date > current.snapshot_date) latest.set(row.metric_key, row);
     }
-    return new Map(
-      [...latest].map(([key, row]) => [key, row.resets_at ?? null]),
-    );
+    return new Map([...latest].map(([key, row]) => [key, row.resets_at ?? null]));
   }
 
   async upsertSnapshots(rows: readonly SnapshotRow[]): Promise<void> {
@@ -436,10 +312,7 @@ export class MemoryJobStore implements JobStore {
     for (const row of rows) {
       const key = `${row.external_account_id}|${row.metric_key}|${row.snapshot_date}`;
       // Postgres rejects an upsert that touches one row twice; so does this store.
-      if (keys.has(key))
-        throw new Error(
-          "ON CONFLICT DO UPDATE command cannot affect row a second time",
-        );
+      if (keys.has(key)) throw new Error("ON CONFLICT DO UPDATE command cannot affect row a second time");
       keys.add(key);
       const existing = this.snapshots.find(
         (snapshot) =>
@@ -447,8 +320,7 @@ export class MemoryJobStore implements JobStore {
           snapshot.metric_key === row.metric_key &&
           snapshot.snapshot_date === row.snapshot_date,
       );
-      if (existing === undefined)
-        this.snapshots.push({ ...row, id: crypto.randomUUID() });
+      if (existing === undefined) this.snapshots.push({ ...row, id: crypto.randomUUID() });
       else Object.assign(existing, row, { id: existing.id });
     }
   }
@@ -457,9 +329,7 @@ export class MemoryJobStore implements JobStore {
     let inserted = 0;
     for (const row of rows) {
       const exists = this.events.some(
-        (event) =>
-          event.workspace_id === row.workspace_id &&
-          event.dedupe_key === row.dedupe_key,
+        (event) => event.workspace_id === row.workspace_id && event.dedupe_key === row.dedupe_key,
       );
       if (exists) continue;
       this.events.push({ ...row, id: crypto.randomUUID() });
@@ -468,24 +338,12 @@ export class MemoryJobStore implements JobStore {
     return inserted;
   }
 
-  async setCursor(
-    workspaceId: string,
-    externalAccountId: string,
-    cursor: string | null,
-  ): Promise<void> {
-    const row = this.accounts.find(
-      (account) =>
-        account.id === externalAccountId &&
-        account.workspace_id === workspaceId,
-    );
+  async setCursor(workspaceId: string, externalAccountId: string, cursor: string | null): Promise<void> {
+    const row = this.accounts.find((account) => account.id === externalAccountId && account.workspace_id === workspaceId);
     if (row !== undefined) row.sync_cursor = cursor;
   }
 
-  #purge<T extends { id: string }>(
-    rows: T[],
-    doomed: (row: T) => boolean,
-    limit: number,
-  ): { kept: T[]; deleted: number } {
+  #purge<T extends { id: string }>(rows: T[], doomed: (row: T) => boolean, limit: number): { kept: T[]; deleted: number } {
     const ids = new Set(
       rows
         .filter(doomed)
@@ -497,11 +355,7 @@ export class MemoryJobStore implements JobStore {
   }
 
   async purgeSnapshots(beforeDate: string, limit: number): Promise<number> {
-    const { kept, deleted } = this.#purge(
-      this.snapshots,
-      (row) => row.snapshot_date < beforeDate,
-      limit,
-    );
+    const { kept, deleted } = this.#purge(this.snapshots, (row) => row.snapshot_date < beforeDate, limit);
     this.snapshots = kept;
     return deleted;
   }
@@ -520,8 +374,7 @@ export class MemoryJobStore implements JobStore {
     const { kept, deleted } = this.#purge(
       this.jobs,
       (row) =>
-        new Date(row.created_at).getTime() < before.getTime() &&
-        (row.status === "succeeded" || row.status === "failed"),
+        new Date(row.created_at).getTime() < before.getTime() && (row.status === "succeeded" || row.status === "failed"),
       limit,
     );
     this.jobs = kept;
@@ -532,11 +385,7 @@ export class MemoryJobStore implements JobStore {
     const doomed = new Set(
       this.oauthStates
         .filter((row) => new Date(row.expires_at).getTime() <= before.getTime())
-        .sort(
-          (a, b) =>
-            a.expires_at.localeCompare(b.expires_at) ||
-            a.state.localeCompare(b.state),
-        )
+        .sort((a, b) => a.expires_at.localeCompare(b.expires_at) || a.state.localeCompare(b.state))
         .slice(0, limit)
         .map((row) => row.state),
     );
@@ -548,16 +397,10 @@ export class MemoryJobStore implements JobStore {
     const doomed = new Set(
       this.rateLimitCounters
         .filter((row) => Date.parse(row.window_start) < before.getTime())
-        .sort(
-          (a, b) =>
-            Date.parse(a.window_start) - Date.parse(b.window_start) ||
-            a.ip_hash.localeCompare(b.ip_hash),
-        )
+        .sort((a, b) => Date.parse(a.window_start) - Date.parse(b.window_start) || a.ip_hash.localeCompare(b.ip_hash))
         .slice(0, limit),
     );
-    this.rateLimitCounters = this.rateLimitCounters.filter(
-      (row) => !doomed.has(row),
-    );
+    this.rateLimitCounters = this.rateLimitCounters.filter((row) => !doomed.has(row));
     return doomed.size;
   }
 
@@ -565,26 +408,17 @@ export class MemoryJobStore implements JobStore {
     const doomed = new Set(
       this.metricViews
         .filter((row) => row.view_date < beforeDate)
-        .sort(
-          (a, b) =>
-            a.view_date.localeCompare(b.view_date) ||
-            a.project_id.localeCompare(b.project_id),
-        )
+        .sort((a, b) => a.view_date.localeCompare(b.view_date) || a.project_id.localeCompare(b.project_id))
         .slice(0, limit),
     );
     this.metricViews = this.metricViews.filter((row) => !doomed.has(row));
     return doomed.size;
   }
 
-  async purgeNotificationDeliveries(
-    before: Date,
-    limit: number,
-  ): Promise<number> {
+  async purgeNotificationDeliveries(before: Date, limit: number): Promise<number> {
     const { kept, deleted } = this.#purge(
       this.notificationDeliveries,
-      (row) =>
-        row.triggered_alert_id === null &&
-        new Date(row.delivered_at).getTime() < before.getTime(),
+      (row) => row.triggered_alert_id === null && new Date(row.delivered_at).getTime() < before.getTime(),
       limit,
     );
     this.notificationDeliveries = kept;
@@ -595,92 +429,48 @@ export class MemoryJobStore implements JobStore {
     let queued = 0;
     for (const workspaceId of new Set(this.undispatchedAlertWorkspaces)) {
       const open = this.jobs.some(
-        (job) =>
-          job.kind === "alert_dispatch" &&
-          job.workspace_id === workspaceId &&
-          (job.status === "queued" || job.status === "running"),
+        (job) => job.kind === "alert_dispatch" && job.workspace_id === workspaceId && (job.status === "queued" || job.status === "running"),
       );
       if (open) continue;
-      this.jobs.push(
-        this.newJob({
-          workspace_id: workspaceId,
-          connection_id: null,
-          kind: "alert_dispatch",
-        }),
-      );
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "alert_dispatch" }));
       queued += 1;
     }
     return queued;
   }
 
   async enqueueDigests(date: string): Promise<number> {
-    const workspaceIds = new Set(
-      this.connections
-        .filter((row) => row.status !== "revoked")
-        .map((row) => row.workspace_id),
-    );
+    const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
     let queued = 0;
     for (const workspaceId of workspaceIds) {
       const dedupeKey = digestJobKey(workspaceId, date);
       if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) continue;
-      this.jobs.push(
-        this.newJob({
-          workspace_id: workspaceId,
-          connection_id: null,
-          kind: "digest",
-          dedupe_key: dedupeKey,
-        }),
-      );
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "digest", dedupe_key: dedupeKey }));
       queued += 1;
     }
     return queued;
   }
 
   async enqueueDailySummaries(date: string): Promise<number> {
-    const workspaceIds = new Set(
-      this.connections
-        .filter((row) => row.status !== "revoked")
-        .map((row) => row.workspace_id),
-    );
+    const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
     let queued = 0;
     for (const workspaceId of workspaceIds) {
       const dedupeKey = dailySummaryJobKey(workspaceId, date);
       if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) continue;
-      this.jobs.push(
-        this.newJob({
-          workspace_id: workspaceId,
-          connection_id: null,
-          kind: "daily_summary",
-          dedupe_key: dedupeKey,
-        }),
-      );
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "daily_summary", dedupe_key: dedupeKey }));
       queued += 1;
     }
     return queued;
   }
 
-  async listSummaryConnections(
-    workspaceId: string,
-  ): Promise<SummaryConnection[]> {
+  async listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]> {
     return this.connections
-      .filter(
-        (row) => row.workspace_id === workspaceId && row.status !== "revoked",
-      )
+      .filter((row) => row.workspace_id === workspaceId && row.status !== "revoked")
       .map(({ id, provider }) => ({ id, provider }));
   }
 
-  async listSnapshotsBetween(
-    workspaceId: string,
-    fromDate: string,
-    toDate: string,
-  ): Promise<SummarySnapshot[]> {
+  async listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]> {
     return this.snapshots
-      .filter(
-        (row) =>
-          row.workspace_id === workspaceId &&
-          row.snapshot_date >= fromDate &&
-          row.snapshot_date <= toDate,
-      )
+      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date >= fromDate && row.snapshot_date <= toDate)
       .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
       .map((row) => this.#toSnapshotInput(row));
   }
@@ -694,18 +484,12 @@ export class MemoryJobStore implements JobStore {
     };
   }
 
-  async listAnomalySnapshots(
-    workspaceId: string,
-    fromDate: string,
-    toDate: string,
-  ): Promise<AnomalyRow[]> {
+  async listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]> {
     return this.snapshots
       .filter(
         (row) =>
           row.workspace_id === workspaceId &&
-          (row.kind === "verified_spend" ||
-            row.kind === "estimated_spend" ||
-            row.kind === "usage") &&
+          (row.kind === "verified_spend" || row.kind === "estimated_spend" || row.kind === "usage") &&
           (row.point_at ?? null) === null &&
           row.snapshot_date >= fromDate &&
           row.snapshot_date <= toDate,
