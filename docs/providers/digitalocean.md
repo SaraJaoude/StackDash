@@ -83,7 +83,7 @@ Fields: `month_to_date_usage`, `account_balance`, `month_to_date_balance` (the d
 
 Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `amount`, and `invoice_period` (`YYYY-MM`), plus an `invoice_preview` for the current month, which DevMacro does not read (the balance has the same figure). Line items have `product`, `amount`, `description`, `resource_id`, `project_name`, and more; DevMacro reads only `product` and `amount`.
 
-- `digitalocean.invoice.latest`: verified spend, the latest invoice's total, for its billing month.
+- `digitalocean.invoice.latest`: verified spend, the latest invoice's total, for its billing month. That month has ended by the time it is read, so the invoice is never counted as current spend: spend totals, alerts, projections, and the daily summary (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`, #215) and the headline strip (#173) count the month to date usage instead.
 - `digitalocean.invoice.issued` event for each new invoice, dated the 1st of the following month, with the five largest products in the body. A first sync announces only the latest invoice. A later sync announces at most the 3 newest unannounced invoices and moves the cursor past the rest, so after a long outage the older ones never appear; it logs `digitalocean.invoices.new_cap_reached` with the number skipped.
 
 ### Daily spend by SKU: `GET /v2/billing/{account_urn}/insights/{start_date}/{end_date}`
