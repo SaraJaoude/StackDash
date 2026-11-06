@@ -205,6 +205,9 @@ export function selfReportedMetric(row: Readonly<{ id: string; label: string; va
   };
 }
 
+// One request holds every live row: the unique indexes keep engine rows at one per definition, and
+// publish_self_reported_metric keeps self-reported rows at SELF_REPORTED_LIVE_MAX per project, so a
+// project has far fewer than PostgREST's max_rows (#220).
 async function liveRows(projectId: string): Promise<LiveRow[]> {
   const { data, error } = await createAdminClient().rpc("public_published_metrics", { p_project_id: projectId });
   if (error) throw new Error("Failed to load published metrics", { cause: error });

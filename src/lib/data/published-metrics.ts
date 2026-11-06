@@ -48,8 +48,9 @@ export type ProjectPublications = Readonly<{
   selfReported: readonly PublishedSelfReportedMetric[];
 }>;
 
-// One live row per engine metric plus a handful of self-reported values; the unique indexes keep
-// the engine part at the number of definitions.
+// One live row per engine metric (the unique indexes keep that part at the number of definitions)
+// plus at most SELF_REPORTED_LIVE_MAX self-reported values, which publish_self_reported_metric
+// enforces (#220).
 const LIVE_ROWS_LIMIT = 200;
 
 /** The share dialog's "in the last 7 days", today (UTC) included. */

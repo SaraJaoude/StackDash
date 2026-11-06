@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
-import { selfReportedFields } from "@/components/public-metrics/self-reported-rules";
+import { SELF_REPORTED_LIVE_MAX, selfReportedFields } from "@/components/public-metrics/self-reported-rules";
 import { formatQuantity } from "@/lib/format";
 import { logError } from "@/lib/log/logger";
 import {
@@ -236,6 +236,12 @@ export async function publishSelfReported(
     if (data === "duplicate") {
       const message = "A self-reported value with this name is already published. Unpublish it first, or use another name.";
       return { ok: false, fieldErrors: { label: message }, message: `The value was not published. ${message}` };
+    }
+    if (data === "limit_reached") {
+      return {
+        ok: false,
+        message: `The value was not published. This project already publishes ${SELF_REPORTED_LIVE_MAX} self-reported values. Unpublish one you no longer need, then publish this one.`,
+      };
     }
     refresh();
     return { ok: true, message: `Published ${label} as a self-reported value.` };
