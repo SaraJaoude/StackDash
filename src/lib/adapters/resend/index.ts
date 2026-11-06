@@ -456,10 +456,11 @@ export const resendAdapter: ProviderAdapter = {
   },
 
   async exchangeCode({ code, redirectUri, codeVerifier, callbackParams }, ctx) {
-    // RFC 9207: the server advertises `iss` on the callback; a different issuer is a mix-up attack.
-    const iss = callbackParams.iss;
-    if (iss !== undefined && iss !== RESEND_ISSUER) {
-      throw new InvalidResponseError("Resend callback carried an unexpected issuer");
+    // RFC 9207 section 2.4: Resend's discovery document sets
+    // `authorization_response_iss_parameter_supported`, so a callback without `iss`, or with
+    // another issuer, is refused as a possible mix-up attack.
+    if (callbackParams["iss"] !== RESEND_ISSUER) {
+      throw new InvalidResponseError("Resend callback did not carry Resend as its issuer");
     }
     if (codeVerifier === undefined || !CODE_VERIFIER.test(codeVerifier)) {
       throw new TypeError("Resend requires a PKCE code verifier of 43 to 128 unreserved characters");
