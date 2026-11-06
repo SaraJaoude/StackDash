@@ -3,7 +3,7 @@ import { request as playwrightRequest, type Browser, type Page } from "@playwrig
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { publishStars, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
+import { publishStars, seedIncludedAccounts, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
 
 // Public project pages (#150). Each test creates its own workspace and seeds only inside it, so
 // tests run in any order. Public reads go through a fresh browser context or request context with
@@ -159,6 +159,38 @@ ownerTest.describe("project pages as the owner", () => {
         await expect(publicPage.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
       });
       expect((await readPublic(baseURL, "/sitemap.xml")).body).not.toContain(address);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("past 200 included accounts, shows no number anywhere and keeps the owner's controls", async ({ page, browser, baseURL }) => {
+    if (baseURL === undefined) throw new Error("baseURL is not configured");
+    const workspace = await createTestWorkspace("Project page many accounts");
+    try {
+      const projectId = await seedProjectWithHistory(workspace);
+      await publishStars(workspace, projectId);
+      await turnOnPage(workspace, projectId, "acme-web", false);
+      // Two accounts from the history seed plus 199: one past the bound (#220).
+      await seedIncludedAccounts(workspace, projectId, 199);
+
+      // A visitor gets the page's error, never a number computed from part of the accounts.
+      await asStranger(browser, baseURL, `/@${workspace.slug}/acme-web`, async (publicPage) => {
+        await expect(publicPage.getByRole("heading", { level: 1, name: "This project page could not be loaded" })).toBeVisible();
+        await expect(publicPage.getByRole("button", { name: "Try again" })).toBeVisible();
+        await expect(publicPage.getByText(STARS_TODAY.toLocaleString("en-US"))).toHaveCount(0);
+      });
+
+      // The owner keeps the settings page, with the reason and the control to unpublish.
+      await page.goto(settingsPath(workspace, projectId));
+      const metrics = page.getByRole("region", { name: "Metrics from your connected providers" });
+      await expect(metrics).toContainText("These metrics cannot be computed");
+      await expect(metrics).toContainText("This project has more than 200 included accounts");
+      await expect(metrics.getByRole("link", { name: "Connections" })).toHaveAttribute("href", `/w/${workspace.slug}/connections`);
+      await expect(metrics.getByRole("listitem").filter({ hasText: "GitHub stars" }).first()).toContainText(
+        "Now: Not computed: too many accounts",
+      );
+      await expect(metrics.getByRole("button", { name: "Unpublish GitHub stars", exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }

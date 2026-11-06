@@ -9,7 +9,7 @@ import { validateAdapterEvents } from "../events";
 import { validateAdapterMetrics } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { MAX_DOMAIN_PAGES, RESEND_TEAM_EXTERNAL_ID, RESEND_USER_AGENT, resendAdapter } from "./index";
-import { parseResendTimestamp } from "./schemas";
+import { parseResendTimestamp, RESEND_ISSUER } from "./schemas";
 // Every fixture below is from documentation, not recorded: the sample responses in
 // docs/providers/resend.md, trimmed, with synthetic ids, tokens, and values.
 import domainsFixture from "./fixtures/domains.json";
@@ -155,7 +155,7 @@ describe("resendAdapter.exchangeCode", () => {
         code: "code-1",
         redirectUri: "https://devmacro.example/cb",
         codeVerifier: verifier,
-        callbackParams: { code: "code-1", state: "s", iss: "https://api.resend.com" },
+        callbackParams: { code: "code-1", state: "s", iss: RESEND_ISSUER },
       },
       ctx,
     );
@@ -187,22 +187,21 @@ describe("resendAdapter.exchangeCode", () => {
     const { scope: _omitted, ...withoutScope } = tokenFixture;
     const { ctx } = harness({ "POST /oauth/token": () => json(withoutScope) });
     const result = await resendAdapter.exchangeCode(
-      { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: {} },
+      { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
       ctx,
     );
     expect(result.scopes).toEqual(["full_access"]);
   });
 
-  it("rejects a callback iss from another issuer without calling the token endpoint", async () => {
+  it.each([
+    ["another issuer", { iss: "https://evil.example" }],
+    ["no issuer", {}],
+    ["an empty issuer", { iss: "" }],
+  ])("refuses a callback with %s before calling the token endpoint", async (_title, callbackParams) => {
     const { ctx, calls } = harness({ "POST /oauth/token": () => json(tokenFixture) });
     await expect(
       resendAdapter.exchangeCode(
-        {
-          code: "c",
-          redirectUri: "https://devmacro.example/cb",
-          codeVerifier: verifier,
-          callbackParams: { iss: "https://evil.example" },
-        },
+        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams },
         ctx,
       ),
     ).rejects.toBeInstanceOf(InvalidResponseError);
@@ -220,7 +219,7 @@ describe("resendAdapter.exchangeCode", () => {
         {
           code: "c",
           redirectUri: "https://devmacro.example/cb",
-          callbackParams: {},
+          callbackParams: { iss: RESEND_ISSUER },
           ...(codeVerifier === undefined ? {} : { codeVerifier }),
         },
         ctx,
@@ -234,7 +233,7 @@ describe("resendAdapter.exchangeCode", () => {
     });
     await expect(
       resendAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: {} },
+        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
         ctx,
       ),
     ).rejects.toBeInstanceOf(AuthRevokedError);
@@ -245,7 +244,7 @@ describe("resendAdapter.exchangeCode", () => {
     const { ctx } = harness({ "POST /oauth/token": () => json(withoutRefresh) });
     await expect(
       resendAdapter.exchangeCode(
-        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: {} },
+        { code: "c", redirectUri: "https://devmacro.example/cb", codeVerifier: verifier, callbackParams: { iss: RESEND_ISSUER } },
         ctx,
       ),
     ).rejects.toMatchObject({ code: "invalid_response" });

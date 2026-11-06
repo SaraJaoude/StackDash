@@ -33,7 +33,7 @@ Query parameters: `client_id`, `response_type=code`, `redirect_uri` (exact match
 
 Resend redirects the browser to its dashboard consent screen, where the user signs in and picks **which team** the app can access. One grant covers one Resend team, so one DevMacro connection maps to one Resend team.
 
-The discovery document advertises `authorization_response_iss_parameter_supported: true`. If the callback carries `iss`, check it equals `https://api.resend.com`.
+The discovery document advertises `authorization_response_iss_parameter_supported: true`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), DevMacro rejects a callback whose `iss` is missing, empty, or anything other than `https://api.resend.com`, before calling the token endpoint. The Authorize reference lists only `code` and `state` on the redirect, so this rests on the metadata flag alone (see Unverified).
 
 Error handling on authorize has two shapes, and the callback must not assume it always receives an error redirect:
 
@@ -374,6 +374,7 @@ Confirm with a test account before the adapter ships:
 9. How a pre-registered client becomes "verified" (affects authorize error redirects and how the consent screen presents DevMacro). No self-service path is documented.
 10. Access token JWT claims (for example a team id). Not documented, so not relied on.
 11. Response shapes for `/usage` on Pro and Scale plans (`daily.limit: null`, `domains.limit`, `segments.limit`).
+12. The authorize callback carries `iss=https://api.resend.com`. The discovery metadata advertises it ([RFC 9207, section 2.3](https://www.rfc-editor.org/rfc/rfc9207#section-2.3)), but the Authorize reference says the redirect carries only `code` and the original `state`. If the live redirect omits `iss`, `exchangeCode` refuses every Resend callback and no connection can complete.
 
 ## Sources
 

@@ -218,6 +218,41 @@ ownerTest.describe("public metrics as the owner", () => {
     }
   });
 
+  ownerTest("refuses a 101st self-reported value and says how to make room", async ({ page }) => {
+    const workspace = await createTestWorkspace("Public metrics self cap");
+    try {
+      const projectId = await seedStarredProject(workspace);
+      // At the cap (publish_self_reported_metric allows 100 live values per project, #220).
+      const { error } = await adminClient()
+        .from("published_metrics")
+        .insert(
+          Array.from({ length: 100 }, (_, index) => ({
+            workspace_id: workspace.id,
+            project_id: projectId,
+            self_reported_label: `Value ${index + 1}`,
+            self_reported_value: index + 1,
+            self_reported_unit: "things",
+            published_by: workspace.ownerId,
+          })),
+        );
+      if (error) throw new Error(`Seeding self-reported values failed (code ${error.code}).`);
+      await page.goto(publicMetricsPath(workspace, projectId));
+
+      const form = page.getByRole("region", { name: "Self-reported values" });
+      await form.getByLabel("Name").fill("Downloads this month");
+      await form.getByLabel("Value").fill("4200");
+      await form.getByLabel("Unit").fill("downloads");
+      // Exact: each listed value has an "Unpublish Value N" button.
+      await form.getByRole("button", { name: "Publish value", exact: true }).click();
+      await expect(form.getByRole("alert").filter({ hasText: "already publishes" })).toHaveText(
+        "The value was not published. This project already publishes 100 self-reported values. Unpublish one you no longer need, then publish this one.",
+      );
+      await expect(form.getByRole("listitem")).toHaveCount(100);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("publishes and unpublishes with the keyboard alone", async ({ page }) => {
     const workspace = await createTestWorkspace("Public metrics keyboard");
     try {

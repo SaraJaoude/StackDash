@@ -23,10 +23,20 @@ type MetricKind = Database["public"]["Enums"]["metric_kind"];
 // Quantities only: even a mistyped metric key in a definition cannot read an amount of money.
 const QUANTITY_KINDS: readonly MetricKind[] = ["usage", "included_allowance", "remaining_allowance"];
 
-// Bounds. A project groups a handful of accounts. A snapshot read is paged (#209): PostgREST
-// returns at most 1000 rows a request, and a history or trend window of many accounts holds more.
-const ACCOUNTS_LIMIT = 200;
-const CONNECTIONS_LIMIT = 200;
+// Bounds. A project groups a handful of accounts. The account read asks for one row past
+// ACCOUNTS_LIMIT, so reaching the bound is seen rather than silently cutting the rest (#220). A
+// snapshot read is paged (#209): PostgREST returns at most 1000 rows a request, and a history or
+// trend window of many accounts holds more.
+export const ACCOUNTS_LIMIT = 200;
+
+/**
+ * The project (or, with no project, the workspace) has more included accounts than ACCOUNTS_LIMIT,
+ * so no number may be computed from what the read returned (#220). Public routes answer it as any
+ * failed read; the owner's settings page shows its metrics as unavailable and says why.
+ */
+export class AccountBoundError extends Error {
+  override readonly name = "AccountBoundError";
+}
 
 export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
@@ -36,22 +46,31 @@ export function createSupabaseMetricStore(
   return {
     async accounts(): Promise<SourceAccount[]> {
       const included = db.from("external_accounts").select("id, connection_id").eq("workspace_id", workspaceId).eq("included", true);
-      const [accounts, connections] = await Promise.all([
-        (projectId === null ? included : included.eq("project_id", projectId)).order("id").limit(ACCOUNTS_LIMIT),
-        // A disconnected (revoked) connection keeps its rows, but the user asked DevMacro to stop
-        // using them, so its accounts drop out and the metric reads "not connected". The scheduler
-        // and the daily summary skip revoked connections the same way (src/lib/jobs/store.ts).
-        db
-          .from("connections")
-          .select("id, provider, created_at, last_synced_at, granted_scopes")
-          .eq("workspace_id", workspaceId)
-          .neq("status", "revoked")
-          .order("id")
-          .limit(CONNECTIONS_LIMIT),
-      ]);
+      const accounts = await (projectId === null ? included : included.eq("project_id", projectId)).order("id").limit(ACCOUNTS_LIMIT + 1);
       if (accounts.error) throw new Error("Failed to load the project's accounts", { cause: accounts.error });
-      if (connections.error) throw new Error("Failed to load the workspace's connections", { cause: connections.error });
+      // Every number rests on every included account, so a read that may be missing some publishes
+      // nothing (#220).
+      if (accounts.data.length > ACCOUNTS_LIMIT) {
+        throw new AccountBoundError(
+          `Public metrics read at most ${ACCOUNTS_LIMIT} included accounts, and workspace ${workspaceId}${projectId === null ? "" : ` project ${projectId}`} has more`,
+        );
+      }
+      if (accounts.data.length === 0) return [];
 
+      // Only the connections of the accounts just read, so this read holds at most as many rows as
+      // that one and cannot be cut either. A disconnected (revoked) connection keeps its rows, but
+      // the user asked DevMacro to stop using them, so its accounts drop out and the metric reads
+      // "not connected". The scheduler and the daily summary skip revoked connections the same way
+      // (src/lib/jobs/store.ts).
+      const connectionIds = [...new Set(accounts.data.map((account) => account.connection_id))];
+      const connections = await db
+        .from("connections")
+        .select("id, provider, created_at, last_synced_at, granted_scopes")
+        .eq("workspace_id", workspaceId)
+        .in("id", connectionIds)
+        .neq("status", "revoked")
+        .limit(connectionIds.length);
+      if (connections.error) throw new Error("Failed to load the workspace's connections", { cause: connections.error });
       const byId = new Map(connections.data.map((connection) => [connection.id, connection]));
       return accounts.data.flatMap((account) => {
         const connection = byId.get(account.connection_id);

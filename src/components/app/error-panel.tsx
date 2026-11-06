@@ -1,6 +1,20 @@
 import type { ReactNode } from "react";
 
 /**
+ * The reference id of an error that reached an `error.tsx` boundary, or undefined. Errors from
+ * Server Components reach the client with their message replaced and a `digest` that Next.js also
+ * writes to the server log, so the digest is the reference id support uses to find the failure.
+ * `error.message` is never shown: in development it holds the raw server message, and client-side
+ * errors are not scrubbed at all.
+ */
+export function digestOf(error: unknown): string | undefined {
+  if (error instanceof Error && "digest" in error && typeof error.digest === "string" && error.digest !== "") {
+    return error.digest;
+  }
+  return undefined;
+}
+
+/**
  * Explains a failure in plain words: what happened, what to do next, and, for unexpected errors,
  * a reference id that matches the server logs. Never pass raw error messages, stack traces, SQL,
  * or provider error codes into it.
