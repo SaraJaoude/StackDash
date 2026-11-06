@@ -29,6 +29,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261105120700_count_activity_events.sql` | `count_activity_events` (security invoker): activity event counts per connection and type in a half open window, for the dashboard headline (#173) |
 | `20261105120800_provider_gitlab.sql` | `provider_id` gains `gitlab` |
 | `20261105150000_public_share_surfaces.sql` | `share_surface`, `public_rate_limit_counters` and `bump_public_rate_limit`, `published_metric_views` and `record_published_metric_view`, and their retention purges |
+| `20261106144639_self_reported_metrics_limit.sql` | `publish_self_reported_metric` returns `limit_reached` for a 101st live self-reported value in a project |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -255,7 +256,7 @@ Nothing is aggregated in the MVP.
 `published_metrics` records which metrics a workspace has made public, per project. What each metric is and how it is counted is in [Public metrics](public-metrics.md).
 
 - `metric_id` is the enum `public_metric_id`, the only list of publishable metrics; the code keys its definitions by the same enum through the generated types. Spend, budgets, and alert thresholds have no value in it. A row with no `metric_id` is a self-reported value with its own label, value (a whole number), and unit; `published_metrics_source` allows exactly one of the two shapes.
-- Rows are never edited except to revoke them (`revoked_at`, `revoked_by`), so the table is also the publication history. Partial unique indexes allow one live row per metric, and per self-reported label ignoring case, in a project.
+- Rows are never edited except to revoke them (`revoked_at`, `revoked_by`), so the table is also the publication history. Partial unique indexes allow one live row per metric, and per self-reported label ignoring case, in a project. `publish_self_reported_metric` allows at most 100 live self-reported rows per project (it returns `limit_reached` past that, counted under the project row lock), so a project's live rows always fit one Data API request (#220).
 - Members read it as viewers. Nobody writes through the Data API: `publish_metric`, `publish_self_reported_metric`, `unpublish_metric`, and `unpublish_all_metrics` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.metric_published`, `devmacro.metric_unpublished`, or `devmacro.metrics_unpublished_all` timeline event in the same transaction.
 - `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
 - `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.

@@ -5,7 +5,7 @@ import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest"
 
 import { computePublicMetrics, SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
-import { createSupabaseMetricStore } from "./supabase-store";
+import { AccountBoundError, ACCOUNTS_LIMIT, createSupabaseMetricStore } from "./supabase-store";
 import { computeTrend } from "./trend";
 
 /*
@@ -148,5 +148,80 @@ describe("createSupabaseMetricStore snapshots", () => {
     );
     expect(trend).toEqual(expected);
     expect(trend[4]?.result).toMatchObject({ status: "available" });
+  });
+});
+
+/**
+ * `accountCount` included GitHub accounts of one project, spread over the first of
+ * `connectionCount` connections of the workspace in id order, and one account on the last one.
+ */
+function accountWorkspace(accountCount: number, connectionCount: number, projectId: string | null = PROJECT_ID) {
+  const connections: Row[] = Array.from({ length: connectionCount }, (_, index) => ({
+    id: uuid(3, index),
+    workspace_id: WORKSPACE_ID,
+    provider: "github",
+    status: "active",
+    created_at: "2026-01-01T00:00:00.000Z",
+    last_synced_at: AS_OF.toISOString(),
+    granted_scopes: [],
+  }));
+  const accounts: Row[] = Array.from({ length: accountCount }, (_, index) => ({
+    id: uuid(1, index),
+    // The last account sits on the connection with the highest id, past any first page of them.
+    connection_id: uuid(3, index === accountCount - 1 ? connectionCount - 1 : 0),
+    workspace_id: WORKSPACE_ID,
+    project_id: PROJECT_ID,
+    included: true,
+  }));
+  const { db, requests } = fakeSupabase({ external_accounts: accounts, connections });
+  return { store: createSupabaseMetricStore(db, WORKSPACE_ID, projectId), requests };
+}
+
+describe("createSupabaseMetricStore accounts", () => {
+  it.each([
+    { name: "one account", accounts: 1, projectId: PROJECT_ID },
+    { name: "exactly ACCOUNTS_LIMIT", accounts: ACCOUNTS_LIMIT, projectId: PROJECT_ID },
+    { name: "exactly ACCOUNTS_LIMIT across the workspace", accounts: ACCOUNTS_LIMIT, projectId: null },
+  ])("returns every included account (boundary: $name)", async ({ accounts, projectId }) => {
+    const { store } = accountWorkspace(accounts, 2, projectId);
+    const read = await store.accounts();
+    expect(read.map((account) => account.accountId)).toEqual(Array.from({ length: accounts }, (_, index) => uuid(1, index)));
+  });
+
+  it.each([
+    { name: "for a project", projectId: PROJECT_ID },
+    { name: "across the workspace", projectId: null },
+  ])("refuses to return part of the accounts (boundary: one past ACCOUNTS_LIMIT $name)", async ({ projectId }) => {
+    const { store, requests } = accountWorkspace(ACCOUNTS_LIMIT + 1, 2, projectId);
+    const read = store.accounts();
+    await expect(read).rejects.toBeInstanceOf(AccountBoundError);
+    await expect(read).rejects.toThrow(`Public metrics read at most ${ACCOUNTS_LIMIT} included accounts`);
+    // Nothing past the account read: no number can be computed from what it returned.
+    expect(requests.map((request) => request.table)).toEqual(["external_accounts"]);
+  });
+
+  it("keeps an account whose connection sorts past ACCOUNTS_LIMIT connections of the workspace (boundary: one past the old connection bound)", async () => {
+    const { store, requests } = accountWorkspace(3, ACCOUNTS_LIMIT + 1);
+    const read = await store.accounts();
+    expect(read.map((account) => account.accountId)).toEqual([uuid(1, 0), uuid(1, 1), uuid(1, 2)]);
+    // Only the two connections the accounts use are read.
+    expect(requests.find((request) => request.table === "connections")?.returned).toBe(2);
+  });
+
+  it("leaves out an account of a revoked connection (boundary: revoked)", async () => {
+    const connections: Row[] = [
+      { id: uuid(3, 0), workspace_id: WORKSPACE_ID, provider: "github", status: "active", created_at: "2026-01-01T00:00:00.000Z", last_synced_at: null, granted_scopes: [] },
+      { id: uuid(3, 1), workspace_id: WORKSPACE_ID, provider: "github", status: "revoked", created_at: "2026-01-01T00:00:00.000Z", last_synced_at: null, granted_scopes: [] },
+    ];
+    const accounts: Row[] = [0, 1].map((index) => ({
+      id: uuid(1, index),
+      connection_id: uuid(3, index),
+      workspace_id: WORKSPACE_ID,
+      project_id: PROJECT_ID,
+      included: true,
+    }));
+    const { db } = fakeSupabase({ external_accounts: accounts, connections });
+    const read = await createSupabaseMetricStore(db, WORKSPACE_ID, PROJECT_ID).accounts();
+    expect(read.map((account) => account.accountId)).toEqual([uuid(1, 0)]);
   });
 });

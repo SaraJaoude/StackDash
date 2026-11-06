@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { formatUtcDate } from "@/lib/format";
+import { log } from "@/lib/log/logger";
 import {
   formulaPath,
   PUBLIC_METRICS,
@@ -10,17 +11,18 @@ import {
   type MetricUnit,
   type PublicMetricId,
 } from "@/lib/public-metrics/definitions";
-import { computePublicMetrics } from "@/lib/public-metrics/engine";
+import { computePublicMetrics, type ComputedMetric } from "@/lib/public-metrics/engine";
 import {
   computePublishedEngineMetrics,
   publishedValue,
   selfReportedMetric,
+  unavailablePublishedEngineMetrics,
   type PublishedEngineMetric,
   type PublishedSelfReportedMetric,
   type PublishedValue,
 } from "@/lib/public-metrics/published";
 import type { ShareSurface } from "@/lib/public-metrics/requests";
-import { createSupabaseMetricStore } from "@/lib/public-metrics/supabase-store";
+import { AccountBoundError, createSupabaseMetricStore } from "@/lib/public-metrics/supabase-store";
 import { createClient } from "@/lib/supabase/server";
 
 /*
@@ -46,10 +48,16 @@ export type ProjectPublications = Readonly<{
   project: Readonly<{ id: string; name: string }>;
   metrics: readonly ProjectMetricStatus[];
   selfReported: readonly PublishedSelfReportedMetric[];
+  /**
+   * The project has more included accounts than public metrics read (ACCOUNTS_LIMIT), so every
+   * engine metric is unavailable here and wherever it is published (#220).
+   */
+  tooManyAccounts: boolean;
 }>;
 
-// One live row per engine metric plus a handful of self-reported values; the unique indexes keep
-// the engine part at the number of definitions.
+// One live row per engine metric (the unique indexes keep that part at the number of definitions)
+// plus at most SELF_REPORTED_LIVE_MAX self-reported values, which publish_self_reported_metric
+// enforces (#220).
 const LIVE_ROWS_LIMIT = 200;
 
 /** The share dialog's "in the last 7 days", today (UTC) included. */
@@ -107,13 +115,25 @@ export const loadProjectPublications = cache(
     );
 
     const store = createSupabaseMetricStore(supabase, workspaceId, projectId);
-    const [current, published] = await Promise.all([
-      computePublicMetrics(
-        store,
-        PUBLIC_METRICS.map((definition) => ({ metricId: definition.id, asOf: now })),
-      ),
-      computePublishedEngineMetrics(store, engineRows, now),
-    ]);
+    const currentRequests = PUBLIC_METRICS.map((definition) => ({ metricId: definition.id, asOf: now }));
+    let current: readonly ComputedMetric[];
+    let published: readonly PublishedEngineMetric[];
+    let tooManyAccounts = false;
+    try {
+      [current, published] = await Promise.all([
+        computePublicMetrics(store, currentRequests),
+        computePublishedEngineMetrics(store, engineRows, now),
+      ]);
+    } catch (error) {
+      // Past the account read's bound nothing may be computed (#220), but this page holds every
+      // Unpublish control, so the owner keeps it, with each engine metric unavailable and the
+      // reason. Any other failure is still the page's error.
+      if (!(error instanceof AccountBoundError)) throw error;
+      log.warn("public_metrics.settings_accounts_over_limit", { workspaceId, projectId });
+      tooManyAccounts = true;
+      current = currentRequests.map((request) => ({ ...request, result: { status: "unavailable", reason: "too_many_accounts" } }));
+      published = unavailablePublishedEngineMetrics(engineRows, now, "too_many_accounts");
+    }
     const publications = new Map(published.map((publication) => [publication.metricId, publication]));
     const viewCounts = new Map<string, number>();
     for (const row of views.data) {
@@ -142,6 +162,7 @@ export const loadProjectPublications = cache(
       project: project.data,
       metrics,
       selfReported: selfReported.sort((a, b) => a.label.localeCompare(b.label, "en-US")),
+      tooManyAccounts,
     };
   },
 );

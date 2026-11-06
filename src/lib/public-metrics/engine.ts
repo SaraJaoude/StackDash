@@ -90,9 +90,11 @@ export interface PublicMetricStore {
  * Why there is no number. `not_connected`: no included account of the metric's provider in the
  * project. `no_data`: connected, but nothing stored yet (or the provider does not report it for
  * this account). `not_enough_history`: stored data does not cover the window yet. `stale`: the
- * newest data is older than two days.
+ * newest data is older than two days. `too_many_accounts`: the project has more included accounts
+ * than a store reads (#220); the engine never returns it, because the store throws instead
+ * (AccountBoundError in supabase-store.ts), and only the owner's settings page shows it.
  */
-export type UnavailableReason = "not_connected" | "no_data" | "not_enough_history" | "stale";
+export type UnavailableReason = "not_connected" | "no_data" | "not_enough_history" | "stale" | "too_many_accounts";
 
 export type MetricValue =
   | Readonly<{
