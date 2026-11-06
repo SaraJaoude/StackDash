@@ -26,11 +26,6 @@ export const TokenResponseSchema = z.object({
 
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 
-// RFC 6749 error body used by the token endpoint.
-export const OAuthErrorSchema = z.object({
-  error: z.string().min(1),
-});
-
 /**
  * The GraphQL envelope. Railway answers authorization denials with HTTP 200, an `errors` entry
  * whose message is "Not Authorized", and `data` null or partial (Public API, Errors).

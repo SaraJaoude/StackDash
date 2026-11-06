@@ -196,13 +196,14 @@ describe("isProviderSimulationEnabled", () => {
 });
 
 describe("simulated adapter declarations", () => {
-  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, and capabilities", (id) => {
+  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, beta, and capabilities", (id) => {
     const simulated = simulatedAdapters[id];
     expect(simulated.id).toBe(REAL[id].id);
     expect(simulated.displayName).toBe(REAL[id].displayName);
     expect(simulated.eventTypes).toBe(REAL[id].eventTypes);
     expect(simulated.signupDailyTotals).toBe(REAL[id].signupDailyTotals);
     expect(simulated.projectedSpend).toBe(REAL[id].projectedSpend);
+    expect(simulated.beta).toBe(REAL[id].beta);
     expect(simulated.capabilities).toBe(REAL[id].capabilities);
     expect(simulated.pollIntervalSeconds).toBe(60);
     expect(simulated.oauth.pkce).toBe(false);
@@ -611,6 +612,25 @@ describe("simulated numbers", () => {
     expect(revenue[0]).toBeLessThanOrEqual(revenue[1] ?? 0);
     expect(revenue[1]).toBeLessThan(revenue[2] ?? 0);
     expect(revenue[3]).toBeLessThan(revenue[2] ?? 0);
+  });
+
+  // The dashboard counts the organization total and drops each product's spend as its breakdown
+  // (`dropSupersededBreakdowns`, #204), so the products must sit one segment below the total.
+  it("reports the PostHog organization's spend so far with each product's spend one segment below it", async () => {
+    const [early, late] = await metricsAt(simulatedAdapters.posthog, [new Date("2026-11-03T09:00:00Z"), new Date("2026-11-27T09:00:00Z")]);
+    if (early === undefined || late === undefined) throw new Error("expected metrics");
+    const verified = late.filter((item) => item.kind === "verified_spend");
+    expect(verified.map((item) => item.metricKey).sort()).toEqual([
+      "posthog.spend.current",
+      "posthog.spend.current.feature_flags",
+      "posthog.spend.current.product_analytics",
+      "posthog.spend.current.session_replay",
+    ]);
+    const total = amount(metric(late, "posthog.spend.current"));
+    expect(total).toBeGreaterThan(amount(metric(early, "posthog.spend.current")));
+    // The products add up to the total, give or take a cent each: each is rounded on its own.
+    const products = verified.filter((item) => item.metricKey !== "posthog.spend.current").map(amount);
+    expect(Math.abs(products.reduce((sum, value) => sum + value, 0) - total)).toBeLessThanOrEqual(products.length);
   });
 
   it("reports GitHub stars per repository and in total, plus Actions minutes and spend", async () => {

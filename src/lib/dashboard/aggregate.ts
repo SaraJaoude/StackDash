@@ -211,10 +211,19 @@ export function isCurrentPeriod(row: SnapshotInput, now: Date): boolean {
 }
 
 /**
+ * Rows PostHog stored before #204 named each product's spend `posthog.<type>.spend`; it is now
+ * `posthog.spend.current.<type>`, a breakdown of the organization's `posthog.spend.current`. Old rows
+ * stay in the read windows for weeks (`SNAPSHOT_WINDOW_DAYS` on the dashboard), so they are read as
+ * the breakdowns they are. Decided on #204: delete this once no stored row carries the old name.
+ */
+const LEGACY_POSTHOG_PRODUCT_SPEND = /^posthog\.[a-z0-9_]+\.spend$/;
+
+/**
  * Breakdowns are dropped so nothing is counted twice. Within one account, kind, and currency:
  * - a total (`<prefix>.total`) supersedes its parts (`<prefix>.<part>`), as Vercel reports them;
  * - a metric supersedes the keys one segment below it, as GitHub reports per product
- *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`).
+ *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`), and PostHog per
+ *   organization (`posthog.spend.current`) and per product (`posthog.spend.current.session_replay`).
  */
 export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly T[]): T[] {
   const groupOf = (row: T, key: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${key}`;
@@ -223,8 +232,10 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
     parents.add(groupOf(row, row.metric_key.endsWith(".total") ? row.metric_key.slice(0, -".total".length) : row.metric_key));
   }
   return rows.filter((row) => {
-    if (row.metric_key.endsWith(".total")) return true;
-    return !parents.has(groupOf(row, row.metric_key.slice(0, row.metric_key.lastIndexOf("."))));
+    const key = row.metric_key;
+    if (key.endsWith(".total")) return true;
+    const parent = LEGACY_POSTHOG_PRODUCT_SPEND.test(key) ? "posthog.spend.current" : key.slice(0, key.lastIndexOf("."));
+    return !parents.has(groupOf(row, parent));
   });
 }
 

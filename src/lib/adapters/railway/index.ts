@@ -13,6 +13,7 @@ import {
   fetchJson,
   InvalidResponseError,
   PermissionMissingError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventSeverity, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -31,7 +32,6 @@ import {
   DeploymentsDataSchema,
   GraphqlEnvelopeSchema,
   measurements,
-  OAuthErrorSchema,
   ProjectsDataSchema,
   RAILWAY_ISSUER,
   TokenResponseSchema,
@@ -461,18 +461,6 @@ export function billingMetrics(
 
 function basicAuthorization(ctx: OAuthContext): string {
   return `Basic ${btoa(`${ctx.client.clientId}:${ctx.client.clientSecret.reveal()}`)}`;
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**

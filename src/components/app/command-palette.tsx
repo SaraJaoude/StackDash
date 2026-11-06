@@ -145,6 +145,9 @@ export function CommandPalette({
   }
 
   function restoreFocus(): void {
+    // A late close event (see onPaletteClose) must not take the return target from a dialog that
+    // has opened since; that dialog's own close restores focus.
+    if (paletteRef.current?.open === true || shortcutsRef.current?.open === true) return;
     const target = returnFocusRef.current;
     returnFocusRef.current = null;
     (target !== null && target.isConnected ? target : buttonRef.current)?.focus();
@@ -165,6 +168,15 @@ export function CommandPalette({
   }
 
   function onPaletteClose(): void {
+    // Chromium hides a closing dialog and returns focus at once but fires `close` on the next
+    // animation frame, so a shortcut pressed before that frame reopens the palette first. The
+    // event then belongs to the earlier close and must not empty the open palette's results (#225),
+    // and a shortcut list request made by that close is dropped with it: the user reopened the
+    // palette instead, and its own close must not open the list.
+    if (paletteRef.current?.open === true) {
+      shortcutsNextRef.current = false;
+      return;
+    }
     setOpen(false);
     if (shortcutsNextRef.current) {
       shortcutsNextRef.current = false;

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { InvalidDecimalError, parseDecimal } from "@/lib/money";
+import { OAuthErrorSchema } from "../errors";
 
 /**
  * Zod schemas for every GitHub response the adapter reads, per docs/providers/github.md.
@@ -32,11 +33,7 @@ export const TokenSuccessSchema = z.object({
   refresh_token: z.string().min(1).optional(),
 });
 
-export const TokenErrorSchema = z.object({
-  error: z.string().min(1),
-});
-
-export const TokenResponseSchema = z.union([TokenSuccessSchema, TokenErrorSchema]);
+export const TokenResponseSchema = z.union([TokenSuccessSchema, OAuthErrorSchema]);
 export type TokenSuccess = z.infer<typeof TokenSuccessSchema>;
 
 export const AccountTypeSchema = z.enum(["User", "Organization"]);

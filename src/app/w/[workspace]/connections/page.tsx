@@ -5,6 +5,7 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { BetaBadge } from "@/components/connections/beta-badge";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
@@ -231,13 +232,21 @@ function CatalogCard({
     : !configured
       ? `Not set up on this instance. Ask the person who runs this DevMacro instance to register the ${adapter.displayName} app.`
       : null;
+  // Visible text and the connect link's description, so the reason never lives in a tooltip only.
+  const betaReasonId = adapter.beta === undefined ? undefined : `catalog-${adapter.id}-beta-reason`;
   return (
     <li className="flex flex-col rounded-xl border border-line bg-panel p-5">
       <div className="flex items-center gap-3">
         <ProviderMark provider={adapter.id} />
         <h3 className="font-semibold">{adapter.displayName}</h3>
+        {adapter.beta === undefined ? null : <BetaBadge />}
         {simulated ? <SimulatedBadge /> : null}
       </div>
+      {adapter.beta === undefined ? null : (
+        <p id={betaReasonId} className="mt-3 text-sm text-muted">
+          {adapter.beta.reason}
+        </p>
+      )}
       <p className="mt-3 text-xs font-medium text-muted">Data collected</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-muted">
         {adapter.dataCollected.map((item) => (
@@ -251,6 +260,7 @@ function CatalogCard({
         {reason === null ? (
           <Link
             href={href}
+            aria-describedby={betaReasonId}
             className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
           >
             Connect {adapter.displayName}

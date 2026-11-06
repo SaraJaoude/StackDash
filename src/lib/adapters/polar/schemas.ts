@@ -22,12 +22,6 @@ export const TokenResponseSchema = z.object({
 });
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 
-/**
- * RFC 6749 section 5.2 error body from the token endpoint (`invalid_grant`, `invalid_client`,
- * `invalid_request`, ...). Only the code is read.
- */
-export const OAuthErrorSchema = z.object({ error: z.string().min(1) });
-
 /** `POST /v1/oauth2/revoke` answers an empty object. */
 export const RevokeResponseSchema = z.object({});
 

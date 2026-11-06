@@ -416,7 +416,8 @@ describe("sync", () => {
     expect(byKey(result.metrics, "posthog.product_analytics.usage")).toMatchObject({ value: 1_250_000, unit: "events" });
     expect(byKey(result.metrics, "posthog.product_analytics.free")).toMatchObject({ kind: "included_allowance", value: 1_000_000 });
     expect(byKey(result.metrics, "posthog.product_analytics.free_remaining")).toMatchObject({ value: 0 });
-    expect(byKey(result.metrics, "posthog.session_replay.spend")).toMatchObject({ amountMinor: 550 });
+    // Each product's spend is a breakdown one segment below the organization total (#204).
+    expect(byKey(result.metrics, "posthog.spend.current.session_replay")).toMatchObject({ amountMinor: 550 });
     expect(byKey(result.metrics, "posthog.surveys.usage")).toMatchObject({ unit: "survey responses" });
     // Inclusion-only products carry no usage key and produce nothing.
     expect(result.metrics.some((metric) => metric.metricKey.startsWith("posthog.platform_and_support"))).toBe(false);
