@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { digitaloceanAdapter } from "@/lib/adapters/digitalocean";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { githubAdapter } from "@/lib/adapters/github";
+import { gitlabAdapter } from "@/lib/adapters/gitlab";
 import { polarAdapter } from "@/lib/adapters/polar";
 import { postHogAdapter } from "@/lib/adapters/posthog";
 import { railwayAdapter } from "@/lib/adapters/railway";
@@ -118,6 +119,18 @@ describe("bucketEventCounts in daily buckets", () => {
     expect(counts).toEqual([{ provider: "digitalocean", category: "deployments", bucket: "2026-01-10", count: 5 }]);
   });
 
+  it("counts a finished GitLab deployment, failed or not, on the GitLab chart", () => {
+    const counts = bucketEventCounts(
+      [
+        row("2026-01-10", "gitlab.deployment.succeeded", 6, "gitlab"),
+        row("2026-01-10", "gitlab.deployment.failed", 1, "gitlab"),
+      ],
+      "daily",
+      NOW,
+    );
+    expect(counts).toEqual([{ provider: "gitlab", category: "deployments", bucket: "2026-01-10", count: 7 }]);
+  });
+
   it("counts a finished Railway deployment, failed or not, on the Railway chart", () => {
     const counts = bucketEventCounts(
       [
@@ -146,6 +159,8 @@ describe("bucketEventCounts in daily buckets", () => {
     { name: "a started Polar subscription", input: row("2026-01-10", "polar.subscription.started", 2, "polar") },
     { name: "a PostHog daily signup total", input: row("2026-01-10", "posthog.signups.daily", 1, "posthog") },
     { name: "a Sentry release", input: row("2026-01-10", "sentry.release.created", 1, "sentry") },
+    { name: "a GitLab pipeline", input: row("2026-01-10", "gitlab.pipeline.succeeded", 9, "gitlab") },
+    { name: "a GitLab release", input: row("2026-01-10", "gitlab.release.published", 1, "gitlab") },
     { name: "a zero count", input: row("2026-01-10", "vercel.deployment.succeeded", 0) },
   ])("drops $name", ({ input }) => {
     expect(bucketEventCounts([input], "daily", NOW)).toEqual([]);
@@ -274,6 +289,7 @@ describe("category type ids", () => {
     polar: polarAdapter,
     sentry: sentryAdapter,
     railway: railwayAdapter,
+    gitlab: gitlabAdapter,
     fake: fakeAdapter,
   };
 

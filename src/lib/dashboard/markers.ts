@@ -40,8 +40,10 @@ type CategoryInfo = Readonly<{
 const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
   // Finished deployments only: a started deployment has not shipped anything yet. Railway's
   // `crashed` and `removed` say what became of a deployment after it finished, usually one already
-  // counted as deployed, so they would count it twice. A Sentry release is a version, not a
-  // deployment: Sentry records deploys of a release separately, and its adapter does not read them.
+  // counted as deployed, so they would count it twice. A GitLab pipeline is a CI run, which may
+  // deploy nothing; GitLab records the deployments it does make as their own events. A GitLab or
+  // Sentry release is a version, not a deployment: Sentry records deploys of a release separately,
+  // and its adapter does not read them.
   deployments: {
     label: "Deployments",
     one: "deployment",
@@ -50,6 +52,8 @@ const CATEGORIES: Readonly<Record<MarkerCategory, CategoryInfo>> = {
       "digitalocean.deployment.failed",
       "digitalocean.deployment.succeeded",
       "fake.deploy.succeeded",
+      "gitlab.deployment.failed",
+      "gitlab.deployment.succeeded",
       "railway.deployment.deployed",
       "railway.deployment.failed",
       "vercel.deployment.failed",
