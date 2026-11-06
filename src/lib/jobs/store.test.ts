@@ -5,12 +5,14 @@ import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fakeSupabase, MAX_ROWS, type Row } from "@/lib/supabase/fake-postgrest";
 
-import { ANOMALY_ROW_LIMIT, createSupabaseJobStore } from "./store";
+import { ANOMALY_ROW_LIMIT, createSupabaseJobStore, SUMMARY_ROW_LIMIT } from "./store";
 
 /*
- * The Supabase job store's anomaly read (#219) against the fake PostgREST
+ * The Supabase job store's paged reads against the fake PostgREST
  * (src/lib/supabase/fake-postgrest.ts), which answers at most `max_rows` rows per request like the
- * real Data API. The rows then go through findAnomalies, the way the daily summary job uses them.
+ * real Data API and says nothing about the rest. The anomaly read (#219) then goes through
+ * findAnomalies, the way the daily summary job uses it; the daily summary's own snapshot and
+ * connection reads (#218) are checked for every row once, and for the warning at their bound.
  */
 
 vi.mock("@/lib/supabase/admin");
@@ -22,6 +24,11 @@ const VERCEL: AnomalyConnection = { id: "21900000-0000-4000-8000-000000000003", 
 const DATE = "2026-10-14";
 const USUAL_DAILY_MINOR = 10_000;
 const SPIKE_DAILY_MINOR = 40_000;
+// The daily summary's 14 day history window.
+const SUMMARY_FROM_DATE = "2026-10-23";
+const SUMMARY_TO_DATE = "2026-11-05";
+const SUMMARY_CONNECTION_ID = "21800000-0000-4000-8000-000000000003";
+const SUMMARY_ACCOUNT_ID = "21800000-0000-4000-8000-000000000004";
 
 type StoredRow = AnomalyRow & Readonly<{ id: string; workspace_id: string }>;
 
@@ -76,10 +83,49 @@ function oldestFirst(rows: readonly StoredRow[]): StoredRow[] {
   return rows.toSorted((a, b) => a.snapshot_date.localeCompare(b.snapshot_date) || a.id.localeCompare(b.id));
 }
 
-function storeOver(rows: readonly Row[]) {
-  const { db, requests } = fakeSupabase({ usage_snapshots: rows });
+function storeOver(rows: readonly Row[], table = "usage_snapshots") {
+  const { db, requests } = fakeSupabase({ [table]: rows });
   vi.mocked(createAdminClient).mockReturnValue(db);
   return { store: createSupabaseJobStore(), requests };
+}
+
+/** `perDay` usage rows a day for `dayCount` days ending SUMMARY_TO_DATE, newest day first, then by id. */
+function summarySnapshots(perDay: number, dayCount: number): StoredRow[] {
+  return Array.from({ length: dayCount }, (_, daysBack) =>
+    Array.from({ length: perDay }, (_, metric): StoredRow => {
+      const date = addUtcDays(SUMMARY_TO_DATE, -daysBack);
+      return {
+        id: uuid(daysBack + 1, metric),
+        workspace_id: WORKSPACE_ID,
+        connection_id: SUMMARY_CONNECTION_ID,
+        external_account_id: SUMMARY_ACCOUNT_ID,
+        metric_key: `simulated.metric.${metric}`,
+        kind: "usage",
+        label: `Metric ${metric}`,
+        snapshot_date: date,
+        value: metric,
+        unit: "requests",
+        amount_minor: null,
+        currency: null,
+        period_start: `${date}T00:00:00.000Z`,
+        period_end: `${date}T23:59:59.000Z`,
+        point_at: null,
+        resets_at: null,
+        retrieved_at: `${date}T23:59:59.000Z`,
+        provenance_source: "provider_api",
+        pricing_source: null,
+      };
+    }),
+  ).flat();
+}
+
+function summaryConnections(count: number): Row[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: uuid(21801, index),
+    workspace_id: WORKSPACE_ID,
+    provider: "vercel",
+    status: "active",
+  }));
 }
 
 afterEach(() => {
@@ -154,5 +200,75 @@ describe("createSupabaseJobStore listAnomalySnapshots", () => {
         historyDays: 11,
       }),
     ]);
+  });
+});
+
+describe("createSupabaseJobStore listSnapshotsBetween", () => {
+  it.each([
+    { name: "empty", perDay: 0, requests: 1 },
+    { name: "one short page", perDay: 71, requests: 1 },
+    { name: "exactly max_rows", perDay: 125, days: 8, requests: 2 },
+    { name: "one row past max_rows", perDay: 77, days: 13, requests: 2 },
+    { name: "several pages", perDay: 250, requests: 4 },
+  ])("returns every snapshot of the window once, newest first, in requests of at most max_rows (boundary: $name)", async ({ perDay, days = 14, requests: expected }) => {
+    const rows = summarySnapshots(perDay, days);
+    const [first] = summarySnapshots(1, 1);
+    if (first === undefined) throw new Error("expected a snapshot row");
+    const outside: StoredRow[] = [
+      { ...first, id: uuid(9, 1), workspace_id: OTHER_WORKSPACE_ID },
+      { ...first, id: uuid(9, 2), snapshot_date: addUtcDays(SUMMARY_FROM_DATE, -1) },
+    ];
+    const { store, requests } = storeOver([...outside, ...rows].toReversed());
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listSnapshotsBetween(WORKSPACE_ID, SUMMARY_FROM_DATE, SUMMARY_TO_DATE);
+
+    expect(read).toEqual(rows.map(asRead));
+    expect(requests).toHaveLength(expected);
+    expect(requests.every((request) => request.limit !== null && request.limit <= MAX_ROWS)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stops at SUMMARY_ROW_LIMIT, keeps the newest days, and logs the cut (boundary: more rows than the bound)", async () => {
+    // 400 metrics a day over 14 days: 5600 rows.
+    const rows = summarySnapshots(400, 14);
+    const { store, requests } = storeOver(rows);
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listSnapshotsBetween(WORKSPACE_ID, SUMMARY_FROM_DATE, SUMMARY_TO_DATE);
+
+    expect(read).toEqual(rows.slice(0, SUMMARY_ROW_LIMIT).map(asRead));
+    expect(read.at(0)?.snapshot_date).toBe(SUMMARY_TO_DATE);
+    expect(requests).toHaveLength(SUMMARY_ROW_LIMIT / MAX_ROWS);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("daily_summary.snapshots_truncated", { workspaceId: WORKSPACE_ID, rows: SUMMARY_ROW_LIMIT });
+  });
+});
+
+describe("createSupabaseJobStore listSummaryConnections", () => {
+  it("returns every connection but the revoked ones across pages, in id order (boundary: more rows than max_rows)", async () => {
+    const rows = summaryConnections(1500);
+    const revoked = { ...summaryConnections(1)[0], id: uuid(21802, 1), status: "revoked" };
+    const elsewhere = { ...summaryConnections(1)[0], id: uuid(21802, 2), workspace_id: OTHER_WORKSPACE_ID };
+    const { store, requests } = storeOver([revoked, elsewhere, ...rows].toReversed(), "connections");
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listSummaryConnections(WORKSPACE_ID);
+
+    expect(read).toEqual(rows.map((row) => ({ id: row.id, provider: row.provider })));
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.limit !== null && request.limit <= MAX_ROWS)).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("stops at SUMMARY_ROW_LIMIT and logs the cut (boundary: one row past the bound)", async () => {
+    const rows = summaryConnections(SUMMARY_ROW_LIMIT + 1);
+    const { store } = storeOver(rows, "connections");
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+
+    const read = await store.listSummaryConnections(WORKSPACE_ID);
+
+    expect(read).toHaveLength(SUMMARY_ROW_LIMIT);
+    expect(read.at(-1)?.id).toBe(rows[SUMMARY_ROW_LIMIT - 1]?.id);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("daily_summary.connections_truncated", { workspaceId: WORKSPACE_ID, rows: SUMMARY_ROW_LIMIT });
   });
 });
