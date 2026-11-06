@@ -10,6 +10,10 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   stripe: "Stripe",
   supabase: "Supabase",
   digitalocean: "DigitalOcean",
+  posthog: "PostHog",
+  polar: "Polar",
+  sentry: "Sentry",
+  railway: "Railway",
   fake: null,
 };
 

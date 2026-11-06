@@ -3,15 +3,20 @@ import { utcDate } from "./ingest";
 
 /*
  * Retention (#37 decision): daily snapshots and activity events are kept 13 months, sync job rows
- * 30 days. Triggered alerts are kept while their rule exists, so they are not touched here. OAuth
+ * and digest delivery records (#152) 30 days. Triggered alerts are kept while their rule exists, so
+ * they are not touched here, and their delivery records go with them. OAuth
  * states go once expired: a finished connect flow deletes its own state, so an expired one belongs
  * to an abandoned flow and still holds a sealed PKCE verifier bound to a user.
+ * Share surfaces (#149): the per IP rate limit counters of the public routes are kept one day
+ * (they only need the current minute, and hold hashed IPs), published metric view counts 13
+ * months like the history they describe.
  * Deletes run in batches of RETENTION_BATCH_SIZE until a batch comes back short, so the job is
  * safe to re-run and a run cut short by the time budget is finished by the next one.
  */
 
 export const HISTORY_RETENTION_MONTHS = 13;
 export const SYNC_JOB_RETENTION_DAYS = 30;
+export const RATE_LIMIT_COUNTER_RETENTION_DAYS = 1;
 export const RETENTION_BATCH_SIZE = 1000;
 
 /**
@@ -42,6 +47,10 @@ export type RetentionCutoffs = Readonly<{
   eventsBefore: Date;
   // Finished jobs created strictly before this instant are deleted.
   jobsBefore: Date;
+  // Public rate limit counters whose minute started strictly before this instant are deleted.
+  rateLimitCountersBefore: Date;
+  // Published metric view counts of UTC days strictly before this date are deleted.
+  metricViewsBeforeDate: string;
 }>;
 
 /** Everything exactly 13 months old (or 30 days for jobs) is kept; anything older goes. */
@@ -51,6 +60,8 @@ export function retentionCutoffs(now: Date): RetentionCutoffs {
     snapshotsBeforeDate: utcDate(historyCutoff),
     eventsBefore: historyCutoff,
     jobsBefore: new Date(now.getTime() - SYNC_JOB_RETENTION_DAYS * 86_400_000),
+    rateLimitCountersBefore: new Date(now.getTime() - RATE_LIMIT_COUNTER_RETENTION_DAYS * 86_400_000),
+    metricViewsBeforeDate: utcDate(historyCutoff),
   };
 }
 
@@ -59,6 +70,9 @@ export type RetentionResult = {
   snapshots: number;
   events: number;
   jobs: number;
+  rateLimitCounters: number;
+  metricViews: number;
+  deliveries: number;
   // False when the time budget ran out first; the next run continues.
   complete: boolean;
 };
@@ -80,11 +94,22 @@ export async function runRetention(store: JobStore, now: Date, hasTime: () => bo
   const snapshots = await purgeAll(() => store.purgeSnapshots(cutoffs.snapshotsBeforeDate, RETENTION_BATCH_SIZE), hasTime);
   const events = await purgeAll(() => store.purgeEvents(cutoffs.eventsBefore, RETENTION_BATCH_SIZE), hasTime);
   const jobs = await purgeAll(() => store.purgeJobs(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
+  const rateLimitCounters = await purgeAll(
+    () => store.purgeRateLimitCounters(cutoffs.rateLimitCountersBefore, RETENTION_BATCH_SIZE),
+    hasTime,
+  );
+  const metricViews = await purgeAll(() => store.purgeMetricViews(cutoffs.metricViewsBeforeDate, RETENTION_BATCH_SIZE), hasTime);
+  // Digest delivery records only stop a retried digest job from sending twice, so they share the
+  // job rows' 30 days.
+  const deliveries = await purgeAll(() => store.purgeNotificationDeliveries(cutoffs.jobsBefore, RETENTION_BATCH_SIZE), hasTime);
   return {
     oauthStates: oauthStates.deleted,
     snapshots: snapshots.deleted,
     events: events.deleted,
     jobs: jobs.deleted,
-    complete: oauthStates.complete && snapshots.complete && events.complete && jobs.complete,
+    rateLimitCounters: rateLimitCounters.deleted,
+    metricViews: metricViews.deleted,
+    deliveries: deliveries.deleted,
+    complete: [oauthStates, snapshots, events, jobs, rateLimitCounters, metricViews, deliveries].every((purge) => purge.complete),
   };
 }

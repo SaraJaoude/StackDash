@@ -3,28 +3,60 @@ import { useId, type ReactNode } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
-import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
-import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
-import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
+import {
+  hasSimulatedSource,
+  type CurrencyAmounts,
+  type DashboardView as View,
+} from "@/lib/dashboard/aggregate";
+import type {
+  DashboardProjections,
+  SpendProjection,
+} from "@/lib/dashboard/projection";
+import {
+  trendWindowLabel,
+  type TrendGranularity,
+  type TrendSeries,
+} from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
+import { amountValues } from "@/lib/realtime/arrivals";
 
+import { ArrivalCard } from "./arrival-values";
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
 import { TrendChart } from "./trend-chart";
 import { SpendProjectionNote } from "./value-meta";
 
-function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
   const titleId = useId();
   return (
     <section aria-labelledby={titleId} className="mt-6 min-w-0">
       <h2 id={titleId} className="text-lg font-semibold tracking-tight">
         {title}
       </h2>
-      {description === undefined ? null : <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{description}</p>}
+      {description === undefined ? null : (
+        <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">
+          {description}
+        </p>
+      )}
       <div className="mt-3">{children}</div>
     </section>
   );
 }
+
+type MoneyGroup = "spend" | "revenue";
+
+const GROUP_NOUNS: Record<MoneyGroup, string> = {
+  spend: "Spend",
+  revenue: "Revenue",
+};
 
 /**
  * One card per currency, each its own labeled region, so currencies are never read as one sum.
@@ -33,12 +65,12 @@ function Section({ title, description, children }: { title: string; description?
  */
 function CurrencyCards({
   amounts,
-  noun,
+  group,
   now,
   projections = [],
 }: {
   amounts: readonly CurrencyAmounts[];
-  noun: string;
+  group: MoneyGroup;
   now: Date;
   /** Spend projections to the end of the period (#167), matched by currency. */
   projections?: readonly SpendProjection[];
@@ -49,9 +81,11 @@ function CurrencyCards({
         <CurrencyCard
           key={entry.currency}
           amounts={entry}
-          noun={noun}
+          group={group}
           now={now}
-          projection={projections.find((projection) => projection.currency === entry.currency)}
+          projection={projections.find(
+            (projection) => projection.currency === entry.currency,
+          )}
         />
       ))}
     </ul>
@@ -61,35 +95,49 @@ function CurrencyCards({
 /** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
 function CurrencyCard({
   amounts,
-  noun,
+  group,
   now,
   projection,
 }: {
   amounts: CurrencyAmounts;
-  noun: string;
+  group: MoneyGroup;
   now: Date;
   projection: SpendProjection | undefined;
 }) {
   const titleId = useId();
+  const noun = GROUP_NOUNS[group];
+  const title = `${noun} in ${amounts.currency}`;
   return (
     <li>
-      <section aria-labelledby={titleId} className="h-full rounded-xl border border-line bg-panel p-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
-            {`${noun} in ${amounts.currency}`}
-          </h3>
-          {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
-        </div>
-        <div className="mt-2">
-          <CurrencyAmountsList
-            amounts={amounts}
-            now={now}
-            verifiedLabel={`Verified ${noun.toLowerCase()}`}
-            estimatedLabel={`Estimated ${noun.toLowerCase()}`}
-            headline
+      <section
+        aria-labelledby={titleId}
+        className="relative isolate h-full rounded-xl border border-line bg-panel p-4"
+      >
+        <ArrivalCard values={amountValues(group, [amounts])} label={title}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3
+              id={titleId}
+              className="font-mono text-sm font-medium text-muted"
+            >
+              {title}
+            </h3>
+            {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+          </div>
+          <div className="mt-2">
+            <CurrencyAmountsList
+              amounts={amounts}
+              group={group}
+              now={now}
+              verifiedLabel={`Verified ${noun.toLowerCase()}`}
+              estimatedLabel={`Estimated ${noun.toLowerCase()}`}
+              headline
+            />
+          </div>
+          <SpendProjectionNote
+            projection={projection}
+            partsNote="Each provider card shows its own projection or the reason there is none."
           />
-        </div>
-        <SpendProjectionNote projection={projection} partsNote="Each provider card shows its own projection or the reason there is none." />
+        </ArrivalCard>
       </section>
     </li>
   );
@@ -105,7 +153,10 @@ export type DashboardTrends = Readonly<{
 const TREND_PERIODS = [
   { granularity: "daily", label: "Daily" },
   { granularity: "monthly", label: "Monthly" },
-] as const satisfies readonly { granularity: TrendGranularity; label: string }[];
+] as const satisfies readonly {
+  granularity: TrendGranularity;
+  label: string;
+}[];
 
 function TrendsSection({ trends }: { trends: DashboardTrends }) {
   return (
@@ -122,7 +173,9 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
               href={trends.hrefs[granularity]}
               aria-current={current ? "page" : undefined}
               className={`inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors ${
-                current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"
+                current
+                  ? "border-accent font-medium text-foreground"
+                  : "border-line-strong text-muted hover:text-foreground"
               }`}
             >
               {`${label}, ${trendWindowLabel(granularity)}`}
@@ -132,7 +185,8 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
       </nav>
       {trends.series.length === 0 ? (
         <p className="mt-4 text-sm text-muted">
-          No history to chart for the {trendWindowLabel(trends.granularity)}. Trends appear after the first syncs.
+          No history to chart for the {trendWindowLabel(trends.granularity)}.
+          Trends appear after the first syncs.
         </p>
       ) : (
         <ul className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -172,7 +226,10 @@ export function DashboardView({
   trends: DashboardTrends;
 }) {
   const count = view.byProvider.length;
-  const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
+  const shown =
+    count === 0
+      ? "Showing no connections"
+      : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
   const hasRevenue = view.revenue.length > 0;
   return (
     <>
@@ -180,28 +237,47 @@ export function DashboardView({
         action={dashboardPath}
         scope={scope}
         options={scopeOptions}
-        status={scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
-        hidden={trends.granularity === "daily" ? undefined : { trend: trends.granularity }}
+        status={
+          scopeDescription === null ? shown : `${shown} for ${scopeDescription}`
+        }
+        hidden={
+          trends.granularity === "daily"
+            ? undefined
+            : { trend: trends.granularity }
+        }
       />
 
       {/* The headline: totals first, with revenue sharing the row on wide screens. */}
-      <div className={hasRevenue ? "grid gap-x-6 xl:grid-cols-[2fr_1fr]" : undefined}>
+      <div
+        className={
+          hasRevenue ? "grid gap-x-6 xl:grid-cols-[2fr_1fr]" : undefined
+        }
+      >
         <Section title="Spending this billing period">
           {view.totals.length === 0 ? (
             <p className="text-sm text-muted">
-              No spend has been reported for the current billing period yet. Values appear after the next sync.
+              No spend has been reported for the current billing period yet.
+              Values appear after the next sync.
             </p>
           ) : (
             <div className="@container">
-              <CurrencyCards amounts={view.totals} noun="Spend" now={now} projections={projections.totals} />
+              <CurrencyCards
+                amounts={view.totals}
+                group="spend"
+                now={now}
+                projections={projections.totals}
+              />
             </div>
           )}
         </Section>
 
         {hasRevenue ? (
-          <Section title="Revenue this billing period" description="Money coming in, shown apart from spending.">
+          <Section
+            title="Revenue this billing period"
+            description="Money coming in, shown apart from spending."
+          >
             <div className="@container">
-              <CurrencyCards amounts={view.revenue} noun="Revenue" now={now} />
+              <CurrencyCards amounts={view.revenue} group="revenue" now={now} />
             </div>
           </Section>
         ) : null}
@@ -211,14 +287,19 @@ export function DashboardView({
 
       <Section title="By provider">
         {view.byProvider.length === 0 ? (
-          <p className="text-sm text-muted">No connections match these filters. Choose other filters or clear them.</p>
+          <p className="text-sm text-muted">
+            No connections match these filters. Choose other filters or clear
+            them.
+          </p>
         ) : (
           <ul className="grid gap-4 lg:grid-cols-2">
             {view.byProvider.map((summary) => (
               <ProviderCard
                 key={summary.connectionId}
                 summary={summary}
-                spendProjections={projections.byConnection.get(summary.connectionId) ?? []}
+                spendProjections={
+                  projections.byConnection.get(summary.connectionId) ?? []
+                }
                 quotaProjections={projections.quotas}
                 now={now}
               />
@@ -229,13 +310,23 @@ export function DashboardView({
 
       <TrendsSection trends={trends} />
 
-      <Section title="By project" description="Spend by project, with accounts outside a project listed as unassigned.">
+      <Section
+        title="By project"
+        description="Spend by project, with accounts outside a project listed as unassigned."
+      >
         {view.byProject.length === 0 ? (
-          <p className="text-sm text-muted">No spend to group by project yet.</p>
+          <p className="text-sm text-muted">
+            No spend to group by project yet.
+          </p>
         ) : (
           <ul className="grid gap-4 md:grid-cols-2">
             {view.byProject.map((project) => (
-              <ProjectCard key={project.projectId ?? "unassigned"} name={project.name} spend={project.spend} now={now} />
+              <ProjectCard
+                key={project.projectId ?? "unassigned"}
+                name={project.name}
+                spend={project.spend}
+                now={now}
+              />
             ))}
           </ul>
         )}
@@ -244,30 +335,49 @@ export function DashboardView({
   );
 }
 
-function ProjectCard({ name, spend, now }: { name: string; spend: readonly CurrencyAmounts[]; now: Date }) {
+function ProjectCard({
+  name,
+  spend,
+  now,
+}: {
+  name: string;
+  spend: readonly CurrencyAmounts[];
+  now: Date;
+}) {
   const titleId = useId();
   return (
     <li>
-      <section aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
-        <h3 id={titleId} className="font-semibold">
-          {name}
-        </h3>
-        <ul className="mt-3 space-y-4">
-          {spend.map((amounts) => (
-            <li key={amounts.currency}>
-              <div className="mb-1 flex flex-wrap items-center gap-2">
-                <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
-                {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
-              </div>
-              <CurrencyAmountsList
-                amounts={amounts}
-                now={now}
-                verifiedLabel="Verified spend"
-                estimatedLabel="Estimated spend"
-              />
-            </li>
-          ))}
-        </ul>
+      <section
+        aria-labelledby={titleId}
+        className="relative isolate rounded-xl border border-line bg-panel p-5"
+      >
+        <ArrivalCard
+          values={amountValues("spend", spend)}
+          label={`${name} spend`}
+        >
+          <h3 id={titleId} className="font-semibold">
+            {name}
+          </h3>
+          <ul className="mt-3 space-y-4">
+            {spend.map((amounts) => (
+              <li key={amounts.currency}>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <p className="font-mono text-xs font-medium text-muted">
+                    {amounts.currency}
+                  </p>
+                  {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+                </div>
+                <CurrencyAmountsList
+                  amounts={amounts}
+                  group="spend"
+                  now={now}
+                  verifiedLabel="Verified spend"
+                  estimatedLabel="Estimated spend"
+                />
+              </li>
+            ))}
+          </ul>
+        </ArrivalCard>
       </section>
     </li>
   );

@@ -2,7 +2,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -11,7 +11,6 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixture
  */
 
 const PROVIDER_NAME = "Example provider";
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
 
 function connectionIdFrom(page: Page): string {
   const id = CONNECTION_URL.exec(page.url())?.[1];

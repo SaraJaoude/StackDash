@@ -1,0 +1,37 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": 10001,
+      "uuid": "0191c2d4-0000-7000-8000-000000010001",
+      "organization": "0191c2d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      "project_id": 10001,
+      "api_token": "[redacted]",
+      "name": "Example app",
+      "completed_snippet_onboarding": true,
+      "has_completed_onboarding_for": { "product_analytics": true },
+      "ingested_event": true,
+      "is_demo": false,
+      "timezone": "Europe/London",
+      "access_control": false,
+      "tags": []
+    },
+    {
+      "id": 10002,
+      "uuid": "0191c2d4-0000-7000-8000-000000010002",
+      "organization": "0191c2d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+      "project_id": 10002,
+      "api_token": "[redacted]",
+      "name": "Example app staging",
+      "completed_snippet_onboarding": true,
+      "has_completed_onboarding_for": {},
+      "ingested_event": true,
+      "is_demo": false,
+      "timezone": "UTC",
+      "access_control": false,
+      "tags": ["staging"]
+    }
+  ]
+}

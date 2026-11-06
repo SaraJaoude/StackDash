@@ -42,6 +42,11 @@ const UTC_DATE_FORMAT = new Intl.DateTimeFormat("en-CA", {
   day: "2-digit",
 });
 
+/** "2026-11-05": the UTC calendar day of an instant, for windows that start on UTC day boundaries. */
+export function formatUtcDate(at: Instant): string {
+  return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 // en-GB names the London zone GMT or BST (en-CA says GMT+1). Its own date order is day first, so
 // the parts are assembled into the ISO order below.
 const DATE_TIME_FORMAT = new Intl.DateTimeFormat("en-GB", {
@@ -64,6 +69,23 @@ export function formatDateTime(at: Instant): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute} ${parts.timeZoneName}`;
 }
 
+const TIME_OF_DAY_FORMAT = new Intl.DateTimeFormat("en-GB", {
+  timeZone: TIME_ZONE,
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+/**
+ * "14:05:09", the London time of day to the second. It carries no zone name because browsers name
+ * the London zone differently (Chromium says "GMT+0" where Node says "GMT"), so the caller says
+ * "London time" in words. For text rendered in the browser.
+ */
+export function formatLondonTime(at: Instant): string {
+  return TIME_OF_DAY_FORMAT.format(typeof at === "string" ? new Date(at) : at);
+}
+
 /**
  * "2026-10-01 to 2026-10-31". Billing periods are calendar facts on UTC day boundaries, so they are
  * shown as UTC dates; in Europe/London summer time a period ending at UTC midnight would otherwise
@@ -72,11 +94,6 @@ export function formatDateTime(at: Instant): string {
 export function formatPeriod(period: Readonly<{ start: string; end: string }>): string {
   const lastDay = new Date(Date.parse(period.end) - 1);
   return `${UTC_DATE_FORMAT.format(new Date(period.start))} to ${UTC_DATE_FORMAT.format(lastDay)}`;
-}
-
-/** "2026-10-31": the UTC date of an instant, for days that belong to UTC billing periods. */
-export function formatUtcDate(at: Instant): string {
-  return UTC_DATE_FORMAT.format(typeof at === "string" ? new Date(at) : at);
 }
 
 const UTC_MONTH_FORMAT = new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" });

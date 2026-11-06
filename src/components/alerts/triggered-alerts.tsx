@@ -5,7 +5,7 @@ import type { AlertSeverity } from "@/lib/alerts/evaluate";
 import { hasTriggeredAlerts, listTriggeredAlerts, type TriggeredAlert } from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { formatDateTime } from "@/lib/format";
-import { workspacePath } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";

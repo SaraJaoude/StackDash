@@ -103,6 +103,11 @@ export type AlertTrigger = Readonly<{
   /** Full sentence for the alert and the timeline body; says so when estimated values contributed. */
   message: string;
   severity: AlertSeverity;
+  /** The provider and project behind the reading, or null when it spans several (or none). */
+  provider: ProviderId | null;
+  projectId: string | null;
+  /** When the allowance or quota resets, as the provider reports it; null when not reported. */
+  resetsAt: string | null;
 }>;
 
 type ScopeTarget = Pick<AlertRuleInput, "scope" | "provider" | "project_id" | "connection_id">;
@@ -251,6 +256,7 @@ type AllowanceReading = Readonly<{
   used: number;
   isEstimated: boolean;
   cycleKey: string;
+  resetsAt: string | null;
 }>;
 
 function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): AllowanceReading[] {
@@ -293,6 +299,8 @@ function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): Allo
       used,
       isEstimated: isEstimatedRow(included) || isEstimatedRow(usedRow),
       cycleKey,
+      // The allowance row describes the whole period, so its end is the reset when none is given.
+      resetsAt: included.resets_at ?? included.period_end,
     });
   }
   return readings;
@@ -338,11 +346,30 @@ function evaluateAllowanceRule(
       title: `${subject} passed ${thresholdLabel} of the allowance`,
       message,
       severity: severityFor(threshold),
+      provider: reading.item.provider,
+      projectId: reading.item.projectId,
+      resetsAt: reading.resetsAt,
     };
   });
 }
 
-type SpendTotal = Readonly<{ amountMinor: number; currency: string; isEstimated: boolean; cycleKey: string }>;
+type SpendTotal = Readonly<{
+  amountMinor: number;
+  currency: string;
+  isEstimated: boolean;
+  cycleKey: string;
+  /** Set when every counted row shares it. */
+  provider: ProviderId | null;
+  projectId: string | null;
+  /** The earliest reset any counted row reports; spend rows rarely carry one. */
+  resetsAt: string | null;
+}>;
+
+/** The one value every item shares, or null when they differ or there are none. */
+function shared<T>(values: readonly T[]): T | null {
+  const first = values[0];
+  return first !== undefined && values.every((value) => value === first) ? first : null;
+}
 
 /**
  * Spend in one currency for the current billing period, over the rows every target covers. Per
@@ -373,7 +400,16 @@ function spendTotal(
       latestStart = row.period_start;
     }
   }
-  return { amountMinor, currency, isEstimated, cycleKey: latestStart === null ? utcMonthStart(now) : utcDateOf(latestStart) };
+  const resets = counted.flatMap((row) => (row.resets_at === null ? [] : [row.resets_at])).sort((a, b) => Date.parse(a) - Date.parse(b));
+  return {
+    amountMinor,
+    currency,
+    isEstimated,
+    cycleKey: latestStart === null ? utcMonthStart(now) : utcDateOf(latestStart),
+    provider: shared(counted.map((row) => row.provider)),
+    projectId: shared(counted.map((row) => row.projectId)),
+    resetsAt: resets[0] ?? null,
+  };
 }
 
 function evaluateSpendRule(
@@ -402,6 +438,9 @@ function evaluateSpendRule(
       title: `${subject} passed ${thresholdLabel}`,
       message,
       severity: "warning",
+      provider: total.provider,
+      projectId: total.projectId,
+      resetsAt: total.resetsAt,
     },
   ];
 }
@@ -438,6 +477,9 @@ function evaluateBudgetRule(
       title: `Budget ${budget.name} passed ${thresholdLabel}`,
       message,
       severity: severityFor(threshold),
+      provider: total.provider,
+      projectId: total.projectId,
+      resetsAt: total.resetsAt,
     },
   ];
 }

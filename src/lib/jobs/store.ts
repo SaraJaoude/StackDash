@@ -2,11 +2,16 @@ import "server-only";
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
+import type {
+  Tables,
+  TablesInsert,
+  TablesUpdate,
+} from "@/lib/supabase/database.types";
 
 /*
  * Persistence for the job system (#44). The runner, scheduler, and retention job only talk to a
@@ -29,7 +34,10 @@ export type SyncConnection = Pick<
   | "missing_scopes"
 >;
 
-export type SyncAccount = Pick<Tables<"external_accounts">, "id" | "external_id" | "display_name" | "sync_cursor">;
+export type SyncAccount = Pick<
+  Tables<"external_accounts">,
+  "id" | "external_id" | "display_name" | "sync_cursor"
+>;
 
 export type ConnectionPatch = Pick<
   TablesUpdate<"connections">,
@@ -44,15 +52,26 @@ export type ConnectionPatch = Pick<
 
 export type ClaimedJob = Pick<
   Tables<"sync_jobs">,
-  "id" | "workspace_id" | "connection_id" | "kind" | "attempts" | "max_attempts" | "created_at" | "dedupe_key"
+  | "id"
+  | "workspace_id"
+  | "connection_id"
+  | "kind"
+  | "attempts"
+  | "max_attempts"
+  | "created_at"
+  | "dedupe_key"
 >;
 
 export type SnapshotRow = TablesInsert<"usage_snapshots">;
 export type EventRow = TablesInsert<"activity_events">;
 
-export type ManualSyncResult = "queued" | "already_queued" | "cooldown" | "not_found";
+export type ManualSyncResult =
+  "queued" | "already_queued" | "cooldown" | "not_found";
 
-export type JobFailure = Readonly<{ errorCode: string; errorReference: string | null }>;
+export type JobFailure = Readonly<{
+  errorCode: string;
+  errorReference: string | null;
+}>;
 
 export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
 export type SummarySnapshot = SnapshotInput;
@@ -61,7 +80,23 @@ export type SummarySnapshot = SnapshotInput;
 // above any MVP workspace (a few connections, tens of metrics each, one row a day).
 const SUMMARY_ROW_LIMIT = 5000;
 
-export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
+export type AnomalySettings = Readonly<{
+  enabled: boolean;
+  mutes: readonly AnomalyMute[];
+}>;
+
+// Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
+// (`max_rows` in supabase/config.toml). The total bound is far above any MVP workspace.
+const ANOMALY_PAGE_SIZE = 1000;
+const ANOMALY_ROW_LIMIT = 20_000;
+const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const;
+// Mutes per workspace: one per metric a person chose to silence.
+const ANOMALY_MUTE_LIMIT = 1000;
+
+export type ConnectionKey = Readonly<{
+  workspaceId: string;
+  connectionId: string;
+}>;
 
 export interface JobStore {
   /** Queues a sync for every due connection (see enqueue_due_syncs). Returns how many were queued. */
@@ -75,7 +110,9 @@ export interface JobStore {
   /** Queues one sync unless one is already open. False also when the connection is not in the workspace. */
   enqueueSync(key: ConnectionKey): Promise<boolean>;
   /** "Sync now": cooldown check, cooldown stamp, and enqueue in one atomic step. */
-  requestManualSync(key: ConnectionKey & Readonly<{ cooldownSeconds: number }>): Promise<ManualSyncResult>;
+  requestManualSync(
+    key: ConnectionKey & Readonly<{ cooldownSeconds: number }>,
+  ): Promise<ManualSyncResult>;
   /** Queues the instance-wide retention job once per dedupe key. */
   enqueueRetention(dedupeKey: string): Promise<boolean>;
 
@@ -90,28 +127,61 @@ export interface JobStore {
   listIncludedAccounts(key: ConnectionKey): Promise<SyncAccount[]>;
   updateConnection(key: ConnectionKey, patch: ConnectionPatch): Promise<void>;
   loadCredential(key: ConnectionKey): Promise<OAuthCredential | null>;
-  saveCredential(key: ConnectionKey, credential: OAuthCredential): Promise<void>;
+  saveCredential(
+    key: ConnectionKey,
+    credential: OAuthCredential,
+  ): Promise<void>;
 
   /** metric_key -> resets_at (ISO, or null) of the latest snapshot of each metric of the account. */
-  latestResets(workspaceId: string, externalAccountId: string): Promise<Map<string, string | null>>;
+  latestResets(
+    workspaceId: string,
+    externalAccountId: string,
+  ): Promise<Map<string, string | null>>;
   /** Upserts on (external_account_id, metric_key, snapshot_date). */
   upsertSnapshots(rows: readonly SnapshotRow[]): Promise<void>;
   /** Inserts, skipping rows whose (workspace_id, dedupe_key) already exists. Returns how many were new. */
   insertEvents(rows: readonly EventRow[]): Promise<number>;
-  setCursor(workspaceId: string, externalAccountId: string, cursor: string | null): Promise<void>;
+  setCursor(
+    workspaceId: string,
+    externalAccountId: string,
+    cursor: string | null,
+  ): Promise<void>;
 
   purgeSnapshots(beforeDate: string, limit: number): Promise<number>;
   purgeEvents(before: Date, limit: number): Promise<number>;
   purgeJobs(before: Date, limit: number): Promise<number>;
   /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
   purgeOAuthStates(before: Date, limit: number): Promise<number>;
+  /** Deletes public rate limit counters whose minute started before `before` (#149). */
+  purgeRateLimitCounters(before: Date, limit: number): Promise<number>;
+  /** Deletes published metric view counts of UTC days before `beforeDate` (#149). */
+  purgeMetricViews(beforeDate: string, limit: number): Promise<number>;
+  /** Deletes digest delivery records delivered before `before`; alert records go with their alert. */
+  purgeNotificationDeliveries(before: Date, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
   /** Snapshots dated `fromDate` to `toDate` (UTC dates, both inclusive), newest first. */
-  listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
+  listSnapshotsBetween(
+    workspaceId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<SummarySnapshot[]>;
+  /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
+  getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
+  /** Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive. */
+  listAnomalySnapshots(
+    workspaceId: string,
+    fromDate: string,
+    toDate: string,
+  ): Promise<AnomalyRow[]>;
+
+  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
+  enqueueAlertDispatches(): Promise<number>;
+  /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
+  enqueueDigests(date: string): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -119,7 +189,12 @@ function failure(operation: string, error: { code: string }): Error {
   return new Error(`Job store ${operation} failed (code ${error.code}).`);
 }
 
-const MANUAL_SYNC_RESULTS: readonly ManualSyncResult[] = ["queued", "already_queued", "cooldown", "not_found"];
+const MANUAL_SYNC_RESULTS: readonly ManualSyncResult[] = [
+  "queued",
+  "already_queued",
+  "cooldown",
+  "not_found",
+];
 
 function isManualSyncResult(value: unknown): value is ManualSyncResult {
   return MANUAL_SYNC_RESULTS.some((result) => result === value);
@@ -130,7 +205,9 @@ export function createSupabaseJobStore(): JobStore {
 
   return {
     async enqueueDueSyncs(limit) {
-      const { data, error } = await db.rpc("enqueue_due_syncs", { p_limit: limit });
+      const { data, error } = await db.rpc("enqueue_due_syncs", {
+        p_limit: limit,
+      });
       if (error) throw failure("enqueue_due_syncs", error);
       return data;
     },
@@ -165,14 +242,20 @@ export function createSupabaseJobStore(): JobStore {
         p_cooldown_seconds: cooldownSeconds,
       });
       if (error) throw failure("request_manual_sync", error);
-      if (!isManualSyncResult(data)) throw new Error("Job store request_manual_sync returned an unknown result.");
+      if (!isManualSyncResult(data))
+        throw new Error(
+          "Job store request_manual_sync returned an unknown result.",
+        );
       return data;
     },
 
     async enqueueRetention(dedupeKey) {
       const { data, error } = await db
         .from("sync_jobs")
-        .upsert({ kind: "retention", dedupe_key: dedupeKey }, { onConflict: "dedupe_key", ignoreDuplicates: true })
+        .upsert(
+          { kind: "retention", dedupe_key: dedupeKey },
+          { onConflict: "dedupe_key", ignoreDuplicates: true },
+        )
         .select("id");
       if (error) throw failure("enqueue retention", error);
       return data.length > 0;
@@ -180,8 +263,13 @@ export function createSupabaseJobStore(): JobStore {
 
     async claimJobs(limit, leaseSeconds) {
       const { data, error } = await db
-        .rpc("claim_sync_jobs", { p_limit: limit, p_lease_seconds: leaseSeconds })
-        .select("id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key");
+        .rpc("claim_sync_jobs", {
+          p_limit: limit,
+          p_lease_seconds: leaseSeconds,
+        })
+        .select(
+          "id, workspace_id, connection_id, kind, attempts, max_attempts, created_at, dedupe_key",
+        );
       if (error) throw failure("claim_sync_jobs", error);
       return data;
     },
@@ -308,7 +396,9 @@ export function createSupabaseJobStore(): JobStore {
       if (rows.length === 0) return;
       const { error } = await db
         .from("usage_snapshots")
-        .upsert([...rows], { onConflict: "external_account_id,metric_key,snapshot_date" });
+        .upsert([...rows], {
+          onConflict: "external_account_id,metric_key,snapshot_date",
+        });
       if (error) throw failure("snapshot upsert", error);
     },
 
@@ -317,7 +407,10 @@ export function createSupabaseJobStore(): JobStore {
       // With ignoreDuplicates only the rows actually inserted come back.
       const { data, error } = await db
         .from("activity_events")
-        .upsert([...rows], { onConflict: "workspace_id,dedupe_key", ignoreDuplicates: true })
+        .upsert([...rows], {
+          onConflict: "workspace_id,dedupe_key",
+          ignoreDuplicates: true,
+        })
         .select("id");
       if (error) throw failure("event insert", error);
       return data.length;
@@ -333,31 +426,84 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async purgeSnapshots(beforeDate, limit) {
-      const { data, error } = await db.rpc("purge_usage_snapshots", { p_before: beforeDate, p_limit: limit });
+      const { data, error } = await db.rpc("purge_usage_snapshots", {
+        p_before: beforeDate,
+        p_limit: limit,
+      });
       if (error) throw failure("purge_usage_snapshots", error);
       return data;
     },
 
     async purgeEvents(before, limit) {
-      const { data, error } = await db.rpc("purge_activity_events", { p_before: before.toISOString(), p_limit: limit });
+      const { data, error } = await db.rpc("purge_activity_events", {
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
       if (error) throw failure("purge_activity_events", error);
       return data;
     },
 
     async purgeJobs(before, limit) {
-      const { data, error } = await db.rpc("purge_sync_jobs", { p_before: before.toISOString(), p_limit: limit });
+      const { data, error } = await db.rpc("purge_sync_jobs", {
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
       if (error) throw failure("purge_sync_jobs", error);
       return data;
     },
 
     async purgeOAuthStates(before, limit) {
-      const { data, error } = await db.rpc("purge_oauth_states", { p_before: before.toISOString(), p_limit: limit });
+      const { data, error } = await db.rpc("purge_oauth_states", {
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
       if (error) throw failure("purge_oauth_states", error);
       return data;
     },
 
+    async purgeRateLimitCounters(before, limit) {
+      const { data, error } = await db.rpc("purge_public_rate_limit_counters", {
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
+      if (error) throw failure("purge_public_rate_limit_counters", error);
+      return data;
+    },
+
+    async purgeMetricViews(beforeDate, limit) {
+      const { data, error } = await db.rpc("purge_published_metric_views", {
+        p_before: beforeDate,
+        p_limit: limit,
+      });
+      if (error) throw failure("purge_published_metric_views", error);
+      return data;
+    },
+
+    async purgeNotificationDeliveries(before, limit) {
+      const { data, error } = await db.rpc("purge_notification_deliveries", {
+        p_before: before.toISOString(),
+        p_limit: limit,
+      });
+      if (error) throw failure("purge_notification_deliveries", error);
+      return data;
+    },
+
+    async enqueueAlertDispatches() {
+      const { data, error } = await db.rpc("enqueue_alert_dispatches");
+      if (error) throw failure("enqueue_alert_dispatches", error);
+      return data;
+    },
+
+    async enqueueDigests(date) {
+      const { data, error } = await db.rpc("enqueue_digests", { p_date: date });
+      if (error) throw failure("enqueue_digests", error);
+      return data;
+    },
+
     async enqueueDailySummaries(date) {
-      const { data, error } = await db.rpc("enqueue_daily_summaries", { p_date: date });
+      const { data, error } = await db.rpc("enqueue_daily_summaries", {
+        p_date: date,
+      });
       if (error) throw failure("enqueue_daily_summaries", error);
       return data;
     },
@@ -389,8 +535,64 @@ export function createSupabaseJobStore(): JobStore {
         .order("id")
         .limit(SUMMARY_ROW_LIMIT);
       if (error) throw failure("summary snapshots read", error);
-      if (data.length === SUMMARY_ROW_LIMIT) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: data.length });
+      if (data.length === SUMMARY_ROW_LIMIT)
+        log.warn("daily_summary.snapshots_truncated", {
+          workspaceId,
+          rows: data.length,
+        });
       return data;
+    },
+
+    async getAnomalySettings(workspaceId) {
+      const [workspace, mutes] = await Promise.all([
+        db
+          .from("workspaces")
+          .select("anomaly_detection_enabled")
+          .eq("id", workspaceId)
+          .maybeSingle(),
+        db
+          .from("anomaly_mutes")
+          .select("provider, metric_key")
+          .eq("workspace_id", workspaceId)
+          .order("created_at")
+          .limit(ANOMALY_MUTE_LIMIT),
+      ]);
+      if (workspace.error)
+        throw failure("anomaly settings read", workspace.error);
+      if (mutes.error) throw failure("anomaly mutes read", mutes.error);
+      // A workspace deleted since the job was queued has nothing left to check.
+      return {
+        enabled: workspace.data?.anomaly_detection_enabled ?? false,
+        mutes: mutes.data,
+      };
+    },
+
+    async listAnomalySnapshots(workspaceId, fromDate, toDate) {
+      const rows: AnomalyRow[] = [];
+      // Pages in order over usage_snapshots_workspace_date_idx; bounded by ANOMALY_ROW_LIMIT.
+      for (
+        let offset = 0;
+        offset < ANOMALY_ROW_LIMIT;
+        offset += ANOMALY_PAGE_SIZE
+      ) {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select(
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+          )
+          .eq("workspace_id", workspaceId)
+          .in("kind", [...ANOMALY_KINDS])
+          .is("point_at", null)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          .order("snapshot_date")
+          .order("id")
+          .range(offset, offset + ANOMALY_PAGE_SIZE - 1);
+        if (error) throw failure("anomaly snapshots read", error);
+        rows.push(...data);
+        if (data.length < ANOMALY_PAGE_SIZE) break;
+      }
+      return rows;
     },
   };
 }

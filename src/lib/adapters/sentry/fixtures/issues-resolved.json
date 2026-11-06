@@ -1,0 +1,45 @@
+[
+  {
+    "annotations": [],
+    "assignedTo": {
+      "type": "user",
+      "id": "1",
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "count": "150",
+    "culprit": "raven.scripts.runner in main",
+    "firstSeen": "2026-09-20T08:00:00Z",
+    "filtered": null,
+    "hasSeen": false,
+    "id": "80",
+    "isBookmarked": false,
+    "isPublic": false,
+    "isSubscribed": true,
+    "lastSeen": "2026-11-04T22:00:00Z",
+    "level": "error",
+    "logger": null,
+    "metadata": {
+      "title": "ValueError"
+    },
+    "numComments": 0,
+    "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/80/",
+    "project": {
+      "id": "3",
+      "name": "Prime Mover",
+      "slug": "prime-mover",
+      "platform": "python"
+    },
+    "shareId": "123def456abc",
+    "shortId": "PRIME-MOVER-19",
+    "platform": "python",
+    "status": "resolved",
+    "substatus": null,
+    "statusDetails": {},
+    "title": "ValueError",
+    "type": "default",
+    "userCount": 0,
+    "issueCategory": "error",
+    "issueType": "error"
+  }
+]

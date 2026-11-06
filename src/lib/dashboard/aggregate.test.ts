@@ -166,6 +166,52 @@ describe("aggregateDashboard totals", () => {
     expect(view.revenue[0]?.verified?.amountMinor).toBe(9_000);
   });
 
+  it("keeps recurring revenue (MRR, ARR) out of revenue and spending totals, even as a point in time", () => {
+    const view = aggregateDashboard(
+      input([
+        money({ metric_key: "fake.revenue.month", kind: "revenue", amount_minor: 9_000, currency: "USD" }),
+        money({
+          metric_key: "fake.mrr.usd",
+          kind: "recurring_revenue",
+          amount_minor: 4_000,
+          currency: "USD",
+          period_start: null,
+          period_end: null,
+          point_at: "2026-10-15T11:30:00.000Z",
+        }),
+      ]),
+    );
+    expect(view.totals).toEqual([]);
+    expect(view.revenue.map((amounts) => amounts.verified?.amountMinor)).toEqual([9_000]);
+    expect(view.byProvider[0]?.revenue.map((amounts) => amounts.verified?.amountMinor)).toEqual([9_000]);
+    expect(view.byProvider[0]?.spend).toEqual([]);
+  });
+
+  it("lists each recurring revenue metric on its provider card, summed over accounts but never MRR into ARR", () => {
+    const rate = { kind: "recurring_revenue", currency: "USD", period_start: null, period_end: null, point_at: "2026-10-15T11:30:00.000Z" } as const;
+    const view = aggregateDashboard(
+      input([
+        money({ ...rate, metric_key: "fake.mrr.usd", label: "Monthly recurring revenue (USD)", amount_minor: 4_000 }),
+        money({ ...rate, external_account_id: "a2", metric_key: "fake.mrr.usd", label: "Monthly recurring revenue (USD)", amount_minor: 1_000 }),
+        money({ ...rate, metric_key: "fake.arr.usd", label: "Annual recurring revenue (USD)", amount_minor: 48_000 }),
+        money({ ...rate, metric_key: "fake.mrr.eur", label: "Monthly recurring revenue (EUR)", currency: "EUR", amount_minor: 700 }),
+      ]),
+    );
+    expect(view.byProvider[0]?.recurringRevenue.map(({ label, value }) => [label, value.amountMinor, value.currency])).toEqual([
+      ["Annual recurring revenue (USD)", 48_000, "USD"],
+      ["Monthly recurring revenue (EUR)", 700, "EUR"],
+      ["Monthly recurring revenue (USD)", 5_000, "USD"],
+    ]);
+    expect(view.byProvider[0]?.recurringRevenue[0]?.value.provenance).toEqual({ status: "verified" });
+  });
+
+  it("lists no recurring revenue for a provider that reports none", () => {
+    const view = aggregateDashboard(
+      input([money({ metric_key: "fake.revenue.month", kind: "revenue", amount_minor: 9_000, currency: "USD" })]),
+    );
+    expect(view.byProvider[0]?.recurringRevenue).toEqual([]);
+  });
+
   it("shows nothing for an empty workspace or a scope that matched no connection", () => {
     const view = aggregateDashboard(input([], { connections: [], accounts: [] }));
     expect(view.byProvider).toEqual([]);

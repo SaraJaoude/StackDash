@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
@@ -12,7 +13,8 @@ import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Timeline" };
@@ -102,7 +104,10 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           />
         )
       ) : (
-        <EventList events={page.events} now={now} />
+        // The list's URL is its scope: new filters or another page reset what counts as arrived.
+        <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
+          <EventList events={page.events} now={now} />
+        </ArrivalScope>
       )}
 
       {page.nextCursor === null && !showNewestLink ? null : (

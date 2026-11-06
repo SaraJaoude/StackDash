@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import { Secret } from "@/lib/adapters/types";
 import type { Logger } from "@/lib/log/logger";
+import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { MemoryJobStore } from "./memory-store";
 import { CRON_SECRET_MIN_LENGTH, isAuthorizedCronRequest, runTick } from "./runner";
@@ -53,6 +54,7 @@ function deps(store: MemoryJobStore, now: () => Date): SyncDeps {
     logError: () => "REF-TEST0000",
     log: silent,
     evaluateAlerts: async () => ({ triggered: 0 }),
+    notifications: () => memoryNotificationDeps(),
   };
 }
 
@@ -87,6 +89,10 @@ describe("runTick", () => {
         return 0;
       }
 
+      override async enqueueDigests(): Promise<number> {
+        return 0;
+      }
+
       override async enqueueRetention(): Promise<boolean> {
         return false;
       }
@@ -113,7 +119,18 @@ describe("runTick", () => {
     const store = new MemoryJobStore(() => clock);
     const result = await runTick(deps(store, () => clock));
     expect(Object.keys(result).sort()).toEqual(
-      ["claimed", "failed", "released", "retentionQueued", "retried", "succeeded", "summariesQueued", "syncsQueued"].sort(),
+      [
+        "claimed",
+        "digestsQueued",
+        "dispatchesQueued",
+        "failed",
+        "released",
+        "retentionQueued",
+        "retried",
+        "succeeded",
+        "summariesQueued",
+        "syncsQueued",
+      ].sort(),
     );
   });
 });
