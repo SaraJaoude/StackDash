@@ -7,6 +7,7 @@ import {
   fetchJson,
   PermissionMissingError,
   ProviderUnavailableError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import { UnitSchema, type AdapterMetric, type Timeframe } from "../metrics";
@@ -23,7 +24,6 @@ import {
 import { CLIENT_ASSERTION_TYPE, createClientAssertion, loadSigningKey } from "./client-auth";
 import {
   BillingResponseSchema,
-  OAuthErrorSchema,
   OrganizationListSchema,
   ProjectListSchema,
   SignupQueryResponseSchema,
@@ -133,18 +133,6 @@ function readCursor(cursor: string | undefined, ctx: OAuthContext): string | und
   // Our own value came back unreadable: start again from the backfill window rather than fail.
   ctx.logger.warn("posthog.sync.cursor_unreadable", { provider: "posthog" });
   return undefined;
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /** Client authentication for every token endpoint call: a fresh assertion each time. */

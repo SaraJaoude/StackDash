@@ -20,9 +20,6 @@ export const TokenResponseSchema = z.object({
 });
 export type TokenResponse = z.infer<typeof TokenResponseSchema>;
 
-// RFC 6749 section 5.2 error body, as Doorkeeper sends it on a 400 from `/oauth/token`.
-export const OAuthErrorSchema = z.object({ error: z.string().min(1) });
-
 // `GET /user` (read_user). Only the id and username are kept.
 export const UserSchema = z.object({
   id: z.int().positive(),
