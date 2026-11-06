@@ -1,6 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
-
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // Each test renames its own workspace, so tests never see each other's names.
@@ -88,8 +87,7 @@ ownerTest.describe("renaming a workspace as the owner", () => {
       await expect(save).not.toHaveAttribute("aria-disabled");
       await expect(save).toBeFocused();
       expect(saves).toBe(1);
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

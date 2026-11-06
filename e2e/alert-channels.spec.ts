@@ -1,8 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 
-import AxeBuilder from "@axe-core/playwright";
-
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -60,7 +59,7 @@ ownerTest.describe("alert channels as the owner", () => {
       const row = channels.getByRole("list", { name: "Channels" }).getByRole("listitem").filter({ hasText: "Ops webhook" });
       await expect(row.getByText("Webhook at 127.0.0.1", { exact: false })).toBeVisible();
       await expect(row.getByText(receiver.url)).toHaveCount(0);
-      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       const { data: destination, error } = await adminClient()
         .from("notification_destinations")

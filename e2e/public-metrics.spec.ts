@@ -2,7 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
 
@@ -99,6 +101,7 @@ ownerTest.describe("public metrics as the owner", () => {
     try {
       const projectId = await seedStarredProject(workspace);
 
+      const live = watchLiveRefresh(page, workspace.id);
       await page.goto(`/w/${workspace.slug}/projects`);
       await page.getByRole("link", { name: "Public metrics for Acme web" }).click();
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Public metrics for Acme web");
@@ -113,6 +116,8 @@ ownerTest.describe("public metrics as the owner", () => {
       expect((await readPublic(baseURL, projectId)).status).toBe(404);
 
       await stars.getByLabel("Rounding").selectOption({ label: "Rounded down to 100" });
+      // Publishing records an activity event, so a live refresh follows the action's own.
+      const liveRefresh = await live.next();
       await stars.getByRole("button", { name: "Publish GitHub stars" }).click();
       await expect(page.getByRole("status").filter({ hasText: "Published GitHub stars." })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Metrics from your connected providers" })).toBeFocused();
@@ -138,8 +143,8 @@ ownerTest.describe("public metrics as the owner", () => {
       // Never an account name, even though the account has one.
       expect(JSON.stringify(published.body)).not.toContain("example-org");
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await liveRefresh();
+      await expectNoAxeViolations(page);
 
       const { data: events, error } = await adminClient()
         .from("activity_events")

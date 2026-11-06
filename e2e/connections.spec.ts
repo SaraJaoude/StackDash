@@ -1,7 +1,7 @@
-import AxeBuilder from "@axe-core/playwright";
 import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 /*
@@ -175,8 +175,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await expect(vercel.getByRole("link", { name: "Connect Vercel" })).toHaveAccessibleDescription("");
       await expect(providers.getByText("Beta", { exact: true })).toHaveCount(1);
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -268,8 +267,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .eq("display_name", "Example team")
         .single();
       expect(account?.project_id).toBe(project.id);
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       // Back to no project, from the keyboard: the empty value survives the reset too, and focus
       // stays on the button through the save instead of dropping to the page (#161).

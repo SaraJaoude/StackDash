@@ -5,6 +5,7 @@ import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@mod
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // The REST API with scoped keys (#162), and the MCP server on the same keys (#163). Each test creates
@@ -140,8 +141,7 @@ ownerTest.describe("API keys as the owner", () => {
       const key = await createKeyWithKeyboard(page, "Reporting script", SCOPES);
       // The button fades back from its pending style; scan once it has, or axe measures mid-fade.
       await expect(section.getByRole("button", { name: "Create key" })).toHaveCSS("opacity", "1");
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       const row = section.getByRole("listitem").filter({ hasText: "Reporting script" });
       await expect(row).toContainText("Active");

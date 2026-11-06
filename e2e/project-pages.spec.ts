@@ -2,8 +2,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Browser, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { publishStars, seedIncludedAccounts, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
+import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Public project pages (#150). Each test creates its own workspace and seeds only inside it, so
 // tests run in any order. Public reads go through a fresh browser context or request context with
@@ -208,6 +210,7 @@ ownerTest.describe("project pages as the owner", () => {
       if (error) throw new Error(`Seeding a project failed (code ${error.code}).`);
       await turnOnPage(workspace, other.id, "taken", false);
 
+      const live = watchLiveRefresh(page, workspace.id);
       await page.goto(settingsPath(workspace, projectId));
       const settings = page.getByRole("region", { name: "Project page" });
       const slug = settings.getByLabel("Address");
@@ -228,12 +231,14 @@ ownerTest.describe("project pages as the owner", () => {
       await expect(settings.getByLabel("Let search engines index this page")).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(settings.getByRole("button", { name: "Turn on the project page" })).toBeFocused();
+      // Turning the page on records an activity event, so a live refresh follows the action's own.
+      const liveRefresh = await live.next();
       await page.keyboard.press("Enter");
       await expect(page.getByRole("status").filter({ hasText: `The project page is on at /@${workspace.slug}/acme-web.` })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Project page" })).toBeFocused();
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await liveRefresh();
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

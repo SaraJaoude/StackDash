@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 
@@ -28,8 +29,7 @@ ownerTest.describe("simulated Sentry", () => {
           const data = page.getByRole("region", { name: "Data collected" });
           await expect(data.getByText(/^Error events per project over the last 24 hours/)).toBeVisible();
           await expect(data.getByText(/^New, regressed, and resolved issues per project/)).toBeVisible();
-          const disclosure = await new AxeBuilder({ page }).analyze();
-          expect(disclosure.violations).toEqual([]);
+          await expectNoAxeViolations(page);
         },
       });
 
@@ -38,8 +38,7 @@ ownerTest.describe("simulated Sentry", () => {
       for (const name of ["web", "api", "ios"]) {
         await expect(accounts.filter({ hasText: name }).getByText("project", { exact: true })).toBeVisible();
       }
-      const connection = await new AxeBuilder({ page }).analyze();
-      expect(connection.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
       const authorization = `Bearer ${cronSecret()}`;
       await expect(async () => {
