@@ -104,6 +104,8 @@ export function projectMinutesKey(projectId: number): string {
   return `gitlab.compute_minutes.project.p${projectId}.month`;
 }
 
+// The headline's deploys (#173) count deployments to an environment, by outcome. Pipelines are CI
+// runs, which may deploy nothing; a release and a merge are not deployments either.
 export const eventTypes = [
   {
     id: "gitlab.pipeline.succeeded",
@@ -122,12 +124,14 @@ export const eventTypes = [
     label: "Deployment succeeded",
     description: "A deployment to a GitLab environment finished successfully.",
     shownByDefault: true,
+    category: "deploy_succeeded",
   },
   {
     id: "gitlab.deployment.failed",
     label: "Deployment failed",
     description: "A deployment to a GitLab environment failed. Failures in production are critical.",
     shownByDefault: true,
+    category: "deploy_failed",
   },
   {
     id: "gitlab.release.published",

@@ -738,7 +738,7 @@ describe("headlineEventTypes", () => {
     });
   });
 
-  it("counts the registered adapters' signups and deploys, DigitalOcean's and Railway's included", () => {
+  it("counts the registered adapters' signups and deploys, DigitalOcean's, Railway's, and GitLab's included", () => {
     expect(EVENT_TYPES.signups).toEqual(expect.arrayContaining(["fake.signup", "supabase.auth.signup"]));
     expect(EVENT_TYPES.deploys).toEqual(
       expect.arrayContaining([
@@ -749,20 +749,26 @@ describe("headlineEventTypes", () => {
         "digitalocean.deployment.failed",
         "railway.deployment.deployed",
         "railway.deployment.failed",
+        "gitlab.deployment.succeeded",
+        "gitlab.deployment.failed",
       ]),
     );
     expect(EVENT_TYPES.failedDeploys).toEqual(
-      expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed", "railway.deployment.failed"]),
+      expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed", "railway.deployment.failed", "gitlab.deployment.failed"]),
     );
     expect(EVENT_TYPES.failedDeploys).not.toContain("railway.deployment.deployed");
     // A start says nothing about how a deployment ended; a Railway crash or removal comes after a
-    // deployment already counted; a Sentry release is not a deployment.
+    // deployment already counted; a CI pipeline may deploy nothing; releases are not deployments.
     const notDeploys = [
       "digitalocean.deployment.started",
       "railway.deployment.building",
       "railway.deployment.crashed",
       "railway.deployment.removed",
       "sentry.release.created",
+      "gitlab.pipeline.succeeded",
+      "gitlab.pipeline.failed",
+      "gitlab.release.published",
+      "gitlab.merge_request.merged",
     ];
     expect([...EVENT_TYPES.signups, ...EVENT_TYPES.deploys].filter((id) => notDeploys.includes(id))).toEqual([]);
     // Daily summaries are one event a day, not one per signup, so they are not counted as signups;
