@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import { balanceMetrics, digitaloceanAdapter, invoiceMetric, skuSpendMetrics } from "@/lib/adapters/digitalocean";
 import { fakeAdapter } from "@/lib/adapters/fake";
+import type { AdapterMetric } from "@/lib/adapters/metrics";
 import { Secret, type ProviderAdapter } from "@/lib/adapters/types";
 import { addUtcDays, ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import type { Logger } from "@/lib/log/logger";
+import type { Decimal } from "@/lib/money";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { DAILY_SUMMARY_TYPE_ID, dailySummaryJobKey, runDailySummaryJob, summaryDate } from "./daily-summary";
+import { toSnapshotRow } from "./ingest";
 import { MemoryJobStore, type MemorySnapshot } from "./memory-store";
 import { runTick } from "./runner";
 import type { SyncDeps } from "./sync-connection";
@@ -22,7 +26,7 @@ function setup(start = "2026-10-15T00:05:00.000Z") {
   const store = new MemoryJobStore(now);
   const deps: SyncDeps = {
     store,
-    getAdapter: (id) => (id === "vercel" ? vercelStub : fakeAdapter),
+    getAdapter: (id) => (id === "vercel" ? vercelStub : id === "digitalocean" ? digitaloceanAdapter : fakeAdapter),
     loadOAuthClient: () => ({ clientId: "id", clientSecret: new Secret("secret"), extra: {} }),
     createOAuthContext: (client) => ({ client, fetch: () => Promise.reject(new Error("offline")), now, timeoutMs: 1000, logger: silent }),
     now,
@@ -313,6 +317,134 @@ describe("daily summary (#64)", () => {
     expect(summaries(store)[0]?.body).toContain(
       "GitHub: Spending projection in USD unavailable (2 amounts: the end of the period is unknown, fewer than 3 days of data)",
     );
+  });
+
+  describe("spend the dashboard counts for the current period, and nothing else (#215, #176)", () => {
+    const cents = (minor: number): Decimal => ({ coefficient: BigInt(minor), scale: 2 });
+    const OCTOBER_INVOICE_MINOR = 12_710;
+    // The spending line's own shape, never a projection line ("Spending on track for ..." or
+    // "Spending projection in USD unavailable (...)"), which the #167 tests above own.
+    const SPEND_LINE = /^DigitalOcean: Spending (\$[\d,]+\.\d{2} \((verified|estimated)\)|unavailable)$/;
+
+    /**
+     * What one DigitalOcean sync at `at` stores, through the adapter's own metric builders and the
+     * sync's `toSnapshotRow`: month to date usage (and the credit beside it), the last issued
+     * invoice, and yesterday's spend per SKU. `balanceAt` is when DigitalOcean generated the
+     * balance, which right after midnight on the 1st can still be the month before.
+     */
+    function digitaloceanRows(
+      connectionId: string,
+      at: string,
+      parts: Readonly<{ usageMinor?: number; balanceAt?: string; invoice?: Readonly<{ period: string; minor: number }>; skuMinor?: readonly number[] }>,
+    ): MemorySnapshot[] {
+      const retrievedAt = new Date(at);
+      const account = "team-1";
+      const metrics: AdapterMetric[] = [];
+      if (parts.usageMinor !== undefined) {
+        const balance = { month_to_date_usage: cents(parts.usageMinor), account_balance: cents(-500), generated_at: new Date(parts.balanceAt ?? at) };
+        metrics.push(...balanceMetrics(balance, account, retrievedAt));
+      }
+      if (parts.invoice !== undefined) {
+        const invoice = { invoice_uuid: `inv-${parts.invoice.period}`, amount: cents(parts.invoice.minor), invoice_period: parts.invoice.period };
+        const metric = invoiceMetric(invoice, account, retrievedAt);
+        if (metric !== undefined) metrics.push(metric);
+      }
+      if (parts.skuMinor !== undefined) {
+        const totals = new Map(parts.skuMinor.map((minor, index) => [`1-DO-DROP-010${index}`, cents(minor)] as const));
+        metrics.push(...skuSpendMetrics(totals, new Date(retrievedAt.getTime() - 86_400_000), account, retrievedAt));
+      }
+      return metrics.map((metric) => ({
+        id: crypto.randomUUID(),
+        ...toSnapshotRow(metric, { id: connectionId, workspace_id: WORKSPACE_ID }, { id: "44444444-4444-4444-8444-444444444444" }),
+      }));
+    }
+
+    async function digitaloceanSummary(summaryDay: string, rows: (connectionId: string) => MemorySnapshot[]): Promise<string[]> {
+      const { store, deps } = setup(`${addUtcDays(summaryDay, 1)}T00:05:00.000Z`);
+      const connection = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "digitalocean", status: "needs_attention" });
+      store.snapshots.push(...rows(connection.id));
+      await runTick(deps);
+      return (summaries(store)[0]?.body ?? "").split("\n");
+    }
+
+    it("counts DigitalOcean's month to date once, without its last invoice or yesterday's SKU estimates", async () => {
+      // The demo seed's 2026-11-05: one sync late each day, $19.91 so far in November, and
+      // October's $127.10 invoice read again on every day. The summary said $147.01 (verified).
+      const usage = [395, 791, 1175, 1583, 1991];
+      const body = await digitaloceanSummary("2026-11-05", (id) =>
+        usage.flatMap((usageMinor, index) =>
+          digitaloceanRows(id, `2026-11-0${index + 1}T23:59:50.000Z`, {
+            usageMinor,
+            invoice: { period: "2026-10", minor: OCTOBER_INVOICE_MINOR },
+            skuMinor: [96, 192],
+          }),
+        ),
+      );
+      expect(body.filter((line) => SPEND_LINE.test(line))).toEqual(["DigitalOcean: Spending $19.91 (verified)"]);
+    });
+
+    it.each([
+      {
+        name: "month to date only",
+        day: "2026-11-05",
+        parts: { usageMinor: 2104 },
+        spending: "DigitalOcean: Spending $21.04 (verified)",
+      },
+      {
+        name: "an invoice-only day (the balance read failed)",
+        day: "2026-11-05",
+        parts: { invoice: { period: "2026-10", minor: OCTOBER_INVOICE_MINOR } },
+        spending: "DigitalOcean: Spending unavailable",
+      },
+      {
+        name: "yesterday's SKU estimates only",
+        day: "2026-11-05",
+        parts: { skuMinor: [96, 192] },
+        spending: "DigitalOcean: Spending unavailable",
+      },
+      {
+        name: "period rollover: the 1st, with the month just invoiced",
+        day: "2026-12-01",
+        parts: { usageMinor: 96, invoice: { period: "2026-11", minor: 63_000 } },
+        spending: "DigitalOcean: Spending $0.96 (verified)",
+      },
+      {
+        name: "period rollover: last month's balance read just after midnight",
+        day: "2026-12-01",
+        parts: { usageMinor: 63_000, balanceAt: "2026-11-30T23:59:00.000Z", invoice: { period: "2026-10", minor: OCTOBER_INVOICE_MINOR } },
+        spending: "DigitalOcean: Spending unavailable",
+      },
+      {
+        name: "the last day of the period, its month to date still open",
+        day: "2026-11-30",
+        parts: { usageMinor: 62_000, invoice: { period: "2026-10", minor: OCTOBER_INVOICE_MINOR } },
+        spending: "DigitalOcean: Spending $620.00 (verified)",
+      },
+    ])("$name", async ({ day, parts, spending }) => {
+      const at = parts.balanceAt === undefined ? `${day}T06:00:00.000Z` : `${day}T00:05:00.000Z`;
+      const body = await digitaloceanSummary(day, (id) => digitaloceanRows(id, at, parts));
+      expect(body.filter((line) => SPEND_LINE.test(line))).toEqual([spending]);
+    });
+
+    it.each([
+      { name: "the month alone", rolling: false },
+      { name: "the month beside the last 30 days in the same currency", rolling: true },
+    ])("counts Stripe's fees for $name once (#176)", async ({ rolling }) => {
+      const { store, deps } = setup();
+      const stripe = store.addConnection({ workspace_id: WORKSPACE_ID, provider: "stripe", status: "needs_attention" });
+      const fees = { connection_id: stripe.id, external_account_id: crypto.randomUUID(), kind: "verified_spend", currency: "USD", point_at: null } as const;
+      store.snapshots.push(
+        snapshot({ ...fees, metric_key: "stripe.fees.month.usd", amount_minor: 1000, period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-10-14T23:00:00.000Z" }),
+        ...(rolling
+          ? [snapshot({ ...fees, metric_key: "stripe.fees.last_30_days.usd", amount_minor: 3000, period_start: "2026-09-14T23:00:00.000Z", period_end: "2026-10-14T23:00:00.000Z" })]
+          : []),
+      );
+
+      await runTick(deps);
+      const body = summaries(store)[0]?.body ?? "";
+      expect(body).toContain("Stripe: Spending $10.00 (verified)");
+      expect(body).not.toContain("$40.00");
+    });
   });
 });
 

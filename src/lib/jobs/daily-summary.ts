@@ -1,6 +1,6 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
 import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
-import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
+import { countedSnapshots, isCurrentPeriod, type ProviderId } from "@/lib/dashboard/aggregate";
 import {
   PROJECTION_WINDOW_POINTS,
   projectAllowances,
@@ -24,6 +24,11 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  * - Money is summed per provider and currency only, never across currencies, and each amount
  *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
  *   is not added to its product's month again.
+ * - Spend is what the dashboard counts toward the current billing period (`isCurrentPeriod`, as
+ *   of the end of the summarized day), so the line agrees with the provider card: a period that
+ *   had ended when it was read is a final total, not this period's spending (DigitalOcean's last
+ *   invoice, #215, and a SKU's day read the day after), and a rolling window repeats the month
+ *   inside it (Stripe's last 30 days, #176).
  * - Each provider's spend projected to the end of its billing period follows its values (#167),
  *   labeled as an estimate by DevMacro, or says why there is none; a quota projected to run out
  *   before its reset, or already used up, gets a line too. Projections are as of the end of the
@@ -61,12 +66,13 @@ type Source = "verified" | "estimated";
 
 type ProviderInfo = Readonly<{ name: string; usage: boolean; spending: boolean }>;
 
-function lines(provider: ProviderInfo, rows: readonly SummarySnapshot[]): string[] {
+function lines(provider: ProviderInfo, rows: readonly SummarySnapshot[], now: Date): string[] {
   const spend = new Map<string, { source: Source; currency: string; amountMinor: number }>();
   const usage = new Map<string, { source: Source; label: string; unit: string; value: number }>();
 
   for (const row of rows) {
     if ((row.kind === "verified_spend" || row.kind === "estimated_spend") && row.amount_minor !== null && row.currency !== null) {
+      if (!isCurrentPeriod(row, now)) continue;
       const source: Source = row.kind === "verified_spend" ? "verified" : "estimated";
       const key = `${source} ${row.currency}`;
       const current = spend.get(key);
@@ -152,7 +158,7 @@ export function buildDailySummary(input: {
     severity: "info",
     title: `Daily summary for ${input.date}`,
     body: providers
-      .flatMap(({ info, day, history }) => [...lines(info, day), ...projectionLines(info, history, projectedAt)])
+      .flatMap(({ info, day, history }) => [...lines(info, day, projectedAt), ...projectionLines(info, history, projectedAt)])
       .join("\n"),
     url: null,
     occurred_at: endOfDay.toISOString(),
