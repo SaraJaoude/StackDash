@@ -16,9 +16,10 @@ your own scripts through a read-only REST API or from an AI assistant through a 
 server, and see spend and allowances where each provider reports them.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Sentry is built
-from Sentry's documentation and not yet tried against a real organization, and until Sentry
-approves the hosted integration's publication only the organization that registered it can
+list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
+integration comes from the provider's documentation and none has been tried with a real account
+yet; each provider page in [docs/providers](docs/providers) lists what is still unverified. Until
+Sentry approves the hosted integration's publication, only the organization that registered it can
 install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
 
 ## Stack
