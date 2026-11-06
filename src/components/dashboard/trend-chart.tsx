@@ -1,6 +1,7 @@
 import { useId } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
+import type { TrendMarker } from "@/lib/dashboard/markers";
 import {
   bucketLabel,
   comparisonText,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/dashboard/trends";
 
 import { ArrivalTrendLatest } from "./arrival-values";
+import { MARKER_SLOT_PX, MarkerCounts, MarkerLegend, markerLanes, TrendMarkers } from "./trend-markers";
 
 // Drawing space in SVG user units; the SVG scales to its container width.
 const WIDTH = 640;
@@ -28,9 +30,13 @@ const ESTIMATE_DASH = "6 4";
  * use a dashed line and hollow points, gaps break the line and carry a mark on the baseline, and
  * the legend says so in words. The chart is one image whose accessible name summarizes the trend;
  * the table holds every value.
+ *
+ * `markers` are the event markers drawn under the chart and listed in the table's "Events"
+ * column (#168); null when every marker category is hidden, which drops the column too.
  */
-export function TrendChart({ series }: { series: TrendSeries }) {
+export function TrendChart({ series, markers }: { series: TrendSeries; markers: readonly TrendMarker[] | null }) {
   const titleId = useId();
+  const legendId = useId();
   const { points, measure, granularity } = series;
   const values = points.flatMap((point) => (point.value === null ? [] : [point.value]));
   const low = Math.min(0, ...values);
@@ -46,6 +52,13 @@ export function TrendChart({ series }: { series: TrendSeries }) {
   const first = points[0];
   const last = points.at(-1);
   const lastIndex = points.length - 1;
+  const lanes = markerLanes(markers ?? []);
+  // Each bucket's position as a percent of the width, so markers line up with the points.
+  const positions = new Map(points.map((point, index) => [point.bucket, (x(index) / WIDTH) * 100]));
+  // Wide enough that markers on neighboring buckets never overlap; narrower screens scroll the
+  // chart sideways instead of shrinking the 24 pixel targets.
+  const minWidth =
+    lanes.length === 0 ? undefined : Math.ceil((Math.max(points.length - 1, 1) * MARKER_SLOT_PX * WIDTH) / plotWidth);
 
   /** The line from the point before `index` to it; null across a gap. */
   function segment(index: number) {
@@ -79,62 +92,70 @@ export function TrendChart({ series }: { series: TrendSeries }) {
       </div>
       <p className="mt-1 text-sm text-muted">{comparisonText(series.comparison, measure, granularity)}</p>
 
-      <svg
-        role="img"
-        aria-label={trendSummary(series)}
-        viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        className="mt-4 h-auto w-full text-accent"
-      >
-        <line x1={PAD_X} x2={WIDTH - PAD_X} y1={PAD_Y} y2={PAD_Y} className="stroke-line-strong" strokeWidth={1} />
-        <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
-        {points.map((_, index) => (index === lastIndex ? null : segment(index)))}
-        {last === undefined ? null : (
-          <ArrivalTrendLatest
-            bucket={last.bucket}
-            value={last.value}
-            segmentX={lastSegment === null ? null : { from: x(lastIndex - 1), to: x(lastIndex) }}
-            point={last.value === null ? null : { cx: x(lastIndex), cy: y(last.value) }}
+      <div className={lanes.length === 0 ? "mt-4" : "mt-4 overflow-x-auto px-2"}>
+        <div style={minWidth === undefined ? undefined : { minWidth }}>
+          <svg
+            role="img"
+            aria-label={trendSummary(series)}
+            viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
+            className="h-auto w-full text-accent"
           >
-            {lastSegment}
-          </ArrivalTrendLatest>
-        )}
-        {points.map((point, index) =>
-          point.value === null ? (
-            <line
-              key={`gap-${point.bucket}`}
-              x1={x(index)}
-              x2={x(index)}
-              y1={baseline - GAP_MARK}
-              y2={baseline}
-              className="stroke-muted"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : (
-            <circle
-              key={`point-${point.bucket}`}
-              cx={x(index)}
-              cy={y(point.value)}
-              r={3}
-              stroke="currentColor"
-              strokeWidth={1.5}
-              className={point.estimated ? "fill-panel" : "fill-current"}
-              vectorEffect="non-scaling-stroke"
-            />
-          ),
-        )}
-      </svg>
+            <line x1={PAD_X} x2={WIDTH - PAD_X} y1={PAD_Y} y2={PAD_Y} className="stroke-line-strong" strokeWidth={1} />
+            <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
+            {points.map((_, index) => (index === lastIndex ? null : segment(index)))}
+            {last === undefined ? null : (
+              <ArrivalTrendLatest
+                bucket={last.bucket}
+                value={last.value}
+                segmentX={lastSegment === null ? null : { from: x(lastIndex - 1), to: x(lastIndex) }}
+                point={last.value === null ? null : { cx: x(lastIndex), cy: y(last.value) }}
+              >
+                {lastSegment}
+              </ArrivalTrendLatest>
+            )}
+            {points.map((point, index) =>
+              point.value === null ? (
+                <line
+                  key={`gap-${point.bucket}`}
+                  x1={x(index)}
+                  x2={x(index)}
+                  y1={baseline - GAP_MARK}
+                  y2={baseline}
+                  className="stroke-muted"
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : (
+                <circle
+                  key={`point-${point.bucket}`}
+                  cx={x(index)}
+                  cy={y(point.value)}
+                  r={3}
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  className={point.estimated ? "fill-panel" : "fill-current"}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ),
+            )}
+          </svg>
 
-      {/* Axis labels are in the table and the chart's name already, so screen readers skip them here. */}
-      <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
-        <span>{first === undefined ? "" : bucketLabel(first.bucket, granularity)}</span>
-        <span>
-          {values.length === 0 ? "" : `High ${formatTrendValue(high, measure)}, low ${formatTrendValue(Math.min(...values), measure)}`}
-        </span>
-        <span>{last === undefined ? "" : bucketLabel(last.bucket, granularity)}</span>
+          {lanes.length === 0 ? null : (
+            <TrendMarkers markers={markers ?? []} granularity={granularity} positions={positions} skipTo={legendId} />
+          )}
+
+          {/* Axis labels are in the table and the chart's name already, so screen readers skip them here. */}
+          <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
+            <span>{first === undefined ? "" : bucketLabel(first.bucket, granularity)}</span>
+            <span>
+              {values.length === 0 ? "" : `High ${formatTrendValue(high, measure)}, low ${formatTrendValue(Math.min(...values), measure)}`}
+            </span>
+            <span>{last === undefined ? "" : bucketLabel(last.bucket, granularity)}</span>
+          </div>
+        </div>
       </div>
 
-      <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+      <ul id={legendId} className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
         <li className="flex items-center gap-2">
           <LegendLine dashed={false} />
           Solid line, filled points: verified
@@ -153,6 +174,7 @@ export function TrendChart({ series }: { series: TrendSeries }) {
             Break in the line, mark on the baseline: unavailable
           </li>
         ) : null}
+        {lanes.length === 0 ? null : <MarkerLegend lanes={lanes} />}
       </ul>
 
       <details className="mt-4">
@@ -172,9 +194,14 @@ export function TrendChart({ series }: { series: TrendSeries }) {
                 <th scope="col" className="py-2 pr-4 font-medium">
                   Value
                 </th>
-                <th scope="col" className="py-2 font-medium">
+                <th scope="col" className="py-2 pr-4 font-medium">
                   Source
                 </th>
+                {markers === null ? null : (
+                  <th scope="col" className="py-2 font-medium">
+                    Events
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -190,7 +217,12 @@ export function TrendChart({ series }: { series: TrendSeries }) {
                       formatTrendValue(point.value, measure)
                     )}
                   </td>
-                  <td className="py-2">{point.value === null ? "No data" : point.estimated ? "Estimated" : "Verified"}</td>
+                  <td className="py-2 pr-4">{point.value === null ? "No data" : point.estimated ? "Estimated" : "Verified"}</td>
+                  {markers === null ? null : (
+                    <td className="py-2">
+                      <MarkerCounts markers={markers.filter((marker) => marker.bucket === point.bucket)} />
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

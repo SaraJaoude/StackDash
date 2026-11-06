@@ -58,9 +58,10 @@ const PROJECT_ACCOUNTS_LIMIT = 1000;
 /**
  * Ids of the workspace's provider accounts in the selected projects (and, for `unassigned`, in
  * none), in one query. null when no project is selected. Project ids passed the scope schema's
- * uuid check, so they are safe in the `or` list.
+ * uuid check, so they are safe in the `or` list. Shared with the trend markers, which count what
+ * the timeline would list.
  */
-async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): Promise<string[] | null> {
+export async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): Promise<string[] | null> {
   if (scope.projects.length === 0) return null;
   const { projectIds, unassigned } = projectSelection(scope);
   const conditions = [

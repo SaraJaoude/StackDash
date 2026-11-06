@@ -75,8 +75,11 @@ export function ScopeFilter({
   status: string;
   /** Active screen-specific filters (the timeline's types, severities, and dates). */
   extraActiveCount?: number | undefined;
-  /** Other URL state the form must carry, such as the dashboard's trend period. */
-  hidden?: Readonly<Record<string, string>> | undefined;
+  /**
+   * Other URL state the form must carry, such as the dashboard's trend period. A list becomes one
+   * input per value, the repeated-parameter shape the URL schemas read.
+   */
+  hidden?: Readonly<Record<string, string | readonly string[]>> | undefined;
   /** Changes when the screen's own fields change, so their uncontrolled inputs reset too. */
   resetKey?: string | undefined;
   children?: ReactNode;
@@ -122,9 +125,11 @@ export function ScopeFilter({
           <ChevronDownIcon className="size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none group-open:rotate-180" />
         </summary>
         <Form action={action} className="col-span-2 grid gap-6 border-t border-line px-4 py-4">
-          {Object.entries(hidden ?? {}).map(([name, value]) => (
-            <input key={name} type="hidden" name={name} value={value} />
-          ))}
+          {Object.entries(hidden ?? {}).flatMap(([name, value]) =>
+            (typeof value === "string" ? [value] : value).map((item) => (
+              <input key={`${name}=${item}`} type="hidden" name={name} value={item} />
+            )),
+          )}
         <div className="grid gap-6 md:grid-cols-3">
           <OptionGroup
             legend="Provider"
