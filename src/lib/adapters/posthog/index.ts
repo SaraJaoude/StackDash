@@ -87,6 +87,10 @@ const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // is read live on every sync, not copied from a price list.
 export const PROJECTED_PRICING_SOURCE = "PostHog's own projection for the billing period, from its billing overview";
 const CURRENCY = "USD";
+// The organization's spend so far. Each product's spend is a breakdown of it, keyed one segment
+// below (`posthog.spend.current.<type>`), so the dashboard counts the total and drops the products
+// (`dropSupersededBreakdowns`, #204).
+const CURRENT_SPEND_METRIC_KEY = "posthog.spend.current";
 // PostHog's estimate of the whole billing period's bill, declared as projected spend.
 const PROJECTED_SPEND_METRIC_KEY = "posthog.spend.projected";
 
@@ -344,7 +348,7 @@ export function billingMetrics(
     metrics.push({
       ...base,
       kind: "verified_spend",
-      metricKey: "posthog.spend.current",
+      metricKey: CURRENT_SPEND_METRIC_KEY,
       label: "Spend so far this billing period",
       amountMinor: decimalToMinorUnits(current, CURRENCY),
       currency: CURRENCY,
@@ -403,7 +407,7 @@ export function billingMetrics(
       metrics.push({
         ...base,
         kind: "verified_spend",
-        metricKey: `${key}.spend`,
+        metricKey: `${CURRENT_SPEND_METRIC_KEY}.${product.type}`,
         label: `${name} spend so far`,
         amountMinor: decimalToMinorUnits(product.current_amount_usd, CURRENCY),
         currency: CURRENCY,

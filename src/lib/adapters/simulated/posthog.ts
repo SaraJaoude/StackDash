@@ -27,8 +27,10 @@ import {
  * US Cloud. Product analytics events outgrow the free million around the third week, session
  * replay has a billing limit it nears late in the month, and feature flags stay inside the free
  * tier. Signups for the day before land at UTC midnight, one event per project, and now and then a
- * usage limit warning comes in. Every number goes through the real adapter's builders, so keys,
- * labels, and event types match a real sync.
+ * usage limit warning comes in. Spend so far is the organization's total with each product's spend
+ * beside it, as PostHog's billing overview reports them; the real `billingMetrics` stores the
+ * products one segment below the total, so the dashboard counts the total once (#204). Every number
+ * goes through the real adapter's builders, so keys, labels, and event types match a real sync.
  */
 
 const REGION = "us";
