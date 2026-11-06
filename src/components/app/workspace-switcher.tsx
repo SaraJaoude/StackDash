@@ -53,14 +53,16 @@ export function WorkspaceSwitcher({
   }
 
   return (
-    <div ref={rootRef} className="relative min-w-0" onKeyDown={onKeyDown} onBlur={onBlur}>
+    // The caps sit on the root, the flex item, so the button truncates in whatever room the
+    // header row leaves it instead of keeping its own width and drawing under its neighbors (#198).
+    <div ref={rootRef} className="relative min-w-0 max-w-[7.5rem] sm:max-w-[16rem]" onKeyDown={onKeyDown} onBlur={onBlur}>
       <button
         ref={buttonRef}
         type="button"
         aria-expanded={open}
         aria-controls={listId}
         onClick={() => setOpen((value) => !value)}
-        className="flex min-h-9 max-w-[7.5rem] items-center gap-2 rounded-md border border-line px-2.5 py-1.5 text-sm transition-colors hover:border-line-strong sm:max-w-[16rem]"
+        className="flex min-h-9 max-w-full items-center gap-1 rounded-md border border-line px-1.5 py-1.5 text-sm transition-colors hover:border-line-strong sm:gap-2 sm:px-2.5"
       >
         <span className="sr-only">Workspace: </span>
         <span className="truncate">{current?.name ?? "Choose a workspace"}</span>
