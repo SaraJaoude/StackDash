@@ -29,6 +29,15 @@ const QUANTITY_KINDS: readonly MetricKind[] = ["usage", "included_allowance", "r
 // trend window of many accounts holds more.
 export const ACCOUNTS_LIMIT = 200;
 
+/**
+ * The project (or, with no project, the workspace) has more included accounts than ACCOUNTS_LIMIT,
+ * so no number may be computed from what the read returned (#220). Public routes answer it as any
+ * failed read; the owner's settings page shows its metrics as unavailable and says why.
+ */
+export class AccountBoundError extends Error {
+  override readonly name = "AccountBoundError";
+}
+
 export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
   workspaceId: string,
@@ -40,9 +49,9 @@ export function createSupabaseMetricStore(
       const accounts = await (projectId === null ? included : included.eq("project_id", projectId)).order("id").limit(ACCOUNTS_LIMIT + 1);
       if (accounts.error) throw new Error("Failed to load the project's accounts", { cause: accounts.error });
       // Every number rests on every included account, so a read that may be missing some publishes
-      // nothing (#220). The public routes answer a thrown read as unavailable.
+      // nothing (#220).
       if (accounts.data.length > ACCOUNTS_LIMIT) {
-        throw new Error(
+        throw new AccountBoundError(
           `Public metrics read at most ${ACCOUNTS_LIMIT} included accounts, and workspace ${workspaceId}${projectId === null ? "" : ` project ${projectId}`} has more`,
         );
       }

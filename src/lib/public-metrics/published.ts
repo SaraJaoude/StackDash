@@ -160,17 +160,7 @@ type EngineRow = Readonly<{
   publishedAt: string;
 }>;
 
-/** Computes each live engine row at its own delay. Exported for the in-app settings page. */
-export async function computePublishedEngineMetrics(
-  store: PublicMetricStore,
-  rows: readonly EngineRow[],
-  now: Date,
-): Promise<PublishedEngineMetric[]> {
-  const requests = rows.map((row) => ({
-    metricId: row.metricId,
-    asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS),
-  }));
-  const computed = await computePublicMetrics(store, requests);
+function toPublishedEngineMetrics(rows: readonly EngineRow[], computed: readonly ComputedMetric[]): PublishedEngineMetric[] {
   return rows.map((row, index) => {
     const result = computed[index];
     if (result === undefined) throw new Error("computePublicMetrics returned fewer results than requested");
@@ -190,6 +180,31 @@ export async function computePublishedEngineMetrics(
       value: publishedValue(result, definition.unit, row.rounding),
     };
   });
+}
+
+/** Computes each live engine row at its own delay. Exported for the in-app settings page. */
+export async function computePublishedEngineMetrics(
+  store: PublicMetricStore,
+  rows: readonly EngineRow[],
+  now: Date,
+): Promise<PublishedEngineMetric[]> {
+  const computed = await computePublicMetrics(
+    store,
+    rows.map((row) => ({ metricId: row.metricId, asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS) })),
+  );
+  return toPublishedEngineMetrics(rows, computed);
+}
+
+/** Each live engine row with no value, for `reason`: the settings page when nothing can be computed. */
+export function unavailablePublishedEngineMetrics(rows: readonly EngineRow[], now: Date, reason: UnavailableReason): PublishedEngineMetric[] {
+  return toPublishedEngineMetrics(
+    rows,
+    rows.map((row) => ({
+      metricId: row.metricId,
+      asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS),
+      result: { status: "unavailable", reason },
+    })),
+  );
 }
 
 export function selfReportedMetric(row: Readonly<{ id: string; label: string; value: number; unit: string; publishedAt: string }>): PublishedSelfReportedMetric {

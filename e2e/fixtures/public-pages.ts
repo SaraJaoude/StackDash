@@ -99,6 +99,42 @@ export async function seedProjectWithHistory(workspace: TestWorkspace): Promise<
   return project.id;
 }
 
+/**
+ * Public metrics read at most 200 included accounts of a project (ACCOUNTS_LIMIT in
+ * src/lib/public-metrics/supabase-store.ts, which this Node process cannot import: it is
+ * server-only). Adds `count` more included GitHub accounts to the project, on one new connection.
+ */
+export async function seedIncludedAccounts(workspace: TestWorkspace, projectId: string, count: number): Promise<void> {
+  const admin = adminClient();
+  const now = new Date();
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "github",
+      status: "active",
+      display_name: "GitHub organizations",
+      poll_interval_seconds: 3600,
+      // Far in the future, so no tick another spec runs ever syncs this credential-less row.
+      next_sync_at: new Date(now.getTime() + 30 * DAY_MS).toISOString(),
+      last_synced_at: new Date(now.getTime() - 5 * 60_000).toISOString(),
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { error } = await admin.from("external_accounts").insert(
+    Array.from({ length: count }, (_, index) => ({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_id: `project-pages-e2e-many-${index}`,
+      display_name: `example-org-${index}`,
+      kind: "organization",
+      project_id: projectId,
+    })),
+  );
+  if (error) throw new Error(`Seeding accounts failed (code ${error.code}).`);
+}
+
 /** Publishes GitHub stars, exact and current, as the workspace owner. */
 export async function publishStars(workspace: TestWorkspace, projectId: string): Promise<void> {
   const { error } = await adminClient().rpc("publish_metric", {

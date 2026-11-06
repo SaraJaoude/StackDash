@@ -6,7 +6,7 @@ import type { Database } from "@/lib/supabase/database.types";
 
 import { computePublicMetrics, SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
-import { ACCOUNTS_LIMIT, createSupabaseMetricStore } from "./supabase-store";
+import { AccountBoundError, ACCOUNTS_LIMIT, createSupabaseMetricStore } from "./supabase-store";
 import { computeTrend } from "./trend";
 
 /*
@@ -285,7 +285,9 @@ describe("createSupabaseMetricStore accounts", () => {
     { name: "across the workspace", projectId: null },
   ])("refuses to return part of the accounts (boundary: one past ACCOUNTS_LIMIT $name)", async ({ projectId }) => {
     const { store, requests } = accountWorkspace(ACCOUNTS_LIMIT + 1, 2, projectId);
-    await expect(store.accounts()).rejects.toThrow(`Public metrics read at most ${ACCOUNTS_LIMIT} included accounts`);
+    const read = store.accounts();
+    await expect(read).rejects.toBeInstanceOf(AccountBoundError);
+    await expect(read).rejects.toThrow(`Public metrics read at most ${ACCOUNTS_LIMIT} included accounts`);
     // Nothing past the account read: no number can be computed from what it returned.
     expect(requests.map((request) => request.table)).toEqual(["external_accounts"]);
   });
