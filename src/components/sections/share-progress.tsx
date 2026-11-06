@@ -1,7 +1,7 @@
 import { Section } from "@/components/section";
 import { site } from "@/lib/site";
 
-type Provenance = "Verified" | "Estimated" | "Self-reported";
+type Provenance = "Verified" | "Self-reported";
 
 interface PublicMetric {
   label: string;
@@ -9,17 +9,17 @@ interface PublicMetric {
   provenance: Provenance;
 }
 
-// Illustrative values only, labeled as such in the UI.
+// Illustrative values only, labeled as such in the UI. The verified labels are metrics the public
+// metric engine defines (src/lib/public-metrics/definitions.ts).
 const publicMetrics: readonly PublicMetric[] = [
   { label: "GitHub stars", value: "1,000", provenance: "Verified" },
-  { label: "Production deployments this month", value: "12", provenance: "Verified" },
-  { label: "Monthly active users", value: "340", provenance: "Estimated" },
+  { label: "Deployments in 30 days", value: "12", provenance: "Verified" },
+  { label: "Signups in 30 days", value: "340", provenance: "Verified" },
   { label: "Registered users", value: "1,250", provenance: "Self-reported" },
 ];
 
 const PROVENANCE_CLASSES: Record<Provenance, string> = {
   Verified: "border-success/40 text-success",
-  Estimated: "border-warning/40 text-warning",
   "Self-reported": "border-line text-muted",
 };
 
@@ -30,33 +30,35 @@ interface Stage {
 
 const stages: readonly Stage[] = [
   {
-    name: "Milestone cards",
-    body: "Pick a metric you are proud of and get an image to post on X, LinkedIn, or Reddit. No public page needed.",
+    name: "Publish one metric at a time",
+    body: "Choose from metrics computed from your connected accounts, such as stars, deployments, signups, and emails sent. Each one links to its formula.",
   },
   {
     name: "Public project pages",
-    body: "An opt-in page with the metrics you choose, growth history, and a timeline of milestones.",
+    body: "An opt-in page at its own address with the metrics you publish, their history, and milestones.",
   },
   {
-    name: "Discovery and badges",
-    body: "A project directory and README badges, only if people want them. Not a social network.",
+    name: "Badges and cards",
+    body: "A README badge or a card image to post on X, LinkedIn, or Reddit, for any metric you have published from a connected account. Self-reported values stay on the project page. A yearly card sums up your whole stack's year so far.",
   },
 ];
 
 const privacyRules: readonly string[] = [
   "Everything is private until you publish it, one metric at a time.",
+  "Only verified metrics can count toward any public ranking.",
+  "Self-reported numbers can appear on your project page, always labeled self-reported.",
   "Keys, tokens, private repository activity, and infrastructure details can never be published.",
   "Spending, budgets, and billing are never shared automatically.",
-  "Delay or round a number before it goes public, and stop sharing whenever you like.",
+  "Round a number or delay it 7 days before it goes public, and unpublish whenever you like.",
 ];
 
 export function ShareProgress() {
   return (
     <Section
       id="share"
-      eyebrow="Build in public · Exploring"
+      eyebrow="Build in public"
       title="Show your progress, not just your revenue"
-      intro={`A project with little or no income can still show real traction: users, usage, contributors, and steady shipping. After the first release, ${site.name} may let you share the milestones you choose, backed by your connected accounts. This is optional and off by default.`}
+      intro={`A project with little or no income can still show real traction: users, deploys, stars, and steady shipping. ${site.name} lets you publish the metrics you choose, computed from your connected accounts. Nothing is public until you publish it.`}
     >
       <div className="grid gap-10 lg:grid-cols-2">
         <figure className="self-start rounded-xl border border-line bg-panel">

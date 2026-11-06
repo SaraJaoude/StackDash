@@ -1,0 +1,105 @@
+[
+  {
+    "id": 7,
+    "version": "frontend@1.2.0",
+    "shortVersion": "frontend@1.2.0",
+    "status": "open",
+    "versionInfo": {
+      "package": "frontend",
+      "version": {
+        "raw": "1.2.0",
+        "major": 1,
+        "minor": 2,
+        "patch": 0,
+        "pre": null,
+        "buildCode": null,
+        "components": 3
+      },
+      "description": "1.2.0",
+      "buildHash": null
+    },
+    "ref": null,
+    "url": null,
+    "dateReleased": null,
+    "dateCreated": "2026-11-05T10:30:00Z",
+    "data": {},
+    "newGroups": 0,
+    "owner": null,
+    "commitCount": 0,
+    "lastCommit": null,
+    "deployCount": 0,
+    "lastDeploy": null,
+    "authors": [
+      {
+        "name": "John Doe",
+        "email": "john.doe@example.com"
+      }
+    ],
+    "projects": [
+      {
+        "id": 3,
+        "slug": "prime-mover",
+        "name": "Prime Mover",
+        "newGroups": 0,
+        "platform": "python",
+        "platforms": [
+          "python"
+        ],
+        "hasHealthData": false
+      }
+    ],
+    "firstEvent": null,
+    "lastEvent": null,
+    "currentProjectMeta": {},
+    "userAgent": null
+  },
+  {
+    "id": 6,
+    "version": "frontend@1.1.0",
+    "shortVersion": "frontend@1.1.0",
+    "status": "open",
+    "versionInfo": {
+      "package": "frontend",
+      "version": {
+        "raw": "1.1.0",
+        "major": 1,
+        "minor": 1,
+        "patch": 0,
+        "pre": null,
+        "buildCode": null,
+        "components": 3
+      },
+      "description": "1.1.0",
+      "buildHash": null
+    },
+    "ref": null,
+    "url": null,
+    "dateReleased": null,
+    "dateCreated": "2026-11-01T09:00:00Z",
+    "data": {},
+    "newGroups": 0,
+    "owner": null,
+    "commitCount": 0,
+    "lastCommit": null,
+    "deployCount": 0,
+    "lastDeploy": null,
+    "authors": [],
+    "projects": [
+      {
+        "id": 3,
+        "slug": "prime-mover",
+        "name": "Prime Mover",
+        "newGroups": 0,
+        "platform": "python",
+        "platforms": [
+          "python"
+        ],
+        "hasHealthData": false
+      }
+    ],
+    "firstEvent": null,
+    "lastEvent": null,
+    "currentProjectMeta": {},
+    "userAgent": null
+  }
+]

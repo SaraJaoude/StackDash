@@ -15,12 +15,15 @@
     "db:types:check": "supabase gen types typescript --local --schema public > \"${TMPDIR:-/tmp}/devmacro-database.types.ts\" && diff -u src/lib/supabase/database.types.ts \"${TMPDIR:-/tmp}/devmacro-database.types.ts\"",
     "keys:rotate": "tsx --conditions=react-server scripts/rotate-encryption-key.ts",
     "invite": "tsx --conditions=react-server scripts/invite.ts",
-    "jobs:tick": "tsx --conditions=react-server scripts/tick.ts"
+    "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",
+    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "next": "16.4.3",
+    "nodemailer": "^10.3.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",
@@ -30,6 +33,7 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
+    "@modelcontextprotocol/client": "^2.4.0",
     "@playwright/test": "^1.64.1",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",

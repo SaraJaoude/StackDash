@@ -9,6 +9,11 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  digitalocean: "DigitalOcean",
+  posthog: "PostHog",
+  polar: "Polar",
+  sentry: "Sentry",
+  railway: "Railway",
   fake: null,
 };
 

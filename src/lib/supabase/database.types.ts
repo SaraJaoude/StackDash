@@ -51,6 +51,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"alert_rule_destinations": {
+                  Row: {
+                    "destination_id": string,"rule_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "destination_id": string,"rule_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "destination_id"?: string,"rule_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "alert_rule_destinations_destination_fkey"
+      columns: ["workspace_id","destination_id"]
+isOneToOne: false
+      referencedRelation: "notification_destinations"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "alert_rule_destinations_rule_fkey"
+      columns: ["workspace_id","rule_id"]
+isOneToOne: false
+      referencedRelation: "alert_rules"
+      referencedColumns: ["workspace_id","id"]
+    }
+                  ]
                 },"alert_rules": {
                   Row: {
                     "budget_id": string | null,"connection_id": string | null,"created_at": string,"created_by": string | null,"currency": string | null,"id": string,"kind": Database["public"]['Enums']["alert_rule_kind"],"metric_key": string | null,"paused": boolean,"project_id": string | null,"provider": Database["public"]['Enums']["provider_id"] | null,"scope": Database["public"]['Enums']["alert_scope"],"threshold_amount_minor": number | null,"threshold_percent": number | null,"updated_at": string,"updated_by": string | null,"workspace_id": string
@@ -83,6 +109,66 @@ isOneToOne: false
       referencedColumns: ["workspace_id","id"]
     },{
       foreignKeyName: "alert_rules_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"anomaly_mutes": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"id": string,"metric_key": string,"provider": Database["public"]['Enums']["provider_id"],"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"metric_key": string,"provider": Database["public"]['Enums']["provider_id"],"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"metric_key"?: string,"provider"?: Database["public"]['Enums']["provider_id"],"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "anomaly_mutes_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"api_key_request_windows": {
+                  Row: {
+                    "key_id": string,"request_count": number,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "key_id": string,"request_count"?: number,"window_start": string
+                  }
+                  Update: {
+                    "key_id"?: string,"request_count"?: number,"window_start"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "api_key_request_windows_key_id_fkey"
+      columns: ["key_id"]
+isOneToOne: false
+      referencedRelation: "api_keys"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"api_keys": {
+                  Row: {
+                    "created_at": string,"created_by": string | null,"id": string,"last_used_at": string | null,"name": string,"revoked_at": string | null,"revoked_by": string | null,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"token_hash": string,"token_prefix": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"last_used_at"?: string | null,"name": string,"revoked_at"?: string | null,"revoked_by"?: string | null,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"token_hash": string,"token_prefix": string,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"last_used_at"?: string | null,"name"?: string,"revoked_at"?: string | null,"revoked_by"?: string | null,"scopes"?: (Database["public"]['Enums']["api_key_scope"])[],"token_hash"?: string,"token_prefix"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "api_keys_workspace_id_fkey"
       columns: ["workspace_id"]
 isOneToOne: false
       referencedRelation: "workspaces"
@@ -199,6 +285,104 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"notification_deliveries": {
+                  Row: {
+                    "delivered_at": string,"destination_id": string | null,"id": string,"subject_key": string,"target_key": string,"triggered_alert_id": string | null,"user_id": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "delivered_at"?: string,"destination_id"?: string | null,"id"?: string,"subject_key": string,"target_key": string,"triggered_alert_id"?: string | null,"user_id"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "delivered_at"?: string,"destination_id"?: string | null,"id"?: string,"subject_key"?: string,"target_key"?: string,"triggered_alert_id"?: string | null,"user_id"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_deliveries_destination_fkey"
+      columns: ["workspace_id","destination_id"]
+isOneToOne: false
+      referencedRelation: "notification_destinations"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "notification_deliveries_triggered_alert_id_fkey"
+      columns: ["triggered_alert_id"]
+isOneToOne: false
+      referencedRelation: "triggered_alerts"
+      referencedColumns: ["id"]
+    },{
+      foreignKeyName: "notification_deliveries_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"notification_destination_secrets": {
+                  Row: {
+                    "auth_tag": string,"ciphertext": string,"destination_id": string,"iv": string,"key_id": string,"updated_at": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "auth_tag": string,"ciphertext": string,"destination_id": string,"iv": string,"key_id": string,"updated_at"?: string,"workspace_id": string
+                  }
+                  Update: {
+                    "auth_tag"?: string,"ciphertext"?: string,"destination_id"?: string,"iv"?: string,"key_id"?: string,"updated_at"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_destination_secrets_destination_fkey"
+      columns: ["workspace_id","destination_id"]
+isOneToOne: false
+      referencedRelation: "notification_destinations"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "notification_destination_secrets_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"notification_destinations": {
+                  Row: {
+                    "all_rules": boolean,"consecutive_failures": number,"created_at": string,"created_by": string | null,"digest": Database["public"]['Enums']["digest_frequency"],"id": string,"kind": Database["public"]['Enums']["destination_kind"],"last_delivered_at": string | null,"last_error_code": string | null,"last_error_reference": string | null,"name": string,"status": Database["public"]['Enums']["destination_status"],"updated_at": string,"updated_by": string | null,"url_host": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "all_rules"?: boolean,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"digest"?: Database["public"]['Enums']["digest_frequency"],"id"?: string,"kind": Database["public"]['Enums']["destination_kind"],"last_delivered_at"?: string | null,"last_error_code"?: string | null,"last_error_reference"?: string | null,"name": string,"status"?: Database["public"]['Enums']["destination_status"],"updated_at"?: string,"updated_by"?: string | null,"url_host": string,"workspace_id": string
+                  }
+                  Update: {
+                    "all_rules"?: boolean,"consecutive_failures"?: number,"created_at"?: string,"created_by"?: string | null,"digest"?: Database["public"]['Enums']["digest_frequency"],"id"?: string,"kind"?: Database["public"]['Enums']["destination_kind"],"last_delivered_at"?: string | null,"last_error_code"?: string | null,"last_error_reference"?: string | null,"name"?: string,"status"?: Database["public"]['Enums']["destination_status"],"updated_at"?: string,"updated_by"?: string | null,"url_host"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_destinations_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"notification_preferences": {
+                  Row: {
+                    "email_frequency": Database["public"]['Enums']["email_frequency"],"updated_at": string,"user_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "email_frequency": Database["public"]['Enums']["email_frequency"],"updated_at"?: string,"user_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "email_frequency"?: Database["public"]['Enums']["email_frequency"],"updated_at"?: string,"user_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "notification_preferences_member_fkey"
+      columns: ["workspace_id","user_id"]
+isOneToOne: true
+      referencedRelation: "workspace_members"
+      referencedColumns: ["workspace_id","user_id"]
+    }
+                  ]
                 },"oauth_states": {
                   Row: {
                     "code_verifier_ciphertext": string | null,"code_verifier_iv": string | null,"code_verifier_tag": string | null,"created_at": string,"expires_at": string,"key_id": string | null,"pending_installation_id": string | null,"provider": Database["public"]['Enums']["provider_id"],"reconnect_connection_id": string | null,"state": string,"user_id": string,"workspace_id": string
@@ -245,6 +429,32 @@ isOneToOne: false
       referencedColumns: ["id"]
     }
                   ]
+                },"project_pages": {
+                  Row: {
+                    "created_at": string,"enabled": boolean,"indexable": boolean,"project_id": string,"slug": string,"updated_at": string,"updated_by": string | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"enabled"?: boolean,"indexable"?: boolean,"project_id": string,"slug": string,"updated_at"?: string,"updated_by"?: string | null,"workspace_id": string
+                  }
+                  Update: {
+                    "created_at"?: string,"enabled"?: boolean,"indexable"?: boolean,"project_id"?: string,"slug"?: string,"updated_at"?: string,"updated_by"?: string | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "project_pages_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "project_pages_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"projects": {
                   Row: {
                     "created_at": string,"created_by": string | null,"id": string,"name": string,"updated_at": string,"updated_by": string | null,"workspace_id": string
@@ -259,6 +469,72 @@ isOneToOne: false
                   Relationships: [
                     {
       foreignKeyName: "projects_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"public_rate_limit_counters": {
+                  Row: {
+                    "count": number,"ip_hash": string,"window_start": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "count"?: number,"ip_hash": string,"window_start": string
+                  }
+                  Update: {
+                    "count"?: number,"ip_hash"?: string,"window_start"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"published_metric_views": {
+                  Row: {
+                    "metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"surface": Database["public"]['Enums']["share_surface"],"view_date": string,"views": number,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"surface": Database["public"]['Enums']["share_surface"],"view_date": string,"views"?: number,"workspace_id": string
+                  }
+                  Update: {
+                    "metric_id"?: Database["public"]['Enums']["public_metric_id"],"project_id"?: string,"surface"?: Database["public"]['Enums']["share_surface"],"view_date"?: string,"views"?: number,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "published_metric_views_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "published_metric_views_workspace_id_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
+                },"published_metrics": {
+                  Row: {
+                    "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"] | null,"project_id": string,"published_at": string,"published_by": string,"revoked_at": string | null,"revoked_by": string | null,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string | null,"self_reported_unit": string | null,"self_reported_value": number | null,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "delay_days"?: number,"id"?: string,"metric_id"?: Database["public"]['Enums']["public_metric_id"] | null,"project_id": string,"published_at"?: string,"published_by": string,"revoked_at"?: string | null,"revoked_by"?: string | null,"rounding"?: Database["public"]['Enums']["published_metric_rounding"],"self_reported_label"?: string | null,"self_reported_unit"?: string | null,"self_reported_value"?: number | null,"workspace_id": string
+                  }
+                  Update: {
+                    "delay_days"?: number,"id"?: string,"metric_id"?: Database["public"]['Enums']["public_metric_id"] | null,"project_id"?: string,"published_at"?: string,"published_by"?: string,"revoked_at"?: string | null,"revoked_by"?: string | null,"rounding"?: Database["public"]['Enums']["published_metric_rounding"],"self_reported_label"?: string | null,"self_reported_unit"?: string | null,"self_reported_value"?: number | null,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "published_metrics_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
+      foreignKeyName: "published_metrics_workspace_id_fkey"
       columns: ["workspace_id"]
 isOneToOne: false
       referencedRelation: "workspaces"
@@ -293,17 +569,23 @@ isOneToOne: false
                   ]
                 },"triggered_alerts": {
                   Row: {
-                    "acknowledged_at": string | null,"acknowledged_by": string | null,"currency": string | null,"cycle_key": string,"id": string,"is_estimated": boolean,"message": string,"observed_amount_minor": number | null,"observed_value": number | null,"rule_id": string,"threshold_label": string,"triggered_at": string,"workspace_id": string
+                    "acknowledged_at": string | null,"acknowledged_by": string | null,"currency": string | null,"cycle_key": string,"dispatched_at": string | null,"id": string,"is_estimated": boolean,"message": string,"observed_amount_minor": number | null,"observed_value": number | null,"project_id": string | null,"provider": Database["public"]['Enums']["provider_id"] | null,"resets_at": string | null,"rule_id": string,"threshold_label": string,"title": string | null,"triggered_at": string,"workspace_id": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"currency"?: string | null,"cycle_key": string,"id"?: string,"is_estimated": boolean,"message": string,"observed_amount_minor"?: number | null,"observed_value"?: number | null,"rule_id": string,"threshold_label": string,"triggered_at"?: string,"workspace_id": string
+                    "acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"currency"?: string | null,"cycle_key": string,"dispatched_at"?: string | null,"id"?: string,"is_estimated": boolean,"message": string,"observed_amount_minor"?: number | null,"observed_value"?: number | null,"project_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"] | null,"resets_at"?: string | null,"rule_id": string,"threshold_label": string,"title"?: string | null,"triggered_at"?: string,"workspace_id": string
                   }
                   Update: {
-                    "acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"currency"?: string | null,"cycle_key"?: string,"id"?: string,"is_estimated"?: boolean,"message"?: string,"observed_amount_minor"?: number | null,"observed_value"?: number | null,"rule_id"?: string,"threshold_label"?: string,"triggered_at"?: string,"workspace_id"?: string
+                    "acknowledged_at"?: string | null,"acknowledged_by"?: string | null,"currency"?: string | null,"cycle_key"?: string,"dispatched_at"?: string | null,"id"?: string,"is_estimated"?: boolean,"message"?: string,"observed_amount_minor"?: number | null,"observed_value"?: number | null,"project_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"] | null,"resets_at"?: string | null,"rule_id"?: string,"threshold_label"?: string,"title"?: string | null,"triggered_at"?: string,"workspace_id"?: string
                   }
                   Relationships: [
                     {
+      foreignKeyName: "triggered_alerts_project_fkey"
+      columns: ["workspace_id","project_id"]
+isOneToOne: false
+      referencedRelation: "projects"
+      referencedColumns: ["workspace_id","id"]
+    },{
       foreignKeyName: "triggered_alerts_rule_fkey"
       columns: ["workspace_id","rule_id"]
 isOneToOne: false
@@ -371,14 +653,14 @@ isOneToOne: false
                   ]
                 },"workspaces": {
                   Row: {
-                    "created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
+                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -389,7 +671,48 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "claim_sync_jobs":
+            "api_activity_events":
+{ Args: { "p_after_id"?: string,"p_after_occurred_at"?: string,"p_from"?: string,"p_limit"?: number,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_severity"?: Database["public"]['Enums']["event_severity"],"p_to"?: string,"p_token_hash": string,"p_type_id"?: string }; Returns: {
+              "account_name": string,"body": string,"connection_id": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"occurred_at": string,"provider": Database["public"]['Enums']["provider_id"],"severity": Database["public"]['Enums']["event_severity"],"title": string,"type_id": string,"url": string
+            }[]
+                           },
+"api_connections":
+{ Args: { "p_after_created_at"?: string,"p_after_id"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "authorized_account_label": string,"created_at": string,"display_name": string,"granted_scopes": (string)[],"id": string,"last_synced_at": string,"provider": Database["public"]['Enums']["provider_id"],"status": Database["public"]['Enums']["connection_status"]
+            }[]
+                           },
+"api_key_workspace":
+{ Args: { "p_scope": Database["public"]['Enums']["api_key_scope"],"p_token_hash": string }; Returns: string
+                           },
+"api_projects":
+{ Args: { "p_after_created_at"?: string,"p_after_id"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "created_at": string,"id": string,"name": string
+            }[]
+                           },
+"api_triggered_alerts":
+{ Args: { "p_acknowledged"?: boolean,"p_after_id"?: string,"p_after_triggered_at"?: string,"p_limit"?: number,"p_token_hash": string }; Returns: {
+              "acknowledged_at": string,"currency": string,"cycle_key": string,"id": string,"is_estimated": boolean,"message": string,"observed_amount_minor": number,"observed_value": number,"rule_id": string,"threshold_label": string,"threshold_percent": number,"triggered_at": string
+            }[]
+                           },
+"api_usage_snapshots":
+{ Args: { "p_after_date"?: string,"p_after_id"?: string,"p_connection_id"?: string,"p_from"?: string,"p_kind"?: Database["public"]['Enums']["metric_kind"],"p_limit"?: number,"p_metric_key"?: string,"p_project_id"?: string,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_to"?: string,"p_token_hash": string }; Returns: {
+              "account_name": string,"amount_minor": number,"connection_id": string,"currency": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"kind": Database["public"]['Enums']["metric_kind"],"label": string,"metric_key": string,"period_end": string,"period_start": string,"point_at": string,"pricing_source": string,"project_id": string,"provenance_source": string,"provider": Database["public"]['Enums']["provider_id"],"resets_at": string,"retrieved_at": string,"snapshot_date": string,"unit": string,"value": number
+            }[]
+                           },
+"api_workspaces":
+{ Args: { "p_token_hash": string }; Returns: {
+              "created_at": string,"id": string,"is_personal": boolean,"name": string,"slug": string
+            }[]
+                           },
+"authenticate_api_key":
+{ Args: { "p_token_hash": string }; Returns: {
+              "key_id": string,"request_count": number,"scopes": (Database["public"]['Enums']["api_key_scope"])[],"status": string,"window_resets_at": string,"workspace_id": string
+            }[]
+                           },
+"bump_public_rate_limit":
+{ Args: { "p_ip_hash": string }; Returns: number
+                           },
+"claim_sync_jobs":
 { Args: { "p_lease_seconds": number,"p_limit": number }; Returns: {
               "attempts": number,
 "connection_id": string | null,
@@ -413,9 +736,13 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
+"create_notification_destination":
+{ Args: { "p_all_rules": boolean,"p_auth_tag": string,"p_ciphertext": string,"p_created_by": string,"p_digest": Database["public"]['Enums']["digest_frequency"],"p_id": string,"p_iv": string,"p_key_id": string,"p_kind": Database["public"]['Enums']["destination_kind"],"p_name": string,"p_rule_ids": (string)[],"p_url_host": string,"p_workspace_id": string }; Returns: undefined
+                           },
 "create_workspace":
 { Args: { "p_is_personal": boolean,"p_name": string,"p_user_id": string }; Returns: {
-              "created_at": string,
+              "anomaly_detection_enabled": boolean,
+"created_at": string,
 "created_by": string | null,
 "id": string,
 "is_personal": boolean,
@@ -429,7 +756,16 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"disable_project_page":
+{ Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
+                           },
+"enqueue_alert_dispatches":
+{ Args: Record<PropertyKey, never>; Returns: number
+                           },
 "enqueue_daily_summaries":
+{ Args: { "p_date": string }; Returns: number
+                           },
+"enqueue_digests":
 { Args: { "p_date": string }; Returns: number
                            },
 "enqueue_due_syncs":
@@ -452,10 +788,45 @@ isOneToOne: false
               "metric_key": string,"resets_at": string
             }[]
                            },
+"notification_recipients":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "email": string,"email_frequency": Database["public"]['Enums']["email_frequency"],"user_id": string
+            }[]
+                           },
+"public_project_page":
+{ Args: { "p_page_slug": string,"p_workspace_slug": string }; Returns: {
+              "indexable": boolean,"project_id": string,"project_name": string,"workspace_id": string
+            }[]
+                           },
+"public_project_page_sitemap":
+{ Args: { "p_limit": number }; Returns: {
+              "page_slug": string,"updated_at": string,"workspace_slug": string
+            }[]
+                           },
+"public_published_metrics":
+{ Args: { "p_project_id": string }; Returns: {
+              "delay_days": number,"id": string,"metric_id": Database["public"]['Enums']["public_metric_id"],"project_id": string,"published_at": string,"rounding": Database["public"]['Enums']["published_metric_rounding"],"self_reported_label": string,"self_reported_unit": string,"self_reported_value": number,"workspace_id": string
+            }[]
+                           },
+"publish_metric":
+{ Args: { "p_actor_id": string,"p_body": string,"p_delay_days": number,"p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_rounding": Database["public"]['Enums']["published_metric_rounding"],"p_title": string,"p_workspace_id": string }; Returns: string
+                           },
+"publish_self_reported_metric":
+{ Args: { "p_actor_id": string,"p_body": string,"p_label": string,"p_project_id": string,"p_title": string,"p_unit": string,"p_value": number,"p_workspace_id": string }; Returns: string
+                           },
 "purge_activity_events":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"purge_notification_deliveries":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
 "purge_oauth_states":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_public_rate_limit_counters":
+{ Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"purge_published_metric_views":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
 "purge_sync_jobs":
@@ -464,15 +835,33 @@ isOneToOne: false
 "purge_usage_snapshots":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
                            },
+"record_publication_event":
+{ Args: { "p_body": string,"p_dedupe_key": string,"p_title": string,"p_type_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"record_published_metric_view":
+{ Args: { "p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_surface": Database["public"]['Enums']["share_surface"] }; Returns: undefined
+                           },
 "request_manual_sync":
 { Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
+                           },
+"require_published_metrics_admin":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
+"save_project_page":
+{ Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string
+                           },
+"unpublish_all_metrics":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
+                           },
+"unpublish_metric":
+{ Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string
                            },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
                            }
           }
           Enums: {
-            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake","sync_job_kind": "sync"|"daily_summary"|"retention","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
+            "alert_rule_kind": "allowance_percent"|"spend_amount"|"budget_percent","alert_scope": "workspace"|"provider"|"project"|"connection","api_key_scope": "usage:read"|"events:read"|"alerts:read"|"connections:read","connection_status": "pending"|"active"|"needs_attention"|"revoked"|"failed","destination_kind": "discord"|"slack"|"webhook","destination_status": "active"|"needs_attention","digest_frequency": "off"|"daily"|"weekly","email_frequency": "immediate"|"daily"|"weekly"|"off","event_severity": "info"|"success"|"warning"|"critical","metric_kind": "verified_spend"|"estimated_spend"|"included_allowance"|"remaining_allowance"|"usage"|"credit_balance"|"revenue"|"recurring_revenue","provider_id": "vercel"|"github"|"resend"|"stripe"|"supabase"|"fake"|"digitalocean"|"posthog"|"polar"|"sentry"|"railway","public_metric_id": "github-stars"|"github-stars-gained-7d"|"github-stars-gained-30d"|"vercel-deployments-7d"|"vercel-deployments-30d"|"vercel-deployment-streak"|"supabase-signups-7d"|"supabase-signups-30d"|"resend-emails-month"|"resend-quota-percent-month"|"github-actions-minutes-month"|"stripe-customers-30d"|"stripe-payments-30d","published_metric_rounding": "exact"|"tens"|"hundreds"|"thousands","share_surface": "badge"|"card","sync_job_kind": "sync"|"daily_summary"|"retention"|"alert_dispatch"|"digest","sync_job_status": "queued"|"running"|"succeeded"|"failed","workspace_role": "owner"|"admin"|"viewer"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -588,7 +977,7 @@ export type CompositeTypes<
 export const Constants = {
   "public": {
           Enums: {
-            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake"],"sync_job_kind": ["sync", "daily_summary", "retention"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
+            "alert_rule_kind": ["allowance_percent", "spend_amount", "budget_percent"],"alert_scope": ["workspace", "provider", "project", "connection"],"api_key_scope": ["usage:read", "events:read", "alerts:read", "connections:read"],"connection_status": ["pending", "active", "needs_attention", "revoked", "failed"],"destination_kind": ["discord", "slack", "webhook"],"destination_status": ["active", "needs_attention"],"digest_frequency": ["off", "daily", "weekly"],"email_frequency": ["immediate", "daily", "weekly", "off"],"event_severity": ["info", "success", "warning", "critical"],"metric_kind": ["verified_spend", "estimated_spend", "included_allowance", "remaining_allowance", "usage", "credit_balance", "revenue", "recurring_revenue"],"provider_id": ["vercel", "github", "resend", "stripe", "supabase", "fake", "digitalocean", "posthog", "polar", "sentry", "railway"],"public_metric_id": ["github-stars", "github-stars-gained-7d", "github-stars-gained-30d", "vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak", "supabase-signups-7d", "supabase-signups-30d", "resend-emails-month", "resend-quota-percent-month", "github-actions-minutes-month", "stripe-customers-30d", "stripe-payments-30d"],"published_metric_rounding": ["exact", "tens", "hundreds", "thousands"],"share_surface": ["badge", "card"],"sync_job_kind": ["sync", "daily_summary", "retention", "alert_dispatch", "digest"],"sync_job_status": ["queued", "running", "succeeded", "failed"],"workspace_role": ["owner", "admin", "viewer"]
           }
         }
 } as const

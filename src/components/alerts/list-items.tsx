@@ -8,6 +8,7 @@ import {
   setAlertRulePausedAction,
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
+import { GuardedButton } from "@/components/guarded-button";
 
 import { BudgetForm } from "./budget-form";
 import { ConfirmDelete } from "./confirm-delete";
@@ -26,7 +27,7 @@ function focusOnMount(node: HTMLElement | null) {
  * (saved or cancelled) returns focus to the Edit button and announces the outcome. Focus moves
  * through callback refs driven by state, so nothing reads a ref during render.
  */
-function EditableRow({
+export function EditableRow({
   summary,
   details,
   badges,
@@ -106,13 +107,15 @@ function EditableRow({
   );
 }
 
-function Badge({ children, tone }: { children: ReactNode; tone: "neutral" | "accent" | "muted" }) {
+export function Badge({ children, tone }: { children: ReactNode; tone: "neutral" | "accent" | "muted" | "danger" }) {
   const toneClass =
     tone === "accent"
       ? "border-accent/50 text-accent"
       : tone === "muted"
         ? "border-line-strong text-muted"
-        : "border-success/50 text-success";
+        : tone === "danger"
+          ? "border-danger/50 text-danger"
+          : "border-success/50 text-success";
   return (
     <span className={`inline-flex min-h-6 items-center rounded-full border px-2.5 text-xs font-medium ${toneClass}`}>
       {children}
@@ -141,10 +144,10 @@ function PauseButton({
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="ruleId" value={ruleId} />
       <input type="hidden" name="paused" value={paused ? "false" : "true"} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
         {paused ? "Resume rule" : "Pause rule"}
         <span className="sr-only">: {summary}</span>
-      </button>
+      </GuardedButton>
       <span role="status" aria-live="polite" className="basis-full text-sm">
         {pending || state === null ? null : failure === null ? (
           <span className="text-success">{paused ? "Alert rule paused." : "Alert rule resumed."}</span>

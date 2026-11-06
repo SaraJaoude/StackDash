@@ -1,0 +1,88 @@
+[
+  {
+    "annotations": [],
+    "assignedTo": {
+      "type": "user",
+      "id": "1",
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "count": "150",
+    "culprit": "raven.scripts.runner in main",
+    "firstSeen": "2026-11-05T11:40:00Z",
+    "filtered": null,
+    "hasSeen": false,
+    "id": "101",
+    "isBookmarked": false,
+    "isPublic": false,
+    "isSubscribed": true,
+    "lastSeen": "2026-11-05T11:58:00Z",
+    "level": "fatal",
+    "logger": null,
+    "metadata": {
+      "title": "ZeroDivisionError: division by zero for user jane@example.com"
+    },
+    "numComments": 0,
+    "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/101/",
+    "project": {
+      "id": "3",
+      "name": "Prime Mover",
+      "slug": "prime-mover",
+      "platform": "python"
+    },
+    "shareId": "123def456abc",
+    "shortId": "PRIME-MOVER-2F",
+    "platform": "python",
+    "status": "unresolved",
+    "substatus": "new",
+    "statusDetails": {},
+    "title": "ZeroDivisionError: division by zero for user jane@example.com",
+    "type": "default",
+    "userCount": 0,
+    "issueCategory": "error",
+    "issueType": "error"
+  },
+  {
+    "annotations": [],
+    "assignedTo": {
+      "type": "user",
+      "id": "1",
+      "name": "John Doe",
+      "email": "john.doe@example.com"
+    },
+    "count": "150",
+    "culprit": "raven.scripts.runner in main",
+    "firstSeen": "2026-11-05T11:20:00Z",
+    "filtered": null,
+    "hasSeen": false,
+    "id": "102",
+    "isBookmarked": false,
+    "isPublic": false,
+    "isSubscribed": true,
+    "lastSeen": "2026-11-05T11:21:00Z",
+    "level": "warning",
+    "logger": null,
+    "metadata": {
+      "title": "This is an example Python exception"
+    },
+    "numComments": 0,
+    "permalink": "https://sentry.io/the-interstellar-jurisdiction/pump-station/issues/102/",
+    "project": {
+      "id": "3",
+      "name": "Prime Mover",
+      "slug": "prime-mover",
+      "platform": "python"
+    },
+    "shareId": "123def456abc",
+    "shortId": "PRIME-MOVER-2G",
+    "platform": "python",
+    "status": "unresolved",
+    "substatus": "new",
+    "statusDetails": {},
+    "title": "This is an example Python exception",
+    "type": "default",
+    "userCount": 0,
+    "issueCategory": "error",
+    "issueType": "error"
+  }
+]

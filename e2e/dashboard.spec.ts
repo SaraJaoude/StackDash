@@ -4,9 +4,10 @@ import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { openFilters } from "./fixtures/filters";
+import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
-// Every test seeds its own workspace with synthetic data from the fake provider only.
+// Every test seeds its own workspace with synthetic data: from the fake provider by default, and
+// GitHub rows where a GitHub shape is the subject.
 
 const HOUR_MS = 3_600_000;
 
@@ -339,6 +340,127 @@ ownerTest.describe("dashboard filters", () => {
       await filters.getByRole("link", { name: "Clear filters" }).click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/dashboard$`));
       await expect(status).toHaveText("Showing 2 connections");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("opens the form below a status that wraps, on a wide screen and on a phone", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard filters wrap");
+    try {
+      await seedDashboard(workspace);
+      await seedSecondProvider(workspace);
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      const status = filters.getByRole("status");
+
+      // 1280 wide: every provider, project, and account ticked gives a status that wraps.
+      await page.setViewportSize({ width: 1280, height: 720 });
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await openFilters(page);
+      for (const group of ["Provider", "Project", "Account"]) await checkEvery(page, group);
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(status).toContainText("accounts ");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page);
+      await expectFormBelowWrappedStatus(page);
+
+      // A phone: one filter is enough.
+      await page.setViewportSize({ width: 375, height: 667 });
+      await page.goto(`/w/${workspace.slug}/dashboard?provider=fake`);
+      await expect(status).toHaveText("Showing 1 connection for provider Example provider");
+      await expectClosedFilterBarOneRow(page);
+      await openFilters(page, "keyboard");
+      await expectFormBelowWrappedStatus(page);
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+/**
+ * One GitHub organization reporting Actions spend the way the adapter does (#137): USD 51.75
+ * month to date for the product, the same 51.75 for its one SKU, and USD 12.52 for today.
+ */
+async function seedGitHubSpendLevels(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const now = new Date();
+  const fresh = new Date(now.getTime() - HOUR_MS / 6).toISOString();
+  const todayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "github",
+      status: "active",
+      display_name: "GitHub billing organization",
+      poll_interval_seconds: 3_600,
+      last_synced_at: fresh,
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_id: "org_billing_e2e",
+      display_name: "Billing organization",
+      kind: "organization",
+    })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const common = {
+    workspace_id: workspace.id,
+    connection_id: connection.id,
+    external_account_id: account.id,
+    kind: "verified_spend",
+    snapshot_date: now.toISOString().slice(0, 10),
+    currency: "USD",
+    period_start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
+    period_end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
+    retrieved_at: fresh,
+    provenance_source: "provider_api",
+  } as const;
+  const snapshots: SnapshotInsert[] = [
+    { ...common, metric_key: "github.spend.actions", label: "GitHub Actions spend", amount_minor: 5_175 },
+    { ...common, metric_key: "github.spend.actions.actions_linux", label: "GitHub Actions spend (Actions Linux)", amount_minor: 5_175 },
+    {
+      ...common,
+      metric_key: "github.daily_spend.actions",
+      label: "GitHub Actions daily spend",
+      amount_minor: 1_252,
+      period_start: new Date(todayStart).toISOString(),
+      period_end: new Date(todayStart + 24 * HOUR_MS).toISOString(),
+    },
+  ];
+  const { error } = await admin.from("usage_snapshots").insert(snapshots);
+  if (error) throw new Error(`Seeding snapshots failed (code ${error.code}).`);
+}
+
+ownerTest.describe("dashboard GitHub spend", () => {
+  ownerTest("counts the month to date product spend once and shows the month as the billing period", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard GitHub spend");
+    try {
+      await seedGitHubSpendLevels(workspace);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
+      await expect(usd).toContainText("$51.75");
+      await expect(usd).not.toContainText("$116.02");
+
+      const now = new Date();
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString().slice(0, 10);
+      const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0)).toISOString().slice(0, 10);
+      const card = page.getByRole("article", { name: "GitHub billing organization" });
+      await expect(card).toContainText("$51.75");
+      await expect(card).toContainText(new RegExp(`Billing period:\\s*${monthStart} to ${monthEnd}`));
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
     } finally {
       await deleteTestWorkspace(workspace);
     }

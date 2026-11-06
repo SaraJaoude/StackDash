@@ -4,8 +4,9 @@
  * `run.ts` loads the inputs and records the results.
  *
  * Rules decided here, once:
- * - Metrics are reduced the way the dashboard reduces them (`latestSnapshots`, then
- *   `dropSupersededBreakdowns`), so an alert never disagrees with the number on screen.
+ * - Metrics are reduced the way the dashboard reduces them (`countedSnapshots`: the latest row
+ *   per metric, breakdowns and sub-windows dropped), so an alert never disagrees with the number
+ *   on screen and a GitHub day never moves the cycle key off its month.
  * - A threshold is crossed at or above it: 90 of 100 crosses a 90 percent rule, 89.99 does not.
  *   Percentages are compared in exact cross multiplication (`used * 100 >= threshold * included`),
  *   never as a rounded float.
@@ -30,12 +31,7 @@
  * - A rule that covers several allowances or accounts still records one alert per cycle (the
  *   unique key is per rule): when several cross at once, the one furthest past its allowance wins.
  */
-import {
-  dropSupersededBreakdowns,
-  isCurrentPeriod,
-  latestSnapshots,
-  type SnapshotInput,
-} from "@/lib/dashboard/aggregate";
+import { countedSnapshots, isCurrentPeriod, type SnapshotInput } from "@/lib/dashboard/aggregate";
 import { formatDateTime, formatMoney, formatQuantity } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -99,6 +95,11 @@ export type AlertTrigger = Readonly<{
   /** Full sentence for the alert and the timeline body; says so when estimated values contributed. */
   message: string;
   severity: AlertSeverity;
+  /** The provider and project behind the reading, or null when it spans several (or none). */
+  provider: ProviderId | null;
+  projectId: string | null;
+  /** When the allowance or quota resets, as the provider reports it; null when not reported. */
+  resetsAt: string | null;
 }>;
 
 type ScopeTarget = Pick<AlertRuleInput, "scope" | "provider" | "project_id" | "connection_id">;
@@ -224,6 +225,7 @@ type AllowanceReading = Readonly<{
   used: number;
   isEstimated: boolean;
   cycleKey: string;
+  resetsAt: string | null;
 }>;
 
 function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): AllowanceReading[] {
@@ -286,6 +288,8 @@ function allowanceReadings(rows: readonly AlertSnapshotInput[], now: Date): Allo
       used,
       isEstimated: isEstimatedRow(included) || isEstimatedRow(usedRow),
       cycleKey,
+      // The allowance row describes the whole period, so its end is the reset when none is given.
+      resetsAt: included.resets_at ?? included.period_end,
     });
   }
   return readings;
@@ -331,11 +335,30 @@ function evaluateAllowanceRule(
       title: `${subject} passed ${thresholdLabel} of the allowance`,
       message,
       severity: severityFor(threshold),
+      provider: reading.item.provider,
+      projectId: reading.item.projectId,
+      resetsAt: reading.resetsAt,
     };
   });
 }
 
-type SpendTotal = Readonly<{ amountMinor: number; currency: string; isEstimated: boolean; cycleKey: string }>;
+type SpendTotal = Readonly<{
+  amountMinor: number;
+  currency: string;
+  isEstimated: boolean;
+  cycleKey: string;
+  /** Set when every counted row shares it. */
+  provider: ProviderId | null;
+  projectId: string | null;
+  /** The earliest reset any counted row reports; spend rows rarely carry one. */
+  resetsAt: string | null;
+}>;
+
+/** The one value every item shares, or null when they differ or there are none. */
+function shared<T>(values: readonly T[]): T | null {
+  const first = values[0];
+  return first !== undefined && values.every((value) => value === first) ? first : null;
+}
 
 /**
  * Spend in one currency for the current billing period, over the rows every target covers. Per
@@ -378,7 +401,16 @@ function spendTotal(
       latestStart = row.period_start;
     }
   }
-  return { amountMinor, currency, isEstimated, cycleKey: latestStart === null ? utcMonthStart(now) : utcDateOf(latestStart) };
+  const resets = counted.flatMap((row) => (row.resets_at === null ? [] : [row.resets_at])).sort((a, b) => Date.parse(a) - Date.parse(b));
+  return {
+    amountMinor,
+    currency,
+    isEstimated,
+    cycleKey: latestStart === null ? utcMonthStart(now) : utcDateOf(latestStart),
+    provider: shared(counted.map((row) => row.provider)),
+    projectId: shared(counted.map((row) => row.projectId)),
+    resetsAt: resets[0] ?? null,
+  };
 }
 
 function evaluateSpendRule(
@@ -407,6 +439,9 @@ function evaluateSpendRule(
       title: `${subject} passed ${thresholdLabel}`,
       message,
       severity: "warning",
+      provider: total.provider,
+      projectId: total.projectId,
+      resetsAt: total.resetsAt,
     },
   ];
 }
@@ -443,6 +478,9 @@ function evaluateBudgetRule(
       title: `Budget ${budget.name} passed ${thresholdLabel}`,
       message,
       severity: severityFor(threshold),
+      provider: total.provider,
+      projectId: total.projectId,
+      resetsAt: total.resetsAt,
     },
   ];
 }
@@ -450,7 +488,7 @@ function evaluateBudgetRule(
 /** Every threshold crossed by the current readings, one per (rule, cycle). Paused rules are skipped. */
 export function evaluateAlerts(input: EvaluateInput): AlertTrigger[] {
   const { now, names } = input;
-  const rows = dropSupersededBreakdowns(latestSnapshots(input.snapshots));
+  const rows = countedSnapshots(input.snapshots);
   const readings = allowanceReadings(rows, now);
   const budgets = new Map(input.budgets.map((budget) => [budget.id, budget]));
   return input.rules.flatMap((rule): AlertTrigger[] => {

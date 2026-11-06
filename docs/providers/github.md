@@ -6,7 +6,7 @@ Provider id: `github`. Issues: #51 (adapter), #11 (research). Docs checked 2026-
 
 **Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything #51 asks for: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
 
-The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. #51 should be updated to say so. The landing page row "Copilot premium requests" (PR #122) is out of date for the same reason.
+The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. #51 should be updated to say so. The landing page's Copilot row names AI Credits for the same reason (#124).
 
 ## Connection
 
@@ -106,6 +106,8 @@ Granularity: per day, product, SKU, and repository where the product has one. `n
 ### Billing usage summary, organization: `GET /organizations/{org}/settings/billing/usage/summary`
 
 Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. Use it for the month-to-date total per product; use `/usage` for the daily chart.
+
+DevMacro stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`, #137).
 
 ### AI credits, organization: `GET /organizations/{org}/settings/billing/ai_credit/usage`
 

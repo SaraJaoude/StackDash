@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { simulatedAdapters } from "@/lib/adapters/simulated";
 import { simulatedCredentialMetadata, SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { Secret } from "@/lib/adapters/types";
+import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 
 import { MemoryJobStore } from "./memory-store";
 import { TICK_CLAIM_LIMIT, type TickResult } from "./runner";
@@ -27,6 +28,8 @@ const RESULT: TickResult = {
   syncsQueued: 2,
   retentionQueued: false,
   summariesQueued: 0,
+  dispatchesQueued: 0,
+  digestsQueued: 0,
   claimed: 3,
   succeeded: 2,
   retried: 0,
@@ -266,6 +269,7 @@ describe("runWatchTick", () => {
       logError: () => "REF-TEST",
       log: { info: () => {}, warn: () => {}, error: () => {} },
       evaluateAlerts: async () => undefined,
+      notifications: () => memoryNotificationDeps(),
     };
 
     const { result } = await runWatchTick(deps);

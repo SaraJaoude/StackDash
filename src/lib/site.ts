@@ -3,7 +3,7 @@ export const site = {
   name: "DevMacro",
   tagline: "The big picture of your developer stack",
   description:
-    "DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer services you build on. See what you have spent, how much allowance is left, and when it resets, and get alerted before a limit or budget becomes a problem.",
+    "DevMacro is an open-source dashboard with one timeline and one alert for your whole developer stack: deploys, stars, signups, payments, and errors in one feed, and alerts by email, Slack, Discord, or webhook. Publish the stats you choose, and see spend and allowances where each provider reports them.",
   githubUrl: "https://github.com/eddiejaoude/DevMacro",
   founder: {
     name: "Eddie Jaoude",
@@ -11,8 +11,20 @@ export const site = {
   },
 } as const;
 
-/** Every platform the landing page names, shared by the hero preview and the live feed. */
-export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase";
+/** Every platform with a brand mark: the landing page's hero preview and live feed, and each provider. */
+export type Platform =
+  | "Vercel"
+  | "GitHub"
+  | "GitHub Actions"
+  | "GitHub Copilot"
+  | "Resend"
+  | "Stripe"
+  | "Supabase"
+  | "DigitalOcean"
+  | "PostHog"
+  | "Polar"
+  | "Sentry"
+  | "Railway";
 
 export interface NavLink {
   label: string;
