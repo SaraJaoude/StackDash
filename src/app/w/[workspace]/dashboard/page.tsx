@@ -13,7 +13,12 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
-import { declaredEventTypes, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
+import {
+  declaredEventTypes,
+  declaredProjectedSpend,
+  declaredSignupDailyTotals,
+  revenueProviderIds,
+} from "@/lib/adapters/registry";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
@@ -167,6 +172,7 @@ async function DashboardContent({
               connections: trendData.connections,
               events: headlineEvents,
               eventTypes,
+              projectedSpend: declaredProjectedSpend,
               revenueProviders: revenueProviderIds,
               kind: view.window,
               now,

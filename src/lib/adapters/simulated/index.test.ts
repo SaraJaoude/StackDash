@@ -194,12 +194,13 @@ describe("isProviderSimulationEnabled", () => {
 });
 
 describe("simulated adapter declarations", () => {
-  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, and capabilities", (id) => {
+  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, and capabilities", (id) => {
     const simulated = simulatedAdapters[id];
     expect(simulated.id).toBe(REAL[id].id);
     expect(simulated.displayName).toBe(REAL[id].displayName);
     expect(simulated.eventTypes).toBe(REAL[id].eventTypes);
     expect(simulated.signupDailyTotals).toBe(REAL[id].signupDailyTotals);
+    expect(simulated.projectedSpend).toBe(REAL[id].projectedSpend);
     expect(simulated.capabilities).toBe(REAL[id].capabilities);
     expect(simulated.pollIntervalSeconds).toBe(60);
     expect(simulated.oauth.pkce).toBe(false);
@@ -315,6 +316,19 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     for (const { accountId, result } of results) {
       for (const item of [...result.metrics, ...result.events]) expect(item.externalAccountId).toBe(accountId);
     }
+  });
+
+  // The headline (#173) counts an estimate as spend so far unless its adapter declares it a
+  // projection, so an estimate for a period running past the day it was read must be declared.
+  it("declares as projected spend every estimate for a period that runs past the day it was read", () => {
+    const declared = REAL[id].projectedSpend ?? [];
+    const estimates = results.flatMap(({ result }) => result.metrics).filter((item) => item.kind === "estimated_spend");
+    const projections = estimates.filter(
+      ({ timeframe, retrievedAt }) =>
+        timeframe.type === "period" && timeframe.end.getTime() > Math.floor(retrievedAt.getTime() / DAY_MS) * DAY_MS + DAY_MS,
+    );
+    expect([...new Set(projections.map((item) => item.metricKey))].filter((key) => !declared.includes(key))).toEqual([]);
+    for (const key of declared) expect(estimates.some((item) => item.metricKey === key)).toBe(true);
   });
 
   it("trickles events in, at most 10 a tick like the group test, with no dedupe key repeated across chained syncs", () => {

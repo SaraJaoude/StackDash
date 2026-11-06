@@ -936,6 +936,8 @@ export const digitaloceanAdapter: ProviderAdapter = {
     "Droplet creates, resizes, power cycles, and deletes, with the Droplet name",
   ],
   eventTypes,
+  // No `projectedSpend`: its estimated spend is what each SKU cost on one UTC day, spent, not a
+  // projection, and its month to date and invoice totals are verified.
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

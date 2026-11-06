@@ -88,7 +88,7 @@ Fields read, everything else is dropped at the parse boundary (including `accoun
 | Field | Becomes |
 |---|---|
 | `current_total_amount_usd_after_discount`, else `current_total_amount_usd` | `posthog.spend.current`, verified spend |
-| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection) |
+| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173) |
 | `billing_period.current_period_start`, `current_period_end` | Timeframe and reset time of every billing metric |
 | `products[].current_usage`, `unit` | `posthog.<type>.usage` |
 | `products[].free_allocation` | `posthog.<type>.free` (included allowance) and `posthog.<type>.free_remaining` |

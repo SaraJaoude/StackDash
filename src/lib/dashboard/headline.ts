@@ -12,8 +12,9 @@
  *   change in a running total since the previous reading of the same period; the first reading of
  *   a period counts everything since the period started. A change that spans a window edge cannot
  *   be split, so it makes its connection unavailable for that window instead of counting a part.
- *   A total read after its period ended (an invoice) and an estimate for a whole period (a
- *   projection) are not running totals and do not count.
+ *   A total read after its period ended (an invoice) is not a running total and does not count,
+ *   and neither does an estimate its adapter declares a projection of the whole period
+ *   (`ProviderAdapter.projectedSpend`), on any day it is read.
  * - A connection is available for a figure in a window only when every series it reports covers
  *   every day of the window up to the last required day (yesterday for the current window, since
  *   today is still running). Otherwise it is named unavailable and none of its amounts count.
@@ -214,19 +215,13 @@ function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string
   return groups;
 }
 
-function buildMoneySeries(rows: readonly SnapshotInput[]): MoneySeries[] {
+function buildMoneySeries(rows: readonly SnapshotInput[], projectedSpend: readonly string[]): MoneySeries[] {
   const seriesKey = (row: SnapshotInput) => `${row.connection_id} ${row.external_account_id} ${row.kind} ${row.metric_key} ${row.currency ?? ""}`;
-  const running = rows.filter(isRunningTotal);
-  // An estimate whose period ran past the day it was read is a projection for the whole period
-  // (PostHog's projected spend, the Example provider's month estimate), not money spent so far.
-  // None of that period's readings count, the one on its last day included, and they are left out
-  // before a projection's long window could hide a day's estimate inside it.
-  const projections = new Set(
-    running
-      .filter((row) => row.kind === "estimated_spend" && Date.parse(row.period_end ?? "") > Math.floor(Date.parse(row.retrieved_at) / DAY_MS) * DAY_MS + DAY_MS)
-      .map((row) => `${seriesKey(row)} ${row.period_start ?? ""}`),
-  );
-  const spent = running.filter((row) => !projections.has(`${seriesKey(row)} ${row.period_start ?? ""}`));
+  // A declared projection (PostHog's projected spend, Railway's estimated bill, the Example
+  // provider's month estimate) is what the whole period is expected to cost, not money spent so
+  // far, on every day it is read, its period's last day included. It is left out before a
+  // projection's long window could hide a day's estimate inside it.
+  const spent = rows.filter((row) => isRunningTotal(row) && !projectedSpend.includes(row.metric_key));
   const byDay = groupBy(spent, (row) => row.snapshot_date);
   // Each day's amounts once, by the rules of the dashboard's current values (`countedSnapshots`):
   // a total supersedes its breakdowns, and a longer window supersedes a day inside it, such as
@@ -453,6 +448,8 @@ export type HeadlineInput = Readonly<{
   events: HeadlineEvents;
   /** The event types and daily totals counted, from the adapters' declarations (`headlineEventTypes`). */
   eventTypes: HeadlineEventTypes;
+  /** Estimated spend metric keys the adapters declare projections (`ProviderAdapter.projectedSpend`). */
+  projectedSpend: readonly string[];
   /**
    * Providers whose adapters declare revenue (`capabilities.revenue`): their connections are revenue
    * sources even before their first revenue reading, so one that cannot report it is named.
@@ -556,7 +553,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     (a, b) => a.provider.localeCompare(b.provider) || a.display_name.localeCompare(b.display_name) || a.id.localeCompare(b.id),
   );
   const inScope = new Set(connections.map((connection) => connection.id));
-  const series = buildMoneySeries(input.snapshots.filter((row) => inScope.has(row.connection_id)));
+  const series = buildMoneySeries(input.snapshots.filter((row) => inScope.has(row.connection_id)), input.projectedSpend);
   const seriesOf = (connection: ConnectionInput, measure: MoneyMeasure) =>
     series.filter((entry) => entry.connectionId === connection.id && entry.measure === measure);
 

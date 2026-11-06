@@ -118,7 +118,7 @@ Measurements: `CPU_USAGE`, `MEMORY_USAGE_GB`, `NETWORK_TX_GB`, `DISK_USAGE_GB`. 
 | `railway.usage.network_egress` | usage, GB, billing period | `usage`, `NETWORK_TX_GB` |
 | `railway.usage.volume` | usage, GB-minutes, billing period | `usage`, `DISK_USAGE_GB` |
 | `railway.spend.usage` | verified spend, USD, billing period | `customer.currentUsage` ("cached and may not be up to date") |
-| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices |
+| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173) |
 | `railway.credits.balance` | credit balance, USD, at sync time | `customer.creditBalance` |
 | `railway.plan.memory_per_service`, `vcpu_per_service`, `replicas_per_service`, `volume_per_service` | included allowance, at sync time | `workspace.plan` and the pricing page's default plan resources |
 

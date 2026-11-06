@@ -185,6 +185,8 @@ describe("sync", () => {
       ["fake.requests.remaining", "remaining_allowance"],
       ["fake.cost.estimate", "estimated_spend"],
     ]);
+    // The month estimate is a projection, so the dashboard headline (#173) never counts it as spend so far.
+    expect(fakeAdapter.projectedSpend).toEqual(["fake.cost.estimate"]);
     for (const metric of result.metrics) {
       expect(metric.retrievedAt).toEqual(OCT_2_AFTERNOON);
       expect(metric.externalAccountId).toBe("fake-acct-1");

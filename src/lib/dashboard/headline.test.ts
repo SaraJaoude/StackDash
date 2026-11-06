@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import type { EventType } from "@/lib/adapters/events";
 import { signupMetric } from "@/lib/adapters/posthog";
-import { declaredEventTypes, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
+import { declaredEventTypes, declaredProjectedSpend, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
+import { providerName } from "@/lib/providers";
 
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
 import {
@@ -104,6 +105,16 @@ function runningTotal(options: SeriesOptions): SnapshotInput[] {
     }));
 }
 
+/** A projection, read daily: the whole month's expected bill, its period running to the month's end. */
+function projection(connectionId: string, metricKey: string, from: string, to: string): SnapshotInput[] {
+  return runningTotal({ connectionId, metricKey, perDay: 0, from, to, estimated: true }).map((row) => ({
+    ...row,
+    kind: "estimated_spend" as const,
+    amount_minor: 155_000,
+    period_end: nextMonthStart(row.snapshot_date),
+  }));
+}
+
 /** A point in time reading, which says only that the connection was reporting that day. */
 function allowance(connectionId: string, date: string): SnapshotInput {
   return {
@@ -186,6 +197,7 @@ function headline({ events = NO_EVENTS, firstReadings: readings, ...overrides }:
     kind: "week",
     now: NOW,
     eventTypes: EVENT_TYPES,
+    projectedSpend: declaredProjectedSpend,
     revenueProviders: revenueProviderIds,
     ...overrides,
     events: { ...events, firstReadings: readings ?? firstReadings(overrides.snapshots) },
@@ -285,7 +297,8 @@ describe("buildHeadline money", () => {
   });
 
   it("keeps verified and estimated amounts apart in spend, revenue minus spend, and cost per signup", () => {
-    const estimate = runningTotal({ connectionId: fake.id, metricKey: "fake.cost.estimate", kind: "estimated_spend", estimated: true, perDay: 30, from: "2026-10-01", to: "2026-11-05" });
+    // An estimate of spend so far; `fake.cost.estimate` is the month's projection, so not this.
+    const estimate = runningTotal({ connectionId: fake.id, metricKey: "fake.cost.so_far", kind: "estimated_spend", estimated: true, perDay: 30, from: "2026-10-01", to: "2026-11-05" });
     const revenue = runningTotal({ connectionId: stripe.id, metricKey: "stripe.revenue.month.usd", kind: "revenue", perDay: 1_000, from: "2026-10-01", to: "2026-11-05" });
     const signups: EventCount[] = [{ connection_id: fake.id, type_id: "fake.signup", events: 8 }];
     const strip = headline({
@@ -358,19 +371,35 @@ describe("buildHeadline money", () => {
     expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
   });
 
-  it("leaves out an estimate for the whole period, a projection, on every day of the period, its last included", () => {
-    // The month's projected spend, read daily: its period runs to the end of the month.
-    const projection = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.projected", perDay: 50, from: "2026-10-01", to: "2026-11-05", estimated: true }).map(
-      (row) => ({ ...row, kind: "estimated_spend" as const, amount_minor: 155_000, period_end: nextMonthStart(row.snapshot_date) }),
-    );
-    const strip = headline({ snapshots: [...vercelSpend, ...projection], connections: [vercel] });
-    // The reading on 2026-10-31 ends with its day, but the rest of October's readings show it is a projection.
-    expect(strip.spend).toMatchObject({ included: ["Vercel"], previousUnavailable: [] });
+  // PostHog's projected spend, Railway's estimated bill, and the Example provider's month estimate.
+  it.each(declaredProjectedSpend)("never counts %s, a declared projection, as spend, even first read on its period's last day", (metricKey) => {
+    const provider = metricKey.slice(0, metricKey.indexOf(".")) as ConnectionInput["provider"];
+    const owner = connection(`c-${provider}`, provider);
+    const spentSoFar = runningTotal({ connectionId: owner.id, metricKey: `${provider}.spend.month_to_date`, perDay: 100, from: "2026-10-01", to: "2026-11-05" });
+    // First read on 2026-10-31, the last day of October's period, where its period looks like a
+    // total that is still running, then on every day of November's.
+    const strip = headline({ snapshots: [...spentSoFar, ...projection(owner.id, metricKey, "2026-10-31", "2026-11-05")], connections: [owner] });
+    expect(strip.spend).toMatchObject({ included: [providerName(provider)], unavailable: [], previousUnavailable: [] });
     expect(line(strip.spend.lines, "USD")).toEqual({
       currency: "USD",
       verified: { value: 400, comparison: { status: "change", direction: "same", percent: 0, previous: 400 } },
       estimated: null,
     });
+  });
+
+  it("declares the projections of every merged adapter that reports one", () => {
+    expect([...declaredProjectedSpend].sort()).toEqual(["fake.cost.estimate", "posthog.spend.projected", "railway.estimate.bill"]);
+  });
+
+  it("goes by the declaration, not the period: an undeclared estimate of spend so far over the whole month counts", () => {
+    const estimate = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.estimated", perDay: 10, from: "2026-10-01", to: "2026-11-05", estimated: true }).map(
+      (row) => ({ ...row, kind: "estimated_spend" as const, period_end: nextMonthStart(row.snapshot_date) }),
+    );
+    const strip = headline({ snapshots: [...vercelSpend, ...estimate], connections: [vercel] });
+    expect(line(strip.spend.lines, "USD")?.estimated).toEqual({ value: 40, comparison: { status: "change", direction: "same", percent: 0, previous: 40 } });
+    // The same rows declared a projection count nothing.
+    const declared = headline({ snapshots: [...vercelSpend, ...estimate], connections: [vercel], projectedSpend: ["vercel.spend.estimated"] });
+    expect(line(declared.spend.lines, "USD")?.estimated).toBeNull();
   });
 
   it("ignores rows of connections outside the scope", () => {

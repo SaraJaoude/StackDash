@@ -406,6 +406,8 @@ describe("sync", () => {
         pricingSource: "PostHog's own projection for the billing period, from its billing overview",
       },
     });
+    // A projection for the whole period, so the dashboard headline (#173) never counts it as spend so far.
+    expect(postHogAdapter.projectedSpend).toEqual(["posthog.spend.projected"]);
     expect(byKey(result.metrics, "posthog.spend.current").timeframe).toEqual({
       type: "period",
       start: new Date("2026-11-01T00:00:00.000Z"),

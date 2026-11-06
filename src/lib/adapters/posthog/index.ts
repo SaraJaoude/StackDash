@@ -87,6 +87,8 @@ const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // is read live on every sync, not copied from a price list.
 export const PROJECTED_PRICING_SOURCE = "PostHog's own projection for the billing period, from its billing overview";
 const CURRENCY = "USD";
+// PostHog's estimate of the whole billing period's bill, declared as projected spend.
+const PROJECTED_SPEND_METRIC_KEY = "posthog.spend.projected";
 
 // Exported, like `billingMetrics` and the event builders below, for the local simulator (#131).
 export const eventTypes = [
@@ -366,7 +368,7 @@ export function billingMetrics(
     metrics.push({
       ...base,
       kind: "estimated_spend",
-      metricKey: "posthog.spend.projected",
+      metricKey: PROJECTED_SPEND_METRIC_KEY,
       label: "Projected spend for the billing period",
       amountMinor: decimalToMinorUnits(projected, CURRENCY),
       currency: CURRENCY,
@@ -621,6 +623,7 @@ export const postHogAdapter: ProviderAdapter = {
   ],
   eventTypes,
   signupDailyTotals: [SIGNUP_METRIC_KEY],
+  projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

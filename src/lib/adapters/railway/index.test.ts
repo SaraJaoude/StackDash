@@ -774,6 +774,8 @@ describe("billingMetrics", () => {
     });
     // One estimate only: the dashboard adds up every estimated spend of a currency.
     expect(metrics.filter((item) => item.kind === "estimated_spend")).toHaveLength(1);
+    // The bill for the whole period, so the dashboard headline (#173) never counts it as spend so far.
+    expect(railwayAdapter.projectedSpend).toEqual(["railway.estimate.bill"]);
     expect(metric(metrics, "railway.usage.cpu")).toMatchObject({ kind: "usage", value: 4200.5, unit: "vCPU-minutes" });
     const periodEnd = new Date("2026-11-20T00:00:00.000Z");
     expect(metric(metrics, "railway.spend.usage")).toMatchObject({

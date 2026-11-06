@@ -56,6 +56,8 @@ const ACCESS_TOKEN_TTL_SECONDS = 3600;
 const FAKE_ENDPOINT = "in-memory:fake-provider";
 const PRICING_SOURCE = "Example provider price list (fake, fixed in code)";
 const CURRENCY = "USD";
+// The whole month at today's daily charge, declared as projected spend.
+const PROJECTED_SPEND_METRIC_KEY = "fake.cost.estimate";
 const INCLUDED_REQUESTS = 50_000;
 // The event "page" cap: a sync never looks further back than this many UTC days.
 export const FAKE_EVENT_WINDOW_DAYS = 7;
@@ -220,7 +222,7 @@ function buildMetrics(account: FakeAccount, now: Date): AdapterMetric[] {
     {
       ...common,
       kind: "estimated_spend",
-      metricKey: "fake.cost.estimate",
+      metricKey: PROJECTED_SPEND_METRIC_KEY,
       label: "Estimated spend for the month",
       timeframe: wholeMonth,
       amountMinor: toMinorUnits(projected, CURRENCY),
@@ -298,6 +300,7 @@ export const fakeAdapter: ProviderAdapter = {
     "Deployments and signups, as counts only, with no details about people",
   ],
   eventTypes,
+  projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     // Relative to DevMacro's own origin; `buildAuthorizeUrl` resolves it against the redirect URI.
     authorizeUrl: FAKE_AUTHORIZE_PATH,

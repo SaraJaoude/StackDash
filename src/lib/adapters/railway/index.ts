@@ -89,6 +89,8 @@ const NAME_MAX = 60;
 
 const BILLING_CURRENCY = "USD";
 export const PRICING_SOURCE = "https://docs.railway.com/pricing/plans";
+// The bill estimated for the whole billing period, declared as projected spend.
+const PROJECTED_SPEND_METRIC_KEY = "railway.estimate.bill";
 
 type QueryName = "workspaces" | "projects" | "deployments" | "billing";
 
@@ -410,7 +412,7 @@ export function billingMetrics(
   metrics.push({
     ...periodBase,
     kind: "estimated_spend",
-    metricKey: "railway.estimate.bill",
+    metricKey: PROJECTED_SPEND_METRIC_KEY,
     label: "Railway bill, estimated for the billing period, before credits",
     provenance: { source: "derived", endpoint, pricingSource: PRICING_SOURCE },
     // The fee covers usage up to the included amount; only usage beyond it is added.
@@ -745,6 +747,7 @@ export const railwayAdapter: ProviderAdapter = {
     "Credit balance, billing period, plan, and plan limits per service",
   ],
   eventTypes,
+  projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,
