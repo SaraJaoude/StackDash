@@ -3,8 +3,8 @@
 The big picture of your developer stack.
 
 DevMacro is an open-source dashboard with one timeline and one alert for your whole developer stack.
-You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry, and
-Railway over OAuth (never with pasted provider keys), and DevMacro syncs them on a schedule:
+You connect GitHub, Vercel, Stripe, Supabase, Resend, DigitalOcean, PostHog, Polar, Sentry,
+Railway, and GitLab over OAuth (never with pasted provider keys), and DevMacro syncs them on a schedule:
 deploys, stars, signups, payments, and errors land in one feed per workspace and project. Alerts
 reach you by email, Slack, Discord, or webhook before a limit or budget becomes a problem, with
 daily or weekly digests on the same channels. Unusual daily spend and usage is flagged on the
@@ -182,7 +182,7 @@ For data that keeps arriving, use step 10.
 
 ### 10. Simulate every provider and watch it update live (optional)
 
-Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Polar, Sentry, and Railway
+Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Supabase, DigitalOcean, PostHog, Polar, Sentry, Railway, and GitLab
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
@@ -398,6 +398,8 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `POSTHOG_OAUTH_PRIVATE_KEY` | Private key that signs PostHog token requests, PEM with `\n` newlines | Secret | Optional (enables PostHog) |
 | `RAILWAY_CLIENT_ID` | Railway OAuth app client ID | Server only | Optional (enables Railway) |
 | `RAILWAY_CLIENT_SECRET` | Railway OAuth app client secret | Secret | Optional (enables Railway) |
+| `GITLAB_CLIENT_ID` | GitLab.com OAuth application ID | Server only | Optional (enables GitLab) |
+| `GITLAB_CLIENT_SECRET` | GitLab.com OAuth application secret | Secret | Optional (enables GitLab) |
 | `DEVMACRO_ENABLE_FAKE_PROVIDER` | Set to `1` to offer the fake provider and its consent screen | Test only | Optional (never in production) |
 | `FAKE_PROVIDER_CLIENT_ID` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
@@ -498,7 +500,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, sentry, railway, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
     api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     mcp/                       MCP server: the read-only tools and provider page resources, client setup snippets
     connections/               connect, OAuth state, revoke

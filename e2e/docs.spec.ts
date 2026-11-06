@@ -11,7 +11,7 @@ test.describe("docs", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
     const providers = page.getByRole("region", { name: "Providers" });
-    for (const name of ["DigitalOcean", "GitHub", "Polar", "PostHog", "Railway", "Resend", "Sentry", "Stripe", "Supabase", "Vercel"]) {
+    for (const name of ["DigitalOcean", "GitHub", "GitLab", "Polar", "PostHog", "Railway", "Resend", "Sentry", "Stripe", "Supabase", "Vercel"]) {
       await expect(providers.getByRole("link", { name, exact: true })).toBeVisible();
     }
     const operations = page.getByRole("region", { name: "Operations" });
@@ -64,7 +64,7 @@ test.describe("docs", () => {
     });
   }
 
-  for (const path of ["/docs", "/docs/providers/vercel"]) {
+  for (const path of ["/docs", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
     test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();

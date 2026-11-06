@@ -34,8 +34,9 @@ interface BrandMark {
 // (#000000) as well, so it follows the same rule. Sentry publishes its glyph in a dark and a light
 // version with an "invert in dark mode" option, and its dark purple (#362D59) would vanish on the
 // dark panels, so it uses currentColor too. Railway publishes no brand page and its Simple Icons
-// color is near black (#0B0D0E), so it is monochrome too. Brand rules: https://vercel.com/geist/brands,
-// https://github.com/logos, https://resend.com/brand,
+// color is near black (#0B0D0E), so it is monochrome too. GitLab uses the orange of its press kit
+// (https://about.gitlab.com/press/press-kit/), the Simple Icons hex. Brand rules:
+// https://vercel.com/geist/brands, https://github.com/logos, https://resend.com/brand,
 // https://posthog.com/handbook/company/brand-assets, https://sentry.io/branding/.
 const GITHUB_MARK: BrandMark = {
   fill: "currentColor",
@@ -85,6 +86,10 @@ const PLATFORM_MARKS: Record<Platform, BrandMark> = {
   Railway: {
     fill: "currentColor",
     path: "M.113 10.27A13.026 13.026 0 000 11.48h18.23c-.064-.125-.15-.237-.235-.347-3.117-4.027-4.793-3.677-7.19-3.78-.8-.034-1.34-.048-4.524-.048-1.704 0-3.555.005-5.358.01-.234.63-.459 1.24-.567 1.737h9.342v1.216H.113v.002zm18.26 2.426H.009c.02.326.05.645.094.961h16.955c.754 0 1.179-.429 1.315-.96zm-17.318 4.28s2.81 6.902 10.93 7.024c4.855 0 9.027-2.883 10.92-7.024H1.056zM11.988 0C7.5 0 3.593 2.466 1.531 6.108l4.75-.005v-.002c3.71 0 3.849.016 4.573.047l.448.016c1.563.052 3.485.22 4.996 1.364.82.621 2.007 1.99 2.712 2.965.654.902.842 1.94.396 2.934-.408.914-1.289 1.458-2.353 1.458H.391s.099.42.249.886h22.748A12.026 12.026 0 0024 12.005C24 5.377 18.621 0 11.988 0z",
+  },
+  GitLab: {
+    fill: "#FC6D26",
+    path: "m23.6004 9.5927-.0337-.0862L20.3.9814a.851.851 0 0 0-.3362-.405.8748.8748 0 0 0-.9997.0539.8748.8748 0 0 0-.29.4399l-2.2055 6.748H7.5375l-2.2057-6.748a.8573.8573 0 0 0-.29-.4412.8748.8748 0 0 0-.9997-.0537.8585.8585 0 0 0-.3362.4049L.4332 9.5015l-.0325.0862a6.0657 6.0657 0 0 0 2.0119 7.0105l.0113.0087.03.0213 4.976 3.7264 2.462 1.8633 1.4995 1.1321a1.0085 1.0085 0 0 0 1.2197 0l1.4995-1.1321 2.4619-1.8633 5.006-3.7489.0125-.01a6.0682 6.0682 0 0 0 2.0094-7.003z",
   },
 };
 

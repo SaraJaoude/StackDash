@@ -42,6 +42,7 @@ An external account is the thing a provider actually bills or measures. In the a
 | Polar | `organization` | One Polar organization the grant can read; a token the user limited to some organizations lists only those |
 | Sentry | `project` | One Sentry project in the organization the integration is installed on |
 | Railway | `workspace` | One Railway workspace picked on Railway's consent screen |
+| GitLab | `group` or `user` | A top-level group the user owns, or the user's personal namespace, on GitLab.com |
 
 Usage belongs to the external account: `usage_snapshots` holds one row per external account, metric, and UTC day. Activity events can name the external account they are about.
 
