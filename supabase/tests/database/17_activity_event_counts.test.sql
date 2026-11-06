@@ -1,4 +1,4 @@
--- Event markers (20261105022232_activity_event_counts.sql): activity_event_counts counts per UTC
+-- Event markers (20261105120600_activity_event_counts.sql): activity_event_counts counts per UTC
 -- day or UTC month whatever the session time zone, filters like the timeline query, and counts
 -- nothing for a caller who is not a member of the workspace.
 begin;

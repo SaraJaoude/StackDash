@@ -10,6 +10,10 @@ import type { JobStore } from "./store";
  * - Retention: once per UTC day, deduplicated by a key that names the day.
  * - Daily summary (#64): once per UTC day per workspace with a connection, for the previous day,
  *   deduplicated by a key that names the workspace and the summarized day.
+ * - Alert dispatch (#152, #153): one per workspace with a triggered alert not sent yet. Alerts the
+ *   syncs of one tick record are sent by the next tick, together, so they coalesce into one message.
+ * - Digest (#152): like the daily summary, once per UTC day per workspace; the job sends the daily
+ *   digest, and on Mondays the weekly one, to the members and channels that chose them.
  */
 
 // Upper bound per tick. Due connections beyond it are queued on the next tick, a minute later.
@@ -19,13 +23,22 @@ export function retentionDedupeKey(now: Date): string {
   return `retention:${utcDate(now)}`;
 }
 
-export type ScheduleResult = { syncsQueued: number; retentionQueued: boolean; summariesQueued: number };
+export type ScheduleResult = {
+  syncsQueued: number;
+  retentionQueued: boolean;
+  summariesQueued: number;
+  dispatchesQueued: number;
+  digestsQueued: number;
+};
 
 export async function scheduleDueJobs(store: JobStore, now: Date): Promise<ScheduleResult> {
-  const [syncsQueued, retentionQueued, summariesQueued] = await Promise.all([
+  const date = summaryDate(now);
+  const [syncsQueued, retentionQueued, summariesQueued, dispatchesQueued, digestsQueued] = await Promise.all([
     store.enqueueDueSyncs(SCHEDULE_BATCH_LIMIT),
     store.enqueueRetention(retentionDedupeKey(now)),
-    store.enqueueDailySummaries(summaryDate(now)),
+    store.enqueueDailySummaries(date),
+    store.enqueueAlertDispatches(),
+    store.enqueueDigests(date),
   ]);
-  return { syncsQueued, retentionQueued, summariesQueued };
+  return { syncsQueued, retentionQueued, summariesQueued, dispatchesQueued, digestsQueued };
 }

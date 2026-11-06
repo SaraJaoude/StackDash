@@ -1,0 +1,65 @@
+{
+  "data": {
+    "workspace": {
+      "plan": "HOBBY",
+      "customer": {
+        "billingPeriod": {
+          "start": "2026-10-20T00:00:00.000Z",
+          "end": "2026-11-20T00:00:00.000Z"
+        },
+        "currentUsage": 3.456,
+        "creditBalance": 1.25
+      }
+    },
+    "usage": [
+      {
+        "measurement": "CPU_USAGE",
+        "value": 4200.5
+      },
+      {
+        "measurement": "MEMORY_USAGE_GB",
+        "value": 9000
+      },
+      {
+        "measurement": "NETWORK_TX_GB",
+        "value": 1.5
+      },
+      {
+        "measurement": "DISK_USAGE_GB",
+        "value": 21600
+      }
+    ],
+    "estimatedUsage": [
+      {
+        "measurement": "CPU_USAGE",
+        "estimatedValue": 5000,
+        "projectId": "prj-shop"
+      },
+      {
+        "measurement": "MEMORY_USAGE_GB",
+        "estimatedValue": 10000,
+        "projectId": "prj-shop"
+      },
+      {
+        "measurement": "NETWORK_TX_GB",
+        "estimatedValue": 2,
+        "projectId": "prj-shop"
+      },
+      {
+        "measurement": "DISK_USAGE_GB",
+        "estimatedValue": 43200,
+        "projectId": "prj-shop"
+      },
+      {
+        "measurement": "CPU_USAGE",
+        "estimatedValue": 1000,
+        "projectId": "prj-docs"
+      },
+      {
+        "measurement": "MEMORY_USAGE_GB",
+        "estimatedValue": 2000,
+        "projectId": "prj-docs"
+      }
+    ]
+  }
+}

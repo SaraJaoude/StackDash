@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { GaugeIcon } from "@/components/icons";
@@ -22,6 +25,7 @@ import {
   type MarkerCategory,
 } from "@/lib/dashboard/markers";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
+import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getTrendData, getTrendEventCounts } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
@@ -33,8 +37,9 @@ import {
   ScopeSearchParamsSchema,
   type ScopeFilters,
 } from "@/lib/filters/scope";
+import { isYearComplete, latestCardYear, yearLabel } from "@/lib/public-metrics/yearly";
 import { requireWorkspace, type WorkspaceAccess } from "@/lib/workspaces/access";
-import { workspacePath } from "@/lib/workspaces/paths";
+import { workspacePath, yearInReviewPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };
@@ -78,12 +83,20 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const parsed = searchParamsSchema.parse(await searchParams);
   const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
   const view: TrendView = { trend: parsed.trend, hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]) };
+  // Read after the request data above, so the clock never runs during prerendering.
+  const now = new Date();
+  const reviewYear = latestCardYear(now);
 
   return (
     <>
       <PageHeader
         title="Dashboard"
         description="Spend, usage, and allowances across every provider this workspace connects."
+        actions={
+          <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={secondaryButtonClass}>
+            {isYearComplete(reviewYear, now) ? `Your ${reviewYear} in review` : `Your ${yearLabel(reviewYear, now)}`}
+          </Link>
+        }
       />
       <Suspense fallback={<DashboardSkeleton />}>
         <DashboardContent access={access} scope={scope} view={view} />
@@ -108,14 +121,16 @@ async function DashboardContent({
   const now = new Date();
   const shown = shownCategories(hidden);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
-  const [workspaceScope, data, trendData, eventCounts, alertsSummary] = await Promise.all([
+  const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
+  const [workspaceScope, data, trendData, eventCounts, alertsSummary, recentAnomalies] = await Promise.all([
     getWorkspaceScope(workspace.id),
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
     getTrendData(workspace.id, now, scope),
     getTrendEventCounts(workspace.id, trend, now, scope, shown),
     getUnacknowledgedSummary(workspace.id),
+    getRecentAnomalies(workspace.id, anomaliesSince),
   ]);
-  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} />;
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
@@ -138,38 +153,41 @@ async function DashboardContent({
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const counts = bucketEventCounts(eventCounts, trend, now);
+  // The page's URL is its scope: a new filter, trend period, or marker choice resets what counts as changed.
   return (
-    <DashboardView
-      view={aggregateDashboard({ ...data, now })}
-      now={now}
-      dashboardPath={dashboardPath}
-      scope={scope}
-      scopeOptions={scopeOptions}
-      scopeDescription={describeScope(scope, scopeOptions)}
-      alerts={alerts}
-      trends={{
-        granularity: trend,
-        series,
-        hrefs: {
-          daily: dashboardHref(dashboardPath, scope, { trend: "daily", hidden }),
-          monthly: dashboardHref(dashboardPath, scope, { trend: "monthly", hidden }),
-        },
-        markers: {
-          hidden,
-          bySeries: Object.fromEntries(
-            series.map((entry) => [
-              entry.key,
-              chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
-            ]),
-          ),
-          toggles: MARKER_CATEGORIES.map((category) => ({
-            category,
-            shown: shown.includes(category),
-            href: dashboardHref(dashboardPath, scope, { trend, hidden: toggleHidden(hidden, category) }),
-          })),
-        },
-      }}
-    />
+    <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
+      <DashboardView
+        view={aggregateDashboard({ ...data, now })}
+        now={now}
+        dashboardPath={dashboardPath}
+        scope={scope}
+        scopeOptions={scopeOptions}
+        scopeDescription={describeScope(scope, scopeOptions)}
+        alerts={alerts}
+        trends={{
+          granularity: trend,
+          series,
+          hrefs: {
+            daily: dashboardHref(dashboardPath, scope, { trend: "daily", hidden }),
+            monthly: dashboardHref(dashboardPath, scope, { trend: "monthly", hidden }),
+          },
+          markers: {
+            hidden,
+            bySeries: Object.fromEntries(
+              series.map((entry) => [
+                entry.key,
+                chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
+              ]),
+            ),
+            toggles: MARKER_CATEGORIES.map((category) => ({
+              category,
+              shown: shown.includes(category),
+              href: dashboardHref(dashboardPath, scope, { trend, hidden: toggleHidden(hidden, category) }),
+            })),
+          },
+        }}
+      />
+    </ArrivalScope>
   );
 }
 

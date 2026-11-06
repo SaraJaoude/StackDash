@@ -13,8 +13,20 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261031100200_daily_summary_jobs.sql` | `daily_summary` jobs and `enqueue_daily_summaries` |
 | `20261031100300_review_round_one.sql` | Drops `connection_credentials.access_expires_at` and `oauth_states.redirect_after` (never read); adds `purge_oauth_states` |
 | `20261104090000_realtime_publication.sql` | Publishes `activity_events`, `usage_snapshots`, `connections`, and `triggered_alerts` to Supabase Realtime |
-| `20261105002354_digitalocean_provider.sql` | Adds `digitalocean` to `provider_id` |
-| `20261105022232_activity_event_counts.sql` | `activity_event_counts` for the trend event markers |
+| `20261105002354_digitalocean_provider.sql` | `provider_id` gains `digitalocean` |
+| `20261105002809_provider_posthog.sql` | `provider_id` gains `posthog` |
+| `20261105002846_polar_provider.sql` | `provider_id` gains `polar`; `metric_kind` gains `recurring_revenue` for run rates such as MRR and ARR |
+| `20261105002847_recurring_revenue_shape.sql` | Recreates `usage_snapshots_value_shape` (recurring revenue is money) and `usage_snapshots_spend_nonnegative` (recurring revenue is never negative, like spend) with the new kind |
+| `20261105023129_published_metrics.sql` | `public_metric_id`, `published_metric_rounding`, `published_metrics`, and the publish, unpublish, and public read functions |
+| `20261105120000_alert_delivery_job_kinds.sql` | `sync_job_kind` gains `alert_dispatch` and `digest` |
+| `20261105120100_alert_delivery.sql` | `notification_preferences`, `notification_destinations`, `notification_destination_secrets`, `alert_rule_destinations`, `notification_deliveries`, and the delivery fields on `triggered_alerts` |
+| `20261105120300_provider_sentry.sql` | `provider_id` gains `sentry` |
+| `20261105120310_anomaly_detection.sql` | `workspaces.anomaly_detection_enabled` (on by default) and `anomaly_mutes`, the metrics a workspace muted for anomaly detection |
+| `20261105120320_api_keys.sql` | `api_keys`, `api_key_request_windows`, `authenticate_api_key`, `api_key_workspace`, and one `api_*` read function per REST endpoint (#162) |
+| `20261105120400_railway_provider.sql` | `provider_id` gains `railway` |
+| `20261105120500_project_pages.sql` | `project_pages` and the functions that turn a public project page on and off, find the page an address answers with, and list the sitemap's pages |
+| `20261105120600_activity_event_counts.sql` | `activity_event_counts` for the trend event markers |
+| `20261105150000_public_share_surfaces.sql` | `share_surface`, `public_rate_limit_counters` and `bump_public_rate_limit`, `published_metric_views` and `record_published_metric_view`, and their retention purges |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -32,6 +44,7 @@ erDiagram
   workspaces ||--o{ oauth_states : "owns"
   workspaces ||--o{ budgets : "owns"
   workspaces ||--o{ alert_rules : "owns"
+  workspaces ||--o{ anomaly_mutes : "owns"
   workspaces ||--o{ activity_events : "owns"
   workspaces ||--o{ sync_jobs : "owns (null for instance jobs)"
   profiles }o--o| workspaces : "last_workspace_id"
@@ -48,7 +61,16 @@ erDiagram
   projects |o--o{ alert_rules : "scope"
   connections |o--o{ alert_rules : "scope"
   alert_rules ||--o{ triggered_alerts : "fires once per cycle"
+  projects ||--o{ published_metrics : "publishes"
+  projects ||--o{ published_metric_views : "counts serves"
+  projects ||--o| project_pages : "public page"
   connections |o--o{ sync_jobs : "syncs"
+  workspace_members ||--o| notification_preferences : "email setting"
+  workspaces ||--o{ notification_destinations : "channels"
+  notification_destinations ||--|| notification_destination_secrets : "sealed URL (service role only)"
+  notification_destinations ||--o{ alert_rule_destinations : "receives"
+  alert_rules ||--o{ alert_rule_destinations : "sent to"
+  triggered_alerts ||--o{ notification_deliveries : "sent once per target"
 
   workspaces {
     uuid id PK
@@ -101,13 +123,21 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 
 | Table | Read | Write through the Data API |
 |---|---|---|
-| `workspaces` | viewer | rename: admin; delete: owner; create: only `create_workspace` (service role) |
+| `workspaces` | viewer | rename and turn anomaly detection on or off: admin; delete: owner; create: only `create_workspace` (service role) |
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
-| `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules` | viewer | admin |
+| `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
+| `anomaly_mutes` | viewer | admin adds and removes; never updated |
 | `usage_snapshots`, `activity_events`, `sync_jobs` | viewer | none (service role) |
+| `published_metrics`, `project_pages` | viewer | none (service role functions, after an owner or admin check) |
+| `published_metric_views` | viewer | none (service role function) |
+| `public_rate_limit_counters` | none | none (service role function) |
 | `triggered_alerts` | viewer | admin acknowledges (`acknowledged_at`, `acknowledged_by` only, in their own name) |
+| `notification_preferences` | own row | own row, owner or admin only (viewers receive no alert email) |
+| `notification_destinations` | viewer | admin renames, chooses rules and digest, and deletes; created only through `create_notification_destination` (service role); status and errors are server written |
 | `profiles` | own row | own row |
-| `connection_credentials`, `oauth_states`, `access_invites` | none | none (service role; the auth hook reads invites) |
+| `connection_credentials`, `oauth_states`, `access_invites`, `notification_destination_secrets`, `notification_deliveries` | none | none (service role; the auth hook reads invites) |
+| `api_keys` | admin, every column but `token_hash` | admin creates keys and revokes them (`revoked_at` only, final) |
+| `api_key_request_windows` | none | none (service role) |
 
 Defense in depth, following BackTalk's hardening:
 
@@ -144,22 +174,48 @@ Each row keeps the adapter metric model: kind, value and unit or integer minor u
 
 ## Realtime (#129)
 
-The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
+The `supabase_realtime` publication holds the sync-written tables the workspace screens read, so an open page updates when a sync writes to them. The screens also read tables that people edit in the app (`external_accounts`, `projects`, `budgets`, `alert_rules`, `anomaly_mutes`) and `workspace_members`; none of them is published. The Server Function that edits one of those tables calls `refresh()` itself, so the page that made the change reads again. A sync writes only `external_accounts.sync_cursor` among them, which no screen shows, so do not publish them to make a screen live.
 
 | Table | Why it is published |
 |---|---|
 | `activity_events` | New events on the timeline and the dashboard |
-| `usage_snapshots` | Spend, usage, and allowances on the dashboard and its trends |
+| `usage_snapshots` | Spend, revenue, recurring revenue, usage, and allowances on the dashboard and its trends |
 | `connections` | Sync status, last synced time, and errors on the connection pages and the dashboard |
 | `triggered_alerts` | The alerts page and the dashboard alerts summary |
 
 `src/components/app/live-refresh.tsx`, mounted once in the workspace layout, opens one channel per workspace for inserts and updates on those tables, filtered by `workspace_id`, and calls `router.refresh()` so the Server Components read again. Refreshes are debounced in `src/lib/realtime/refresh-scheduler.ts`: one 750 ms after the last change, and at least one every 3 s while changes keep arriving, so a sync writing many rows refreshes once or twice rather than per row. A hidden tab refreshes once when it is shown again. No row data is kept in the browser. Realtime checks each change against the subscriber's select policy, the same one the pages use, so a member only hears about their own workspace. The channel is removed when the layout unmounts.
+
+Arriving data is marked so a refresh is visible (#171). `src/components/app/arrivals.tsx` wraps the workspace layout: the components that show data keep what they rendered last time (event ids on the timeline, values by account and metric key on the dashboard, today's trend point) and compare it with the refreshed render, so only what changed is marked; the rules are in `src/lib/realtime/arrivals.ts`. A change is marked only when a batch arrived while the component was in view. A change of path, filters, page, or trend period resets the comparison, and so does leaving a page: with Cache Components, Next.js keeps recent pages mounted but hidden in React `<Activity>` and shows them again on return, so each component registers itself as in view from a layout effect, which hiding cleans up. A first load, a navigation, or a return to a page whose data changed while it was hidden never animates. A new event slides in with a severity-colored edge, a changed card pulses once and shows "Updated", its numbers count from the old value, a usage bar resizes, and today's trend point draws in and pings, all with the landing page keyframes in `src/app/globals.css`, each a second or less, using only properties that do not change layout. Under `prefers-reduced-motion: reduce` each becomes a static highlight that clears after 4 s. One polite live region per workspace says what a refresh brought ("3 new events. Spend in USD updated."). The live indicator in the header reads "Connecting", "Live", or "Offline" (its accessible name always starts "Live updates"), pulses once per batch, and shows the commit time of the newest change on hover and focus.
 
 `connection_credentials`, `oauth_states`, `access_invites`, and `profiles` are never published: `supabase/tests/database/07_realtime_publication.test.sql` pins the exact table list and fails if any of them is added. Replica identity stays the default, because inserts and updates carry the whole new row; only deletes would need `replica identity full`, and the screens do not listen for deletes.
 
 ## Trend event markers (#168)
 
 The dashboard trend charts mark how many deployments, payments, signups, star events, and triggered alerts happened in each UTC day or month. PostgREST cannot group rows, so `public.activity_event_counts(workspace_id, since, bucket, type_ids, providers, account_ids)` counts them: one row per UTC day or UTC month (`bucket` is `day` or `month`), provider, and type id with events, from the first UTC instant of `since`, with `bucket_start` the bucket's first day. Grouping by month in the database keeps the monthly chart's result to one PostgREST response. It is `security definer` and checks membership once before reading any row, so a non-member counts nothing; as `security invoker` the `activity_events` select policy ran `has_workspace_role` once per scanned row, which `explain (analyze, buffers)` on #191 showed was most of the cost. Every call is planned for its own window (`plan_cache_mode = force_custom_plan`), because one generic plan cannot fit both 30 days and 13 months. Only `authenticated` may call it: the migration revokes the execute that Supabase's default privileges give `anon` and `service_role` on every new function, and the pgTAP shape check pins both. The provider and account filters behave like the timeline's: an empty provider list or a null account list means any, and otherwise events with no provider or no account (DevMacro's own events) are left out, so a marker counts exactly what its timeline link lists. Which type ids form each category lives in `src/lib/dashboard/markers.ts`, where a unit test fails if an id is not declared by an adapter.
+
+## Public REST API (#162)
+
+The read-only API under `/api/v1` is documented for users in [REST API](../api.md). How it sits on the schema:
+
+- `api_keys` holds one row per key: workspace, name, scopes (`public.api_key_scope`), the SHA-256 hex of the key (`token_hash`, unique), an 8 character display prefix, `created_by`, `last_used_at`, and `revoked_at`/`revoked_by`. The key itself is never stored. Owners and admins manage keys through the Data API; `token_hash` has no select grant, and the `api_keys_guard_revoke` trigger stamps a revoke with the database clock and refuses to undo it. The `api_keys_enforce_limit` trigger refuses a 21st key that is not revoked in a workspace with `program_limit_exceeded` (54000), locking the workspace row so concurrent creates cannot both pass. It skips the count for a signed-in caller who is not an admin of the workspace, so row level security answers them with `insufficient_privilege` (42501) whether or not the workspace is full; the service role is always counted. This follows BackTalk's `api_keys` (its migration 0034).
+- `authenticate_api_key(token_hash)` is the one key check: it returns nothing for an unknown hash, `revoked` or `creator_left` for a key that must not work, and otherwise `valid` with the workspace, scopes, and this minute's request count. It counts the request in `api_key_request_windows`, prunes that key's old windows, and refreshes `last_used_at` at most once a minute.
+- Each endpoint reads through its own function (`api_workspaces`, `api_projects`, `api_connections`, `api_usage_snapshots`, `api_activity_events`, `api_triggered_alerts`). Every one takes the key hash, not a workspace id, and filters on `api_key_workspace(token_hash, scope)`, so the database itself decides which workspace a key reads and whether its scope allows it. `supabase/tests/database/13_api_keys.test.sql` proves for each function that a key of workspace A reads nothing of workspace B.
+- All of these functions are granted to `service_role` only. The route handlers call them with the admin client.
+
+**Reusing the key check (the MCP server, #163).** Do not look keys up again. In a route handler:
+
+```ts
+import { authenticateApiRequest, requireApiScope } from "@/lib/api/auth";
+import { loadUsageSnapshots } from "@/lib/api/resources";
+
+const { principal } = await authenticateApiRequest(request); // throws ApiError: 401 or 429
+requireApiScope(principal, "usage:read"); // throws ApiError: 403
+const page = await loadUsageSnapshots(principal.tokenHash, { limit: 50 });
+```
+
+`authenticateApiRequest` (`src/lib/api/auth.ts`) reads the bearer key, hashes it, calls `authenticate_api_key`, and enforces the per key rate limit; `apiErrorResponse` in `src/lib/api/errors.ts` turns its `ApiError` into the error envelope with a reference id, and `reportApiError` beside it logs one for a caller that answers in another shape. The endpoint list with scopes and Zod schemas is `API_ENDPOINTS` in `src/lib/api/endpoints.ts`.
+
+The MCP server does exactly this. `src/app/api/mcp/route.ts` calls `authenticateApiRequest` before the MCP SDK sees the request (so a key that does not work answers `401` or `429` in the API's envelope), and passes the principal to the SDK as `authInfo`. Each tool in `src/lib/mcp/server.ts` calls `requireApiScope` with its endpoint's scope from `API_ENDPOINTS`, then that endpoint's loader with `principal.tokenHash`; a refusal becomes a tool error with a reference id from `reportApiError`. It adds no table, function, or grant. User guide: [MCP server](../mcp.md).
 
 ## Retention defaults (#37)
 
@@ -169,15 +225,52 @@ The dashboard trend charts mark how many deployments, payments, signups, star ev
 | `activity_events` | 13 months by `occurred_at` | `activity_events_occurred_at_idx` |
 | `sync_jobs` | 30 days by `created_at` | `sync_jobs_created_at_idx` |
 | `triggered_alerts` | while the rule exists (cascade on rule delete) | not applicable |
+| `anomaly_mutes` | until a person unmutes the metric (cascade on workspace delete) | not applicable |
+| `published_metrics` | while the project exists, revoked rows included (the publication history); rows a deleted user published go with the account | not applicable |
+| `project_pages` | while the project exists; turning a page off keeps the row so its address stays reserved | not applicable |
 | `oauth_states` | until consumed, or until the retention job finds `expires_at` passed (`purge_oauth_states`) | `oauth_states_expires_at_idx` |
+| `api_keys` | while the workspace exists; revoked keys stay listed in settings | not applicable |
+| `api_key_request_windows` | the current minute plus five, pruned by `authenticate_api_key` on each request | primary key `(key_id, window_start)` |
+| `public_rate_limit_counters` | 1 day by `window_start` (`purge_public_rate_limit_counters`) | `public_rate_limit_counters_window_start_idx` |
+| `published_metric_views` | 13 months by `view_date` (`purge_published_metric_views`), and with the project | `published_metric_views_view_date_idx` |
+| `notification_deliveries` | alert records while their alert exists; digest records 30 days by `delivered_at` (`purge_notification_deliveries`) | `notification_deliveries_digest_delivered_at_idx` |
+| `notification_destination_secrets` | while the channel exists; removing a channel deletes it | not applicable |
 
 Nothing is aggregated in the MVP.
+
+## Public metrics (#148)
+
+`published_metrics` records which metrics a workspace has made public, per project. What each metric is and how it is counted is in [Public metrics](public-metrics.md).
+
+- `metric_id` is the enum `public_metric_id`, the only list of publishable metrics; the code keys its definitions by the same enum through the generated types. Spend, budgets, and alert thresholds have no value in it. A row with no `metric_id` is a self-reported value with its own label, value (a whole number), and unit; `published_metrics_source` allows exactly one of the two shapes.
+- Rows are never edited except to revoke them (`revoked_at`, `revoked_by`), so the table is also the publication history. Partial unique indexes allow one live row per metric, and per self-reported label ignoring case, in a project.
+- Members read it as viewers. Nobody writes through the Data API: `publish_metric`, `publish_self_reported_metric`, `unpublish_metric`, and `unpublish_all_metrics` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.metric_published`, `devmacro.metric_unpublished`, or `devmacro.metrics_unpublished_all` timeline event in the same transaction.
+- `public_published_metrics(project_id)` returns a project's live rows. It is service role only and is the one definition of "currently published" that the public route uses.
+- `published_by` cascades on user delete, so deleting an account removes every row its user published. Workspace and project deletes cascade too.
+- Not published to Realtime: the page that changes a publication refreshes itself, and the timeline hears the audit event through `activity_events`.
+
+## Share surfaces (#149)
+
+Badges and cards read published values through the engine and add two tables. How they are served is in [Public metrics](public-metrics.md#badges-and-cards).
+
+- `public_rate_limit_counters` holds one row per hashed client IP per minute for the per IP rate limit of the public routes (badges, cards, and the public JSON route). `bump_public_rate_limit(ip_hash)` counts a request in the current minute (database clock) in one statement and returns the count. The server hashes the IP with HMAC-SHA-256 under a key derived from `DEVMACRO_ENCRYPTION_KEY` before calling it, and a check constraint accepts only a 64 character lowercase hex digest, so no IP address is ever stored. No role but the service role can read or write it.
+- `published_metric_views` counts, per project, metric, surface (`badge` or `card`), and UTC day, how many times DevMacro served a published metric's image. `record_published_metric_view(project_id, metric_id, surface)` counts only while the metric is live in that project, so an unknown project or an unpublished metric writes nothing. Members read the counts as viewers (the share dialog's "served this week"); nobody writes through the Data API. Counted per metric rather than per publication row, so republishing with new options keeps the count. Project and workspace deletes cascade.
+
+## Project pages (#150)
+
+`project_pages` holds a project's public page, one row per project, created the first time an owner or admin turns the page on. What the page shows is in [Public metrics](public-metrics.md#project-pages).
+
+- Nothing is public by default: a project has no row, and so no page, until someone turns it on. Turning it off sets `enabled = false` and keeps the row, so the slug stays reserved for that project.
+- The address is `/@<workspace slug>/<page slug>`. The workspace part is the immutable random slug, and `project_pages_workspace_slug_key` makes the page slug unique within the workspace, so no tenant can take another's old address. `project_pages_slug_format` allows 1 to 40 lowercase letters and numbers with single hyphens between words.
+- Members read it as viewers. Nobody writes through the Data API: `save_project_page` (turn on, or change the slug or the indexing choice) and `disable_project_page` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.project_page_enabled`, `devmacro.project_page_updated`, or `devmacro.project_page_disabled` timeline event in the same transaction.
+- `public_project_page(workspace_slug, page_slug)` returns the page an address answers with: on, and with at least one live row in `published_metrics`. An unknown address, a page that is off, and a page with nothing published all return nothing, so the route answers the same 404. `public_project_page_sitemap(limit)` lists the pages that pass the same rule and are `indexable`, newest change first. Both are service role only.
+- Workspace and project deletes cascade; `updated_by` is set to null when that user's account is deleted.
 
 ## Review against later plans
 
 No planned feature needs a breaking migration:
 
 - **Teams (#105).** The workspace is already the tenant, `workspace_members` already carries `owner`, `admin`, and `viewer`, and every policy already enforces the role matrix, tested for all three roles. Creating more workspaces calls the existing `create_workspace`. Inviting members, changing roles, removing members, and leaving add rows or policies; the last-owner rule already protects ownership transfer. Member lists need a policy that lets co-members read each other's `profiles` row, which is an additive policy. Workspace invites are a new table, separate from the test allow list in `access_invites`.
-- **Public REST API.** Every tenant row carries `workspace_id`, uses a UUID primary key, and has `created_at`; timelines already page by `(occurred_at, id)` with a matching index, so cursors are stable. API keys will be a new workspace-scoped table resolved server-side to a workspace and role, then queried with the same filters; nothing existing changes shape. Money is already integer minor units with currency, the format an API should return.
-- **Read-only MCP server.** It reads the same tables as the dashboard with viewer rights, which the role matrix already defines. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
+- **Public REST API.** Built in #162; see [Public REST API](#public-rest-api-162) above. Nothing existing changed shape: the API added its own tables and functions, plus `(workspace_id, created_at, id)` indexes on `projects` and `connections` for its keyset pages.
+- **Read-only MCP server (#163).** It reuses the API's keys, scopes, and read functions through `authenticateApiRequest` (see above), so it needs no new tables. Provenance, `retrieved_at`, and estimate flags are stored per row, so tool responses can state where a number came from without new columns.
 - **Billing per workspace (#80, #82).** Plan and entitlement columns attach to `workspaces` or a new table keyed by `workspace_id`; nothing is keyed on the user.

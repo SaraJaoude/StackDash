@@ -32,6 +32,7 @@ const MANUAL_REVOKE_STEPS: Partial<Record<ProviderId, string>> = {
   stripe:
     "In the Stripe Dashboard, open Settings, then Installed apps, open the DevMacro app menu, and choose Uninstall. Only an administrator of the Stripe account can do this.",
   resend: "In your Resend team settings, revoke DevMacro's access.",
+  sentry: "In Sentry, open Settings, then Integrations, choose DevMacro, and choose Uninstall.",
 };
 
 /** The steps that remove DevMacro's access at the provider by hand. */

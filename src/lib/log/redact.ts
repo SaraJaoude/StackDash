@@ -44,6 +44,16 @@ const STRING_RULES: readonly StringRule[] = [
     pattern: /\b([a-z][a-z0-9+.-]*:\/\/[^\s:/@]+:)[^\s@/]+@/gi,
     replace: (_match, prefix = "") => `${prefix}${REDACTED}@`,
   },
+  // Discord and Slack incoming webhook URLs (#153): the path is the credential, so everything
+  // after the fixed prefix goes.
+  {
+    pattern: /\b(https?:\/\/(?:[a-z]+\.)?discord(?:app)?\.com\/api(?:\/v\d+)?\/webhooks\/)[^\s"'<>]+/gi,
+    replace: (_match, prefix = "") => `${prefix}${REDACTED}`,
+  },
+  {
+    pattern: /\b(https?:\/\/hooks\.slack\.com\/)[^\s"'<>]+/gi,
+    replace: (_match, prefix = "") => `${prefix}${REDACTED}`,
+  },
   // Credential-bearing query string and form parameters.
   {
     pattern:
@@ -79,9 +89,21 @@ const STRING_RULES: readonly StringRule[] = [
     pattern: /\bvc[a-z]_[A-Za-z0-9]{16,}/g,
     replace: fullMask,
   },
+  // DevMacro API keys (#162): dmk_ plus 43 base64url characters. The 8 character display prefix
+  // shown in settings is too short to match and stays readable.
+  {
+    pattern: /\bdmk_[A-Za-z0-9_-]{20,}/g,
+    replace: fullMask,
+  },
   // Supabase personal access tokens and secret API keys.
   {
     pattern: /\bsbp_[A-Za-z0-9]{16,}|\bsb_secret_[A-Za-z0-9_-]{8,}/g,
+    replace: fullMask,
+  },
+  // Polar access, refresh, organization, and personal tokens and client secrets (polar_at_,
+  // polar_rt_, polar_oat_, polar_pat_, polar_cs_).
+  {
+    pattern: /\bpolar_[a-z]{2,3}_[A-Za-z0-9]{16,}/g,
     replace: fullMask,
   },
   // Long hex blobs (hashes, encryption keys, legacy tokens).

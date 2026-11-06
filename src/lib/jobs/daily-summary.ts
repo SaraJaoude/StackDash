@@ -1,4 +1,5 @@
 import type { ProviderAdapter } from "@/lib/adapters/types";
+import { anomalyEvent, anomalySnapshotRange, findAnomalies } from "@/lib/alerts/anomaly";
 import { countedSnapshots, type ProviderId } from "@/lib/dashboard/aggregate";
 import { formatMoney, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
@@ -17,6 +18,10 @@ import type { JobOutcome, SyncDeps } from "./sync-connection";
  *   once: the day's rows go through the dashboard's `countedSnapshots`, so a GitHub SKU or day
  *   is not added to its product's month again.
  * - The event's dedupe key names the day, so a job that runs twice writes one event.
+ * - Anomaly detection (#169) runs in the same job, right after the summary is built: one
+ *   `devmacro.anomaly_detected` event per unusual metric, unless the workspace turned it off or
+ *   muted the metric. Running totals are checked on the summarized day, one day periods on the
+ *   day before, whose row the provider has stored by then. See src/lib/alerts/anomaly.ts.
  */
 
 export const DAILY_SUMMARY_TYPE_ID = "devmacro.daily_summary";
@@ -135,9 +140,12 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
   // moment after midnight still reports on the day the scheduler meant.
   const keyed = job.dedupe_key?.match(/^daily_summary:[^:]+:(\d{4}-\d{2}-\d{2})$/)?.[1];
   const date = keyed ?? summaryDate(new Date(job.created_at));
-  const [connections, snapshots] = await Promise.all([
+  const range = anomalySnapshotRange(date);
+  const [connections, snapshots, anomalySettings, anomalyRows] = await Promise.all([
     deps.store.listSummaryConnections(workspaceId),
     deps.store.listSnapshotsForDate(workspaceId, date),
+    deps.store.getAnomalySettings(workspaceId),
+    deps.store.listAnomalySnapshots(workspaceId, range.from, range.to),
   ]);
   const event = buildDailySummary({
     workspaceId,
@@ -146,6 +154,11 @@ export async function runDailySummaryJob(job: ClaimedJob, deps: SyncDeps): Promi
     snapshots,
     provider: (id) => providerInfo(deps.getAdapter, id),
   });
-  if (event !== null) await deps.store.insertEvents([event]);
+  if (event === null) return { status: "succeeded" };
+  const anomalies = anomalySettings.enabled
+    ? findAnomalies({ date, rows: anomalyRows, connections, mutes: anomalySettings.mutes })
+    : [];
+  await deps.store.insertEvents([event, ...anomalies.map((anomaly) => anomalyEvent(workspaceId, anomaly))]);
+  if (anomalies.length > 0) deps.log.info("anomalies.detected", { workspaceId, date, count: anomalies.length });
   return { status: "succeeded" };
 }

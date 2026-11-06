@@ -12,6 +12,7 @@ import {
   type TrendSeries,
 } from "@/lib/dashboard/trends";
 
+import { ArrivalTrendLatest } from "./arrival-values";
 import { MARKER_SLOT_PX, MarkerCounts, MarkerLegend, markerLanes, TrendMarkers } from "./trend-markers";
 
 // Drawing space in SVG user units; the SVG scales to its container width.
@@ -23,11 +24,12 @@ const GAP_MARK = 6;
 const ESTIMATE_DASH = "6 4";
 
 /**
- * One trend series as an inline SVG line chart with a table of the same values. Server rendered
- * and never animated, so reduced motion needs nothing switched off. Meaning never rests on color:
- * estimated values use a dashed line and hollow points, gaps break the line and carry a mark on
- * the baseline, and the legend says so in words. The chart is one image whose accessible name
- * summarizes the trend; the table holds every value.
+ * One trend series as an inline SVG line chart with a table of the same values. Server rendered;
+ * the only motion is today's point drawing in and pinging when a live refresh changes it (#171),
+ * which reduced motion turns into a static ring. Meaning never rests on color: estimated values
+ * use a dashed line and hollow points, gaps break the line and carry a mark on the baseline, and
+ * the legend says so in words. The chart is one image whose accessible name summarizes the trend;
+ * the table holds every value.
  *
  * `markers` are the event markers drawn under the chart and listed in the table's "Events"
  * column (#168); null when every marker category is hidden, which drops the column too.
@@ -49,6 +51,7 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
   const hasGaps = points.some((point) => point.value === null);
   const first = points[0];
   const last = points.at(-1);
+  const lastIndex = points.length - 1;
   const lanes = markerLanes(markers ?? []);
   // Each bucket's position as a percent of the width, so markers line up with the points.
   const positions = new Map(points.map((point, index) => [point.bucket, (x(index) / WIDTH) * 100]));
@@ -56,6 +59,28 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
   // chart sideways instead of shrinking the 24 pixel targets.
   const minWidth =
     lanes.length === 0 ? undefined : Math.ceil((Math.max(points.length - 1, 1) * MARKER_SLOT_PX * WIDTH) / plotWidth);
+
+  /** The line from the point before `index` to it; null across a gap. */
+  function segment(index: number) {
+    const point = points[index];
+    const previous = points[index - 1];
+    if (point === undefined || previous === undefined || previous.value === null || point.value === null) return null;
+    return (
+      <line
+        key={`segment-${point.bucket}`}
+        x1={x(index - 1)}
+        y1={y(previous.value)}
+        x2={x(index)}
+        y2={y(point.value)}
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeDasharray={previous.estimated || point.estimated ? ESTIMATE_DASH : undefined}
+        vectorEffect="non-scaling-stroke"
+      />
+    );
+  }
+  const lastSegment = segment(lastIndex);
 
   return (
     <figure aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
@@ -77,24 +102,17 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
           >
             <line x1={PAD_X} x2={WIDTH - PAD_X} y1={PAD_Y} y2={PAD_Y} className="stroke-line-strong" strokeWidth={1} />
             <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
-            {points.map((point, index) => {
-              const previous = points[index - 1];
-              if (index === 0 || previous === undefined || previous.value === null || point.value === null) return null;
-              return (
-                <line
-                  key={`segment-${point.bucket}`}
-                  x1={x(index - 1)}
-                  y1={y(previous.value)}
-                  x2={x(index)}
-                  y2={y(point.value)}
-                  stroke="currentColor"
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                  strokeDasharray={previous.estimated || point.estimated ? ESTIMATE_DASH : undefined}
-                  vectorEffect="non-scaling-stroke"
-                />
-              );
-            })}
+            {points.map((_, index) => (index === lastIndex ? null : segment(index)))}
+            {last === undefined ? null : (
+              <ArrivalTrendLatest
+                bucket={last.bucket}
+                value={last.value}
+                segmentX={lastSegment === null ? null : { from: x(lastIndex - 1), to: x(lastIndex) }}
+                point={last.value === null ? null : { cx: x(lastIndex), cy: y(last.value) }}
+              >
+                {lastSegment}
+              </ArrivalTrendLatest>
+            )}
             {points.map((point, index) =>
               point.value === null ? (
                 <line
