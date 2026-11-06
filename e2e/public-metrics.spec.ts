@@ -2,8 +2,9 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations, watchLiveRefresh } from "./fixtures/axe";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
 

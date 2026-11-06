@@ -2,9 +2,10 @@ import AxeBuilder from "@axe-core/playwright";
 import { request as playwrightRequest, type Browser, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations, watchLiveRefresh } from "./fixtures/axe";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { publishStars, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
+import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Public project pages (#150). Each test creates its own workspace and seeds only inside it, so
 // tests run in any order. Public reads go through a fresh browser context or request context with
