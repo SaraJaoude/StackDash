@@ -46,7 +46,7 @@ export type DestinationRow = Pick<
 const DESTINATION_COLUMNS =
   "id, kind, name, url_host, all_rules, digest, status, consecutive_failures, last_error_code, last_error_reference, last_delivered_at, created_at";
 
-// A workspace has a handful of channels; rules are bounded the same way the alert evaluation bounds them.
+// A workspace has a handful of channels.
 export const DESTINATIONS_LIMIT = 50;
 // Rule links of one workspace (or one channel), read in pages of the Data API's row cap
 // (readAllPages). Neither rules nor channels are capped when they are made, so the bound is
