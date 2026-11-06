@@ -511,6 +511,43 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
+  ownerTest("pings the newest trend point on a chart with event markers, and not after a marker toggle", async ({
+    page,
+  }) => {
+    const workspace = await createTestWorkspace("Arrival trend markers");
+    try {
+      const seeded = await seedConnection(workspace);
+      const snapshotId = await insertMoneySnapshot(seeded, 4_321);
+      await insertEvent(seeded, "Deployed before the page opened");
+      const today = new Date().toISOString().slice(0, 10);
+      const animations = await recordArrivalAnimations(page);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const trends = page.getByRole("region", { name: "Trends" });
+      const spend = trends.getByRole("figure", { name: "Spend this month (Example provider, USD)" });
+      const marker = spend.getByRole("link", { name: `1 deployment on ${today}` });
+      await expect(marker).toBeVisible();
+      await expectSubscribed(live);
+      expect(await animations()).toEqual([]);
+
+      // Markers wrap the chart in a sideways scroll frame; today's point still pings, markers kept.
+      await updateMoneySnapshot(snapshotId, 5_000);
+      await expect(spend.getByTestId("trend-ping")).toBeAttached({ timeout: LIVE_TIMEOUT_MS });
+      await expect.poll(animations).toEqual(expect.arrayContaining(["spark-ping"]));
+      await expect(marker).toBeVisible();
+      await expect(spend.getByTestId("trend-ping")).toHaveCount(0, { timeout: HIGHLIGHT_CLEARED_MS });
+
+      // Hiding a marker category is navigation, not arrival: nothing new animates.
+      const before = (await animations()).length;
+      await trends.getByRole("navigation", { name: "Event markers" }).getByRole("link", { name: "Hide deployments" }).click();
+      await expect(page).toHaveURL(/[?&]hide_marker=deployments(&|$)/);
+      await expect(marker).toHaveCount(0);
+      expect(await animations()).toHaveLength(before);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("marks the provider card when one recurring revenue rate changes, and leaves the other rate alone", async ({
     page,
   }) => {
