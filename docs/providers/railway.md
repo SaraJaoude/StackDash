@@ -145,6 +145,8 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 
 `QUEUED`, `WAITING`, `INITIALIZING`, `NEEDS_APPROVAL`, and `SKIPPED` produce no event. All five event types are shown by default, like every other adapter's; hiding types per workspace is #119.
 
+The dashboard headline's deploys (#173) count `railway.deployment.deployed` as a success and `railway.deployment.failed` as a failure. Building, crashed, and removed events have no category: a build starting says nothing about how the deployment ended, and a crash or removal usually follows a deployment a poll already saw deployed, so counting either would count it twice. A deployment that succeeded and was replaced before any poll saw it reaches the timeline only as removed (see [Limitations](#limitations)), so the headline does not count it.
+
 Titles name the service and environment (`Deployment of api to production failed`, `Deployment of web to production succeeded, then was removed`), the body names the project. A failure or crash in an environment named `production` (Railway's name for a new project's first environment, any letter case) is critical; elsewhere it is a warning. Dedupe keys are `railway.deployment:<id>:<kind>`, so a re-read or a later status never duplicates an event. Events carry no link: Railway documents no dashboard URL for a deployment.
 
 The first sync looks back 7 days. The cursor is the latest status time seen; each later sync re-reads from an hour before it, so a status that changed just before the last poll is seen again. A deployment is kept or dropped as a whole, by when it entered its current status: one that sat queued for longer than the overlap still gets its building event alongside its final one.

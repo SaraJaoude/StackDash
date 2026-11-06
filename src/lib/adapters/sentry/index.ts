@@ -89,6 +89,8 @@ const TRACK_TTL_MS = 13 * DAY_MS;
 const VERSION_TITLE_MAX = 120;
 
 // Exported, like the metric and event builders below, for the local simulator (#131).
+// None has a category for the headline (#173): issues are neither signups nor deploys, and a
+// release is a version Sentry was told about, not a deployment of it, so it is not counted as one.
 export const eventTypes = [
   {
     id: "sentry.issue.created",

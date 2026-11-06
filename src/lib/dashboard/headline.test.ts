@@ -738,7 +738,7 @@ describe("headlineEventTypes", () => {
     });
   });
 
-  it("counts the registered adapters' signups and deploys, DigitalOcean's included", () => {
+  it("counts the registered adapters' signups and deploys, DigitalOcean's and Railway's included", () => {
     expect(EVENT_TYPES.signups).toEqual(expect.arrayContaining(["fake.signup", "supabase.auth.signup"]));
     expect(EVENT_TYPES.deploys).toEqual(
       expect.arrayContaining([
@@ -747,10 +747,24 @@ describe("headlineEventTypes", () => {
         "vercel.deployment.failed",
         "digitalocean.deployment.succeeded",
         "digitalocean.deployment.failed",
+        "railway.deployment.deployed",
+        "railway.deployment.failed",
       ]),
     );
-    expect(EVENT_TYPES.failedDeploys).toEqual(expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed"]));
-    expect(EVENT_TYPES.deploys).not.toContain("digitalocean.deployment.started");
+    expect(EVENT_TYPES.failedDeploys).toEqual(
+      expect.arrayContaining(["vercel.deployment.failed", "digitalocean.deployment.failed", "railway.deployment.failed"]),
+    );
+    expect(EVENT_TYPES.failedDeploys).not.toContain("railway.deployment.deployed");
+    // A start says nothing about how a deployment ended; a Railway crash or removal comes after a
+    // deployment already counted; a Sentry release is not a deployment.
+    const notDeploys = [
+      "digitalocean.deployment.started",
+      "railway.deployment.building",
+      "railway.deployment.crashed",
+      "railway.deployment.removed",
+      "sentry.release.created",
+    ];
+    expect([...EVENT_TYPES.signups, ...EVENT_TYPES.deploys].filter((id) => notDeploys.includes(id))).toEqual([]);
     // Daily summaries are one event a day, not one per signup, so they are not counted as signups;
     // PostHog's signups come from its declared daily total instead.
     expect(EVENT_TYPES.signups).not.toContain("supabase.auth.daily_summary");

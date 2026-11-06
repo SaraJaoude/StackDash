@@ -132,6 +132,8 @@ The cursor remembers up to 100 unresolved issues per project (short id, whether 
 
 Titles carry the short id or the release version, never the issue title: "New issue WEB-1A", "Issue WEB-1A regressed", "Issue WEB-1A resolved", "Release web@1.2.0 created". Issue events link to the issue's `permalink` when it is an `https` address on `sentry.io`. The issue list does not say when a status changed, so regressed and resolved events carry the sync time; their dedupe key includes the sync window, so an issue that regresses again later gets a new event.
 
+None of these events counts in the dashboard headline's signups or deploys (#173): a release is a version Sentry was told about, not a deployment of it.
+
 ## Verified, estimated, unavailable
 
 | Value | Status |
