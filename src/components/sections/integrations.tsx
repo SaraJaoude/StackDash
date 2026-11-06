@@ -84,6 +84,12 @@ const spendAvailability: readonly SpendAvailability[] = [
     spend: "None. Sentry has no billing endpoint for integrations.",
     everyPlan: "Errors per project, new issues, regressions, and releases.",
   },
+  {
+    provider: "GitLab",
+    docSlug: "gitlab",
+    spend: "None. GitLab shares no cost through read-only access.",
+    everyPlan: "Compute minutes and storage for the GitLab.com namespaces you own, with the monthly minutes quota estimated from the published Free, Premium, or Ultimate limit. Pipelines, deployments, releases, and merged merge requests.",
+  },
 ];
 
 // Fails the build, not a visitor, when a provider page the list links to is renamed or removed.
@@ -94,9 +100,9 @@ function providerDocHref(slug: string): string {
 }
 
 // Order from the OAuth research on issue #11. The first group is every adapter built so far and
-// connects through OAuth. The next group does too, except ElevenLabs, which returns with a
-// restricted API key (#49). The last group waits because its usage data needs an admin key or
-// partner approval, and says which.
+// connects through OAuth. The next group is ElevenLabs, which returns with a restricted API key
+// (#49). The last group waits because its usage data needs an admin key or partner approval, and
+// says which.
 const groups: readonly IntegrationGroup[] = [
   {
     stage: "First",
@@ -113,13 +119,14 @@ const groups: readonly IntegrationGroup[] = [
       "Railway",
       "Polar",
       "Sentry",
+      "GitLab",
     ],
   },
   {
     stage: "Next",
     dotClass: "bg-warning",
     note: "Planned straight after",
-    providers: ["GitLab", "ElevenLabs"],
+    providers: ["ElevenLabs"],
   },
   {
     stage: "Waiting",

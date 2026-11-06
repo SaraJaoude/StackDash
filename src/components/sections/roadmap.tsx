@@ -26,15 +26,17 @@ const phases: readonly Phase[] = [
       "Read-only MCP server for AI assistants, on the same keys",
       "Allowances, remaining quota, and reset dates",
       "Spend where the provider allows it",
+      "Spend and quota projected to the end of the period, labeled as estimates",
       "Usage history",
+      "Deploys, payments, signups, stars, and alerts marked on the trend charts",
+      "Revenue against spend, signups, cost per signup, and deploys for the week or month so far",
     ],
   },
   {
     name: "Straight after",
-    summary: "See what is coming, connect more of your stack, and run it yourself.",
+    summary: "Connect more of your stack, run it yourself, and share it with a team.",
     items: [
-      "Spend forecasts",
-      "More integrations, starting with GitLab",
+      "More integrations, starting with ElevenLabs",
       "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
@@ -53,7 +55,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. Forecasts, more integrations, and self-hosting follow."
+      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. More integrations and self-hosting follow."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

@@ -8,14 +8,18 @@ Railway, and GitLab over OAuth (never with pasted provider keys), and DevMacro s
 deploys, stars, signups, payments, and errors land in one feed per workspace and project. Alerts
 reach you by email, Slack, Discord, or webhook before a limit or budget becomes a problem, with
 daily or weekly digests on the same channels. Unusual daily spend and usage is flagged on the
-timeline with no setup. Publish the stats you choose as a project page, README badges, and cards,
-read a workspace from your own scripts through a read-only REST API or from an AI assistant
-through a read-only MCP server, and see spend and allowances where each provider reports them.
+timeline with no setup. The dashboard opens with revenue against spend, signups, cost per signup,
+and deploys for the week or month so far, marks deploys, payments, signups, stars, and alerts on
+its trend charts, and projects spend and quotas to the end of the period, labeled as estimates.
+Publish the stats you choose as a project page, README badges, and cards, read a workspace from
+your own scripts through a read-only REST API or from an AI assistant through a read-only MCP
+server, and see spend and allowances where each provider reports them.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
-list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Sentry is built
-from Sentry's documentation and not yet tried against a real organization, and until Sentry
-approves the hosted integration's publication only the organization that registered it can
+list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
+integration comes from the provider's documentation and none has been tried with a real account
+yet; each provider page in [docs/providers](docs/providers) lists what is still unverified. Until
+Sentry approves the hosted integration's publication, only the organization that registered it can
 install it; self-hosters register their own ([Sentry provider page](docs/providers/sentry.md)).
 
 ## Stack
