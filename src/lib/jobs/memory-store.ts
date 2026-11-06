@@ -156,14 +156,13 @@ export class MemoryJobStore implements JobStore {
   }
 
   async markSimulatedSyncsDue(at: Date): Promise<number> {
-    let moved = 0;
+    let due = 0;
     for (const row of this.connections) {
       if (row.status !== "active" || !isSimulatedConnection(row)) continue;
-      if (row.next_sync_at === null || new Date(row.next_sync_at).getTime() <= at.getTime()) continue;
       row.next_sync_at = at.toISOString();
-      moved += 1;
+      due += 1;
     }
-    return moved;
+    return due;
   }
 
   async enqueueSync(key: ConnectionKey): Promise<boolean> {
