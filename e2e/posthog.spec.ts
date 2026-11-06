@@ -1,7 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
-
 import { expect, ownerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { connectSimulated } from "./fixtures/connections";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
@@ -11,10 +9,6 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
  * signing key. It never runs the job tick, so it stays in the `chromium` project. The two public
  * routes PostHog itself calls answer 404 here, because CI sets no PostHog variables.
  */
-
-async function expectNoAxeViolations(page: Page): Promise<void> {
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-}
 
 ownerTest.describe("PostHog", () => {
   ownerTest("connects from the catalog with the keyboard and lists the organization", async ({ page }) => {

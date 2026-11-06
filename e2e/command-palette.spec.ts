@@ -1,7 +1,7 @@
-import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 /** A fresh workspace with one Vercel connection, account, and project, and two Vercel events. */
@@ -98,11 +98,6 @@ async function openWith(dialog: Locator, open: () => Promise<void>): Promise<voi
     if (!(await dialog.isVisible())) await open();
     await expect(dialog).toBeVisible({ timeout: 1_000 });
   }).toPass({ timeout: 15_000 });
-}
-
-async function expectNoAxeViolations(page: Page) {
-  const scan = await new AxeBuilder({ page }).analyze();
-  expect(scan.violations).toEqual([]);
 }
 
 ownerTest.describe("command palette as the owner", () => {

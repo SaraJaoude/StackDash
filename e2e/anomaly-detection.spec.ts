@@ -1,7 +1,7 @@
-import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
@@ -71,11 +71,6 @@ async function seedAnomaly(workspace: TestWorkspace): Promise<void> {
 
 function anomalySection(page: Page) {
   return page.getByRole("region", { name: "Unusual spend and usage" });
-}
-
-async function expectNoAxeViolations(page: Page) {
-  const scan = await new AxeBuilder({ page }).analyze();
-  expect(scan.violations).toEqual([]);
 }
 
 ownerTest.describe("anomaly detection as the owner", () => {

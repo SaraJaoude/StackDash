@@ -1,7 +1,5 @@
-import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
-
 import { expect, ownerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { connectSimulated } from "./fixtures/connections";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
@@ -11,10 +9,6 @@ import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
  * no OAuth application registered. It never runs the job tick, so it stays in the `chromium`
  * project; syncing simulated GitLab data is covered by the simulator's unit tests.
  */
-
-async function expectNoAxeViolations(page: Page): Promise<void> {
-  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
-}
 
 ownerTest.describe("GitLab connection", () => {
   ownerTest("is offered in the catalog, says what it collects before connecting, and connects by keyboard", async ({ page }) => {

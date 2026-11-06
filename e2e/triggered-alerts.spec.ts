@@ -1,7 +1,7 @@
-import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Each test creates its own workspace and seeds only inside it.
@@ -50,11 +50,6 @@ async function seedTriggeredAlert(workspace: TestWorkspace): Promise<string> {
 
 function triggeredList(page: Page) {
   return page.getByRole("list", { name: "Triggered alerts" });
-}
-
-async function expectNoAxeViolations(page: Page) {
-  const scan = await new AxeBuilder({ page }).analyze();
-  expect(scan.violations).toEqual([]);
 }
 
 ownerTest.describe("triggered alerts as the owner", () => {
