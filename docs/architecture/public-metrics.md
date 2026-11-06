@@ -31,10 +31,18 @@ A metric that cannot be computed honestly says why instead of showing a number:
 | `no_data` | No data yet | Connected, but nothing is stored yet, or the provider does not report it for this account |
 | `not_enough_history` | Not enough history yet | Stored data does not cover the whole window, for example a 30 day count from 3 days of data |
 | `stale` | Not synced in the last 2 days | The newest data behind the value is more than 48 hours old, or an account has never synced |
+| `too_many_accounts` | Not computed: too many accounts | Only on the owner's public metrics page: the project has more than 200 included accounts (see below). Public surfaces show no value at all in that case |
 
 Partial data always understates, never overstates: an account added in the middle of a window adds only what it saw, and a missing start-of-window reading is replaced by the next day's (a shorter window), never an earlier one.
 
-A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it refuses to compute anything rather than publish a smaller number (#220). The public route, badges, and cards then answer `503` like any failed read, and the error is logged. The connections behind the accounts are read by id, so that read can never be cut.
+A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it throws `AccountBoundError` rather than publish a smaller number (#220). What each surface shows then:
+
+- The public route, badges, and cards answer `503` like any failed read, and the error is logged.
+- The public project page shows its error page ("This project page could not be loaded", with Try again and a reference id).
+- The yearly card's page shows the workspace's error page, and its `card.png` answers `503`.
+- The owner's public metrics page still loads, because it holds every Unpublish control: each engine metric reads "Not computed: too many accounts", a notice above them says the project has more than 200 included accounts and to exclude the ones it does not need on their connection's page, and published values and self-reported values stay listed and can be unpublished.
+
+The connections behind the accounts are read by id, so that read can never be cut.
 
 ### Rounding and delay
 
@@ -58,7 +66,7 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 
 "Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics-148).
 
-A project holds at most 100 live self-reported values. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them (#220).
+A project holds at most 100 live self-reported values, and the self-reported section of the public metrics page says so. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them (#220).
 
 ## Reading published values
 
