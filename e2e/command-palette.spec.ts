@@ -77,12 +77,17 @@ function trigger(page: Page) {
 }
 
 /**
- * The palette shortcut for the page's own platform. The Desktop Chrome device reports a Windows
- * user agent even on a Mac, so Playwright's `ControlOrMeta` (which follows the host) is not used.
+ * True when the page's own platform is Apple's, where the palette shortcut uses Cmd. The Desktop
+ * Chrome device reports a Windows user agent even on a Mac, so Playwright's `ControlOrMeta`
+ * (which follows the host) is not used.
  */
+async function applePlatform(page: Page): Promise<boolean> {
+  return page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+}
+
+/** The palette shortcut for the page's own platform. */
 async function pressPaletteShortcut(page: Page): Promise<void> {
-  const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
-  await page.keyboard.press(apple ? "Meta+K" : "Control+K");
+  await page.keyboard.press((await applePlatform(page)) ? "Meta+K" : "Control+K");
 }
 
 /**
@@ -343,7 +348,7 @@ ownerTest.describe("command palette as the owner", () => {
       await combobox(page).fill("nothing matches this");
       await expect(palette(page).getByRole("option")).toHaveCount(0);
 
-      const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+      const apple = await applePlatform(page);
       await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple });
       await expect(palette(page)).toBeVisible();
       await expect(combobox(page)).toBeFocused();
