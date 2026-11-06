@@ -88,7 +88,7 @@ const spendAvailability: readonly SpendAvailability[] = [
     provider: "GitLab",
     docSlug: "gitlab",
     spend: "None. GitLab shares no cost through read-only access.",
-    everyPlan: "Compute minutes and storage for the GitLab.com namespaces you own, with the monthly minutes quota estimated from your plan. Pipelines, deployments, releases, and merged merge requests.",
+    everyPlan: "Compute minutes and storage for the GitLab.com namespaces you own, with the monthly minutes quota estimated from the published Free, Premium, or Ultimate limit. Pipelines, deployments, releases, and merged merge requests.",
   },
 ];
 
