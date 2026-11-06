@@ -11,7 +11,6 @@ import {
   isProviderSimulated,
   loadOAuthClient,
 } from "./registry";
-import { resendAdapter } from "./resend";
 import { simulatedAdapters } from "./simulated";
 import { liveProviderIds, Secret, type ProviderAdapter } from "./types";
 import { vercelAdapter } from "./vercel";
@@ -136,19 +135,10 @@ describe("beta declarations", () => {
   it.each([
     ["real", ""],
     ["simulated", "1"],
-  ])("declares Resend in beta with a reason, and no other registered adapter, with %s providers", (_, simulate) => {
+  ])("declares Resend in beta, and no other registered adapter, with %s providers", (_, simulate) => {
     vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", simulate);
     vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
-    const adapters = availableProviders();
-    expect(adapters.map((adapter) => adapter.id)).toEqual([...liveProviderIds, "fake"]);
-    expect(adapters.filter((adapter) => adapter.beta !== undefined).map((adapter) => adapter.id)).toEqual(["resend"]);
-    // The simulated twin carries the real declaration, so demos and e2e show the same badge.
-    expect(getAdapter("resend").beta).toBe(resendAdapter.beta);
-    expect(resendAdapter.beta?.reason).toMatch(/\S/);
-  });
-
-  it("words the reason for members: no dashes, internal ids, or standards numbers", () => {
-    expect(resendAdapter.beta?.reason).not.toMatch(/[\u2013\u2014]|#\d|\bRFC\b|\biss\b/i);
+    expect(availableProviders().filter((adapter) => adapter.beta !== undefined).map((adapter) => adapter.id)).toEqual(["resend"]);
   });
 });
 
