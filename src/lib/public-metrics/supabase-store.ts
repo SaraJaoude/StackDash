@@ -82,31 +82,31 @@ export function createSupabaseMetricStore(
           .gte("snapshot_date", fromDate)
           .lte("snapshot_date", toDate)
           // Newest first, so a read stopped at the bound loses the oldest days, never today. The
-          // id makes the order total, so pages neither skip nor repeat a row.
+          // id makes the order total. A sync inserting today's rows between two pages shifts the
+          // later pages, so a row can come back twice; the engine keeps one reading per account and
+          // day (newestByAccount, the baseline lookup in snapshotChange), so a repeat changes no number.
           .order("snapshot_date", { ascending: false })
           .order("id", { ascending: true })
           .range(from, to);
         if (error) throw new Error("Failed to load snapshots for public metrics", { cause: error });
         return data;
       }, SNAPSHOT_READ_MAX_ROWS);
-      // Callers see the cut by the full read (SNAPSHOT_READ_MAX_ROWS in engine.ts).
+      // Callers see the cut by the row count (snapshotsWholeFrom in engine.ts), so the mapping below
+      // must keep every row.
       if (!complete) log.warn("public_metrics.snapshots_truncated", { workspaceId, projectId, fromDate, toDate, rows: rows.length });
-      return rows.flatMap((row) =>
-        row.value === null
-          ? []
-          : [
-              {
-                accountId: row.external_account_id,
-                metricKey: row.metric_key,
-                snapshotDate: row.snapshot_date,
-                value: row.value,
-                periodStart: row.period_start === null ? null : new Date(row.period_start),
-                periodEnd: row.period_end === null ? null : new Date(row.period_end),
-                resetsAt: row.resets_at === null ? null : new Date(row.resets_at),
-                retrievedAt: new Date(row.retrieved_at),
-              },
-            ],
-      );
+      return rows.map((row) => {
+        if (row.value === null) throw new Error("usage_snapshots returned a null value the query excluded");
+        return {
+          accountId: row.external_account_id,
+          metricKey: row.metric_key,
+          snapshotDate: row.snapshot_date,
+          value: row.value,
+          periodStart: row.period_start === null ? null : new Date(row.period_start),
+          periodEnd: row.period_end === null ? null : new Date(row.period_end),
+          resetsAt: row.resets_at === null ? null : new Date(row.resets_at),
+          retrievedAt: new Date(row.retrieved_at),
+        };
+      });
     },
 
     async earliestSnapshotDate({ accountIds, metricKey }): Promise<string | null> {

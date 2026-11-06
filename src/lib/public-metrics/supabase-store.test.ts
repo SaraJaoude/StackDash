@@ -29,7 +29,7 @@ const STARS = "github.stars.total";
 
 type Cell = string | number | boolean | null | readonly string[];
 type Row = Readonly<Record<string, Cell>>;
-type Request = Readonly<{ table: string; offset: number; limit: number | null; returned: number }>;
+type PageRequest = Readonly<{ table: string; offset: number; limit: number | null; returned: number }>;
 
 function uuid(prefix: number, index: number): string {
   return `${String(prefix).padStart(8, "0")}-0000-4000-8000-${String(index).padStart(12, "0")}`;
@@ -84,7 +84,7 @@ const RESERVED: Readonly<Record<string, true>> = { select: true, order: true, li
 
 /** A Supabase client over in-memory tables that, like PostgREST, returns at most MAX_ROWS rows a request. */
 function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>) {
-  const requests: Request[] = [];
+  const requests: PageRequest[] = [];
   const fakeFetch: typeof fetch = async (input) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const table = url.pathname.split("/").at(-1) ?? "";

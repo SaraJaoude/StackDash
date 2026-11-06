@@ -14,9 +14,11 @@ export type PagedRows<Row> = Readonly<{
 /**
  * Every row of one query, read in pages of at most MAX_ROWS_PER_REQUEST rows, up to `maxRows`.
  * `readPage(from, to)` returns rows `from` to `to`, both included (PostgREST's `.range`), of a query
- * whose order ends with a unique column, so consecutive pages neither skip nor repeat a row. Pages
- * are read one after another, because each is needed only when the one before it came back full.
- * The caller decides what an incomplete read means and logs it.
+ * whose order ends with a unique column, so the order is total and pages of an unchanged table
+ * neither skip nor repeat a row. Offsets are not a snapshot: a row written or deleted between two
+ * requests shifts the later pages. Pages are read one after another, because each is needed only
+ * when the one before it came back full. The caller decides what an incomplete read means and logs
+ * it.
  */
 export async function readAllPages<Row>(
   readPage: (from: number, to: number) => PromiseLike<readonly Row[]>,
