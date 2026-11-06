@@ -1,4 +1,4 @@
-import type { z } from "zod";
+import { z } from "zod";
 import type { AdapterContext } from "./types";
 
 export const adapterErrorCodes = [
@@ -200,4 +200,27 @@ export async function fetchJson<T>(
     });
   }
   return parsed.data;
+}
+
+/**
+ * RFC 6749 section 5.2 error body from an OAuth token endpoint (`invalid_grant`,
+ * `invalid_client`, `invalid_request`, ...). Only the code is read.
+ */
+export const OAuthErrorSchema = z.object({ error: z.string().min(1) });
+
+/**
+ * The RFC 6749 `error` code of a token endpoint error response, or undefined when the body is not
+ * JSON or carries no code. Pass a clone when `fetchJson` still has to read the body. Which statuses
+ * and codes mean a revoked grant stays with each adapter, since providers differ there.
+ */
+export async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+  const parsed = OAuthErrorSchema.safeParse(body);
+  return parsed.success ? parsed.data.error : undefined;
 }
