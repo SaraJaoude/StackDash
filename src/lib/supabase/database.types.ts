@@ -19,6 +19,26 @@ export type Database = {
                   Relationships: [
                     
                   ]
+                },"activity_event_daily_counts": {
+                  Row: {
+                    "day": string,"event_count": number,"external_account_id": string | null,"provider": Database["public"]['Enums']["provider_id"] | null,"type_id": string,"workspace_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "day": string,"event_count": number,"external_account_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"] | null,"type_id": string,"workspace_id": string
+                  }
+                  Update: {
+                    "day"?: string,"event_count"?: number,"external_account_id"?: string | null,"provider"?: Database["public"]['Enums']["provider_id"] | null,"type_id"?: string,"workspace_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "activity_event_daily_counts_workspace_fkey"
+      columns: ["workspace_id"]
+isOneToOne: false
+      referencedRelation: "workspaces"
+      referencedColumns: ["id"]
+    }
+                  ]
                 },"activity_events": {
                   Row: {
                     "body": string | null,"connection_id": string | null,"created_at": string,"dedupe_key": string,"external_account_id": string | null,"id": string,"occurred_at": string,"provider": Database["public"]['Enums']["provider_id"] | null,"severity": Database["public"]['Enums']["event_severity"],"title": string,"type_id": string,"url": string | null,"workspace_id": string
@@ -844,6 +864,9 @@ isOneToOne: false
                            },
 "purge_usage_snapshots":
 { Args: { "p_before": string,"p_limit": number }; Returns: number
+                           },
+"rebuild_activity_event_daily_counts":
+{ Args: { "p_workspace_id": string }; Returns: number
                            },
 "record_publication_event":
 { Args: { "p_body": string,"p_dedupe_key": string,"p_title": string,"p_type_id": string,"p_workspace_id": string }; Returns: undefined
