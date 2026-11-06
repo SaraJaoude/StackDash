@@ -8,6 +8,12 @@ import { z } from "zod";
 export const SELF_REPORTED_LABEL_MAX = 60;
 export const SELF_REPORTED_UNIT_MAX = 24;
 const SELF_REPORTED_VALUE_MAX = 1_000_000_000_000;
+/**
+ * Live self-reported values one project may publish, checked by publish_self_reported_metric
+ * (20261106144639_self_reported_metrics_limit.sql), so the public read of a project's publications
+ * stays far below PostgREST's max_rows (#220).
+ */
+export const SELF_REPORTED_LIVE_MAX = 100;
 
 export const selfReportedFields = {
   label: z

@@ -18,6 +18,7 @@ import {
   UnpublishButton,
   UnpublishEverythingButton,
 } from "@/components/public-metrics/publication-controls";
+import { SELF_REPORTED_LIVE_MAX } from "@/components/public-metrics/self-reported-rules";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
 import { connectOrigin } from "@/lib/connections/oauth-state";
 import { loadProjectPageSettings } from "@/lib/data/project-pages";
@@ -44,6 +45,7 @@ import {
   shareText,
   shareToXUrl,
 } from "@/lib/public-metrics/share";
+import { ACCOUNTS_LIMIT } from "@/lib/public-metrics/supabase-store";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -108,7 +110,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   ]);
   if (publications === null) notFound();
 
-  const { project, metrics, selfReported } = publications;
+  const { project, metrics, selfReported, tooManyAccounts } = publications;
   const canPublish = canPerform(role, "publish_metrics");
   const deniedReason = actionDeniedReason("publish_metrics");
   const publicDataPath = `/api/public/projects/${project.id}/metrics`;
@@ -223,6 +225,24 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
           <h2 id={METRICS_HEADING_ID} tabIndex={-1} className="border-b border-line px-6 py-4 text-sm font-semibold">
             Metrics from your connected providers
           </h2>
+          {tooManyAccounts ? (
+            <div className="border-b border-line px-6 py-4 text-sm">
+              <p className="font-semibold text-warning">These metrics cannot be computed</p>
+              <p className="mt-1 leading-6 text-muted">
+                This project has more than {ACCOUNTS_LIMIT} included accounts, and public metrics count at most{" "}
+                {ACCOUNTS_LIMIT}. Rather than show a smaller number, every metric below is unavailable, here and
+                wherever it is published. To fix it, exclude the accounts this project does not need on their
+                connection&apos;s page in{" "}
+                <Link
+                  href={workspacePath(workspace.slug, "connections")}
+                  className="underline underline-offset-4 hover:text-foreground"
+                >
+                  Connections
+                </Link>
+                .
+              </p>
+            </div>
+          ) : null}
           <ul className="divide-y divide-line">
             {metrics.map((metric) => (
               <MetricRow
@@ -243,8 +263,8 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               Self-reported values
             </h2>
             <p className="mt-1 text-sm leading-6 text-muted">
-              Numbers you type yourself. They appear on the project page labeled Self-reported, and never on a
-              badge or a leaderboard.
+              Numbers you type yourself, up to {SELF_REPORTED_LIVE_MAX} per project. They appear on the project page
+              labeled Self-reported, and never on a badge or a leaderboard.
             </p>
           </div>
           {selfReported.length === 0 ? (
