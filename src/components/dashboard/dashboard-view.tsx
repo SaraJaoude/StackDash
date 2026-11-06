@@ -4,6 +4,12 @@ import { useId, type ReactNode } from "react";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
 import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
+import {
+  HIDE_MARKER_PARAM,
+  markerCategoryLabel,
+  type MarkerCategory,
+  type TrendMarker,
+} from "@/lib/dashboard/markers";
 import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
 import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
@@ -13,6 +19,7 @@ import { ArrivalCard } from "./arrival-values";
 import { CurrencyAmountsList } from "./currency-amounts";
 import { ProviderCard } from "./provider-card";
 import { TrendChart } from "./trend-chart";
+import { MarkerShape } from "./trend-markers";
 import { SpendProjectionNote } from "./value-meta";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
@@ -111,6 +118,15 @@ export type DashboardTrends = Readonly<{
   series: readonly TrendSeries[];
   /** Links to each trend period, keeping the current filter. */
   hrefs: Readonly<Record<TrendGranularity, string>>;
+  /** Event markers (#168). */
+  markers: Readonly<{
+    /** Categories hidden through the URL, in category order. */
+    hidden: readonly MarkerCategory[];
+    /** Each chart's markers by series key, oldest bucket first. */
+    bySeries: Readonly<Record<string, readonly TrendMarker[]>>;
+    /** One link per category that shows or hides it, keeping everything else. */
+    toggles: readonly Readonly<{ category: MarkerCategory; shown: boolean; href: string }>[];
+  }>;
 }>;
 
 const TREND_PERIODS = [
@@ -119,10 +135,12 @@ const TREND_PERIODS = [
 ] as const satisfies readonly { granularity: TrendGranularity; label: string }[];
 
 function TrendsSection({ trends }: { trends: DashboardTrends }) {
+  const { markers } = trends;
+  const anyShown = markers.toggles.some((toggle) => toggle.shown);
   return (
     <Section
       title="Trends"
-      description="Each metric per UTC day or month, with missing data shown as unavailable, never as zero."
+      description="Each metric per UTC day or month, with missing data shown as unavailable, never as zero. Markers under each chart count deployments, payments, signups, star events, and triggered alerts in the same days or months."
     >
       <nav aria-label="Trend period" className="flex flex-wrap gap-2">
         {TREND_PERIODS.map(({ granularity, label }) => {
@@ -141,15 +159,30 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
           );
         })}
       </nav>
+      {/* Links rather than buttons: each one is a URL, so a shared link reproduces the view. The
+          text names the outcome, and the shape is hollow while the category is hidden. */}
+      <nav aria-label="Event markers" className="mt-3 flex flex-wrap gap-2">
+        {markers.toggles.map(({ category, shown, href }) => (
+          <Link
+            key={category}
+            href={href}
+            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+          >
+            <MarkerShape category={category} filled={shown} />
+            {`${shown ? "Hide" : "Show"} ${markerCategoryLabel(category).toLowerCase()}`}
+          </Link>
+        ))}
+      </nav>
       {trends.series.length === 0 ? (
         <p className="mt-4 text-sm text-muted">
           No history to chart for the {trendWindowLabel(trends.granularity)}. Trends appear after the first syncs.
         </p>
       ) : (
-        <ul className="mt-4 grid gap-4 lg:grid-cols-2">
+        // One chart per row: markers on neighboring days need the width (see `TrendChart`).
+        <ul className="mt-4 grid gap-4">
           {trends.series.map((series) => (
-            <li key={series.key}>
-              <TrendChart series={series} />
+            <li key={series.key} className="min-w-0">
+              <TrendChart series={series} markers={anyShown ? (markers.bySeries[series.key] ?? []) : null} />
             </li>
           ))}
         </ul>
@@ -192,7 +225,10 @@ export function DashboardView({
         scope={scope}
         options={scopeOptions}
         status={scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
-        hidden={trends.granularity === "daily" ? undefined : { trend: trends.granularity }}
+        hidden={{
+          ...(trends.granularity === "daily" ? {} : { trend: trends.granularity }),
+          [HIDE_MARKER_PARAM]: trends.markers.hidden,
+        }}
       />
 
       {/* The headline: totals first, with revenue sharing the row on wide screens. */}

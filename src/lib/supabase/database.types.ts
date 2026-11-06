@@ -671,7 +671,12 @@ isOneToOne: false
             [_ in never]: never
           }
           Functions: {
-            "api_activity_events":
+            "activity_event_counts":
+{ Args: { "p_account_ids"?: (string)[],"p_bucket": string,"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_since": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
+              "bucket_start": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
+            }[]
+                           },
+"api_activity_events":
 { Args: { "p_after_id"?: string,"p_after_occurred_at"?: string,"p_from"?: string,"p_limit"?: number,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_severity"?: Database["public"]['Enums']["event_severity"],"p_to"?: string,"p_token_hash": string,"p_type_id"?: string }; Returns: {
               "account_name": string,"body": string,"connection_id": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"occurred_at": string,"provider": Database["public"]['Enums']["provider_id"],"severity": Database["public"]['Enums']["event_severity"],"title": string,"type_id": string,"url": string
             }[]
