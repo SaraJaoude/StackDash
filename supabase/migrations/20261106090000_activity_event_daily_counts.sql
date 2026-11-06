@@ -59,9 +59,14 @@ create policy activity_event_daily_counts_select on public.activity_event_daily_
 -- external_accounts set null action does one today) is the delete of its old rows plus the insert of
 -- its new rows.
 --
--- The decrement is one update, so a concurrent increment of the same row is re-read before
--- subtracting and never lost; rows it brings to zero are then deleted by a second statement. An
--- increment is an upsert ordered by key, so two writers lock shared rows in the same order.
+-- Every writer locks the rollup rows it shares with another writer in key order (workspace_id,
+-- day, type_id, provider, external_account_id), so two statements touching the same keys queue
+-- instead of deadlocking (#236 review: a purge batch against a sync insert deadlocked 3 runs out of
+-- 3 once the decrement locked in plan order). The decrement first locks its rows with an ordered
+-- select ... for update, then subtracts in one update, so a concurrent increment of the same row is
+-- re-read before subtracting and never lost; rows it brings to zero are then deleted by a second
+-- statement. The increment is an upsert whose rows arrive ordered by key. An update decrements its
+-- old keys, then increments its new keys.
 
 create function public.activity_events_count_rollup()
   returns trigger
@@ -76,6 +81,21 @@ begin
   end if;
 
   if tg_op in ('DELETE', 'UPDATE') then
+    perform 1
+    from public.activity_event_daily_counts c
+    join (
+      select distinct o.workspace_id, (o.occurred_at at time zone 'UTC')::date as day, o.type_id, o.provider,
+        o.external_account_id
+      from old_rows o
+    ) g
+      on c.workspace_id = g.workspace_id
+      and c.day = g.day
+      and c.type_id = g.type_id
+      and c.provider is not distinct from g.provider
+      and c.external_account_id is not distinct from g.external_account_id
+    order by c.workspace_id, c.day, c.type_id, c.provider, c.external_account_id
+    for update of c;
+
     with gone as (
       select o.workspace_id, (o.occurred_at at time zone 'UTC')::date as day, o.type_id, o.provider,
         o.external_account_id, count(*)::int as n
