@@ -3,6 +3,7 @@ import { connection } from "next/server";
 import type { ReactNode } from "react";
 
 import { ProjectionNote } from "@/components/dashboard/value-meta";
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { liveProviderIds } from "@/lib/adapters/types";
 import { inScope, scopedItem } from "@/lib/alerts/evaluate";
 import { DEFAULT_CURRENCIES, minorUnitsToDecimalString, type AlertScope, type ProviderId } from "@/lib/alerts/rule-schema";
@@ -98,7 +99,7 @@ export async function AlertSettings({
    */
   function budgetProjection(budget: Budget): ReactNode {
     const scoped = spendRows.filter((row) => row.currency === budget.currency && inScope(budget, scopedItem(row)));
-    const spend = projectSpend(scoped, now).find((projection) => projection.currency === budget.currency);
+    const spend = projectSpend(scoped, declaredProjectedSpend, now).find((projection) => projection.currency === budget.currency);
     if (spend === undefined) return null;
     const text = budgetProjectionText(spend, budget.amount_minor);
     return (

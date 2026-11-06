@@ -2,7 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { availableProviders } from "@/lib/adapters/registry";
+import { availableProviders, declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -129,6 +129,7 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
       projects: new Map(projects.data.map((project) => [project.id, project.name])),
       connections: new Map(connections.data.map((connection) => [connection.id, connection.display_name])),
     },
+    projectedSpend: declaredProjectedSpend,
     now,
   });
   if (triggers.length === 0) return { triggered: 0 };

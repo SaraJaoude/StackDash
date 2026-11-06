@@ -1,5 +1,6 @@
 import "server-only";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { loadSnapshots } from "@/lib/alerts/run";
 import { severityFor } from "@/lib/alerts/evaluate";
 import { snapshotWindowStart } from "@/lib/data/dashboard";
@@ -260,7 +261,14 @@ export function createSupabaseNotificationStore(): NotificationStore {
       if (connections.error) throw failure("connections read", connections.error);
       if (accounts.error) throw failure("accounts read", accounts.error);
       if (projects.error) throw failure("projects read", projects.error);
-      return { connections: connections.data, accounts: accounts.data, projects: projects.data, snapshots, now };
+      return {
+        connections: connections.data,
+        accounts: accounts.data,
+        projects: projects.data,
+        snapshots,
+        projectedSpend: declaredProjectedSpend,
+        now,
+      };
     },
 
     async countHighlights(workspaceId, start, end) {

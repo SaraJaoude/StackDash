@@ -363,9 +363,8 @@ export function billingMetrics(
       provenance: fromApi,
     });
   }
-  // Only beside the current total: the dashboard's own projections (#167, `spendToCount`) take
-  // estimated spend for an account with no verified spend in that currency, so a projection sent
-  // alone would be projected forward again as if it were spend so far.
+  // Only beside the current total, so the projection is never PostHog's only spend figure. It is
+  // declared a projection (`projectedSpend`), so no reading of spend counts it as spent so far (#223).
   const projected = billing.projected_total_amount_usd_after_discount ?? billing.projected_total_amount_usd;
   if (current != null && projected != null) {
     metrics.push({

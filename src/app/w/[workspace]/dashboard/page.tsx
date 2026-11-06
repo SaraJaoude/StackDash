@@ -193,7 +193,7 @@ async function DashboardContent({
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const counts = bucketEventCounts(eventCounts, trend, now);
-  const input = { ...data, now };
+  const input = { ...data, projectedSpend: declaredProjectedSpend, now };
   // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
   // resets what counts as changed.
   return (

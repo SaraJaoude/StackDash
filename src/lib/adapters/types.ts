@@ -215,8 +215,9 @@ export interface ProviderAdapter {
   // dashboard headline (#173) sums these readings as the provider's signups. Omitted when none.
   readonly signupDailyTotals?: readonly string[];
   // Estimated spend metric keys whose reading is a projection for the whole billing period (what
-  // the period is expected to cost), not money spent so far. The dashboard headline (#173) leaves
-  // them out of spend, whatever their period looks like on the day they are read. Omitted when none.
+  // the period is expected to cost), not money spent so far. Every reading of spend (dashboard,
+  // headline, digests, alerts, projections, daily summary) leaves them out, whatever their period
+  // looks like on the day they are read (`isDeclaredProjection`, #223). Omitted when none.
   readonly projectedSpend?: readonly string[];
   readonly oauth: OAuthDescriptor;
   // Decided on #37: each adapter declares how often it polls, hourly unless its provider's

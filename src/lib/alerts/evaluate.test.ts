@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
+
 import {
   alertDedupeKey,
   evaluateAlerts,
@@ -141,7 +143,14 @@ function evaluate(
   snapshots: readonly AlertSnapshotInput[],
   options: { budgets?: readonly BudgetInput[]; now?: Date } = {},
 ) {
-  return evaluateAlerts({ rules, snapshots, budgets: options.budgets ?? [BUDGET], names: NAMES, now: options.now ?? NOW });
+  return evaluateAlerts({
+    rules,
+    snapshots,
+    budgets: options.budgets ?? [BUDGET],
+    names: NAMES,
+    projectedSpend: declaredProjectedSpend,
+    now: options.now ?? NOW,
+  });
 }
 
 describe("allowance_percent thresholds", () => {
@@ -436,6 +445,15 @@ describe("spend_amount", () => {
   it("ignores estimated spend from a past period when choosing the fallback", () => {
     const september = { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z" };
     expect(evaluate([spendRule(1, "USD")], [estimatedSpend(3000, september)])).toEqual([]);
+  });
+
+  // PostHog's projected spend, Railway's estimated bill, and the Example provider's month estimate.
+  it.each(declaredProjectedSpend)("never counts %s, a declared projection, as spend, even with no verified spend", (metricKey) => {
+    // The declared key decides, whichever provider reports it: alone, and beside verified spend.
+    const projection = estimatedSpend(3000, { metric_key: metricKey, period_end: "2026-11-01T00:00:00Z" });
+    expect(evaluate([spendRule(1, "USD")], [projection])).toEqual([]);
+    const [trigger] = evaluate([spendRule(1, "USD")], [spend(2000, "USD"), projection]);
+    expect(trigger).toMatchObject({ isEstimated: false, observed: { amountMinor: 2000, currency: "USD" } });
   });
 
   it("does not call verified spend estimated", () => {
