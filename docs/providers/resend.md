@@ -33,7 +33,7 @@ Query parameters: `client_id`, `response_type=code`, `redirect_uri` (exact match
 
 Resend redirects the browser to its dashboard consent screen, where the user signs in and picks **which team** the app can access. One grant covers one Resend team, so one DevMacro connection maps to one Resend team.
 
-The discovery document advertises `authorization_response_iss_parameter_supported: true`. If the callback carries `iss`, check it equals `https://api.resend.com`.
+The discovery document advertises `authorization_response_iss_parameter_supported: true`. Following [RFC 9207, section 2.4](https://www.rfc-editor.org/rfc/rfc9207#section-2.4), DevMacro rejects a callback whose `iss` is missing, empty, or anything other than `https://api.resend.com`, before calling the token endpoint.
 
 Error handling on authorize has two shapes, and the callback must not assume it always receives an error redirect:
 
