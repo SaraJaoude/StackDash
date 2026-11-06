@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
-import { test, type Browser, type BrowserContext } from "@playwright/test";
+import { test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
 import { adminClient, type Admin } from "./fixtures/db";
 
 /*
- * Account deletion (#42). Every test signs in as fresh synthetic users created here and removed
- * afterwards; the shared e2e owner and viewer are never deleted. The web server runs with
- * DEVMACRO_ENABLE_FAKE_PROVIDER=1, so the seeded fake connection never reaches a live provider.
+ * Account deletion (#42) and the account's place in the headers (#175). Every test signs in as
+ * fresh synthetic users created here and removed afterwards; the shared e2e owner and viewer are
+ * never deleted. The web server runs with DEVMACRO_ENABLE_FAKE_PROVIDER=1, so the seeded fake
+ * connection never reaches a live provider.
  */
 
 async function signedInContext(browser: Browser, user: SyntheticUser): Promise<BrowserContext> {
@@ -204,6 +205,127 @@ test.describe("the account header", () => {
       await page.setViewportSize({ width: 640, height: 844 });
       await expect(workspace).toBeVisible();
       await expect(workspace).toHaveAttribute("href", "/app");
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
+/*
+ * Who is signed in, in the workspace header (#175). Avatars are answered here, never fetched from
+ * GitHub: the browser loads them directly (the app CSP allows avatars.githubusercontent.com).
+ */
+const AVATAR_URL = "https://avatars.githubusercontent.com/u/1?v=4";
+const AVATAR_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#3b82f6"/></svg>';
+
+async function openWorkspace(context: BrowserContext): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto("/app");
+  await expect(page).toHaveURL(/\/w\/[a-z2-7]{10}\//);
+  await expect(page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  return page;
+}
+
+/**
+ * Asserts that the header's top-row controls sit in order without overlapping, each holds its own
+ * content and is at least 24 by 24 pixels, and the page does not scroll sideways (#198).
+ */
+async function expectTopRowFits(page: Page, accountName: string): Promise<void> {
+  const header = page.getByRole("banner");
+  const controls = [
+    header.getByRole("link", { name: "DevMacro", exact: true }),
+    header.getByRole("button", { name: /^Workspace: / }),
+    header.getByRole("button").filter({ has: page.getByTestId("live-dot") }),
+    header.getByRole("link", { name: accountName, exact: true }),
+    header.getByRole("button", { name: "Sign out", exact: true }),
+  ];
+  const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
+  for (const [index, box] of boxes.entries()) {
+    if (box === null) throw new Error(`Top-row control ${index} is not rendered.`);
+    expect(box.width, `control ${index} width`).toBeGreaterThanOrEqual(24);
+    expect(box.height, `control ${index} height`).toBeGreaterThanOrEqual(24);
+    const next = boxes[index + 1];
+    if (next) expect(box.x + box.width, `control ${index} ends before control ${index + 1}`).toBeLessThanOrEqual(next.x);
+  }
+  for (const [index, control] of controls.entries()) {
+    expect(await control.evaluate((element) => element.scrollWidth <= element.clientWidth), `control ${index} overflows`).toBe(true);
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)).toBe(true);
+}
+
+test.describe("the workspace header identity", () => {
+  test("shows the GitHub display name and avatar, fits a phone, and opens the Account page by keyboard", async ({ browser }) => {
+    const user = await createSyntheticUser("identity", { full_name: "Ada Example", name: "Ada Example", avatar_url: AVATAR_URL });
+    const context = await signedInContext(browser, user);
+    await context.route("https://avatars.githubusercontent.com/**", (route) =>
+      route.fulfill({ status: 200, contentType: "image/svg+xml", body: AVATAR_SVG }),
+    );
+    try {
+      const page = await openWorkspace(context);
+      const account = page.getByRole("banner").getByRole("link", { name: "Account: Ada Example", exact: true });
+      await expect(account).toHaveAttribute("href", "/account");
+      await expect(account).toHaveText("Account: Ada Example");
+      await expect(account.getByText("Ada Example", { exact: true })).toBeVisible();
+
+      // The name beside it already says who this is, so the avatar is decorative, and it loaded.
+      const avatar = account.getByTestId("account-avatar");
+      await expect(avatar).toHaveAttribute("alt", "");
+      await expect(avatar).toHaveAttribute("src", `${AVATAR_URL}&s=64`);
+      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(64);
+
+      const scan = await new AxeBuilder({ page }).include("header").analyze();
+      expect(scan.violations).toEqual([]);
+      await expectTopRowFits(page, "Account: Ada Example");
+
+      // Keyboard: tab forward from the workspace switcher until the identity link has focus.
+      await page.getByRole("banner").getByRole("button", { name: /^Workspace: / }).focus();
+      for (let presses = 0; presses < 10 && !(await account.evaluate((link) => link === document.activeElement)); presses++) {
+        await page.keyboard.press("Tab");
+      }
+      await expect(account).toBeFocused();
+      expect(await account.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
+
+      // On a phone the avatar stands for the link; the name is visually hidden (sr-only, so 1 px,
+      // which Playwright still counts as visible) and stays in the link's accessible name.
+      for (const width of [375, 320]) {
+        await page.setViewportSize({ width, height: 700 });
+        await expect
+          .poll(async () => (await account.getByText("Ada Example", { exact: true }).boundingBox())?.width)
+          .toBeLessThanOrEqual(1);
+        await expect(avatar).toBeVisible();
+        await expectTopRowFits(page, "Account: Ada Example");
+      }
+
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/account$/);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+
+  test("falls back to the GitHub username and a person icon when there is no display name and the avatar fails", async ({
+    browser,
+  }) => {
+    const user = await createSyntheticUser("identity-fallback", { avatar_url: AVATAR_URL });
+    const context = await signedInContext(browser, user);
+    await context.route("https://avatars.githubusercontent.com/**", (route) => route.fulfill({ status: 404, body: "" }));
+    try {
+      const page = await openWorkspace(context);
+      const accountName = `Account: ${user.userName}`;
+      const account = page.getByRole("banner").getByRole("link", { name: accountName, exact: true });
+      await expect(account.getByText(user.userName, { exact: true })).toBeVisible();
+
+      // The failed avatar is removed rather than drawn broken, and the person icon shows instead.
+      await expect(account.getByTestId("account-avatar")).toHaveCount(0);
+      await expect(account.getByTestId("account-avatar-fallback")).toBeVisible();
+      await expectTopRowFits(page, accountName);
+
+      await account.click();
+      await expect(page).toHaveURL(/\/account$/);
     } finally {
       await context.close();
       await removeSyntheticUser(user);

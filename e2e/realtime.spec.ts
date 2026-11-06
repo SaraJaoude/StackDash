@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import {
   createSyntheticUser,
+  E2E_USERS,
   expect,
   ownerTest,
   removeSyntheticUser,
@@ -226,7 +227,7 @@ ownerTest.describe("live updates", () => {
       await expect(page.getByRole("heading", { name: "No activity yet" })).toHaveCount(0);
 
       // Leaving the workspace removes the subscription.
-      await page.getByRole("link", { name: "Account", exact: true }).click();
+      await page.getByRole("link", { name: `Account: ${E2E_USERS.owner.userName}`, exact: true }).click();
       await expect(page).toHaveURL(/\/account$/);
       await expect.poll(live.left, { timeout: LIVE_TIMEOUT_MS }).toBe(true);
     } finally {

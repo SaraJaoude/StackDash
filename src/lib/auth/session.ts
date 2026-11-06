@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache } from "react";
 
+import { accountProfile, type AccountProfile } from "@/lib/account/profile";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
-export type SessionUser = { id: string; email: string | null };
+export type SessionUser = { id: string; email: string | null; profile: AccountProfile };
 
 /**
  * The signed-in user for this request, or null.
@@ -36,8 +37,13 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   }
   if (data === null) return null;
 
-  const { sub, email } = data.claims;
-  return { id: sub, email: typeof email === "string" && email !== "" ? email : null };
+  const { sub, email, user_metadata: metadata } = data.claims;
+  return {
+    id: sub,
+    email: typeof email === "string" && email !== "" ? email : null,
+    // As of the token's issue; each GitHub sign-in rewrites the metadata and issues a new token.
+    profile: accountProfile(metadata),
+  };
 });
 
 /**
