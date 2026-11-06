@@ -7,6 +7,7 @@ import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
 import {
   ALERT_TRIGGERED_TYPE_ID,
@@ -33,10 +34,8 @@ type Tables = Database["public"]["Tables"];
 /** Snapshots older than this cannot belong to a current billing cycle; retention keeps 13 months. */
 const SNAPSHOT_WINDOW_DAYS = 45;
 
-// PostgREST returns at most 1000 rows per request (supabase/config.toml max_rows), so snapshots
-// are read in pages of that size, up to a hard cap.
-const SNAPSHOT_PAGE_SIZE = 1000;
-const SNAPSHOT_MAX_PAGES = 10;
+// Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
+const SNAPSHOT_MAX_ROWS = 10_000;
 
 // Bounds for the small lists. A workspace in the MVP has a handful of each.
 const RULES_LIMIT = 500;
@@ -57,9 +56,7 @@ export async function loadSnapshots(
   workspaceId: string,
   sinceDate: string,
 ): Promise<SnapshotInput[]> {
-  const rows: SnapshotInput[] = [];
-  for (let page = 0; page < SNAPSHOT_MAX_PAGES; page += 1) {
-    const from = page * SNAPSHOT_PAGE_SIZE;
+  const { rows, complete } = await readAllPages(async (from, to) => {
     const { data, error } = await db
       .from("usage_snapshots")
       .select(SNAPSHOT_COLUMNS)
@@ -67,13 +64,12 @@ export async function loadSnapshots(
       .gte("snapshot_date", sinceDate)
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })
-      .range(from, from + SNAPSHOT_PAGE_SIZE - 1);
+      .range(from, to);
     if (error) throw new Error("Failed to load usage snapshots for alerts", { cause: error });
-    rows.push(...data);
-    if (data.length < SNAPSHOT_PAGE_SIZE) return rows;
-  }
+    return data;
+  }, SNAPSHOT_MAX_ROWS);
   // Newest first, so what was left out is the oldest history; current values are still evaluated.
-  log.warn("alerts.snapshots_truncated", { workspaceId, rows: rows.length });
+  if (!complete) log.warn("alerts.snapshots_truncated", { workspaceId, rows: rows.length });
   return rows;
 }
 

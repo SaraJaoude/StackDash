@@ -5,6 +5,7 @@ import { cache } from "react";
 import type { AccountInput, ConnectionInput, ProjectInput, SnapshotInput } from "@/lib/dashboard/aggregate";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
+import { readAllPages } from "@/lib/supabase/paging";
 import { createClient } from "@/lib/supabase/server";
 
 /** The workspace's connections, included accounts, and projects: what the scope filter offers. */
@@ -19,10 +20,8 @@ export type DashboardData = WorkspaceScope & Readonly<{ snapshots: SnapshotInput
 /** Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months. */
 export const SNAPSHOT_WINDOW_DAYS = 45;
 
-// PostgREST returns at most 1000 rows per request (supabase/config.toml max_rows), so snapshots
-// are read in pages of that size, up to a hard cap.
-const SNAPSHOT_PAGE_SIZE = 1000;
-const SNAPSHOT_MAX_PAGES = 10;
+// Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
+const SNAPSHOT_MAX_ROWS = 10_000;
 
 // Bounds for the small lists. A workspace in the MVP has a handful of each.
 const CONNECTIONS_LIMIT = 100;
@@ -54,9 +53,7 @@ export async function loadSnapshots(
   metricKeys?: readonly string[],
 ): Promise<SnapshotInput[]> {
   const supabase = await createClient();
-  const rows: SnapshotInput[] = [];
-  for (let page = 0; page < SNAPSHOT_MAX_PAGES; page += 1) {
-    const from = page * SNAPSHOT_PAGE_SIZE;
+  const { rows, complete } = await readAllPages(async (from, to) => {
     let query = supabase
       .from("usage_snapshots")
       .select(SNAPSHOT_COLUMNS)
@@ -67,13 +64,12 @@ export async function loadSnapshots(
     const { data, error } = await query
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })
-      .range(from, from + SNAPSHOT_PAGE_SIZE - 1);
+      .range(from, to);
     if (error) throw new Error("Failed to load usage snapshots", { cause: error });
-    rows.push(...data);
-    if (data.length < SNAPSHOT_PAGE_SIZE) return rows;
-  }
+    return data;
+  }, SNAPSHOT_MAX_ROWS);
   // Newest first, so what was left out is the oldest history; current values are still shown.
-  log.warn("dashboard.snapshots_truncated", { workspaceId, purpose, rows: rows.length });
+  if (!complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose, rows: rows.length });
   return rows;
 }
 
