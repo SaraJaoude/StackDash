@@ -27,23 +27,38 @@ const LIVE_TIMEOUT_MS = 15_000;
 const FrameSchema = z.tuple([z.unknown(), z.unknown(), z.string(), z.string(), z.unknown()]);
 // Sent by Realtime once the channel's postgres_changes subscription is streaming.
 const SubscribedSchema = z.object({ extension: z.literal("postgres_changes"), status: z.literal("ok") });
+// What a test reads from a postgres_changes payload: the table, the event type, and the row's
+// workspace, plus its title for an activity event.
+const LiveChangeSchema = z
+  .object({
+    data: z.object({
+      table: z.string(),
+      type: z.string(),
+      record: z.object({ workspace_id: z.string(), title: z.string().optional() }),
+    }),
+  })
+  .transform(({ data }) => data);
 
 type LiveChannel = Readonly<{
   subscribed: () => boolean;
   left: () => boolean;
-  changesReceived: () => number;
+  /** Every postgres_changes payload the channel received, in order, unparsed. */
+  changes: () => readonly unknown[];
 }>;
 
 /**
  * Watches the page's Realtime socket for the workspace channel that LiveRefresh opens. Call it
  * before navigating, so no frame is missed. Waiting for the subscription before writing a row is
- * what makes the tests deterministic: a row written earlier is never delivered.
+ * what makes that row's delivery certain. A row written earlier can still arrive after the
+ * subscription (#226): Realtime reads changes from the replication slot behind the writes and
+ * matches them against the subscriptions that exist when it reads them. So a test asserts on the
+ * changes it wrote after subscribing, never on an exact total of what the channel received.
  */
 function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
   const topicPrefix = `realtime:workspace-live:${workspaceId}:`;
   let subscribed = false;
   let left = false;
-  let changes = 0;
+  const changes: unknown[] = [];
 
   function frameOf(data: string | Buffer): z.infer<typeof FrameSchema> | null {
     if (typeof data !== "string") return null;
@@ -58,14 +73,14 @@ function watchLiveChannel(page: Page, workspaceId: string): LiveChannel {
       if (frame === null) return;
       const [, , , event, body] = frame;
       if (event === "system" && SubscribedSchema.safeParse(body).success) subscribed = true;
-      if (event === "postgres_changes") changes += 1;
+      if (event === "postgres_changes") changes.push(body);
     });
     socket.on("framesent", ({ payload }) => {
       if (frameOf(payload)?.[3] === "phx_leave") left = true;
     });
   });
 
-  return { subscribed: () => subscribed, left: () => left, changesReceived: () => changes };
+  return { subscribed: () => subscribed, left: () => left, changes: () => changes };
 }
 
 async function expectSubscribed(channel: LiveChannel): Promise<void> {
@@ -313,8 +328,15 @@ ownerTest.describe("live updates", () => {
       });
       await expect.poll(() => subscription.delivered().length, { timeout: LIVE_TIMEOUT_MS }).toBeGreaterThan(0);
 
-      // The page filter: the viewer's tab heard about the sentinel and nothing else.
-      expect(viewerLive.changesReceived()).toBe(1);
+      // The page filter: nothing about `ownersOnly` reached the viewer's tab on any table, and of
+      // the events, only the sentinel. The connection seeded for `viewers` before the tab
+      // subscribed may arrive as well (#226), so the events written after subscribing are what is
+      // counted, not every change the tab received.
+      const viewerChanges = z.array(LiveChangeSchema).parse(viewerLive.changes());
+      expect(viewerChanges.filter(({ record }) => record.workspace_id !== viewers.id)).toEqual([]);
+      expect(viewerChanges.filter(({ table }) => table === "activity_events")).toEqual([
+        { table: "activity_events", type: "INSERT", record: { workspace_id: viewers.id, title: sentinelTitle } },
+      ]);
       await expect(viewerPage.getByRole("heading", { name: ownerOnlyTitle })).toHaveCount(0);
       // Row level security: the binding filtered on `ownersOnly` delivered nothing.
       expect(z.array(DeliveredEventSchema).parse(subscription.delivered())).toEqual([
@@ -613,7 +635,7 @@ ownerTest.describe("arriving data", () => {
         await nav.getByRole("link", { name: "Timeline" }).click();
         await expect(page).toHaveURL(/\/timeline$/);
         await expect(page.getByRole("heading", { name: "Earlier event", exact: true })).toBeVisible();
-        const delivered = live.changesReceived();
+        const delivered = live.changes().length;
         const said = (await announcements()).length;
         await updateMoneySnapshot(snapshotId, amountMinor);
         // An event in the same sync shows when the timeline has refreshed past the spend change. It
@@ -623,7 +645,7 @@ ownerTest.describe("arriving data", () => {
         const row = page.getByRole("listitem").filter({ has: page.getByRole("heading", { name: title, exact: true }) });
         await expect(row.getByText(/^,?\s*New$/)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
         await expect.poll(async () => (await announcements()).slice(said)).toEqual(["1 new event."]);
-        await expect.poll(live.changesReceived).toBeGreaterThanOrEqual(delivered + 2);
+        await expect.poll(() => live.changes().length).toBeGreaterThanOrEqual(delivered + 2);
       }
 
       /** Lets any animation the return render started fire its animationstart: two frames. */
