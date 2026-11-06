@@ -406,6 +406,8 @@ describe("sync", () => {
         pricingSource: "PostHog's own projection for the billing period, from its billing overview",
       },
     });
+    // A projection for the whole period, so the dashboard headline (#173) never counts it as spend so far.
+    expect(postHogAdapter.projectedSpend).toEqual(["posthog.spend.projected"]);
     expect(byKey(result.metrics, "posthog.spend.current").timeframe).toEqual({
       type: "period",
       start: new Date("2026-11-01T00:00:00.000Z"),
@@ -444,6 +446,8 @@ describe("sync", () => {
       unit: "signups",
       timeframe: { type: "period", start: new Date("2026-11-04T00:00:00.000Z"), end: new Date("2026-11-05T00:00:00.000Z") },
     });
+    // Declared as a daily signup total, so the dashboard headline counts it as PostHog's signups (#173).
+    expect(postHogAdapter.signupDailyTotals).toEqual(["posthog.signups.daily"]);
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
   });
 
@@ -578,6 +582,20 @@ describe("billingMetrics", () => {
     const [spend] = metricsFor({ current_total_amount_usd: "0.00" });
     expect(spend).toMatchObject({ metricKey: "posthog.spend.current", amountMinor: 0, timeframe: { type: "point", at: NOW } });
     expect(spend).not.toHaveProperty("resetsAt");
+  });
+
+  it("sends PostHog's projection beside the current total", () => {
+    const keys = metricsFor({ current_total_amount_usd: "1.00", projected_total_amount_usd: "3.00" }).map((metric) => metric.metricKey);
+    expect(keys).toEqual(["posthog.spend.current", "posthog.spend.projected"]);
+  });
+
+  // With no verified spend beside it, the dashboard's own projections (#167) would take the
+  // projection as spend so far and project it forward again.
+  it("sends no projection when PostHog reports no current total", () => {
+    for (const current of [{}, { current_total_amount_usd: null }]) {
+      const billing = { ...current, projected_total_amount_usd: "3.00", projected_total_amount_usd_after_discount: "2.40" };
+      expect(metricsFor(billing)).toEqual([]);
+    }
   });
 
   it("reads a billing period whatever its interval says", () => {

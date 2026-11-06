@@ -88,7 +88,7 @@ Fields read, everything else is dropped at the parse boundary (including `accoun
 | Field | Becomes |
 |---|---|
 | `current_total_amount_usd_after_discount`, else `current_total_amount_usd` | `posthog.spend.current`, verified spend |
-| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection) |
+| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173). Sent only beside a current total, so the dashboard's own projections (#167) never take it as spend so far |
 | `billing_period.current_period_start`, `current_period_end` | Timeframe and reset time of every billing metric |
 | `products[].current_usage`, `unit` | `posthog.<type>.usage` |
 | `products[].free_allocation` | `posthog.<type>.free` (included allowance) and `posthog.<type>.free_remaining` |
@@ -127,6 +127,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 - Billing period: `current_period_start` and `current_period_end` are read as ISO 8601 timestamps with `Z`, an offset, or no zone, which is read as UTC. Anything else fails the sync as an unexpected shape.
 - Freshness: billing usage is not real time; PostHog's billing page and the API read the same billing service. Signups are counted once a UTC day has ended.
 - The first sync reports the last 7 complete UTC days of signups; later syncs report only days that ended since the last one, at most 7 back after a long pause.
+- The organization's signups for the latest whole UTC day are also a `usage` metric, `posthog.signups.daily`, over exactly that day. The adapter declares it as its daily signup total (`signupDailyTotals`), so the dashboard headline counts PostHog's signups by summing these daily readings (#173). Each sync stores only the latest day as a reading, so a day no sync reported in time (a pause of more than a day) has no reading, and the headline names PostHog unavailable for a window that includes that day; the timeline events still cover it.
 
 ### Timeline events (by polling)
 

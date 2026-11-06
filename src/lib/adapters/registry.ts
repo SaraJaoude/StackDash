@@ -3,6 +3,7 @@ import "server-only";
 import { log } from "@/lib/log/logger";
 
 import { digitaloceanAdapter } from "./digitalocean";
+import type { EventType } from "./events";
 import { fakeAdapter, FAKE_PROVIDER_ENABLE_ENV } from "./fake";
 import { githubAdapter } from "./github";
 import { postHogAdapter } from "./posthog";
@@ -80,6 +81,20 @@ export function availableProviders(): ProviderAdapter[] {
   const adapters = liveProviderIds.map((id) => getAdapter(id));
   return isFakeProviderEnabled() ? [...adapters, fakeAdapter] : adapters;
 }
+
+/**
+ * What adapters declare for figures across providers: every event type, every usage metric that
+ * is a daily signup total, every estimated spend metric that is a projection, and the providers
+ * that report revenue. The fake provider's are included whatever the flag says, because its
+ * stored data outlives the flag; simulated twins declare the live adapters' own.
+ */
+const declaringAdapters: readonly ProviderAdapter[] = [...Object.values(liveAdapters), fakeAdapter];
+export const declaredEventTypes: readonly EventType[] = declaringAdapters.flatMap((adapter) => adapter.eventTypes);
+export const declaredSignupDailyTotals: readonly string[] = declaringAdapters.flatMap((adapter) => adapter.signupDailyTotals ?? []);
+export const declaredProjectedSpend: readonly string[] = declaringAdapters.flatMap((adapter) => adapter.projectedSpend ?? []);
+export const revenueProviderIds: readonly ProviderId[] = declaringAdapters
+  .filter((adapter) => adapter.capabilities.revenue)
+  .map((adapter) => adapter.id);
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];

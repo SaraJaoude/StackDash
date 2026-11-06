@@ -104,6 +104,8 @@ Each sync reads the 10 most recently active, non-archived projects of the namesp
 
 `<since>` is the previous sync's start minus 10 minutes, or 7 days back on the first sync. Dedupe keys (`gitlab.pipeline:<project>:<pipeline>:<status>` and the like) make the overlap and re-reads idempotent. A `403` or `404` from one project endpoint (for example CI/CD turned off in that project) skips that endpoint for that project only. A full page is logged, because older items in the window were not read.
 
+The dashboard headline's deploys (#173) count `gitlab.deployment.succeeded` as a succeeded deploy and `gitlab.deployment.failed` as a failed one. Pipelines are CI runs that may deploy nothing, and releases and merges are not deployments, so none of them counts. GitLab reports no spend, so it declares no projected spend.
+
 ## Verified, estimated, unavailable
 
 | Value | Status |

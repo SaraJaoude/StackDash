@@ -131,6 +131,9 @@ const permissions: readonly (Permission & { scope: Scope })[] = [
 const requestedScopes: readonly Scope[] = permissions.map((permission) => permission.scope);
 
 // Exported, like the metric and event builders below, for the local simulator (#131).
+// No `category` (#173): a paid order and a started subscription are payments by a customer, not
+// signups or deploys, so the headline's signups leave them out, as they do Stripe's customer and
+// subscription events. Polar's revenue reaches the headline through its revenue metric instead.
 export const eventTypes = [
   {
     id: "polar.order.paid",

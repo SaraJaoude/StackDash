@@ -4,6 +4,7 @@ import {
   addDecimals,
   currencyMinorDigits,
   decimalToMinorUnits,
+  divideMinorUnits,
   multiplyDecimals,
   parseDecimal,
   toMinorUnits,
@@ -58,6 +59,30 @@ describe("addDecimals rounds once at the end", () => {
 
   it("empty list is zero", () => {
     expect(toMinorUnits(addDecimals([]), "USD")).toBe(0);
+  });
+});
+
+describe("divideMinorUnits", () => {
+  it.each([
+    ["exact", 500, 4, 125],
+    ["below half rounds down", 500, 3, 167],
+    ["half rounds to even, down", 500, 8, 62],
+    ["half rounds to even, up", 300, 8, 38],
+    ["one share", 41, 1, 41],
+    ["zero", 0, 7, 0],
+    ["negative half rounds to even", -500, 8, -62],
+    ["negative below half", -500, 3, -167],
+  ])("%s", (_name, amountMinor, divisor, expected) => {
+    expect(divideMinorUnits(amountMinor, divisor)).toBe(expected);
+  });
+
+  it.each([
+    ["a zero divisor", 100, 0],
+    ["a negative divisor", 100, -2],
+    ["a fractional divisor", 100, 1.5],
+    ["a fractional amount", 10.5, 2],
+  ])("rejects %s", (_name, amountMinor, divisor) => {
+    expect(() => divideMinorUnits(amountMinor, divisor)).toThrow(InvalidDecimalError);
   });
 });
 

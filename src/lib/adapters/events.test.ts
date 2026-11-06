@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { validateAdapterEvents, type ActivityEvent, type EventType } from "./events";
+
+import { EventTypeSchema, validateAdapterEvents, type ActivityEvent, type EventType } from "./events";
+import { declaredEventTypes } from "./registry";
 
 const eventTypes: EventType[] = [
   {
@@ -70,5 +72,25 @@ describe("validateAdapterEvents", () => {
   it("rejects every event when the adapter declares no event types", () => {
     const result = validateAdapterEvents([], [failedDeployment]);
     expect(result.ok).toBe(false);
+  });
+});
+
+describe("EventTypeSchema", () => {
+  const declaration = eventTypes[0];
+
+  it("accepts a declaration with no category, as before categories existed", () => {
+    expect(EventTypeSchema.safeParse(declaration).success).toBe(true);
+  });
+
+  it.each(["signup", "deploy_succeeded", "deploy_failed"] as const)("accepts the %s category", (category) => {
+    expect(EventTypeSchema.safeParse({ ...declaration, category }).success).toBe(true);
+  });
+
+  it("rejects a category it does not name", () => {
+    expect(EventTypeSchema.safeParse({ ...declaration, category: "payment" }).success).toBe(false);
+  });
+
+  it("accepts every registered adapter's declarations", () => {
+    for (const eventType of declaredEventTypes) expect(EventTypeSchema.safeParse(eventType).error).toBeUndefined();
   });
 });

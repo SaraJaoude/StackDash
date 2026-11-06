@@ -89,6 +89,8 @@ const NAME_MAX = 60;
 
 const BILLING_CURRENCY = "USD";
 export const PRICING_SOURCE = "https://docs.railway.com/pricing/plans";
+// The bill estimated for the whole billing period, declared as projected spend.
+const PROJECTED_SPEND_METRIC_KEY = "railway.estimate.bill";
 
 type QueryName = "workspaces" | "projects" | "deployments" | "billing";
 
@@ -132,6 +134,13 @@ const BILLING_QUERY = `query DevMacroBilling($workspaceId: String!, $measurement
 }`;
 
 // Exported, like `deploymentEvents` and `billingMetrics` below, for the local simulator.
+// The headline's deploys (#173) count "deployed" as a success and "failed" as a failure. The
+// others have no category. "Building" only says a build started, and the same deployment's final
+// event says how it ended. A crash comes after the deployment went live, dated when it crashed,
+// and a poll that saw it running already counted it. A removal usually follows a "deployed" event
+// for the same deployment, so counting it would count most deployments twice; the cost is that a
+// deployment that succeeded and was replaced before any poll saw it (only its removal reaches the
+// timeline) is not counted.
 export const eventTypes = [
   {
     id: "railway.deployment.building",
@@ -144,12 +153,14 @@ export const eventTypes = [
     label: "Deployment deployed",
     description: "A Railway deployment finished and is running.",
     shownByDefault: true,
+    category: "deploy_succeeded",
   },
   {
     id: "railway.deployment.failed",
     label: "Deployment failed",
     description: "A Railway deployment failed to build or deploy.",
     shownByDefault: true,
+    category: "deploy_failed",
   },
   {
     id: "railway.deployment.crashed",
@@ -410,7 +421,7 @@ export function billingMetrics(
   metrics.push({
     ...periodBase,
     kind: "estimated_spend",
-    metricKey: "railway.estimate.bill",
+    metricKey: PROJECTED_SPEND_METRIC_KEY,
     label: "Railway bill, estimated for the billing period, before credits",
     provenance: { source: "derived", endpoint, pricingSource: PRICING_SOURCE },
     // The fee covers usage up to the included amount; only usage beyond it is added.
@@ -745,6 +756,7 @@ export const railwayAdapter: ProviderAdapter = {
     "Credit balance, billing period, plan, and plan limits per service",
   ],
   eventTypes,
+  projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

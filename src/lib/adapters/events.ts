@@ -7,14 +7,27 @@ import {
 } from "./types";
 
 /**
+ * What an event stands for across providers, for figures that count one kind of event (the
+ * dashboard headline's signups and deploys, #173). Declared by the adapter, so a new provider's
+ * events are counted without a second list to keep in step. Only for one event per signup or
+ * deploy: the figures count events, so a daily summary (`supabase.auth.daily_summary`,
+ * `posthog.signups.daily`) has no category. A provider that reports signups only as a daily total
+ * declares the usage metric holding it instead (`ProviderAdapter.signupDailyTotals`), and the
+ * headline sums that metric's daily readings.
+ */
+export const EventCategorySchema = z.enum(["signup", "deploy_succeeded", "deploy_failed"]);
+
+/**
  * Declared by each adapter. Events carry the id so members can hide event
- * types later (#119) without reworking stored events.
+ * types later (#119) without reworking stored events. `category` is left out
+ * for events that are none of the categories.
  */
 export const EventTypeSchema = z.strictObject({
   id: AdapterScopedKeySchema,
   label: z.string().trim().min(1).max(80),
   description: z.string().trim().min(1).max(280),
   shownByDefault: z.boolean(),
+  category: EventCategorySchema.optional(),
 });
 
 export const EventSeveritySchema = z.enum(["info", "success", "warning", "critical"]);
@@ -36,6 +49,7 @@ export const ActivityEventSchema = z.strictObject({
   url: z.url({ protocol: /^https$/ }).optional(),
 });
 
+export type EventCategory = z.infer<typeof EventCategorySchema>;
 export type EventType = z.infer<typeof EventTypeSchema>;
 export type EventSeverity = z.infer<typeof EventSeveritySchema>;
 export type ActivityEvent = z.infer<typeof ActivityEventSchema>;

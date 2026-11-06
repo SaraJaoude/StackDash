@@ -44,13 +44,14 @@ export function snapshotWindowStart(now: Date): string {
 /**
  * The workspace's snapshots dated `sinceDate` or later, newest first, as one paged query on the
  * `(workspace_id, snapshot_date desc)` index. `purpose` names the caller in the truncation warning.
- * `kinds`, when given, reads only rows of those kinds.
+ * `kinds`, when given, reads only rows of those kinds, and `metricKeys` only those metrics.
  */
 export async function loadSnapshots(
   workspaceId: string,
   sinceDate: string,
   purpose: string,
   kinds?: readonly SnapshotInput["kind"][],
+  metricKeys?: readonly string[],
 ): Promise<SnapshotInput[]> {
   const supabase = await createClient();
   const rows: SnapshotInput[] = [];
@@ -62,6 +63,7 @@ export async function loadSnapshots(
       .eq("workspace_id", workspaceId)
       .gte("snapshot_date", sinceDate);
     if (kinds !== undefined) query = query.in("kind", kinds);
+    if (metricKeys !== undefined) query = query.in("metric_key", metricKeys);
     const { data, error } = await query
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })

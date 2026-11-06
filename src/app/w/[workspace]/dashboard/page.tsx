@@ -11,8 +11,22 @@ import { PageHeader } from "@/components/app/page-header";
 import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
+import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
+import {
+  declaredEventTypes,
+  declaredProjectedSpend,
+  declaredSignupDailyTotals,
+  revenueProviderIds,
+} from "@/lib/adapters/registry";
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import {
+  buildHeadline,
+  HEADLINE_WINDOW_KINDS,
+  headlineEventTypes,
+  headlineWindows,
+  type HeadlineWindowKind,
+} from "@/lib/dashboard/headline";
 import {
   bucketEventCounts,
   canonicalHidden,
@@ -28,6 +42,7 @@ import { projectDashboard } from "@/lib/dashboard/projection";
 import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
+import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
 import { getTrendData, getTrendEventCounts } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
@@ -45,25 +60,40 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-// The page's one URL schema: the shared scope filter, the trend period, and the hidden event
-// marker categories. Unknown or malformed values fall back to the defaults rather than erroring,
-// because the URL is user-editable; other keys are ignored.
+// The page's one URL schema: the shared scope filter, the trend period, the hidden event marker
+// categories, and the headline window. Unknown or malformed values fall back to the defaults
+// rather than erroring, because the URL is user-editable; other keys are ignored.
 const searchParamsSchema = ScopeSearchParamsSchema.extend({
   trend: z.enum(["daily", "monthly"]).catch("daily"),
   [HIDE_MARKER_PARAM]: repeatedParam(isMarkerCategory, MARKER_CATEGORIES.length),
+  window: z.enum(HEADLINE_WINDOW_KINDS).catch("week"),
 });
 
-type TrendView = Readonly<{ trend: TrendGranularity; hidden: readonly MarkerCategory[] }>;
+type DashboardViewParams = Readonly<{
+  trend: TrendGranularity;
+  hidden: readonly MarkerCategory[];
+  window: HeadlineWindowKind;
+}>;
 
 /**
- * Dashboard link keeping the filter. The defaults (the daily trend, every marker shown) stay out
+ * The page's own URL state. The defaults (the daily trend, every marker shown, this week) stay out
  * of the URL, so a demo link carries only what differs.
  */
-function dashboardHref(basePath: string, scope: ScopeFilters, { trend, hidden }: TrendView): string {
+function viewParams({ trend, hidden, window }: DashboardViewParams): Record<string, string | readonly string[]> {
+  return {
+    ...(trend === "daily" ? {} : { trend }),
+    ...(hidden.length === 0 ? {} : { [HIDE_MARKER_PARAM]: hidden }),
+    ...(window === "week" ? {} : { window }),
+  };
+}
+
+/** Dashboard link keeping the filter and the other view choices. */
+function dashboardHref(basePath: string, scope: ScopeFilters, view: DashboardViewParams): string {
   const params = new URLSearchParams();
   appendScopeParams(params, scope);
-  if (trend !== "daily") params.set("trend", trend);
-  for (const category of hidden) params.append(HIDE_MARKER_PARAM, category);
+  for (const [name, value] of Object.entries(viewParams(view))) {
+    for (const item of typeof value === "string" ? [value] : value) params.append(name, item);
+  }
   const search = params.toString();
   return search === "" ? basePath : `${basePath}?${search}`;
 }
@@ -83,7 +113,11 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const access = await requireWorkspace(slug, "viewer");
   const parsed = searchParamsSchema.parse(await searchParams);
   const scope: ScopeFilters = { providers: parsed.provider, projects: parsed.project, accounts: parsed.account };
-  const view: TrendView = { trend: parsed.trend, hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]) };
+  const view: DashboardViewParams = {
+    trend: parsed.trend,
+    hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]),
+    window: parsed.window,
+  };
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
   const reviewYear = latestCardYear(now);
@@ -113,7 +147,7 @@ async function DashboardContent({
 }: {
   access: WorkspaceAccess;
   scope: ScopeFilters;
-  view: TrendView;
+  view: DashboardViewParams;
 }) {
   const { workspace, role } = access;
   const { trend, hidden } = view;
@@ -121,16 +155,21 @@ async function DashboardContent({
   await connection();
   const now = new Date();
   const shown = shownCategories(hidden);
+  const windows = headlineWindows(view.window, now);
+  const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
-  const [workspaceScope, data, trendData, eventCounts, alertsSummary, recentAnomalies] = await Promise.all([
-    getWorkspaceScope(workspace.id),
-    getDashboardData(workspace.id, snapshotWindowStart(now), scope),
-    getTrendData(workspace.id, now, scope),
-    getTrendEventCounts(workspace.id, trend, now, scope, shown),
-    getUnacknowledgedSummary(workspace.id),
-    getRecentAnomalies(workspace.id, anomaliesSince),
-  ]);
+  const [workspaceScope, data, trendData, eventCounts, alertsSummary, headlineSnapshots, headlineEvents, recentAnomalies] =
+    await Promise.all([
+      getWorkspaceScope(workspace.id),
+      getDashboardData(workspace.id, snapshotWindowStart(now), scope),
+      getTrendData(workspace.id, now, scope),
+      getTrendEventCounts(workspace.id, trend, now, scope, shown),
+      getUnacknowledgedSummary(workspace.id),
+      getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
+      getHeadlineEvents(workspace.id, scope, windows, eventTypes),
+      getRecentAnomalies(workspace.id, anomaliesSince),
+    ]);
   const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
 
   if (workspaceScope.connections.length === 0) {
@@ -155,7 +194,8 @@ async function DashboardContent({
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, now };
-  // The page's URL is its scope: a new filter, trend period, or marker choice resets what counts as changed.
+  // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
+  // resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
       <DashboardView
@@ -166,13 +206,32 @@ async function DashboardContent({
         scope={scope}
         scopeOptions={scopeOptions}
         scopeDescription={describeScope(scope, scopeOptions)}
+        filterParams={viewParams(view)}
+        headline={
+          <HeadlineStrip
+            strip={buildHeadline({
+              snapshots: headlineSnapshots,
+              connections: trendData.connections,
+              events: headlineEvents,
+              eventTypes,
+              projectedSpend: declaredProjectedSpend,
+              revenueProviders: revenueProviderIds,
+              kind: view.window,
+              now,
+            })}
+            hrefs={{
+              week: dashboardHref(dashboardPath, scope, { ...view, window: "week" }),
+              month: dashboardHref(dashboardPath, scope, { ...view, window: "month" }),
+            }}
+          />
+        }
         alerts={alerts}
         trends={{
           granularity: trend,
           series,
           hrefs: {
-            daily: dashboardHref(dashboardPath, scope, { trend: "daily", hidden }),
-            monthly: dashboardHref(dashboardPath, scope, { trend: "monthly", hidden }),
+            daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
+            monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
           },
           markers: {
             hidden,
@@ -185,7 +244,7 @@ async function DashboardContent({
             toggles: MARKER_CATEGORIES.map((category) => ({
               category,
               shown: shown.includes(category),
-              href: dashboardHref(dashboardPath, scope, { trend, hidden: toggleHidden(hidden, category) }),
+              href: dashboardHref(dashboardPath, scope, { ...view, hidden: toggleHidden(hidden, category) }),
             })),
           },
         }}
@@ -194,7 +253,7 @@ async function DashboardContent({
   );
 }
 
-/** Shaped like the first screen (the closed filter bar and a row of total cards), so nothing jumps. */
+/** Shaped like the first screen (the closed filter bar and the headline strip's first row), so nothing jumps. */
 function DashboardSkeleton() {
   return (
     <div role="status" aria-live="polite">

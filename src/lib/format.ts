@@ -23,6 +23,7 @@ export function formatMoney(amountMinor: number, currency: string): string {
 
 const QUANTITY_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 const PERCENT_FORMAT = new Intl.NumberFormat("en-US", { style: "percent", maximumFractionDigits: 1 });
+const LIST_FORMAT = new Intl.ListFormat("en-US", { type: "conjunction" });
 
 /** "1,234.5 requests". */
 export function formatQuantity(value: number, unit: string): string {
@@ -32,6 +33,11 @@ export function formatQuantity(value: number, unit: string): string {
 /** "33.3%". `percent` is on a 0 to 100 scale. */
 export function formatPercent(percent: number): string {
   return PERCENT_FORMAT.format(percent / 100);
+}
+
+/** "GitHub, Stripe, and Vercel", with the serial comma; "GitHub and Vercel" for two. */
+export function formatList(values: readonly string[]): string {
+  return LIST_FORMAT.format(values);
 }
 
 // en-CA formats a date as YYYY-MM-DD, the house date format.

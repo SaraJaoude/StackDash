@@ -146,6 +146,7 @@ export const eventTypes = [
     label: "New signup",
     description: "A user signed up to a Supabase project. Only the time is kept.",
     shownByDefault: true,
+    category: "signup",
   },
   {
     id: "supabase.auth.daily_summary",

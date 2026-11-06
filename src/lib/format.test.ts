@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDateTime,
+  formatList,
   formatLondonTime,
   formatMoney,
   formatPercent,
@@ -37,6 +38,17 @@ describe("formatQuantity and formatPercent", () => {
   it("formats percent on a 0 to 100 scale", () => {
     expect(formatPercent(25)).toBe("25%");
     expect(formatPercent(33.333)).toBe("33.3%");
+  });
+});
+
+describe("formatList", () => {
+  it.each([
+    [[], ""],
+    [["Vercel"], "Vercel"],
+    [["GitHub", "Vercel"], "GitHub and Vercel"],
+    [["GitHub", "Stripe", "Vercel"], "GitHub, Stripe, and Vercel"],
+  ])("lists %j as %j", (values, expected) => {
+    expect(formatList(values)).toBe(expected);
   });
 });
 

@@ -87,6 +87,8 @@ const PRODUCT_TYPE_PATTERN = /^[a-z][a-z0-9_]*$/;
 // is read live on every sync, not copied from a price list.
 export const PROJECTED_PRICING_SOURCE = "PostHog's own projection for the billing period, from its billing overview";
 const CURRENCY = "USD";
+// PostHog's estimate of the whole billing period's bill, declared as projected spend.
+const PROJECTED_SPEND_METRIC_KEY = "posthog.spend.projected";
 
 // Exported, like `billingMetrics` and the event builders below, for the local simulator (#131).
 export const eventTypes = [
@@ -361,12 +363,15 @@ export function billingMetrics(
       provenance: fromApi,
     });
   }
+  // Only beside the current total: the dashboard's own projections (#167, `spendToCount`) take
+  // estimated spend for an account with no verified spend in that currency, so a projection sent
+  // alone would be projected forward again as if it were spend so far.
   const projected = billing.projected_total_amount_usd_after_discount ?? billing.projected_total_amount_usd;
-  if (projected != null) {
+  if (current != null && projected != null) {
     metrics.push({
       ...base,
       kind: "estimated_spend",
-      metricKey: "posthog.spend.projected",
+      metricKey: PROJECTED_SPEND_METRIC_KEY,
       label: "Projected spend for the billing period",
       amountMinor: decimalToMinorUnits(projected, CURRENCY),
       currency: CURRENCY,
@@ -477,6 +482,9 @@ export function signupEvents(days: readonly SignupDay[], externalAccountId: stri
     }));
 }
 
+/** The usage metric holding the organization's signups for one UTC day, which the headline counts. */
+const SIGNUP_METRIC_KEY = "posthog.signups.daily";
+
 /** The organization's signups on its latest reported day, summed across the queried projects. */
 export function signupMetric(
   days: readonly SignupDay[],
@@ -488,7 +496,7 @@ export function signupMetric(
   const start = Date.parse(`${date}T00:00:00.000Z`);
   return {
     kind: "usage",
-    metricKey: "posthog.signups.daily",
+    metricKey: SIGNUP_METRIC_KEY,
     // The timeframe carries the day, so the label holds on any day the dashboard shows.
     label: "Daily signups",
     value: days.filter((day) => day.date === date).reduce((sum, day) => sum + day.signups, 0),
@@ -617,6 +625,8 @@ export const postHogAdapter: ProviderAdapter = {
     "Organization and project names",
   ],
   eventTypes,
+  signupDailyTotals: [SIGNUP_METRIC_KEY],
+  projectedSpend: [PROJECTED_SPEND_METRIC_KEY],
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

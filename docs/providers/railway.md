@@ -118,7 +118,7 @@ Measurements: `CPU_USAGE`, `MEMORY_USAGE_GB`, `NETWORK_TX_GB`, `DISK_USAGE_GB`. 
 | `railway.usage.network_egress` | usage, GB, billing period | `usage`, `NETWORK_TX_GB` |
 | `railway.usage.volume` | usage, GB-minutes, billing period | `usage`, `DISK_USAGE_GB` |
 | `railway.spend.usage` | verified spend, USD, billing period | `customer.currentUsage` ("cached and may not be up to date") |
-| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices |
+| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so the dashboard headline never counts it as money spent (#173) |
 | `railway.credits.balance` | credit balance, USD, at sync time | `customer.creditBalance` |
 | `railway.plan.memory_per_service`, `vcpu_per_service`, `replicas_per_service`, `volume_per_service` | included allowance, at sync time | `workspace.plan` and the pricing page's default plan resources |
 
@@ -144,6 +144,8 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 | `railway.deployment.removed` | Status `REMOVING` or `REMOVED`; usually a newer deployment replaced it. With `canRollback: true` the title says it succeeded first | Same |
 
 `QUEUED`, `WAITING`, `INITIALIZING`, `NEEDS_APPROVAL`, and `SKIPPED` produce no event. All five event types are shown by default, like every other adapter's; hiding types per workspace is #119.
+
+The dashboard headline's deploys (#173) count `railway.deployment.deployed` as a success and `railway.deployment.failed` as a failure. Building, crashed, and removed events have no category: a build starting says nothing about how the deployment ended, and a crash or removal usually follows a deployment a poll already saw deployed, so counting either would count it twice. A deployment that succeeded and was replaced before any poll saw it reaches the timeline only as removed (see [Limitations](#limitations)), so the headline does not count it.
 
 Titles name the service and environment (`Deployment of api to production failed`, `Deployment of web to production succeeded, then was removed`), the body names the project. A failure or crash in an environment named `production` (Railway's name for a new project's first environment, any letter case) is critical; elsewhere it is a warning. Dedupe keys are `railway.deployment:<id>:<kind>`, so a re-read or a later status never duplicates an event. Events carry no link: Railway documents no dashboard URL for a deployment.
 

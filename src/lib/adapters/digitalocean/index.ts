@@ -113,12 +113,14 @@ export const eventTypes = [
     label: "App deployment succeeded",
     description: "An App Platform deployment finished and went live.",
     shownByDefault: true,
+    category: "deploy_succeeded",
   },
   {
     id: "digitalocean.deployment.failed",
     label: "App deployment failed",
     description: "An App Platform deployment failed to build or deploy.",
     shownByDefault: true,
+    category: "deploy_failed",
   },
   {
     id: "digitalocean.droplet.created",
@@ -934,6 +936,8 @@ export const digitaloceanAdapter: ProviderAdapter = {
     "Droplet creates, resizes, power cycles, and deletes, with the Droplet name",
   ],
   eventTypes,
+  // No `projectedSpend`: its estimated spend is what each SKU cost on one UTC day, spent, not a
+  // projection, and its month to date and invoice totals are verified.
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,
