@@ -414,6 +414,10 @@ export const resendAdapter: ProviderAdapter = {
     "Domain names and their verification status",
   ],
   eventTypes,
+  // In beta until #241 settles whether a live Resend callback carries `iss`: once #228 lands,
+  // `exchangeCode` refuses a callback without it, which would fail every Resend connection. Remove
+  // this declaration to drop the catalog's "Beta" badge.
+  beta: { reason: "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail." },
   oauth: {
     authorizeUrl: AUTHORIZE_URL,
     tokenUrl: TOKEN_URL,

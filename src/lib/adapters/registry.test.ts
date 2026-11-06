@@ -131,6 +131,17 @@ describe("availableProviders", () => {
   });
 });
 
+describe("beta declarations", () => {
+  it.each([
+    ["real", ""],
+    ["simulated", "1"],
+  ])("declares Resend in beta, and no other registered adapter, with %s providers", (_, simulate) => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", simulate);
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    expect(availableProviders().filter((adapter) => adapter.beta !== undefined).map((adapter) => adapter.id)).toEqual(["resend"]);
+  });
+});
+
 describe("loadOAuthClient", () => {
   it("returns the client with required extras wrapped in Secret when every variable is set", () => {
     setRequired();

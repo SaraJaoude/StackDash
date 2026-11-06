@@ -196,13 +196,14 @@ describe("isProviderSimulationEnabled", () => {
 });
 
 describe("simulated adapter declarations", () => {
-  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, and capabilities", (id) => {
+  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, beta, and capabilities", (id) => {
     const simulated = simulatedAdapters[id];
     expect(simulated.id).toBe(REAL[id].id);
     expect(simulated.displayName).toBe(REAL[id].displayName);
     expect(simulated.eventTypes).toBe(REAL[id].eventTypes);
     expect(simulated.signupDailyTotals).toBe(REAL[id].signupDailyTotals);
     expect(simulated.projectedSpend).toBe(REAL[id].projectedSpend);
+    expect(simulated.beta).toBe(REAL[id].beta);
     expect(simulated.capabilities).toBe(REAL[id].capabilities);
     expect(simulated.pollIntervalSeconds).toBe(60);
     expect(simulated.oauth.pkce).toBe(false);
