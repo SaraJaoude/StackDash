@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
+
 import type { SnapshotInput } from "./aggregate";
 import {
   periodEndOf,
@@ -261,12 +263,12 @@ describe("projectMetric", () => {
 });
 
 describe("projectSpend", () => {
+  // An estimate of spend so far, not one an adapter declares a projection of the whole period.
+  const ESTIMATE = { metric_key: "fake.spend.estimated", kind: "estimated_spend", provenance_source: "derived" } as const;
+
   it("projects verified spend and leaves an estimate for the same account out", () => {
-    const rows = [
-      ...spendRows([100, 200, 300, 400, 500]),
-      ...spendRows([9000, 9000, 9000, 9000, 9000], { metric_key: "fake.cost.estimate", kind: "estimated_spend", provenance_source: "derived" }),
-    ];
-    const [usd] = projectSpend(rows, NOW);
+    const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([9000, 9000, 9000, 9000, 9000], ESTIMATE)];
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     expect(usd?.includesEstimates).toBe(false);
     expect(projectedMinor(projected(usd?.projection ?? none("too_few_days")))).toBe(3075);
   });
@@ -274,12 +276,24 @@ describe("projectSpend", () => {
   it("projects an account's estimate when it has no verified spend, and says it includes estimates", () => {
     const rows = [
       ...spendRows([100, 200, 300, 400, 500]),
-      ...spendRows([10, 20, 30, 40, 50], { external_account_id: "a2", metric_key: "fake.cost.estimate", kind: "estimated_spend", provenance_source: "derived" }),
+      ...spendRows([10, 20, 30, 40, 50], { ...ESTIMATE, external_account_id: "a2" }),
     ];
-    const [usd] = projectSpend(rows, NOW);
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     expect(usd?.includesEstimates).toBe(true);
     // 3075 for a1 plus 307.5 for a2, rounded once.
     expect(projectedMinor(projected(usd?.projection ?? none("too_few_days")))).toBe(3383);
+  });
+
+  // PostHog's projected spend, Railway's estimated bill, and the Example provider's month estimate.
+  it.each(declaredProjectedSpend)("never projects %s, a declared projection, as spend so far, even with no verified spend", (metricKey) => {
+    const projection = { metric_key: metricKey, kind: "estimated_spend", provenance_source: "derived" } as const;
+    // In an account with no verified spend of its own, beside another account's spend so far.
+    const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([10, 20, 30, 40, 50], { ...projection, external_account_id: "a2" })];
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
+    expect(usd?.includesEstimates).toBe(false);
+    expect(projectedMinor(projected(usd?.projection ?? none("too_few_days")))).toBe(3075);
+    // Alone, it is not spend so far, so there is nothing to project.
+    expect(projectSpend(spendRows([10, 20, 30, 40, 50], projection), declaredProjectedSpend, NOW)).toEqual([]);
   });
 
   it("sums unrounded and rounds once", () => {
@@ -287,18 +301,18 @@ describe("projectSpend", () => {
     const rows = ["a1", "a2", "a3"].flatMap((account) =>
       [0, 1, 2].map((amount, index) => row(november(1 + index), { external_account_id: account, metric_key: "m", amount_minor: amount })),
     );
-    const [usd] = projectSpend(rows, new Date("2026-11-03T12:00:00.000Z"));
+    const [usd] = projectSpend(rows, declaredProjectedSpend, new Date("2026-11-03T12:00:00.000Z"));
     expect(projectedMinor(projected(usd?.projection ?? none("too_few_days")))).toBe(89);
   });
 
   it("keeps currencies apart", () => {
     const rows = [...spendRows([100, 200, 300]), ...spendRows([1, 2, 3], { metric_key: "fake.spend.eur", currency: "EUR" })];
-    expect(projectSpend(rows, NOW).map((spend) => spend.currency)).toEqual(["EUR", "USD"]);
+    expect(projectSpend(rows, declaredProjectedSpend, NOW).map((spend) => spend.currency)).toEqual(["EUR", "USD"]);
   });
 
   it("is unavailable when any counted amount cannot be projected, saying how many", () => {
     const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([5, 6], { external_account_id: "a2" })];
-    expect(projectSpend(rows, NOW)[0]?.projection).toEqual(none("too_few_days", 1, 2));
+    expect(projectSpend(rows, declaredProjectedSpend, NOW)[0]?.projection).toEqual(none("too_few_days", 1, 2));
   });
 
   it("keeps every distinct reason when no amount can be projected, each for its own, at a month rollover", () => {
@@ -308,7 +322,7 @@ describe("projectSpend", () => {
       return { ...candidate, snapshot_date: date, period_start: "2026-10-01T00:00:00.000Z", period_end: `${date}T06:00:00.000Z`, retrieved_at: `${date}T06:00:00.000Z` };
     });
     const rows = [...october, ...spendRows([50], { external_account_id: "a2" })];
-    expect(projectSpend(rows, new Date("2026-11-01T12:00:00.000Z"))[0]?.projection).toEqual({
+    expect(projectSpend(rows, declaredProjectedSpend, new Date("2026-11-01T12:00:00.000Z"))[0]?.projection).toEqual({
       status: "unavailable",
       reasons: ["period_ended", "too_few_days"],
       missing: 2,
@@ -329,13 +343,13 @@ describe("projectSpend", () => {
         }),
       ),
     ];
-    const [usd] = projectSpend(rows, NOW);
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     expect(projectedMinor(projected(usd?.projection ?? none("too_few_days")))).toBe(3075);
   });
 
   it("drops the day count from a sum whose parts used different numbers of days", () => {
     const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([0, 0, 10, 20, 30], { external_account_id: "a2" }).slice(2)];
-    expect(projected(projectSpend(rows, NOW)[0]?.projection ?? none("too_few_days")).basis).toMatchObject({
+    expect(projected(projectSpend(rows, declaredProjectedSpend, NOW)[0]?.projection ?? none("too_few_days")).basis).toMatchObject({
       from: "2026-11-01",
       to: "2026-11-05",
       days: null,
@@ -346,7 +360,7 @@ describe("projectSpend", () => {
     // The dashboard still shows the last reading of October until November is read.
     const october = { period_start: "2026-10-01T00:00:00.000Z", period_end: "2026-11-01T00:00:00.000Z" };
     const rows = [28, 29, 30].map((day) => row(`2026-10-${day}`, { metric_key: "m", amount_minor: day, ...october }));
-    expect(projectSpend(rows, NOW)[0]?.projection).toEqual(none("period_ended"));
+    expect(projectSpend(rows, declaredProjectedSpend, NOW)[0]?.projection).toEqual(none("period_ended"));
   });
 });
 
@@ -371,38 +385,38 @@ describe("projectAllowances", () => {
 
   it("gives the run-out date when usage reaches the allowance before the reset", () => {
     // 400 a day from 2,000 on 2026-11-05 06:00 reaches 3,000 two and a half days later.
-    const result = projectAllowances(quota([400, 800, 1200, 1600, 2000]), NOW).get(KEY);
+    const result = projectAllowances(quota([400, 800, 1200, 1600, 2000]), declaredProjectedSpend, NOW).get(KEY);
     expect(result?.label).toBe("Requests included in the plan");
     expect(result?.quota).toMatchObject({ status: "runs_out", at: "2026-11-07T18:00:00.000Z", included: 3000 });
   });
 
   it("says the allowance lasts when usage stays below it until the reset", () => {
-    expect(projectAllowances(quota([10, 20, 30, 40, 50]), NOW).get(KEY)?.quota).toMatchObject({ status: "within" });
+    expect(projectAllowances(quota([10, 20, 30, 40, 50]), declaredProjectedSpend, NOW).get(KEY)?.quota).toMatchObject({ status: "within" });
   });
 
   it("projects zero usage as lasting", () => {
-    expect(projectAllowances(quota([0, 0, 0]), NOW).get(KEY)?.quota).toMatchObject({ status: "within", projection: { projected: 0 } });
+    expect(projectAllowances(quota([0, 0, 0]), declaredProjectedSpend, NOW).get(KEY)?.quota).toMatchObject({ status: "within", projection: { projected: 0 } });
   });
 
   it.each([
     { name: "exactly at", used: 3000 },
     { name: "over", used: 3500 },
   ])("reports a quota $name its limit as used up, without projecting", ({ used }) => {
-    expect(projectAllowances(quota([used]), NOW).get(KEY)?.quota).toEqual({ status: "used_up", used, included: 3000, unit: "requests" });
+    expect(projectAllowances(quota([used]), declaredProjectedSpend, NOW).get(KEY)?.quota).toEqual({ status: "used_up", used, included: 3000, unit: "requests" });
   });
 
   it("projects a quota one unit below its limit", () => {
-    expect(projectAllowances(quota([2997, 2998, 2999]), NOW).get(KEY)?.quota.status).toBe("runs_out");
+    expect(projectAllowances(quota([2997, 2998, 2999]), declaredProjectedSpend, NOW).get(KEY)?.quota.status).toBe("runs_out");
   });
 
   it("projects nothing from fewer than 3 days", () => {
-    expect(projectAllowances(quota([10, 20]), NOW).get(KEY)?.quota).toEqual(none("too_few_days"));
+    expect(projectAllowances(quota([10, 20]), declaredProjectedSpend, NOW).get(KEY)?.quota).toEqual(none("too_few_days"));
   });
 
   it("leaves out an allowance of zero and one with no usage reading", () => {
-    expect(projectAllowances(quota([1, 2, 3], 0), NOW).has(KEY)).toBe(false);
+    expect(projectAllowances(quota([1, 2, 3], 0), declaredProjectedSpend, NOW).has(KEY)).toBe(false);
     const included = quota([1]).filter((candidate) => candidate.kind === "included_allowance");
-    expect(projectAllowances(included, NOW).has(KEY)).toBe(false);
+    expect(projectAllowances(included, declaredProjectedSpend, NOW).has(KEY)).toBe(false);
   });
 
   it("leaves out a quota that resets every day, but still reports one used up", () => {
@@ -417,8 +431,8 @@ describe("projectAllowances", () => {
         ];
       });
     const now = new Date("2026-11-10T12:00:00.000Z");
-    expect(projectAllowances(daily(60), now).has("a1:resend.emails.daily")).toBe(false);
-    expect(projectAllowances(daily(100), now).get("a1:resend.emails.daily")?.quota).toMatchObject({ status: "used_up" });
+    expect(projectAllowances(daily(60), declaredProjectedSpend, now).has("a1:resend.emails.daily")).toBe(false);
+    expect(projectAllowances(daily(100), declaredProjectedSpend, now).get("a1:resend.emails.daily")?.quota).toMatchObject({ status: "used_up" });
   });
 
   it("leaves out a quota with a reset on its first day, when its period's length is not known yet", () => {
@@ -427,7 +441,7 @@ describe("projectAllowances", () => {
       row(november(5), { ...point, metric_key: "resend.emails.daily.used", kind: "usage", value: 40 }),
       row(november(5), { ...point, metric_key: "resend.emails.daily.limit", kind: "included_allowance", label: "Daily email quota", value: 100 }),
     ];
-    expect(projectAllowances(rows, NOW).has("a1:resend.emails.daily")).toBe(false);
+    expect(projectAllowances(rows, declaredProjectedSpend, NOW).has("a1:resend.emails.daily")).toBe(false);
   });
 });
 
@@ -469,6 +483,7 @@ describe("projectDashboard", () => {
         { id: "a2", connection_id: "c2", display_name: "A2", project_id: null },
       ],
       projects: [],
+      projectedSpend: declaredProjectedSpend,
       now: NOW,
     });
     const minor = (list: readonly SpendProjection[] | undefined) =>
@@ -482,7 +497,7 @@ describe("projectDashboard", () => {
 
 describe("wording", () => {
   it("states the projection, the end date, and how it was calculated, without dashes", () => {
-    const [usd] = projectSpend(spendRows([100, 200, 300, 400, 500]), NOW);
+    const [usd] = projectSpend(spendRows([100, 200, 300, 400, 500]), declaredProjectedSpend, NOW);
     if (usd === undefined) throw new Error("no projection");
     const text = spendProjectionText(usd);
     expect(text.headline).toBe("On track for $30.75 by 2026-11-30");
@@ -495,7 +510,7 @@ describe("wording", () => {
   it("names the calendar month assumption for a window to date", () => {
     // Stripe style: the stored window ends at the reading.
     const rows = spendRows([100, 200, 300]).map((candidate) => ({ ...candidate, period_end: candidate.retrieved_at }));
-    const [usd] = projectSpend(rows, NOW);
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     if (usd === undefined) throw new Error("no projection");
     expect(spendProjectionText(usd).explanation).toContain("DevMacro assumes it ends with the calendar month");
   });
@@ -571,7 +586,7 @@ describe("wording", () => {
 
   it("leaves out the day count when the parts of a sum used different numbers of days", () => {
     const rows = [...spendRows([100, 200, 300, 400, 500]), ...spendRows([0, 0, 10, 20, 30], { external_account_id: "a2" }).slice(2)];
-    const [usd] = projectSpend(rows, NOW);
+    const [usd] = projectSpend(rows, declaredProjectedSpend, NOW);
     if (usd === undefined) throw new Error("no projection");
     expect(spendProjectionText(usd).explanation).toContain("the average daily increase between 2026-11-01 and 2026-11-05, $1.10 a day,");
   });
@@ -583,6 +598,7 @@ describe("wording", () => {
           row(november(1 + index), { metric_key: "fake.requests.month", kind: "usage", value, unit: "requests", currency: null, resets_at: MONTH_END.at }),
         )
         .concat(row(november(5), { metric_key: "fake.requests.included", kind: "included_allowance", value: 3000, unit: "requests", currency: null, resets_at: MONTH_END.at })),
+      declaredProjectedSpend,
       NOW,
     ).get("a1:fake.requests")?.quota;
     if (quota === undefined) throw new Error("no quota projection");

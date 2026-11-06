@@ -15,7 +15,8 @@ type SnapshotInsert = Database["public"]["Tables"]["usage_snapshots"]["Insert"];
 
 /**
  * One fake connection polled hourly, two accounts (Production in project Checkout, Staging
- * unassigned), USD and EUR verified spend, a USD estimate, an included allowance with its usage
+ * unassigned), USD and EUR verified spend, a USD estimate of spend so far, the provider's
+ * declared projection for the month (never spend, #223), an included allowance with its usage
  * and no remaining figure, and a EUR value read five hours ago, which is past two poll intervals.
  */
 async function seedDashboard(workspace: TestWorkspace): Promise<void> {
@@ -93,10 +94,22 @@ async function seedDashboard(workspace: TestWorkspace): Promise<void> {
     {
       ...common,
       external_account_id: production.id,
+      metric_key: "fake.spend.estimated",
+      kind: "estimated_spend",
+      label: "Estimated spend so far",
+      amount_minor: 20_000,
+      currency: "USD",
+      retrieved_at: fresh,
+      provenance_source: "derived",
+      pricing_source: "Fake price list 2026",
+    },
+    {
+      ...common,
+      external_account_id: production.id,
       metric_key: "fake.cost.estimate",
       kind: "estimated_spend",
       label: "Estimated spend for the month",
-      amount_minor: 20_000,
+      amount_minor: 30_000,
       currency: "USD",
       retrieved_at: fresh,
       provenance_source: "derived",
@@ -156,12 +169,17 @@ ownerTest.describe("dashboard as the owner", () => {
       const usd = totals.getByRole("region", { name: "Spend in USD" });
       await expect(usd).toContainText("$123.45");
       await expect(usd).toContainText("$200.00");
+      // The month's projection is what the month is expected to cost, not spend so far (#223).
+      await expect(usd).not.toContainText("$300.00");
+      await expect(usd).not.toContainText("$500.00");
       await expect(usd).not.toContainText("€");
       await expect(usd.getByText("Verified", { exact: true })).toBeVisible();
       await expect(usd.getByText("Estimated", { exact: true })).toBeVisible();
       await expect(usd).toContainText("Updated");
       // The totals print amounts only; the price list behind an estimate is named on the provider card.
-      await expect(page.getByRole("region", { name: "By provider" })).toContainText("Pricing source: Fake price list 2026");
+      const byProvider = page.getByRole("region", { name: "By provider" });
+      await expect(byProvider).toContainText("Pricing source: Fake price list 2026");
+      await expect(byProvider).not.toContainText("$300.00");
 
       const eur = totals.getByRole("region", { name: "Spend in EUR" });
       await expect(eur).toContainText("€67.89");

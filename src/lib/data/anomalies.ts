@@ -2,6 +2,7 @@ import "server-only";
 
 import { cache } from "react";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
 import type { ProviderId } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
@@ -60,8 +61,9 @@ export const getAnomalyControls = cache(async (workspaceId: string): Promise<Ano
 
 /**
  * The metrics detection checks in recent snapshots, sorted by label: the rows `checkedRows` keeps,
- * so a breakdown beside its total (a GitHub SKU) or a day inside a billing month
- * (`github.daily_spend.<product>`) is not offered, because muting it would silence nothing.
+ * so a breakdown beside its total (a GitHub SKU), a day inside a billing month
+ * (`github.daily_spend.<product>`), or a provider's declared projection (#223) is not offered,
+ * because muting it would silence nothing.
  */
 export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<AnomalyMetric[]> => {
   const supabase = await createClient();
@@ -83,7 +85,7 @@ export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<Ano
   const full = data.length === SNAPSHOT_SCAN_LIMIT && data.some((row) => row.snapshot_date !== oldest);
   const scanned = full ? data.filter((row) => row.snapshot_date !== oldest) : data;
   const byKey = new Map<string, AnomalyMetric>();
-  for (const row of checkedRows(scanned)) {
+  for (const row of checkedRows(scanned, declaredProjectedSpend)) {
     if (row.connections === null) continue;
     const key = `${row.connections.provider} ${row.metric_key}`;
     // Newest first, so the first label seen is the current one.

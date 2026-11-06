@@ -7,7 +7,8 @@
  * - A projection is an estimate by DevMacro. It is shown beside verified and estimated amounts
  *   and never added to either.
  * - What is projected is what the dashboard counts (`countedSnapshots`): a breakdown or a day
- *   inside a longer billing window is not projected as an amount of its own.
+ *   inside a longer billing window is not projected as an amount of its own, and a provider's
+ *   declared projection (`isDeclaredProjection`) is not spend so far, so it is never projected.
  * - Linear on the recent daily rate: the change between the first and the last of the latest
  *   PROJECTION_WINDOW_POINTS daily points of the current period, divided by the time between
  *   their readings, continued from the last reading to the end of the period.
@@ -294,12 +295,13 @@ function historyByMetric(rows: readonly SnapshotInput[]): Map<string, SnapshotIn
 /**
  * Spend projected to the end of the billing period, per currency, from rows already narrowed to
  * what should be counted (a connection, a provider, a budget's scope, or the whole dashboard).
+ * `projectedSpend` is the adapters' declared projections, left out as the dashboard leaves them.
  * Sorted by currency code.
  */
-export function projectSpend(rows: readonly SnapshotInput[], now: Date): SpendProjection[] {
+export function projectSpend(rows: readonly SnapshotInput[], projectedSpend: readonly string[], now: Date): SpendProjection[] {
   const history = historyByMetric(rows);
   const byCurrency = new Map<string, { parts: Projection[]; includesEstimates: boolean }>();
-  for (const row of spendToCount(countedSnapshots(rows), now)) {
+  for (const row of spendToCount(countedSnapshots(rows, projectedSpend), now)) {
     const { currency } = row;
     if (currency === null) continue;
     const projection = projectMetric(
@@ -326,10 +328,14 @@ const QUOTA_REASONS_LEFT_OUT: readonly UnavailableReason[] = ["period_too_short"
  * used amount from `allowanceUsage`). Allowances with no usage metric, an allowance that is not
  * above zero, or one whose period is too short to project or not known yet are left out.
  */
-export function projectAllowances(rows: readonly SnapshotInput[], now: Date): Map<string, AllowanceProjection> {
+export function projectAllowances(
+  rows: readonly SnapshotInput[],
+  projectedSpend: readonly string[],
+  now: Date,
+): Map<string, AllowanceProjection> {
   const history = historyByMetric(rows);
   const result = new Map<string, AllowanceProjection>();
-  for (const group of allowanceGroups(countedSnapshots(rows))) {
+  for (const group of allowanceGroups(countedSnapshots(rows, projectedSpend))) {
     const { included } = group;
     if (included === undefined || included.unit === null || included.value === null || !(included.value > 0)) continue;
     const unit = included.unit;
@@ -382,9 +388,9 @@ export function projectDashboard(input: DashboardInput): DashboardProjections {
     else list.push(row);
   }
   return {
-    totals: projectSpend(rows, input.now),
-    byConnection: new Map([...byConnection].map(([id, list]) => [id, projectSpend(list, input.now)])),
-    quotas: projectAllowances(rows, input.now),
+    totals: projectSpend(rows, input.projectedSpend, input.now),
+    byConnection: new Map([...byConnection].map(([id, list]) => [id, projectSpend(list, input.projectedSpend, input.now)])),
+    quotas: projectAllowances(rows, input.projectedSpend, input.now),
   };
 }
 

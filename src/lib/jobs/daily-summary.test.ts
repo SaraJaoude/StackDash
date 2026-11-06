@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 import { balanceMetrics, digitaloceanAdapter, invoiceMetric, skuSpendMetrics } from "@/lib/adapters/digitalocean";
 import { fakeAdapter } from "@/lib/adapters/fake";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
+import { billingMetrics as postHogBillingMetrics } from "@/lib/adapters/posthog";
+import { BillingResponseSchema } from "@/lib/adapters/posthog/schemas";
+import { billingMetrics as railwayBillingMetrics } from "@/lib/adapters/railway";
+import { BillingDataSchema } from "@/lib/adapters/railway/schemas";
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { Secret, type ProviderAdapter } from "@/lib/adapters/types";
 import { addUtcDays, ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import type { Logger } from "@/lib/log/logger";
@@ -122,7 +127,8 @@ describe("daily summary (#64)", () => {
     store.addConnection({ workspace_id: WORKSPACE_ID, provider: "vercel", status: "needs_attention" });
     store.snapshots.push(
       snapshot({ connection_id: fake.id, metric_key: "fake.spend.month", kind: "verified_spend", amount_minor: 1234, currency: "USD" }),
-      snapshot({ connection_id: fake.id, metric_key: "fake.cost.estimate", kind: "estimated_spend", amount_minor: 4000, currency: "USD", provenance_source: "derived", pricing_source: "List" }),
+      // An estimate of spend so far; `fake.cost.estimate` is the month's projection (#223), so not this.
+      snapshot({ connection_id: fake.id, metric_key: "fake.spend.estimated", kind: "estimated_spend", amount_minor: 4000, currency: "USD", provenance_source: "derived", pricing_source: "List" }),
       snapshot({ connection_id: fake.id, metric_key: "fake.requests.month", kind: "usage", label: "Requests this month", value: 16800, unit: "requests" }),
       // A different day is not part of the summary.
       snapshot({ connection_id: fake.id, metric_key: "fake.spend.month", kind: "verified_spend", amount_minor: 999, currency: "USD", snapshot_date: "2026-10-13" }),
@@ -444,6 +450,71 @@ describe("daily summary (#64)", () => {
       const body = summaries(store)[0]?.body ?? "";
       expect(body).toContain("Stripe: Spending $10.00 (verified)");
       expect(body).not.toContain("$40.00");
+    });
+
+    describe("a provider's declared projection for the period is not spending (#223)", () => {
+      const period = { start: "2026-11-01T00:00:00.000Z", end: "2026-12-01T00:00:00.000Z" };
+      const readAt = new Date("2026-11-05T23:59:50.000Z");
+      // The demo seed's 2026-11-05: PostHog has billed nothing yet and projects $29.86 for the period;
+      // Railway has used $7.13 and estimates the whole period's bill.
+      const posthog = postHogBillingMetrics(
+        BillingResponseSchema.parse({
+          current_total_amount_usd: "0.00",
+          projected_total_amount_usd: "29.86",
+          billing_period: { current_period_start: period.start, current_period_end: period.end },
+        }),
+        "org-1",
+        readAt,
+        "us",
+      );
+      const railway = railwayBillingMetrics(
+        BillingDataSchema.parse({
+          workspace: { plan: "HOBBY", customer: { billingPeriod: period, currentUsage: 7.13, creditBalance: 0 } },
+          usage: [],
+          estimatedUsage: [{ measurement: "CPU_USAGE", estimatedValue: 80_000, projectId: "prj-shop" }],
+        }),
+        "ws-1",
+        readAt,
+      );
+      const PROVIDER_SPEND_LINE = /^(PostHog|Railway): Spending /;
+
+      /** The spending lines of the 2026-11-05 summary, from what one sync stored through the adapters. */
+      async function spendingLines(metrics: Readonly<Record<"posthog" | "railway", readonly AdapterMetric[]>>): Promise<string[]> {
+        const { store, deps } = setup("2026-11-06T00:05:00.000Z");
+        for (const provider of ["posthog", "railway"] as const) {
+          const connection = store.addConnection({ workspace_id: WORKSPACE_ID, provider, status: "needs_attention" });
+          store.snapshots.push(
+            ...metrics[provider].map((metric) => ({
+              id: crypto.randomUUID(),
+              ...toSnapshotRow(metric, { id: connection.id, workspace_id: WORKSPACE_ID }, { id: crypto.randomUUID() }),
+            })),
+          );
+        }
+        await runTick(deps);
+        return (summaries(store)[0]?.body ?? "").split("\n").filter((line) => PROVIDER_SPEND_LINE.test(line));
+      }
+
+      it("lists only the verified spend beside PostHog's and Railway's projections", async () => {
+        // The adapters really do send a projection with an amount, so leaving it out is the rule at work.
+        const projections = [...posthog, ...railway].filter((metric) => declaredProjectedSpend.includes(metric.metricKey));
+        expect(projections.map((metric) => metric.kind === "estimated_spend" && metric.amountMinor > 0)).toEqual([true, true]);
+        // The summary listed each projection beside these as "Spending $X (estimated)" (#223).
+        expect(await spendingLines({ posthog, railway })).toEqual([
+          "PostHog: Spending $0.00 (verified)",
+          // Projected from one day of spend, not from the projection.
+          "PostHog: Spending projection in USD unavailable (fewer than 3 days of data)",
+          "Railway: Spending $7.13 (verified)",
+          "Railway: Spending projection in USD unavailable (fewer than 3 days of data)",
+        ]);
+      });
+
+      it("lists no spending for a projection with no verified spend in its currency", async () => {
+        const only = (metrics: readonly AdapterMetric[]) => metrics.filter((metric) => declaredProjectedSpend.includes(metric.metricKey));
+        expect(await spendingLines({ posthog: only(posthog), railway: only(railway) })).toEqual([
+          "PostHog: Spending unavailable",
+          "Railway: Spending unavailable",
+        ]);
+      });
     });
   });
 });

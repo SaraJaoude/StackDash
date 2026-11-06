@@ -110,7 +110,7 @@ export class MemoryNotificationStore implements NotificationStore {
   }
 
   async loadDashboardInput(workspaceId: string, now: Date): Promise<DashboardInput> {
-    return this.dashboards.get(workspaceId) ?? { connections: [], accounts: [], projects: [], snapshots: [], now };
+    return this.dashboards.get(workspaceId) ?? { connections: [], accounts: [], projects: [], snapshots: [], projectedSpend: [], now };
   }
 
   async countHighlights(): Promise<DigestHighlights> {

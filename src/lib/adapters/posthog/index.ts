@@ -355,11 +355,10 @@ export function billingMetrics(
       provenance: fromApi,
     });
   }
-  // Only beside the current total: the dashboard's own projections (#167, `spendToCount`) take
-  // estimated spend for an account with no verified spend in that currency, so a projection sent
-  // alone would be projected forward again as if it were spend so far.
+  // Declared a projection (`projectedSpend`), so no reading of spend counts it as spent so far,
+  // with or without a current total beside it (#223).
   const projected = billing.projected_total_amount_usd_after_discount ?? billing.projected_total_amount_usd;
-  if (current != null && projected != null) {
+  if (projected != null) {
     metrics.push({
       ...base,
       kind: "estimated_spend",
