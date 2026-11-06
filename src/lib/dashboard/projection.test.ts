@@ -301,7 +301,7 @@ describe("projectSpend", () => {
     expect(projectSpend(rows, NOW)[0]?.projection).toEqual(none("too_few_days", 1, 2));
   });
 
-  it("keeps every distinct reason when no amount can be projected for the same one, at a month rollover", () => {
+  it("keeps every distinct reason when no amount can be projected, each for its own, at a month rollover", () => {
     // Before the first sync of November: a1 still reports October to date, a2 was connected on November 1.
     const october = spendRows([100, 200, 300]).map((candidate) => {
       const date = candidate.snapshot_date.replace("2026-11", "2026-10");
@@ -531,7 +531,7 @@ describe("wording", () => {
     expect(spendProjectionLine(spend)).toBe("Spending projection in USD unavailable (fewer than 3 days of data)");
   });
 
-  it("names every reason when no amount of a total could be projected for the same one", () => {
+  it("names every reason when no amount of a total could be projected, each for its own", () => {
     const spend: SpendProjection = {
       currency: "USD",
       includesEstimates: false,
