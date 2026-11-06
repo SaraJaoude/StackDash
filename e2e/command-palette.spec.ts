@@ -105,25 +105,32 @@ async function openWith(dialog: Locator, open: () => Promise<void>): Promise<voi
   }).toPass({ timeout: 15_000 });
 }
 
+type KeyInit = Readonly<Pick<KeyboardEventInit, "key" | "metaKey" | "ctrlKey" | "shiftKey">>;
+
 /**
- * Closes `dialog` and presses a key in the same task, then waits for the dialog's close event.
+ * Closes `dialog` and presses `key` in the same task, then waits for the dialog's close event.
  * Chromium hides a closed dialog and returns focus at once but fires `close` on the next animation
- * frame, so the key lands before the event, as a fast press on a busy page does (#225).
+ * frame, so the key lands before the event, as a fast press on a busy page does (#225). The dialog
+ * closes through `close()`, or through `closeKey` pressed where focus is, when one is given.
  */
-async function closeThenPress(
-  dialog: Locator,
-  key: Readonly<Pick<KeyboardEventInit, "key" | "metaKey" | "ctrlKey" | "shiftKey">>,
-): Promise<void> {
-  await dialog.evaluate(async (element, init) => {
-    if (!(element instanceof HTMLDialogElement)) throw new Error("The locator is not a dialog.");
-    const late = Promise.withResolvers<void>();
-    element.addEventListener("close", () => late.resolve(), { once: true });
-    element.close();
-    (document.activeElement ?? document).dispatchEvent(
-      new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }),
-    );
-    await late.promise;
-  }, key);
+async function closeThenPress(dialog: Locator, key: KeyInit, closeKey: KeyInit | null = null): Promise<void> {
+  await dialog.evaluate(
+    async (element, { init, closeInit }) => {
+      if (!(element instanceof HTMLDialogElement)) throw new Error("The locator is not a dialog.");
+      const press = (keyInit: KeyInit) =>
+        (document.activeElement ?? document).dispatchEvent(
+          new KeyboardEvent("keydown", { ...keyInit, bubbles: true, cancelable: true }),
+        );
+      const late = Promise.withResolvers<void>();
+      element.addEventListener("close", () => late.resolve(), { once: true });
+      if (closeInit === null) element.close();
+      else press(closeInit);
+      if (element.open) throw new Error("The dialog did not close.");
+      press(init);
+      await late.promise;
+    },
+    { init: key, closeInit: closeKey },
+  );
 }
 
 /**
@@ -379,6 +386,37 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(shortcuts.getByRole("button", { name: "Close" })).toBeFocused();
 
       await escapeAndWaitForClose(page, shortcuts);
+      await expect(shortcuts).toBeHidden();
+      await expect(navLink).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Same race after choosing "Show keyboard shortcuts": that request belonged to the earlier close,
+  // so the reopened palette's own close must restore focus rather than open the list.
+  ownerTest("drops a shortcut list request when the shortcut beats its close event", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette fast choose");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      await openWith(palette(page), () => pressPaletteShortcut(page));
+      await combobox(page).fill("shortcuts");
+      await expect(palette(page).getByRole("option", { name: "Show keyboard shortcuts" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+
+      const apple = await applePlatform(page);
+      await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple }, { key: "Enter" });
+      const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+      await expect(palette(page)).toBeVisible();
+      await expect(shortcuts).toBeHidden();
+      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+
+      await escapeAndWaitForClose(page, palette(page));
+      await expect(palette(page)).toBeHidden();
       await expect(shortcuts).toBeHidden();
       await expect(navLink).toBeFocused();
     } finally {
