@@ -322,6 +322,9 @@ describe("daily summary (#64)", () => {
   describe("spend the dashboard counts for the current period, and nothing else (#215, #176)", () => {
     const cents = (minor: number): Decimal => ({ coefficient: BigInt(minor), scale: 2 });
     const OCTOBER_INVOICE_MINOR = 12_710;
+    // The spending line's own shape, never a projection line ("Spending on track for ..." or
+    // "Spending projection in USD unavailable (...)"), which the #167 tests above own.
+    const SPEND_LINE = /^DigitalOcean: Spending (\$[\d,]+\.\d{2} \((verified|estimated)\)|unavailable)$/;
 
     /**
      * What one DigitalOcean sync at `at` stores, through the adapter's own metric builders and the
@@ -377,11 +380,7 @@ describe("daily summary (#64)", () => {
           }),
         ),
       );
-      expect(body).toEqual([
-        "DigitalOcean: Spending $19.91 (verified)",
-        // $19.91 plus $3.99 a day (four days from $3.95) for the 25 days left.
-        "DigitalOcean: Spending on track for $119.66 by 2026-11-30 (estimate by DevMacro)",
-      ]);
+      expect(body.filter((line) => SPEND_LINE.test(line))).toEqual(["DigitalOcean: Spending $19.91 (verified)"]);
     });
 
     it.each([
@@ -424,7 +423,7 @@ describe("daily summary (#64)", () => {
     ])("$name", async ({ day, parts, spending }) => {
       const at = parts.balanceAt === undefined ? `${day}T06:00:00.000Z` : `${day}T00:05:00.000Z`;
       const body = await digitaloceanSummary(day, (id) => digitaloceanRows(id, at, parts));
-      expect(body.filter((line) => line.startsWith("DigitalOcean: Spending ") && !line.includes("projection"))).toEqual([spending]);
+      expect(body.filter((line) => SPEND_LINE.test(line))).toEqual([spending]);
     });
 
     it.each([
