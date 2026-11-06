@@ -5,6 +5,7 @@ import {
   fetchJson,
   InvalidResponseError,
   PermissionMissingError,
+  readOAuthErrorCode,
 } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -22,7 +23,6 @@ import {
   DomainListResponseSchema,
   domainStatuses,
   EmailMetricsResponseSchema,
-  OAuthErrorSchema,
   RESEND_ISSUER,
   TokenResponseSchema,
   UsageResponseSchema,
@@ -166,18 +166,6 @@ function oauthHeaders(ctx: OAuthContext): Record<string, string> {
     Accept: "application/json",
     "User-Agent": RESEND_USER_AGENT,
   };
-}
-
-async function readOAuthErrorCode(response: Response): Promise<string | undefined> {
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof SyntaxError) return undefined;
-    throw error;
-  }
-  const parsed = OAuthErrorSchema.safeParse(body);
-  return parsed.success ? parsed.data.error : undefined;
 }
 
 /**
