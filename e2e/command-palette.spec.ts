@@ -100,6 +100,41 @@ async function openWith(dialog: Locator, open: () => Promise<void>): Promise<voi
   }).toPass({ timeout: 15_000 });
 }
 
+/**
+ * Closes `dialog` and presses a key in the same task, then waits for the dialog's close event.
+ * Chromium hides a closed dialog and returns focus at once but fires `close` on the next animation
+ * frame, so the key lands before the event, as a fast press on a busy page does (#225).
+ */
+async function closeThenPress(
+  dialog: Locator,
+  key: Readonly<Pick<KeyboardEventInit, "key" | "metaKey" | "ctrlKey" | "shiftKey">>,
+): Promise<void> {
+  await dialog.evaluate(async (element, init) => {
+    if (!(element instanceof HTMLDialogElement)) throw new Error("The locator is not a dialog.");
+    const late = Promise.withResolvers<void>();
+    element.addEventListener("close", () => late.resolve(), { once: true });
+    element.close();
+    (document.activeElement ?? document).dispatchEvent(
+      new KeyboardEvent("keydown", { ...init, bubbles: true, cancelable: true }),
+    );
+    await late.promise;
+  }, key);
+}
+
+/**
+ * Presses Escape and waits for `dialog`'s close event, which is when the palette restores focus.
+ * The browser moves focus back before that event, so a focus check alone could pass too early.
+ */
+async function escapeAndWaitForClose(page: Page, dialog: Locator): Promise<void> {
+  const closeEvent = await dialog.evaluateHandle((element) => {
+    const { promise, resolve } = Promise.withResolvers<void>();
+    element.addEventListener("close", () => resolve(), { once: true });
+    return { fired: promise };
+  });
+  await page.keyboard.press("Escape");
+  await closeEvent.evaluate(({ fired }) => fired);
+}
+
 async function expectNoAxeViolations(page: Page) {
   const scan = await new AxeBuilder({ page }).analyze();
   expect(scan.violations).toEqual([]);
@@ -292,6 +327,55 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(combobox(page)).toBeFocused();
       await expect(combobox(page)).toHaveValue("");
       await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // The late close event must not empty the reopened palette's results or take its return focus.
+  ownerTest("reopens with every result when the shortcut beats the last close event", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette fast reopen");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      await openWith(palette(page), () => pressPaletteShortcut(page));
+      await combobox(page).fill("nothing matches this");
+      await expect(palette(page).getByRole("option")).toHaveCount(0);
+
+      const apple = await page.evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.userAgent));
+      await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple });
+      await expect(palette(page)).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expect(combobox(page)).toHaveValue("");
+      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+      await expect(combobox(page)).toHaveAttribute("aria-expanded", "true");
+
+      await escapeAndWaitForClose(page, palette(page));
+      await expect(palette(page)).toBeHidden();
+      await expect(navLink).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Same race for the shortcut list: the late event must not take the reopened list's return focus.
+  ownerTest("reopens the shortcut list when ? beats the last close event", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette fast help");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const navLink = page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" });
+      await navLink.focus();
+      const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+      await openWith(shortcuts, () => page.keyboard.press("Shift+Slash"));
+
+      await closeThenPress(shortcuts, { key: "?", shiftKey: true });
+      await expect(shortcuts).toBeVisible();
+      await expect(shortcuts.getByRole("button", { name: "Close" })).toBeFocused();
+
+      await escapeAndWaitForClose(page, shortcuts);
+      await expect(shortcuts).toBeHidden();
+      await expect(navLink).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }
