@@ -70,25 +70,29 @@ describe("resendTransport", () => {
   });
 
   it.each([
-    [429, true],
-    [500, true],
-    [503, true],
-    [400, false],
-    [401, false],
-    [403, false],
-    [422, false],
-  ])("classifies an answer of %i as retryable %s", async (status, retryable) => {
-    api.failNext({ status });
+    [429, "rate_limit_exceeded", true],
+    [429, "daily_quota_exceeded", true],
+    [500, "application_error", true],
+    [503, "service_unavailable", true],
+    [409, "concurrent_idempotent_requests", true],
+    [409, "resource_locked", true],
+    [409, "invalid_idempotent_request", false],
+    [400, "validation_error", false],
+    [401, "missing_api_key", false],
+    [403, "validation_error", false],
+    [422, "missing_required_field", false],
+  ])("classifies %i %s as retryable %s", async (status, name, retryable) => {
+    api.failNext({ status, name });
     const error = await failure(transport().send(message));
     expect(error.retryable).toBe(retryable);
-    expect(error.message).toMatch(new RegExp(`^Resend answered ${status} `));
+    expect(error.message).toBe(`Resend answered ${status} ${name}`);
     expect(api.emails()).toEqual([]);
   });
 
   it("refuses a wrong key permanently, without putting the key in the error", async () => {
     const error = await failure(transport({ apiKey: "wrong-key" }).send(message));
     expect(error.retryable).toBe(false);
-    expect(error.message).toBe("Resend answered 403 invalid_api_key");
+    expect(error.message).toBe("Resend answered 401 validation_error");
     expect(error.message).not.toContain("wrong-key");
   });
 

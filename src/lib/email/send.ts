@@ -42,8 +42,8 @@ export class EmailSendError extends Error {
   override readonly name = "EmailSendError";
   readonly retryable: boolean;
 
-  constructor(message: string, options: { retryable: boolean; cause?: unknown }) {
-    super(message, options.cause === undefined ? undefined : { cause: options.cause });
+  constructor(message: string, options: { retryable: boolean }) {
+    super(message);
     this.retryable = options.retryable;
   }
 }
@@ -61,11 +61,16 @@ function assertHeaderSafe(message: EmailMessage): void {
   }
 }
 
+// 409s that mean "another request with this key, or on this resource, is still running", not
+// "this request is wrong". The SDK's error name union does not list `resource_locked` yet.
+const RETRY_LATER_CONFLICTS: Readonly<Record<string, true>> = { concurrent_idempotent_requests: true, resource_locked: true };
+
 /**
  * Resend's send email endpoint: https://resend.com/docs/api-reference/emails/send-email (checked
- * 2026-11-07). 429, 5xx, and no answer at all are retryable, and the idempotency key makes the
- * retry a no-op if the first request did arrive; any other 4xx means the request itself is wrong
- * (bad key, unverified sender domain), so sending it again cannot help.
+ * 2026-11-07). 429, 5xx, no answer at all, and the two 409s the errors page says to try again later
+ * are retryable, and the idempotency key makes the retry a no-op if the first request did arrive;
+ * any other 4xx means the request itself is wrong (bad key, unverified sender domain), so sending
+ * it again cannot help. https://resend.com/docs/api-reference/errors (checked 2026-11-07)
  */
 export function resendTransport(env: EmailEnv, timeoutMs: number = EMAIL_TIMEOUT_MS): EmailTransport {
   const client = new Resend(env.apiKey, { baseUrl: env.apiUrl });
@@ -86,15 +91,15 @@ export function resendTransport(env: EmailEnv, timeoutMs: number = EMAIL_TIMEOUT
       );
       if (result.error === null) return { messageId: result.data.id };
 
-      // Only the status and Resend's error code are kept: the message text is Resend's, and the
-      // log line needs neither the address nor the key.
+      // Only the status and Resend's error code are kept. The message text can name the Resend
+      // account's own address (the 403 for an unverified domain), and the log needs no address.
       const { statusCode, name } = result.error;
       if (typeof statusCode !== "number") {
         const reason = signal.aborted ? `timed out after ${timeoutMs} ms` : "failed without an HTTP status";
         throw new EmailSendError(`Resend request ${reason}`, { retryable: true });
       }
       throw new EmailSendError(`Resend answered ${statusCode} ${name}`, {
-        retryable: statusCode === 429 || statusCode >= 500,
+        retryable: statusCode === 429 || statusCode >= 500 || RETRY_LATER_CONFLICTS[name] === true,
       });
     },
   };

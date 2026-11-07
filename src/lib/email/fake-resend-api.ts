@@ -11,16 +11,19 @@ import { z } from "zod";
  *
  * What it mirrors from https://resend.com/docs/api-reference/emails/send-email and
  * https://resend.com/docs/api-reference/errors (checked 2026-11-07): `POST /emails` with a bearer
- * key answers `{ id }`; a missing key is 401 `missing_api_key`, a wrong one 403 `invalid_api_key`;
- * a body without the required fields is 422 `validation_error`; errors are
- * `{ statusCode, name, message }`. The same `Idempotency-Key` with the same body answers the first
- * id again without storing a second message, and with another body is 409
+ * key answers `{ id }`; errors are `{ statusCode, name, message }`. A missing key is 401
+ * `missing_api_key`, and a wrong one 401 `validation_error` (the sending endpoints' answer for a key
+ * that does not exist). A body without the required fields is 422 `missing_required_field`, and one
+ * with a field of the wrong shape 400 `validation_error`. The same `Idempotency-Key` with the same
+ * body answers the first id again without storing a second message, and with another body is 409
  * `invalid_idempotent_request`.
  *
  * Not Resend, for tests and local use (loopback only, no key on these routes):
  * - `GET /fake/emails` lists what it accepted, oldest first, as `{ data: FakeEmail[] }`.
- * - `POST /fake/failures` with `{ "status": 429 }` (any 400 to 599) or `{ "hang": true }` queues
- *   one answer for the next `POST /emails`: that error, or no answer at all, for a timeout.
+ * - `POST /fake/failures` with `{ "status": 429 }` (any 400 to 599, optionally with the error
+ *   `"name"`, such as `{ "status": 409, "name": "concurrent_idempotent_requests" }`) or
+ *   `{ "hang": true }` queues one answer for the next `POST /emails`: that error, or no answer at
+ *   all, for a timeout. Without a name, the status gets the errors page's usual one for it.
  */
 
 // Bounds, so a long running dev session or a looping sender cannot grow it without limit.
@@ -54,7 +57,7 @@ export type FakeEmail = z.infer<typeof fakeEmailSchema>;
 export const fakeEmailListSchema = z.object({ data: z.array(fakeEmailSchema) });
 
 const failureSchema = z.union([
-  z.object({ status: z.number().int().min(400).max(599) }).strict(),
+  z.object({ status: z.number().int().min(400).max(599), name: z.string().min(1).optional() }).strict(),
   z.object({ hang: z.literal(true) }).strict(),
 ]);
 
@@ -77,23 +80,28 @@ export type FakeResendApiOptions = Readonly<{
   onEmail?: (email: FakeEmail) => void;
 }>;
 
-const ERROR_NAMES: Readonly<Record<number, string>> = {
+// The errors page's name for a status, for a queued failure that names none.
+const DEFAULT_ERROR_NAMES: Readonly<Record<number, string>> = {
   400: "validation_error",
-  401: "missing_api_key",
-  403: "invalid_api_key",
+  401: "validation_error",
+  403: "validation_error",
   404: "not_found",
+  405: "method_not_allowed",
   409: "invalid_idempotent_request",
-  413: "validation_error",
-  422: "validation_error",
+  422: "missing_required_field",
   429: "rate_limit_exceeded",
+  500: "application_error",
+  503: "service_unavailable",
 };
+
+const REQUIRED_FIELDS = ["from", "to", "subject"] as const;
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
 }
 
-function sendError(response: ServerResponse, status: number, message: string): void {
-  sendJson(response, status, { statusCode: status, name: ERROR_NAMES[status] ?? "internal_server_error", message });
+function sendError(response: ServerResponse, status: number, name: string, message: string): void {
+  sendJson(response, status, { statusCode: status, name, message });
 }
 
 class BodyTooLarge extends Error {
@@ -142,19 +150,23 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
     if (failure !== undefined) {
       // A hung request stays open until the client gives up or the server closes.
       if ("hang" in failure) return;
-      sendError(response, failure.status, `Failure queued with POST /fake/failures (${failure.status}).`);
+      const name = failure.name ?? DEFAULT_ERROR_NAMES[failure.status] ?? (failure.status >= 500 ? "application_error" : "validation_error");
+      sendError(response, failure.status, name, `Failure queued with POST /fake/failures (${failure.status}).`);
       return;
     }
 
     const authorization = request.headers.authorization;
-    if (authorization === undefined) return sendError(response, 401, "Missing API key in the authorization header.");
-    if (authorization !== `Bearer ${options.apiKey}`) return sendError(response, 403, "API key is invalid.");
+    if (authorization === undefined) return sendError(response, 401, "missing_api_key", "Missing API Key");
+    if (authorization !== `Bearer ${options.apiKey}`) return sendError(response, 401, "validation_error", "API key is invalid");
 
     const raw = await readBody(request);
-    const parsed = sendEmailSchema.safeParse(parseJson(raw));
+    const json = parseJson(raw);
+    const missing = REQUIRED_FIELDS.filter((field) => typeof json !== "object" || json === null || !(field in json));
+    if (missing.length > 0) return sendError(response, 422, "missing_required_field", `Missing fields: ${missing.join(", ")}.`);
+    const parsed = sendEmailSchema.safeParse(json);
     if (!parsed.success) {
-      const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.map(String).join(".") || "body"))];
-      return sendError(response, 422, `Invalid or missing fields: ${fields.join(", ")}.`);
+      const fields = [...new Set(parsed.error.issues.map((issue) => issue.path.map(String).join(".")))];
+      return sendError(response, 400, "validation_error", `Invalid fields: ${fields.join(", ")}.`);
     }
 
     const keyHeader = request.headers["idempotency-key"];
@@ -164,7 +176,7 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
       const earlier = idempotent.get(idempotencyKey);
       if (earlier !== undefined) {
         if (earlier.bodyHash !== bodyHash) {
-          return sendError(response, 409, "Same idempotency key used with a different request payload.");
+          return sendError(response, 409, "invalid_idempotent_request", "Same idempotency key used with a different request payload.");
         }
         return sendJson(response, 200, { id: earlier.id });
       }
@@ -189,7 +201,7 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
 
   async function queueFailure(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const parsed = failureSchema.safeParse(parseJson(await readBody(request)));
-    if (!parsed.success) return sendError(response, 422, 'Send { "status": 400 to 599 } or { "hang": true }.');
+    if (!parsed.success) return sendError(response, 400, "validation_error", 'Send { "status": 400 to 599, "name"?: string } or { "hang": true }.');
     failures.push(parsed.data);
     response.writeHead(204).end();
   }
@@ -199,15 +211,15 @@ export async function startFakeResendApi(options: FakeResendApiOptions): Promise
     if (request.method === "POST" && path === "/emails") return sendEmail(request, response);
     if (request.method === "GET" && path === "/fake/emails") return sendJson(response, 200, { data: stored });
     if (request.method === "POST" && path === "/fake/failures") return queueFailure(request, response);
-    sendError(response, 404, "Route not found.");
+    sendError(response, 404, "not_found", "The requested endpoint does not exist.");
   }
 
   const server = createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
       if (response.headersSent) return response.destroy(error instanceof Error ? error : undefined);
-      if (error instanceof BodyTooLarge) return sendError(response, 413, error.message);
+      if (error instanceof BodyTooLarge) return sendError(response, 400, "validation_error", error.message);
       // A defect in the fake itself: answer like Resend's own 500 and keep serving.
-      sendError(response, 500, error instanceof Error ? error.message : "Fake Resend API failed.");
+      sendError(response, 500, "application_error", error instanceof Error ? error.message : "Fake Resend API failed.");
     });
   });
 
