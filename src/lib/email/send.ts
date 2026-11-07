@@ -92,7 +92,8 @@ export function resendTransport(env: EmailEnv, timeoutMs: number = EMAIL_TIMEOUT
       if (result.error === null) return { messageId: result.data.id };
 
       // Only the status and Resend's error code are kept. The message text can name the Resend
-      // account's own address (the 403 for an unverified domain), and the log needs no address.
+      // account's own address (the 403 for sending to anyone else from the testing-only sender), and
+      // the log needs no address.
       const { statusCode, name } = result.error;
       if (typeof statusCode !== "number") {
         const reason = signal.aborted ? `timed out after ${timeoutMs} ms` : "failed without an HTTP status";
