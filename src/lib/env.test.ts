@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { emailEnv, isLoopbackUrl } from "./env";
+import { emailEnv, isLoopbackUrl, superAdminEmails } from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -88,5 +88,27 @@ describe("isLoopbackUrl", () => {
     ["an empty string", ""],
   ])("refuses %s", (_title, url) => {
     expect(isLoopbackUrl(url)).toBe(false);
+  });
+});
+
+describe("superAdminEmails", () => {
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["only separators and spaces", " , ,"],
+  ])("names nobody when %s", (_title, value) => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", value);
+    expect(superAdminEmails().size).toBe(0);
+  });
+
+  it("reads a comma separated list, trimmed and lowercased, without duplicates", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", " Ops@Example.com,second@example.com ,ops@example.com,");
+    expect([...superAdminEmails()]).toEqual(["ops@example.com", "second@example.com"]);
+  });
+
+  it("refuses an entry that is not an email address, naming its position but never the entry", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    expect(() => superAdminEmails()).toThrow("entry 2 is not an email address");
+    expect(() => superAdminEmails()).not.toThrow("not-an-address");
   });
 });
