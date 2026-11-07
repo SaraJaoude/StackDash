@@ -1,46 +1,33 @@
 import { existsSync } from "node:fs";
 
 import AxeBuilder from "@axe-core/playwright";
-import { request as playwrightRequest, type APIRequestContext, type Page } from "@playwright/test";
+import { request as playwrightRequest, type Page } from "@playwright/test";
 import { z } from "zod";
+
+import type { FakeEmail } from "../src/lib/email/fake-resend-api";
 
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { FAKE_RESEND, fakeEmails } from "./fixtures/fake-resend";
 
 /*
- * Alert email (#152), end to end: a triggered alert goes out on the next tick through SMTP to the
- * local mail catcher, to the workspace's owner and not its viewer; the email's unsubscribe link
- * works signed out; once it is off, the next alert is not emailed. The web server needs
- * DEVMACRO_SMTP_URL and DEVMACRO_EMAIL_FROM (CI writes them to .env.local, pointing at the local
- * Supabase mail catcher, supabase/config.toml [local_smtp]).
+ * Alert email (#152), end to end: a triggered alert goes out on the next tick through the `resend`
+ * package to the fake Resend API (#244), to the workspace's owner and not its viewer; the email's
+ * unsubscribe link works signed out; once it is off, the next alert is not emailed.
+ * playwright.config.ts starts the fake and points the app at it, so no email leaves this computer.
  *
  * It runs the job tick, which is instance-wide, so it lives in the `instance-wide` Playwright
  * project (playwright.config.ts).
  */
-
-// Mailpit, the Supabase CLI's mail catcher. E2E_MAIL_URL overrides it for a stack on other ports.
-const MAIL_URL = process.env.E2E_MAIL_URL ?? "http://127.0.0.1:55424";
 
 function cronSecret(): string {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
   return z.string().min(32).parse(process.env.CRON_SECRET);
 }
 
-// Mailpit API v1 (https://mailpit.axllent.org/docs/api-v1/, checked 2026-11-05): search returns
-// message summaries; the message and its headers are separate reads.
-const SearchSchema = z.object({
-  messages: z.array(z.object({ ID: z.string(), Subject: z.string(), To: z.array(z.object({ Address: z.string() })) })),
-});
-const MessageSchema = z.object({ Subject: z.string(), Text: z.string(), HTML: z.string() });
-const HeadersSchema = z.record(z.string(), z.array(z.string()));
-
-type MailSummary = z.infer<typeof SearchSchema>["messages"][number];
-
-async function mailFor(mail: APIRequestContext, to: string, workspace: TestWorkspace): Promise<MailSummary[]> {
-  // Search filters: https://mailpit.axllent.org/docs/usage/search-filters/
-  const response = await mail.get("/api/v1/search", { params: { query: `to:"${to}" subject:"${workspace.name}"`, limit: 50 } });
-  expect(response.ok()).toBe(true);
-  return SearchSchema.parse(await response.json()).messages;
+/** What the fake accepted for one recipient in this spec's workspace, which other specs never touch. */
+async function mailFor(to: string, workspace: TestWorkspace): Promise<FakeEmail[]> {
+  return (await fakeEmails()).filter((email) => email.to.includes(to) && email.subject.includes(workspace.name));
 }
 
 /** A 100 percent allowance rule that fired on the fake provider and has not been sent yet. */
@@ -87,7 +74,6 @@ async function tickUntilDispatched(page: Page, alertId: string): Promise<void> {
 ownerTest.describe("alert email", () => {
   ownerTest("emails a triggered alert to the owner only, unsubscribes signed out, then stops", async ({ page, browser, baseURL }) => {
     ownerTest.slow();
-    const mail = await playwrightRequest.newContext({ baseURL: MAIL_URL });
     const workspace = await createTestWorkspace("Alert email");
     try {
       const title = "Fake build minutes passed 100 percent of the allowance";
@@ -95,30 +81,32 @@ ownerTest.describe("alert email", () => {
       await tickUntilDispatched(page, firstAlert);
 
       // One email, to the owner; the viewer is a member but receives no alert email.
-      let messages: MailSummary[] = [];
+      let messages: FakeEmail[] = [];
       await expect(async () => {
-        messages = await mailFor(mail, E2E_USERS.owner.email, workspace);
+        messages = await mailFor(E2E_USERS.owner.email, workspace);
         expect(messages).toHaveLength(1);
       }).toPass({ timeout: 30_000 });
-      expect(await mailFor(mail, E2E_USERS.viewer.email, workspace)).toEqual([]);
-      const [summary] = messages;
-      if (summary === undefined) throw new Error("expected one email");
-      expect(summary.Subject).toBe(`Alert in ${workspace.name}: ${title}`);
+      expect(await mailFor(E2E_USERS.viewer.email, workspace)).toEqual([]);
+      const [message] = messages;
+      if (message === undefined) throw new Error("expected one email");
+      expect(message.from).toBe(FAKE_RESEND.from);
+      expect(message.to).toEqual([E2E_USERS.owner.email]);
+      expect(message.subject).toBe(`Alert in ${workspace.name}: ${title}`);
 
-      const message = MessageSchema.parse(await (await mail.get(`/api/v1/message/${summary.ID}`)).json());
-      expect(message.Text).toContain(title);
-      expect(message.Text).toContain("Example provider");
-      expect(message.Text).toContain(`/w/${workspace.slug}/alerts`);
-      expect(message.Text).not.toMatch(/[\u2013\u2014!]/);
+      const text = message.text ?? "";
+      expect(text).toContain(title);
+      expect(text).toContain("Example provider");
+      expect(text).toContain(`/w/${workspace.slug}/alerts`);
+      expect(text).not.toMatch(/[\u2013\u2014!]/);
+      expect(message.html).toContain(title);
 
       // RFC 8058 headers: a one-click URI and the fixed List-Unsubscribe-Post value.
-      const headers = HeadersSchema.parse(await (await mail.get(`/api/v1/message/${summary.ID}/headers`)).json());
-      expect(headers["List-Unsubscribe-Post"]).toEqual(["List-Unsubscribe=One-Click"]);
-      const oneClick = /^<(.+)>$/.exec(headers["List-Unsubscribe"]?.[0] ?? "")?.[1];
+      expect(message.headers["List-Unsubscribe-Post"]).toBe("List-Unsubscribe=One-Click");
+      const oneClick = /^<(.+)>$/.exec(message.headers["List-Unsubscribe"] ?? "")?.[1];
       expect(oneClick).toMatch(/\/api\/notifications\/unsubscribe\?token=/);
 
       // The unsubscribe link in the body, opened in a browser with no session.
-      const unsubscribeLink = /^Unsubscribe: (\S+)$/m.exec(message.Text)?.[1];
+      const unsubscribeLink = /^Unsubscribe: (\S+)$/m.exec(text)?.[1];
       if (unsubscribeLink === undefined) throw new Error("the email has no unsubscribe link");
       const link = new URL(unsubscribeLink);
       const signedOut = await browser.newContext({ storageState: { cookies: [], origins: [] } });
@@ -175,10 +163,9 @@ ownerTest.describe("alert email", () => {
       // Off means off: the next alert in this workspace is handled but not emailed.
       const secondAlert = await seedTriggeredAlert(workspace, "2026-11-01", "Fake build minutes passed 100 percent again");
       await tickUntilDispatched(page, secondAlert);
-      expect(await mailFor(mail, E2E_USERS.owner.email, workspace)).toHaveLength(1);
+      expect(await mailFor(E2E_USERS.owner.email, workspace)).toHaveLength(1);
     } finally {
       await deleteTestWorkspace(workspace);
-      await mail.dispose();
     }
   });
 });
