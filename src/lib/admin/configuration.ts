@@ -211,6 +211,8 @@ function privateWebhooksCheck(): ConfigCheck {
 
 function simulationCheck(): ConfigCheck {
   const base = { name: "Simulated providers", variables: [SIMULATE_PROVIDERS_ENV] };
+  // Read directly, not through isProviderSimulationEnabled(): that is false both when the flag is
+  // off and when Vercel production refuses it, and only the second needs attention.
   if (process.env[SIMULATE_PROVIDERS_ENV] !== "1") {
     return { ...base, status: "ok", summary: "Off", detail: "Connections use the real providers." };
   }

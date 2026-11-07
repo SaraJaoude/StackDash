@@ -364,12 +364,17 @@ function ConfigHeader() {
 /** Whether ticks are arriving, judged by the oldest job that could have run and has not. */
 function schedulerCheck(jobs: readonly JobHealth[], now: Date): Pick<ConfigCheck, "name" | "status" | "summary" | "detail"> {
   const name = "Scheduler";
+  // Compared as instants: the strings come from Postgres and their offsets need not match.
   const oldestDue = jobs.reduce<string | null>(
-    (oldest, job) => (job.oldest_due_at !== null && (oldest === null || job.oldest_due_at < oldest) ? job.oldest_due_at : oldest),
+    (oldest, job) =>
+      job.oldest_due_at !== null && (oldest === null || Date.parse(job.oldest_due_at) < Date.parse(oldest)) ? job.oldest_due_at : oldest,
     null,
   );
   const lastFinished = jobs.reduce<string | null>(
-    (latest, job) => (job.last_finished_at !== null && (latest === null || job.last_finished_at > latest) ? job.last_finished_at : latest),
+    (latest, job) =>
+      job.last_finished_at !== null && (latest === null || Date.parse(job.last_finished_at) > Date.parse(latest))
+        ? job.last_finished_at
+        : latest,
     null,
   );
   const finished = lastFinished === null ? "No job has finished in the last 30 days." : `Last job finished ${formatRelative(lastFinished, now)}.`;
