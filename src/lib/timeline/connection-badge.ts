@@ -1,4 +1,4 @@
-import type { ProviderId } from "@/lib/adapters/types";
+import type { ConnectionEventCount } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
 
 const FULL_COUNT = new Intl.NumberFormat("en-US");
@@ -16,11 +16,9 @@ export type ConnectionBadgeText = Readonly<{
  * large counts, so it shortens them; the label always keeps the provider, the connection, and the
  * exact count, so the logo and the short number never carry the meaning alone.
  */
-export function connectionBadgeText(connection: {
-  provider: ProviderId;
-  name: string;
-  events: number;
-}): ConnectionBadgeText {
+export function connectionBadgeText(
+  connection: Pick<ConnectionEventCount, "provider" | "name" | "events">,
+): ConnectionBadgeText {
   const noun = connection.events === 1 ? "event" : "events";
   return {
     label: `${providerName(connection.provider)}: ${connection.name}, ${FULL_COUNT.format(connection.events)} ${noun}`,
