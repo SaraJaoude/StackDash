@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /**
  * The page's one `<h1>`, with an optional summary and page-level actions. `titleAside` sits at the
- * end of the title's own row, for compact page-level status such as the timeline's connection
+ * end of the title's own row, for compact page-level status such as the timeline's provider
  * badges.
  */
 export function PageHeader({

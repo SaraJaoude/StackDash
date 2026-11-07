@@ -350,7 +350,7 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(status).toHaveText("Showing 3 events for provider GitHub");
       await expect(eventItems(page)).toHaveCount(3);
       // The provider filter makes GitHub's badge the current view, linking back to every provider.
-      await expectProviderBadges(page, ["Show every provider, not only GitHub. GitHub: 3 events from 1 connection"]);
+      await expectProviderBadges(page, ["Show every provider. Now showing only GitHub: 3 events from 1 connection"]);
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toBeVisible();
       await expect(eventHeading(page, 0)).toHaveCount(0);
 
