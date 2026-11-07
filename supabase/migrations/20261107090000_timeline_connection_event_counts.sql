@@ -5,16 +5,16 @@
 -- activity_event_daily_counts rollup has neither connection_id nor severity.
 --
 -- Security definer with one membership check up front, like activity_event_counts: a non-member
--- gets no rows. Security invoker evaluated the activity_events and connections select policies on
--- every row, which took 427 ms for a workspace of 23,000 events in a local explain analyze; the
--- same aggregate without them takes 6.5 ms. Every row read is still scoped to p_workspace_id.
+-- gets no rows. Every row read is still scoped to p_workspace_id. As security invoker, the
+-- activity_events and connections select policies ran on every row: 427 ms for 22,975 events on
+-- the local stack, against 5.5 ms behind the single check (explain analyze, as a member).
 --
 -- Cost: with no filter this reads every event the workspace keeps (13 months, see
--- HISTORY_RETENTION_MONTHS), on every timeline render. Measured with explain analyze on committed
--- data in an isolated Postgres 17.11: 5.5 ms for 23,000 events, and 134 to 148 ms for 2.3
--- million events in one workspace (the #191 scale), where a severity filter takes 88 ms, 30 days
--- 54 ms, and one day 1 ms. Accepted while no workspace is near that size; serving the unfiltered
--- badges from a rollup with connection_id and severity is #249.
+-- HISTORY_RETENTION_MONTHS), on every timeline render. At the #191 scale, 2.3 million committed
+-- events in one workspace measured with explain analyze in an isolated Postgres 17.11, it takes
+-- 134 to 148 ms; a severity filter takes 88 ms, 30 days 54 ms, and one day 1 ms. Accepted while no
+-- workspace is near that size; serving the unfiltered badges from a rollup with connection_id and
+-- severity is #249.
 --
 -- Every filter mirrors listTimelineEvents (src/lib/data/timeline.ts), so a badge counts what the
 -- timeline lists across all of its pages. An empty array means no filter on that column, except
