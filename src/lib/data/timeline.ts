@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { projectSelection, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
+import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -58,10 +58,9 @@ const PROJECT_ACCOUNTS_LIMIT = 1000;
 /**
  * Ids of the workspace's provider accounts in the selected projects (and, for `unassigned`, in
  * none), in one query. null when no project is selected. Project ids passed the scope schema's
- * uuid check, so they are safe in the `or` list. Shared with the trend markers, which count what
- * the timeline would list.
+ * uuid check, so they are safe in the `or` list.
  */
-export async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): Promise<string[] | null> {
+async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): Promise<string[] | null> {
   if (scope.projects.length === 0) return null;
   const { projectIds, unassigned } = projectSelection(scope);
   const conditions = [
@@ -81,6 +80,17 @@ export async function accountIdsInProjects(workspaceId: string, scope: ScopeFilt
 }
 
 /**
+ * The providers and accounts `scope` leaves in view, with its projects resolved to their accounts.
+ * Shared by the event list, its connection counts, and the trend markers, which all count what the
+ * timeline would list. Cached per request: the timeline page passes the same parsed `scope` object
+ * to the list and the counts, so a project filter costs one lookup, not two.
+ */
+export const resolveTimelineScope = cache(
+  async (workspaceId: string, scope: ScopeFilters): Promise<TimelineScope> =>
+    timelineScope(scope, await accountIdsInProjects(workspaceId, scope)),
+);
+
+/**
  * One page of the workspace's activity, newest first, keyset paginated on
  * (occurred_at desc, id desc) to match the table's index. Provider account and connection names
  * come from the same request as embedded resources, so a page is always one round trip. Type ids
@@ -89,7 +99,7 @@ export async function accountIdsInProjects(workspaceId: string, scope: ScopeFilt
  */
 export async function listTimelineEvents(workspaceId: string, filters: TimelineFilters): Promise<TimelinePage> {
   const supabase = await createClient();
-  const scope = timelineScope(filters.scope, await accountIdsInProjects(workspaceId, filters.scope));
+  const scope = await resolveTimelineScope(workspaceId, filters.scope);
   // No account can match, so no event can either.
   if (scope.accountIds !== null && scope.accountIds.length === 0) return { events: [], nextCursor: null };
   let query = supabase
@@ -128,6 +138,55 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
     nextCursor:
       data.length > TIMELINE_PAGE_SIZE && last !== undefined ? { occurredAt: last.occurred_at, id: last.id } : null,
   };
+}
+
+export type ConnectionEventCount = Readonly<{
+  connectionId: string;
+  provider: Database["public"]["Enums"]["provider_id"];
+  name: string;
+  events: number;
+}>;
+
+// One row per connection, and a workspace holds a handful; this bounds the read all the same.
+const CONNECTION_COUNT_LIMIT = 100;
+
+/**
+ * How many events each connection holds under `filters`, across every page of the timeline (the
+ * cursor is ignored), most events first. Connections with no matching event are left out, and so
+ * are events with no connection. Counted in the database (`timeline_connection_event_counts`),
+ * which counts nothing for a non-member.
+ */
+export async function listTimelineConnectionCounts(
+  workspaceId: string,
+  filters: Omit<TimelineFilters, "cursor">,
+): Promise<ConnectionEventCount[]> {
+  const scope = await resolveTimelineScope(workspaceId, filters.scope);
+  // No account can match, so no event can either.
+  if (scope.accountIds !== null && scope.accountIds.length === 0) return [];
+  const range = occurredRange(filters.from, filters.to);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("timeline_connection_event_counts", {
+      p_workspace_id: workspaceId,
+      p_type_ids: [...filters.types],
+      p_hidden_type_ids: [...filters.hiddenTypeIds],
+      p_severities: [...filters.severities],
+      p_providers: [...scope.providers],
+      ...(scope.accountIds === null ? {} : { p_account_ids: [...scope.accountIds] }),
+      ...(range.from === null ? {} : { p_from: range.from }),
+      ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
+    })
+    .order("events", { ascending: false })
+    .order("display_name", { ascending: true })
+    .order("connection_id", { ascending: true })
+    .limit(CONNECTION_COUNT_LIMIT);
+  if (error) throw new Error("Failed to load timeline event counts per connection", { cause: error });
+  return data.map((row) => ({
+    connectionId: row.connection_id,
+    provider: row.provider,
+    name: row.display_name,
+    events: row.events,
+  }));
 }
 
 // PostgREST has no DISTINCT, so the type picker samples the newest events. Types older than the

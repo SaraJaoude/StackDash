@@ -7,10 +7,11 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
+import { ConnectionCounts } from "@/components/timeline/connection-counts";
 import { EventList } from "@/components/timeline/event-list";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -40,8 +41,10 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const query = parseTimelineSearchParams(await searchParams);
   const basePath = workspacePath(workspace.slug, "timeline");
 
-  const [page, typeIds, workspaceScope] = await Promise.all([
-    listTimelineEvents(workspace.id, { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS }),
+  const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
+  const [page, connectionCounts, typeIds, workspaceScope] = await Promise.all([
+    listTimelineEvents(workspace.id, filters),
+    listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
   ]);
@@ -86,6 +89,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
+      <ConnectionCounts counts={connectionCounts} />
 
       {count === 0 ? (
         filtered ? (
