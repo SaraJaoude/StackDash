@@ -1,22 +1,6 @@
 import { PlatformLogo, PuzzleIcon } from "@/components/icons";
 import type { ProviderId } from "@/lib/adapters/types";
-import type { Platform } from "@/lib/site";
-
-// The fake provider has no brand, so it gets the generic puzzle mark.
-const PLATFORM: Record<ProviderId, Platform | null> = {
-  vercel: "Vercel",
-  github: "GitHub",
-  resend: "Resend",
-  stripe: "Stripe",
-  supabase: "Supabase",
-  digitalocean: "DigitalOcean",
-  posthog: "PostHog",
-  polar: "Polar",
-  sentry: "Sentry",
-  railway: "Railway",
-  gitlab: "GitLab",
-  fake: null,
-};
+import { providerPlatform } from "@/lib/providers";
 
 const FRAME_CLASSES = {
   md: "size-10 rounded-lg",
@@ -33,7 +17,8 @@ export function ProviderMark({
   size?: number;
   frame?: keyof typeof FRAME_CLASSES;
 }) {
-  const platform = PLATFORM[provider];
+  // The fake provider has no brand, so it gets the generic puzzle mark.
+  const platform = providerPlatform(provider);
   return (
     <span
       className={`flex shrink-0 items-center justify-center border border-line bg-panel-raised text-foreground ${FRAME_CLASSES[frame]}`}
