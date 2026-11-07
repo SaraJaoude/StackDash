@@ -7,8 +7,8 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
-import { ConnectionCounts } from "@/components/timeline/connection-counts";
 import { EventList } from "@/components/timeline/event-list";
+import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
@@ -80,7 +80,11 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
 
   return (
     <>
-      <PageHeader title="Timeline" description={DESCRIPTION} />
+      <PageHeader
+        title="Timeline"
+        description={DESCRIPTION}
+        titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
+      />
       <SeverityLinks action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
@@ -89,7 +93,6 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
-      <ConnectionCounts counts={connectionCounts} />
 
       {count === 0 ? (
         filtered ? (

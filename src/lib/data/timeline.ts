@@ -140,10 +140,9 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   };
 }
 
+/** One connection with events in view: its provider and how many of those events it holds. */
 export type ConnectionEventCount = Readonly<{
-  connectionId: string;
   provider: Database["public"]["Enums"]["provider_id"];
-  name: string;
   events: number;
 }>;
 
@@ -152,9 +151,10 @@ const CONNECTION_COUNT_LIMIT = 100;
 
 /**
  * How many events each connection holds under `filters`, across every page of the timeline (the
- * cursor is ignored), most events first. Connections with no matching event are left out, and so
- * are events with no connection. Counted in the database (`timeline_connection_event_counts`),
- * which counts nothing for a non-member.
+ * cursor is ignored), one row per connection, most events first. Connections with no matching
+ * event are left out, and so are events with no connection. Counted in the database
+ * (`timeline_connection_event_counts`), which counts nothing for a non-member. Only the provider
+ * and the count are read: the title badges group by provider.
  */
 export async function listTimelineConnectionCounts(
   workspaceId: string,
@@ -176,17 +176,15 @@ export async function listTimelineConnectionCounts(
       ...(range.from === null ? {} : { p_from: range.from }),
       ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
     })
+    // PostgREST orders a function's rows only by selected columns. Order matters only for which
+    // rows CONNECTION_COUNT_LIMIT keeps; rows that tie on both are the same provider and count, so
+    // which of them it keeps changes nothing the badges show.
+    .select("provider, events")
     .order("events", { ascending: false })
-    .order("display_name", { ascending: true })
-    .order("connection_id", { ascending: true })
+    .order("provider", { ascending: true })
     .limit(CONNECTION_COUNT_LIMIT);
   if (error) throw new Error("Failed to load timeline event counts per connection", { cause: error });
-  return data.map((row) => ({
-    connectionId: row.connection_id,
-    provider: row.provider,
-    name: row.display_name,
-    events: row.events,
-  }));
+  return data;
 }
 
 // PostgREST has no DISTINCT, so the type picker samples the newest events. Types older than the
