@@ -883,6 +883,11 @@ isOneToOne: false
 "save_project_page":
 { Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string
                            },
+"timeline_connection_event_counts":
+{ Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
+              "connection_id": string,"display_name": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
 "unpublish_all_metrics":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: number
                            },
