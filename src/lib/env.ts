@@ -19,6 +19,19 @@ const encryptionEnvSchema = z.object({
   DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: z.string().min(1).optional(),
 });
 
+/**
+ * True for an http(s) URL whose host is this computer: `localhost`, any 127.x.x.x address, or
+ * `[::1]`. The WHATWG parser has already normalized the host (`127.1` is `127.0.0.1`, user info
+ * is split off), so a name that only starts with a loopback address is refused.
+ */
+export function isLoopbackUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const host = url.hostname;
+  return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
 // Alert email (#152). Exactly one transport: SMTP for local and self-hosted installs (the local
 // Supabase mail catcher listens on SMTP), or Resend's HTTP API for the hosted instance. Neither set
 // means email is not set up on this instance; alerts still reach the app and the channels.
