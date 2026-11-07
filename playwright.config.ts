@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_USERS } from "./e2e/fixtures/auth";
 import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
 
 // E2E_PORT lets parallel local runs (and agents) avoid each other and the default dev port.
@@ -83,7 +84,9 @@ export default defineConfig({
       // The other override, and the only switch for it in end-to-end runs (CI does not set it): the
       // live providers are simulated (#131), so their connect flow runs without OAuth apps. Rows a
       // spec seeds for a live provider stay real connections and are never labeled "Simulated".
-      env: { ...inherited, ...fakeResendEnv, DEVMACRO_SIMULATE_PROVIDERS: "1" },
+      // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
+      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
+      env: { ...inherited, ...fakeResendEnv, DEVMACRO_SIMULATE_PROVIDERS: "1", DEVMACRO_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email },
     },
   ],
 });
