@@ -696,6 +696,34 @@ isOneToOne: false
               "bucket_start": string,"event_count": number,"provider": Database["public"]['Enums']["provider_id"],"type_id": string
             }[]
                            },
+"admin_instance_totals":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "connections": number,"events": number,"memberships": number,"users": number,"users_new_30d": number,"users_new_7d": number,"users_signed_in_30d": number,"workspaces": number,"workspaces_new_30d": number,"workspaces_new_7d": number
+            }[]
+                           },
+"admin_job_failures":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "error_code": string,"failures": number,"kind": Database["public"]['Enums']["sync_job_kind"],"last_failed_at": string
+            }[]
+                           },
+"admin_job_health":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "due": number,"failed_24h": number,"kind": Database["public"]['Enums']["sync_job_kind"],"last_finished_at": string,"oldest_due_at": string,"queued": number,"retrying": number,"running": number,"stale": number,"succeeded_24h": number
+            }[]
+                           },
+"admin_latest_migration":
+{ Args: Record<PropertyKey, never>; Returns: string
+                           },
+"admin_provider_usage":
+{ Args: Record<PropertyKey, never>; Returns: {
+              "active": number,"failed": number,"needs_attention": number,"pending": number,"provider": Database["public"]['Enums']["provider_id"],"revoked": number,"workspaces": number
+            }[]
+                           },
+"admin_workspace_stats":
+{ Args: { "p_after_created_at"?: string,"p_after_id"?: string,"p_limit": number }; Returns: {
+              "connections": number,"created_at": string,"events": number,"is_personal": boolean,"members": number,"name": string,"slug": string,"workspace_id": string
+            }[]
+                           },
 "api_activity_events":
 { Args: { "p_after_id"?: string,"p_after_occurred_at"?: string,"p_from"?: string,"p_limit"?: number,"p_provider"?: Database["public"]['Enums']["provider_id"],"p_severity"?: Database["public"]['Enums']["event_severity"],"p_to"?: string,"p_token_hash": string,"p_type_id"?: string }; Returns: {
               "account_name": string,"body": string,"connection_id": string,"external_account_id": string,"granted_scopes": (string)[],"id": string,"occurred_at": string,"provider": Database["public"]['Enums']["provider_id"],"severity": Database["public"]['Enums']["event_severity"],"title": string,"type_id": string,"url": string

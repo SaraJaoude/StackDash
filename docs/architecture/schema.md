@@ -32,6 +32,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261106090000_activity_event_daily_counts.sql` | `activity_event_daily_counts`, the event count rollup kept by triggers on `activity_events`, and `rebuild_activity_event_daily_counts` with its backfill; `activity_event_counts` reads the rollup (#201) |
 | `20261106144639_self_reported_metrics_limit.sql` | `publish_self_reported_metric` returns `limit_reached` for a 101st live self-reported value in a project |
 | `20261107090000_timeline_connection_event_counts.sql` | `timeline_connection_event_counts`: events per connection under the timeline's filters, for the timeline's connection badges (#245) |
+| `20261107120000_super_admin_overview.sql` | Service role only figures for the super admin instance overview (#250): `admin_instance_totals`, `admin_workspace_stats` (keyset pages, newest first, with `workspaces_created_at_id_idx`), `admin_provider_usage`, `admin_job_health`, `admin_job_failures`, and `admin_latest_migration` |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
