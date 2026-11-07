@@ -3,12 +3,12 @@ import "server-only";
 import type { ConnectionInput, SnapshotInput } from "@/lib/dashboard/aggregate";
 import { eventCountBucket, markerTypeIds, markerWindowStart, type EventCountRow, type MarkerCategory } from "@/lib/dashboard/markers";
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
-import { applyScope, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
+import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
 import { getWorkspaceScope, loadSnapshots } from "./dashboard";
-import { accountIdsInProjects } from "./timeline";
+import { resolveTimelineScope } from "./timeline";
 
 export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: SnapshotInput[] }>;
 
@@ -48,7 +48,7 @@ export async function getTrendEventCounts(
 ): Promise<EventCountRow[]> {
   const typeIds = markerTypeIds(categories);
   if (typeIds.length === 0) return [];
-  const { providers, accountIds } = timelineScope(scope, await accountIdsInProjects(workspaceId, scope));
+  const { providers, accountIds } = await resolveTimelineScope(workspaceId, scope);
   // No account can match, so no event can either.
   if (accountIds !== null && accountIds.length === 0) return [];
 
