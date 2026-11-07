@@ -112,20 +112,6 @@ describe("production only problems", () => {
   });
 });
 
-describe("super admins", () => {
-  it("counts the addresses", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "a@example.com,b@example.com");
-    expect(check("Super admins").summary).toBe("2 addresses");
-  });
-
-  it("is invalid with an entry that is not an address, without repeating it", () => {
-    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "a@example.com,private-person");
-    const result = check("Super admins");
-    expect(result).toMatchObject({ status: "attention", summary: "Invalid" });
-    expect(result.detail).not.toContain("private-person");
-  });
-});
-
 describe("providers", () => {
   it("names the variables a provider is missing, and nothing for one that is set up", () => {
     vi.stubEnv("RESEND_CLIENT_ID", "resend-client");

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { connection } from "next/server";
 import { Suspense, type ReactNode } from "react";
+import { z } from "zod";
 
 import { Cell, CheckRow, HeaderCell, Panel, RowHeader, ScrollTable, StatusPill } from "@/components/admin/overview";
 import { PageHeader } from "@/components/app/page-header";
@@ -78,9 +79,10 @@ const MIGRATION_STATES: Record<MigrationState, Readonly<{ status: CheckStatus; s
   },
 };
 
-function first(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
+// A malformed or repeated `after` is ignored, which means the first page.
+const searchSchema = z.object({
+  after: z.string().max(200).optional().catch(undefined),
+});
 
 /**
  * The super admin page (#250): how this instance is configured and how it is used. Only addresses
@@ -133,7 +135,7 @@ function LoadingOverview() {
 }
 
 async function AdminContent({ userId, searchParams }: { userId: string } & Pick<PageProps<"/app/admin">, "searchParams">) {
-  const after = first((await searchParams).after) ?? null;
+  const after = searchSchema.parse(await searchParams).after ?? null;
   // Admin views are logged: who looked at instance-wide data, and when (the log line's time).
   log.info("admin.viewed", { userId });
 
@@ -194,7 +196,7 @@ async function AdminContent({ userId, searchParams }: { userId: string } & Pick<
           {configuration.map((group) => (
             <tbody key={group.title}>
               <tr className="border-b border-line bg-panel-raised">
-                <th scope="colgroup" colSpan={4} className="px-6 py-2 text-left font-semibold">
+                <th scope="rowgroup" colSpan={4} className="px-6 py-2 text-left font-semibold">
                   {group.title}
                 </th>
               </tr>
@@ -214,7 +216,7 @@ async function AdminContent({ userId, searchParams }: { userId: string } & Pick<
         <ProvidersTable providers={providers} usage={providerUsage} />
       </Panel>
 
-      <Panel id="jobs" title="Background jobs" description="The scheduler's queue, kept for 30 days after each job finishes.">
+      <Panel id="jobs" title="Background jobs" description="The scheduler's queue. Finished jobs are deleted 30 days after they were queued.">
         <div className="flex flex-wrap items-center gap-3 border-b border-line px-6 py-4 text-sm">
           <StatusPill status={scheduler.status}>{scheduler.summary}</StatusPill>
           <span className="leading-6">{scheduler.detail}</span>

@@ -12,7 +12,7 @@ export default function AdminError({ error, retry }: Pick<ErrorInfo, "error" | "
     <main id="main" className="flex flex-1 flex-col justify-center px-4 py-16">
       <ErrorPanel
         title="The instance overview could not be loaded"
-        description="Reading the figures or the configuration failed, and nothing was changed. Try again; if it keeps failing, the server log has the details under the reference below."
+        description="Reading the figures or the configuration failed, and nothing was changed. Try again, and if the problem continues, check the server log."
         {...(referenceId === undefined ? {} : { referenceId })}
         actions={
           <>

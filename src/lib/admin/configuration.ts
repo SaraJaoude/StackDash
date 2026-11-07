@@ -1,13 +1,14 @@
 import "server-only";
 
-import { liveProviderSetup } from "@/lib/adapters/registry";
-import type { LiveProviderId } from "@/lib/adapters/types";
-import { isProviderSimulationEnabled, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { FAKE_PROVIDER_ENABLE_ENV } from "@/lib/adapters/fake";
+import { isFakeProviderEnabled, liveProviderSetup } from "@/lib/adapters/registry";
+import { isProviderSimulationEnabled, SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
+import type { LiveProviderId } from "@/lib/adapters/types";
 import { currentKeyId } from "@/lib/crypto/credentials";
 import { clientIpEnv, emailEnv, publicEnv, serverEnv, superAdminEmails } from "@/lib/env";
 import { formatList } from "@/lib/format";
 import { CRON_SECRET_MIN_LENGTH } from "@/lib/jobs/runner";
+import { urlPolicyFromEnv } from "@/lib/notifications/channels";
 import { PROVIDER_NAMES } from "@/lib/providers";
 
 /*
@@ -73,14 +74,17 @@ function siteUrlCheck(): ConfigCheck {
     : { ...base, status: "attention", summary: "Invalid", detail: "Set the full origin, such as https://devmacro.example.com." };
 }
 
+// An invalid list never reaches this check: requireSuperAdmin() fails first and the page shows its
+// error boundary instead.
 function superAdminCheck(): ConfigCheck {
-  const base = { name: "Super admins", variables: ["DEVMACRO_SUPER_ADMIN_EMAILS"] };
-  try {
-    const count = superAdminEmails().size;
-    return { ...base, status: "ok", summary: `${count} ${count === 1 ? "address" : "addresses"}`, detail: "Who can open this page." };
-  } catch (error) {
-    return { ...base, status: "attention", summary: "Invalid", detail: messageOf(error) };
-  }
+  const count = superAdminEmails().size;
+  return {
+    name: "Super admins",
+    variables: ["DEVMACRO_SUPER_ADMIN_EMAILS"],
+    status: "ok",
+    summary: `${count} ${count === 1 ? "address" : "addresses"}`,
+    detail: "Who can open this page.",
+  };
 }
 
 function encryptionKeyCheck(): ConfigCheck {
@@ -192,17 +196,17 @@ function trustedProxyCheck(): ConfigCheck {
 
 function privateWebhooksCheck(): ConfigCheck {
   const base = { name: "Private network webhooks", variables: ["DEVMACRO_ALLOW_PRIVATE_WEBHOOKS"] };
-  if (!isProduction()) {
-    return { ...base, status: "info", summary: "Allowed", detail: "Development builds always allow them." };
+  if (!urlPolicyFromEnv().allowPrivate) {
+    return { ...base, status: "ok", summary: "Off", detail: "Webhook channels post to public https addresses only." };
   }
-  return process.env.DEVMACRO_ALLOW_PRIVATE_WEBHOOKS === "1"
+  return isProduction()
     ? {
         ...base,
         status: "attention",
         summary: "On",
         detail: "Webhook channels may post to plain http and private addresses. Only for a self-hosted instance whose receivers live on its own network.",
       }
-    : { ...base, status: "ok", summary: "Off", detail: "Webhook channels post to public https addresses only." };
+    : { ...base, status: "info", summary: "Allowed", detail: "Development builds always allow them." };
 }
 
 function simulationCheck(): ConfigCheck {
@@ -220,7 +224,7 @@ function simulationCheck(): ConfigCheck {
 
 function fakeProviderCheck(): ConfigCheck {
   const base = { name: "Example provider", variables: [FAKE_PROVIDER_ENABLE_ENV] };
-  if (process.env[FAKE_PROVIDER_ENABLE_ENV] !== "1") {
+  if (!isFakeProviderEnabled()) {
     return { ...base, status: "ok", summary: "Off", detail: "Not offered in the catalog." };
   }
   return isProduction()

@@ -13,11 +13,14 @@ const MIGRATIONS_DIR = path.join(process.cwd(), "supabase", "migrations");
 // The Supabase CLI's naming: a 14 digit UTC timestamp, then a name. The timestamp is the version.
 const MIGRATION_FILE = /^(\d{14})_[^/]+\.sql$/;
 
-/** The newest migration version in this build, or null when the files did not ship with it. */
-export function expectedMigrationVersion(): string | null {
+/**
+ * The newest migration version in this build, or null when the files did not ship with it. `dir`
+ * is a parameter only so tests can point it at a fixture directory.
+ */
+export function expectedMigrationVersion(dir: string = MIGRATIONS_DIR): string | null {
   let files: string[];
   try {
-    files = fs.readdirSync(MIGRATIONS_DIR);
+    files = fs.readdirSync(dir);
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw new Error("Reading the migration files failed.", { cause: error });
