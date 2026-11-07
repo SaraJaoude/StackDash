@@ -85,24 +85,24 @@ function eventHeading(page: Page, index: number) {
   return page.getByRole("heading", { name: `Synthetic event ${index}`, exact: true });
 }
 
-function connectionBadges(page: Page) {
-  return page.getByRole("list", { name: "Events by connection", exact: true });
+function providerBadges(page: Page) {
+  return page.getByRole("list", { name: "Events by provider", exact: true });
 }
 
 /**
- * The connection badges (#245): exactly these connections, in this order, each read out as
- * "Provider: connection, N events". The visible badge holds the short count beside it.
+ * The provider badges (#245): exactly these links, in this order, each named for what it does and
+ * the exact counts, such as "Show only Vercel: 60 events from 1 connection".
  */
-async function expectConnectionCounts(page: Page, expected: string[]) {
-  const items = connectionBadges(page).getByRole("listitem");
-  await expect(items).toHaveCount(expected.length);
-  await expect(items).toContainText(expected);
+async function expectProviderBadges(page: Page, expected: string[]) {
+  const links = providerBadges(page).getByRole("link");
+  await expect(links).toHaveCount(expected.length);
+  for (const [index, name] of expected.entries()) await expect(links.nth(index)).toHaveAccessibleName(name);
 }
 
 /** The badges sit in the title's row: their vertical middle falls within the heading's box. */
 async function expectBadgesBesideTitle(page: Page) {
   const title = await page.getByRole("heading", { level: 1 }).boundingBox();
-  const badges = await connectionBadges(page).boundingBox();
+  const badges = await providerBadges(page).boundingBox();
   if (title === null || badges === null) throw new Error("The title or the badges are not rendered.");
   const middle = badges.y + badges.height / 2;
   expect(middle).toBeGreaterThanOrEqual(title.y);
@@ -176,7 +176,7 @@ ownerTest.describe("timeline as the owner", () => {
       for (const index of [0, 10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
       await expect(eventHeading(page, 1)).toHaveCount(0);
       // The badge counts the matching events, not the connection's total.
-      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 6 events"]);
+      await expectProviderBadges(page, ["Show only Vercel: 6 events from 1 connection"]);
       const severityLinks = page.getByRole("navigation", { name: "Severity" });
       await expect(severityLinks.getByRole("link", { name: "Critical" })).toHaveAttribute("aria-current", "page");
       await expect(severityLinks.getByRole("link", { name: "All" })).not.toHaveAttribute("aria-current", "page");
@@ -217,7 +217,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.goto(`/w/${workspace.slug}/timeline?severity=success`);
       await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
       await expect(page.getByRole("status").filter({ hasText: "Showing no events" })).toBeVisible();
-      await expect(connectionBadges(page)).toHaveCount(0);
+      await expect(providerBadges(page)).toHaveCount(0);
 
       await page.getByRole("link", { name: "Clear filters" }).first().click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
@@ -334,9 +334,9 @@ ownerTest.describe("timeline scope filters", () => {
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
       await expect(status).toHaveText("Showing 50 events");
       // Every page's events count, and the repeated event only once: 60, not the 50 on screen.
-      await expectConnectionCounts(page, [
-        "Vercel: Vercel e2e connection, 60 events",
-        "GitHub: GitHub e2e connection, 3 events",
+      await expectProviderBadges(page, [
+        "Show only Vercel: 60 events from 1 connection",
+        "Show only GitHub: 3 events from 1 connection",
       ]);
       await expectBadgesBesideTitle(page);
       const filters = page.getByRole("region", { name: "Filters", exact: true });
@@ -349,7 +349,8 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
       await expect(status).toHaveText("Showing 3 events for provider GitHub");
       await expect(eventItems(page)).toHaveCount(3);
-      await expectConnectionCounts(page, ["GitHub: GitHub e2e connection, 3 events"]);
+      // The provider filter makes GitHub's badge the current view, linking back to every provider.
+      await expectProviderBadges(page, ["Show every provider, not only GitHub. GitHub: 3 events from 1 connection"]);
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toBeVisible();
       await expect(eventHeading(page, 0)).toHaveCount(0);
 
@@ -368,13 +369,13 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(status).toHaveText("Showing 50 events for project Unassigned");
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
       await expect(eventHeading(page, 0)).toBeVisible();
-      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 60 events"]);
+      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
 
       // Paging keeps the filter.
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(status).toHaveText("Showing 10 older events for project Unassigned");
       // An older page counts the same events: the cursor narrows the list, not the badges.
-      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 60 events"]);
+      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
 
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openFilters(page);
@@ -387,6 +388,67 @@ ownerTest.describe("timeline scope filters", () => {
       // The filtered view is bookmarkable: reloading the URL shows the same result.
       await page.reload();
       await expect(status).toHaveText("Showing 3 events for project Checkout");
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("groups connections by provider in the title badges, and filters by badge", async ({ page }) => {
+    const workspace = await seedTimeline("Timeline provider badges");
+    try {
+      await seedGitHubProject(workspace);
+      // A second Vercel connection with two events of its own.
+      const admin = adminClient();
+      const { data: connection, error: connectionError } = await admin
+        .from("connections")
+        .insert({
+          workspace_id: workspace.id,
+          provider: "vercel",
+          status: "active",
+          display_name: "Vercel second connection",
+          poll_interval_seconds: 3600,
+        })
+        .select("id")
+        .single();
+      if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+      const { error: eventsError } = await admin.from("activity_events").insert(
+        [0, 1].map((index) => ({
+          workspace_id: workspace.id,
+          connection_id: connection.id,
+          provider: "vercel" as const,
+          type_id: "vercel.deployment_ready",
+          severity: "info" as const,
+          title: `Second Vercel event ${index}`,
+          occurred_at: new Date(NEWEST_MS - (100 + index) * HOUR_MS).toISOString(),
+          dedupe_key: `e2e-timeline-second-vercel-${index}`,
+        })),
+      );
+      if (eventsError) throw new Error(`Seeding events failed (code ${eventsError.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+      await expect(status).toHaveText("Showing 50 events");
+      await expectProviderBadges(page, [
+        "Show only Vercel: 62 events from 2 connections",
+        "Show only GitHub: 3 events from 1 connection",
+      ]);
+      await expectBadgesBesideTitle(page);
+
+      // A click shows only that provider.
+      await providerBadges(page).getByRole("link", { name: /^Show only GitHub/ }).click();
+      await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
+      await expect(status).toHaveText("Showing 3 events for provider GitHub");
+      const current = providerBadges(page).getByRole("link");
+      await expect(current).toHaveAttribute("aria-current", "page");
+
+      // Keyboard only: the current badge links back to every provider.
+      await current.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
+      await expect(status).toHaveText("Showing 50 events");
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
