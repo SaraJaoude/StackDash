@@ -11,7 +11,7 @@ describe("connectionBadgeText", () => {
     { name: "one decimal in the badge", events: 1240, label: "Stripe: Acme billing, 1,240 events", short: "1.2K" },
     { name: "rounding up into millions", events: 999_999, label: "Stripe: Acme billing, 999,999 events", short: "1M" },
     { name: "the #191 scale", events: 2_300_000, label: "Stripe: Acme billing, 2,300,000 events", short: "2.3M" },
-  ])("$name: the badge shortens, the label keeps the exact count", ({ events, label, short }) => {
+  ])("$name: $short in the badge, the exact count in the label", ({ events, label, short }) => {
     expect(connectionBadgeText({ provider: "stripe", name: "Acme billing", events })).toEqual({ label, short });
   });
 });
