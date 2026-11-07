@@ -1,17 +1,23 @@
 import "server-only";
 
-import { createTransport } from "nodemailer";
+import { Resend } from "resend";
 
 import { emailEnv, type EmailEnv } from "@/lib/env";
 
 /*
- * Provider-neutral email (#152). Callers get the transport with `emailTransportFromEnv()` (null
- * when email is not set up) and send through `EmailTransport.send`: SMTP through nodemailer for
- * local and self-hosted installs, or Resend's HTTP API for the hosted instance, chosen from the
- * environment (`emailEnv`). Nothing outside this file knows which one is in use.
+ * Alert email (#152). Callers get the transport with `emailTransportFromEnv()` (null when email is
+ * not set up) and send through `EmailTransport.send`. It sends through Resend's official `resend`
+ * package, the only transport since #244:
+ * https://github.com/eddiejaoude/DevMacro/issues/244
  *
- * Decision on #152 (nodemailer over a hand-written SMTP client):
- * https://github.com/eddiejaoude/DevMacro/issues/152#issuecomment-6646089035
+ * What the package does, read from `resend@6.37.0` `dist/index.mjs` (2026-11-07):
+ * - It never throws. `emails.send` returns `{ data, error }`; `error.statusCode` is the HTTP status,
+ *   or null when no answer arrived (network failure, abort, timeout).
+ * - The `baseUrl` option wins over `RESEND_BASE_URL` in the environment, so the validated
+ *   DEVMACRO_RESEND_API_URL is always passed and that variable can never redirect mail.
+ * - It writes `console.error("[Resend API Error]: ...")` only when RESEND_DEBUG=true. DevMacro
+ *   never sets it: the failure is logged once, structured and redacted, by the caller
+ *   (`notifications.email_failed` in src/lib/notifications/dispatch.ts) from the EmailSendError.
  */
 
 export type EmailMessage = Readonly<{
@@ -21,17 +27,13 @@ export type EmailMessage = Readonly<{
   html: string;
   /** Extra headers, such as List-Unsubscribe. Values must already be header safe (no CR or LF). */
   headers?: Readonly<Record<string, string>>;
-  /**
-   * Same key, same message: Resend drops a repeat within 24 hours. SMTP has no equivalent, so the
-   * dispatcher records each delivery as well.
-   */
+  /** Same key, same message: Resend drops a repeat within 24 hours. */
   idempotencyKey?: string;
 }>;
 
 export type SentEmail = Readonly<{ messageId: string }>;
 
 export interface EmailTransport {
-  readonly name: EmailEnv["transport"];
   send(message: EmailMessage): Promise<SentEmail>;
 }
 
@@ -50,8 +52,6 @@ export class EmailSendError extends Error {
 // messages, so one message gets at most this long.
 export const EMAIL_TIMEOUT_MS = 15_000;
 
-const RESEND_EMAILS_URL = "https://api.resend.com/emails";
-
 const HEADER_UNSAFE = /[\r\n]/;
 
 function assertHeaderSafe(message: EmailMessage): void {
@@ -62,90 +62,40 @@ function assertHeaderSafe(message: EmailMessage): void {
 }
 
 /**
- * SMTP through nodemailer. `smtps://` is TLS from the first byte; `smtp://` upgrades with STARTTLS
- * when the server offers it (nodemailer's default), and stays plain only for a server that does not,
- * such as the local mail catcher. https://nodemailer.com/smtp/
+ * Resend's send email endpoint: https://resend.com/docs/api-reference/emails/send-email (checked
+ * 2026-11-07). 429, 5xx, and no answer at all are retryable, and the idempotency key makes the
+ * retry a no-op if the first request did arrive; any other 4xx means the request itself is wrong
+ * (bad key, unverified sender domain), so sending it again cannot help.
  */
-export function smtpTransport(from: string, url: string): EmailTransport {
-  const transporter = createTransport({
-    url,
-    connectionTimeout: EMAIL_TIMEOUT_MS,
-    greetingTimeout: EMAIL_TIMEOUT_MS,
-    socketTimeout: EMAIL_TIMEOUT_MS,
-  });
+export function resendTransport(env: EmailEnv, timeoutMs: number = EMAIL_TIMEOUT_MS): EmailTransport {
+  const client = new Resend(env.apiKey, { baseUrl: env.apiUrl });
   return {
-    name: "smtp",
     async send(message) {
       assertHeaderSafe(message);
-      try {
-        const info = await transporter.sendMail({
-          from,
-          to: message.to,
+      const signal = AbortSignal.timeout(timeoutMs);
+      const result = await client.emails.send(
+        {
+          from: env.from,
+          to: [message.to],
           subject: message.subject,
           text: message.text,
           html: message.html,
-          headers: { ...message.headers },
-        });
-        return { messageId: info.messageId };
-      } catch (error) {
-        // nodemailer reports a permanent rejection (5xx reply) with responseCode; everything else
-        // (connection refused, timeout, 4xx) may pass on a later attempt.
-        const code = typeof error === "object" && error !== null && "responseCode" in error ? error.responseCode : undefined;
-        const permanent = typeof code === "number" && code >= 500 && code < 600;
-        throw new EmailSendError("SMTP send failed", { retryable: !permanent, cause: error });
-      }
-    },
-  };
-}
+          ...(message.headers === undefined ? {} : { headers: { ...message.headers } }),
+        },
+        { signal, ...(message.idempotencyKey === undefined ? {} : { idempotencyKey: message.idempotencyKey }) },
+      );
+      if (result.error === null) return { messageId: result.data.id };
 
-/**
- * Resend's send email endpoint: https://resend.com/docs/api-reference/emails/send-email (checked
- * 2026-11-05). `Idempotency-Key` makes a retried request within 24 hours a no-op. 429 and 5xx are
- * retryable; other 4xx mean the request itself is wrong (bad key, unverified sender domain).
- */
-export function resendTransport(from: string, apiKey: string, fetchImpl: typeof fetch = fetch): EmailTransport {
-  return {
-    name: "resend",
-    async send(message) {
-      assertHeaderSafe(message);
-      let response: Response;
-      try {
-        response = await fetchImpl(RESEND_EMAILS_URL, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            ...(message.idempotencyKey === undefined ? {} : { "Idempotency-Key": message.idempotencyKey }),
-          },
-          body: JSON.stringify({
-            from,
-            to: [message.to],
-            subject: message.subject,
-            text: message.text,
-            html: message.html,
-            headers: message.headers ?? {},
-          }),
-          signal: AbortSignal.timeout(EMAIL_TIMEOUT_MS),
-        });
-      } catch (error) {
-        throw new EmailSendError("Resend request failed", { retryable: true, cause: error });
+      // Only the status and Resend's error code are kept: the message text is Resend's, and the
+      // log line needs neither the address nor the key.
+      const { statusCode, name } = result.error;
+      if (typeof statusCode !== "number") {
+        const reason = signal.aborted ? `timed out after ${timeoutMs} ms` : "failed without an HTTP status";
+        throw new EmailSendError(`Resend request ${reason}`, { retryable: true });
       }
-      if (!response.ok) {
-        // The body names the problem without echoing the key; only the status is kept.
-        throw new EmailSendError(`Resend answered ${response.status}`, {
-          retryable: response.status === 429 || response.status >= 500,
-        });
-      }
-      // Resend accepted the message (2xx). Its id is only for the log line, so a body that is not
-      // the documented `{ "id": ... }` leaves the id unknown rather than failing a sent message.
-      let messageId = "unknown";
-      try {
-        const body: unknown = await response.json();
-        if (typeof body === "object" && body !== null && "id" in body && typeof body.id === "string") messageId = body.id;
-      } catch (error) {
-        if (!(error instanceof SyntaxError)) throw error;
-      }
-      return { messageId };
+      throw new EmailSendError(`Resend answered ${statusCode} ${name}`, {
+        retryable: statusCode === 429 || statusCode >= 500,
+      });
     },
   };
 }
@@ -153,6 +103,5 @@ export function resendTransport(from: string, apiKey: string, fetchImpl: typeof 
 /** The configured transport, or null when email is not set up on this instance. */
 export function emailTransportFromEnv(): EmailTransport | null {
   const env = emailEnv();
-  if (env === null) return null;
-  return env.transport === "smtp" ? smtpTransport(env.from, env.smtpUrl) : resendTransport(env.from, env.resendApiKey);
+  return env === null ? null : resendTransport(env);
 }

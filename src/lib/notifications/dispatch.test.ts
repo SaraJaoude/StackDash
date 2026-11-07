@@ -227,7 +227,7 @@ describe("runAlertDispatchJob: preferences", () => {
 describe("runAlertDispatchJob: failures", () => {
   it("records an email failure as a timeline event with its reference id and retries the job", async () => {
     const { store, email, references, deps } = setup({ recipients: [owner] });
-    email.fail = new EmailSendError("SMTP send failed", { retryable: true });
+    email.fail = new EmailSendError("Resend answered 503 internal_server_error", { retryable: true });
     store.alerts.push(alert("10"));
 
     const outcome = await runAlertDispatchJob(job(), deps);
@@ -246,7 +246,7 @@ describe("runAlertDispatchJob: failures", () => {
 
   it("writes one failure event per job and target however often the job is retried", async () => {
     const { store, email, deps } = setup({ recipients: [owner] });
-    email.fail = new EmailSendError("SMTP send failed", { retryable: true });
+    email.fail = new EmailSendError("Resend answered 503 internal_server_error", { retryable: true });
     store.alerts.push(alert("10"));
     await runAlertDispatchJob(job({ attempts: 1 }), deps);
     await runAlertDispatchJob(job({ attempts: 2 }), deps);
@@ -255,7 +255,7 @@ describe("runAlertDispatchJob: failures", () => {
 
   it("gives up on the last attempt: the alert is dispatched and the event says it will not be retried", async () => {
     const { store, email, deps } = setup({ recipients: [owner] });
-    email.fail = new EmailSendError("SMTP send failed", { retryable: true });
+    email.fail = new EmailSendError("Resend answered 503 internal_server_error", { retryable: true });
     store.alerts.push(alert("10"));
 
     expect(await runAlertDispatchJob(job({ attempts: 5, max_attempts: 5 }), deps)).toEqual({ status: "succeeded" });
@@ -265,7 +265,7 @@ describe("runAlertDispatchJob: failures", () => {
 
   it("does not retry a permanent rejection", async () => {
     const { store, email, deps } = setup({ recipients: [owner] });
-    email.fail = new EmailSendError("SMTP send failed", { retryable: false });
+    email.fail = new EmailSendError("Resend answered 403 invalid_api_key", { retryable: false });
     store.alerts.push(alert("10"));
     expect(await runAlertDispatchJob(job(), deps)).toEqual({ status: "succeeded" });
     expect(store.events[0]?.body).toContain("will not try this message again");
