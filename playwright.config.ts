@@ -65,12 +65,14 @@ export default defineConfig({
   ],
   webServer: [
     {
+      name: "fake-resend",
       command: "npm run email:fake",
       url: `${FAKE_RESEND.url}/fake/emails`,
       reuseExistingServer: false,
       env: { ...inherited, ...fakeResendEnv },
     },
     {
+      name: "app",
       // CI tests the production build: it is what users get, it caught the nonce CSP blocking
       // hydration that dev mode hides, and it has no on-demand route compilation to race the first
       // test that reaches a route. Local runs keep the dev server for fast iteration.
