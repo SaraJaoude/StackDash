@@ -18,11 +18,26 @@ const PLATFORM: Record<ProviderId, Platform | null> = {
   fake: null,
 };
 
-/** Decorative provider mark; the provider name is always printed beside it. */
-export function ProviderMark({ provider, size = 20 }: { provider: ProviderId; size?: number }) {
+const FRAME_CLASSES = {
+  md: "size-10 rounded-lg",
+  sm: "size-7 rounded-md",
+} as const;
+
+/** Decorative provider mark; the provider name is always printed (or read out) beside it. */
+export function ProviderMark({
+  provider,
+  size = 20,
+  frame = "md",
+}: {
+  provider: ProviderId;
+  size?: number;
+  frame?: keyof typeof FRAME_CLASSES;
+}) {
   const platform = PLATFORM[provider];
   return (
-    <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-line bg-panel-raised text-foreground">
+    <span
+      className={`flex shrink-0 items-center justify-center border border-line bg-panel-raised text-foreground ${FRAME_CLASSES[frame]}`}
+    >
       {platform === null ? (
         <PuzzleIcon width={size} height={size} />
       ) : (
