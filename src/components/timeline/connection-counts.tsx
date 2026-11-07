@@ -2,39 +2,43 @@ import { ProviderMark } from "@/components/connections/provider-mark";
 import type { ConnectionEventCount } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
 
-const countFormat = new Intl.NumberFormat("en-US");
+const fullCount = new Intl.NumberFormat("en-US");
+// The badge is small, so large counts shorten ("12K"); the title and the screen reader text keep
+// the exact figure.
+const shortCount = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
 /**
- * Each connection in view with its provider logo and a badge counting its events under the
- * current filters, across every page (#245). The logo is decorative: the provider name is read out
- * before the connection name, and "events" after the number, so neither rests on the picture.
+ * Each connection in view as a small provider logo with a badge counting its events under the
+ * current filters, across every page (#245). Sits in the title row. The logo is decorative: screen
+ * readers hear the provider, the connection name, and the exact count, and pointer users get the
+ * same as a tooltip, so the picture and the short number never carry the meaning alone.
  */
 export function ConnectionCounts({ counts }: { counts: readonly ConnectionEventCount[] }) {
   if (counts.length === 0) return null;
   return (
-    <section aria-labelledby="timeline-connection-counts" className="mt-6">
-      <h2 id="timeline-connection-counts" className="text-sm font-semibold text-foreground">
-        Events by connection
-      </h2>
-      <ul className="mt-2 flex flex-wrap gap-2">
-        {counts.map((count) => (
+    // pr-2 keeps the last badge, which overhangs its logo, inside the page's right edge.
+    <ul aria-label="Events by connection" className="flex flex-wrap items-center gap-4 pr-2">
+      {counts.map((count) => {
+        const events = `${fullCount.format(count.events)} ${count.events === 1 ? "event" : "events"}`;
+        return (
           <li
             key={count.connectionId}
-            className="inline-flex min-h-10 min-w-0 items-center gap-2 rounded-lg border border-line bg-panel py-1.5 pl-1.5 pr-2 text-sm"
+            title={`${count.name} (${providerName(count.provider)}): ${events}`}
+            className="relative"
           >
             <ProviderMark provider={count.provider} size={16} frame="sm" />
-            <span className="min-w-0 break-words">
-              <span className="sr-only">{providerName(count.provider)}: </span>
-              {count.name}
-              <span className="sr-only">, </span>
+            <span className="sr-only">
+              {providerName(count.provider)}: {count.name}, {events}
             </span>
-            <span className="shrink-0 rounded-full border border-line-strong px-2 py-0.5 font-mono text-xs text-foreground">
-              {countFormat.format(count.events)}
-              <span className="sr-only"> {count.events === 1 ? "event" : "events"}</span>
+            <span
+              aria-hidden="true"
+              className="absolute -right-2 -top-2 min-w-5 rounded-full border border-line-strong bg-panel px-1 text-center font-mono text-[10px] leading-4 text-foreground"
+            >
+              {shortCount.format(count.events)}
             </span>
           </li>
-        ))}
-      </ul>
-    </section>
+        );
+      })}
+    </ul>
   );
 }

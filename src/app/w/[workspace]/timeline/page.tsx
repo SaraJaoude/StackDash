@@ -80,7 +80,11 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
 
   return (
     <>
-      <PageHeader title="Timeline" description={DESCRIPTION} />
+      <PageHeader
+        title="Timeline"
+        description={DESCRIPTION}
+        titleAside={<ConnectionCounts counts={connectionCounts} />}
+      />
       <SeverityLinks action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
@@ -89,7 +93,6 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
-      <ConnectionCounts counts={connectionCounts} />
 
       {count === 0 ? (
         filtered ? (

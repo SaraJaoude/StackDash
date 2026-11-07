@@ -85,9 +85,29 @@ function eventHeading(page: Page, index: number) {
   return page.getByRole("heading", { name: `Synthetic event ${index}`, exact: true });
 }
 
-/** The connection badges: one item per connection with events in view (#245). */
-function connectionCounts(page: Page) {
-  return page.getByRole("region", { name: "Events by connection", exact: true }).getByRole("listitem");
+function connectionBadges(page: Page) {
+  return page.getByRole("list", { name: "Events by connection", exact: true });
+}
+
+/**
+ * The connection badges (#245): exactly these connections, in this order, each read out as
+ * "Provider: connection, N events". The visible badge holds the short count beside it.
+ */
+async function expectConnectionCounts(page: Page, expected: string[]) {
+  const items = connectionBadges(page).getByRole("listitem");
+  await expect(items).toHaveCount(expected.length);
+  await expect(items).toContainText(expected);
+}
+
+/** The badges sit in the title's row: their vertical middle falls within the heading's box. */
+async function expectBadgesBesideTitle(page: Page) {
+  const title = await page.getByRole("heading", { level: 1 }).boundingBox();
+  const badges = await connectionBadges(page).boundingBox();
+  if (title === null || badges === null) throw new Error("The title or the badges are not rendered.");
+  const middle = badges.y + badges.height / 2;
+  expect(middle).toBeGreaterThanOrEqual(title.y);
+  expect(middle).toBeLessThanOrEqual(title.y + title.height);
+  expect(badges.x).toBeGreaterThan(title.x + title.width);
 }
 
 ownerTest.describe("timeline as the owner", () => {
@@ -156,7 +176,7 @@ ownerTest.describe("timeline as the owner", () => {
       for (const index of [0, 10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
       await expect(eventHeading(page, 1)).toHaveCount(0);
       // The badge counts the matching events, not the connection's total.
-      await expect(connectionCounts(page)).toHaveText(["Vercel: Vercel e2e connection, 6 events"]);
+      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 6 events"]);
       const severityLinks = page.getByRole("navigation", { name: "Severity" });
       await expect(severityLinks.getByRole("link", { name: "Critical" })).toHaveAttribute("aria-current", "page");
       await expect(severityLinks.getByRole("link", { name: "All" })).not.toHaveAttribute("aria-current", "page");
@@ -197,7 +217,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.goto(`/w/${workspace.slug}/timeline?severity=success`);
       await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
       await expect(page.getByRole("status").filter({ hasText: "Showing no events" })).toBeVisible();
-      await expect(page.getByRole("region", { name: "Events by connection", exact: true })).toHaveCount(0);
+      await expect(connectionBadges(page)).toHaveCount(0);
 
       await page.getByRole("link", { name: "Clear filters" }).first().click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
@@ -314,10 +334,11 @@ ownerTest.describe("timeline scope filters", () => {
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
       await expect(status).toHaveText("Showing 50 events");
       // Every page's events count, and the repeated event only once: 60, not the 50 on screen.
-      await expect(connectionCounts(page)).toHaveText([
+      await expectConnectionCounts(page, [
         "Vercel: Vercel e2e connection, 60 events",
         "GitHub: GitHub e2e connection, 3 events",
       ]);
+      await expectBadgesBesideTitle(page);
       const filters = page.getByRole("region", { name: "Filters", exact: true });
       // The bar starts closed, so the events lead the page.
       await expect(filters.getByRole("button", { name: "Apply filters" })).toBeHidden();
@@ -328,7 +349,7 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
       await expect(status).toHaveText("Showing 3 events for provider GitHub");
       await expect(eventItems(page)).toHaveCount(3);
-      await expect(connectionCounts(page)).toHaveText(["GitHub: GitHub e2e connection, 3 events"]);
+      await expectConnectionCounts(page, ["GitHub: GitHub e2e connection, 3 events"]);
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toBeVisible();
       await expect(eventHeading(page, 0)).toHaveCount(0);
 
@@ -347,13 +368,13 @@ ownerTest.describe("timeline scope filters", () => {
       await expect(status).toHaveText("Showing 50 events for project Unassigned");
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
       await expect(eventHeading(page, 0)).toBeVisible();
-      await expect(connectionCounts(page)).toHaveText(["Vercel: Vercel e2e connection, 60 events"]);
+      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 60 events"]);
 
       // Paging keeps the filter.
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(status).toHaveText("Showing 10 older events for project Unassigned");
       // An older page counts the same events: the cursor narrows the list, not the badges.
-      await expect(connectionCounts(page)).toHaveText(["Vercel: Vercel e2e connection, 60 events"]);
+      await expectConnectionCounts(page, ["Vercel: Vercel e2e connection, 60 events"]);
 
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openFilters(page);
