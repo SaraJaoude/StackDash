@@ -46,7 +46,8 @@ $$;
 -- ── Per workspace ───────────────────────────────────────────────────────────────
 -- Newest first, one page at a time: (p_after_created_at, p_after_id) is the last row of the previous
 -- page, both null for the first. The page size is clamped to 1..100 so no caller can ask for every
--- workspace at once. Served by workspaces_created_at_id_idx below.
+-- workspace at once. A missing cursor becomes one past every row rather than an `or`, so the one row
+-- comparison stays a condition on workspaces_created_at_id_idx below.
 
 create index workspaces_created_at_id_idx on public.workspaces (created_at desc, id desc);
 
@@ -80,9 +81,10 @@ as $$
     (select count(*) from public.connections c where c.workspace_id = w.id and c.status <> 'revoked'),
     (select coalesce(sum(d.event_count), 0)::bigint from public.activity_event_daily_counts d where d.workspace_id = w.id)
   from public.workspaces w
-  where p_after_created_at is null
-     or p_after_id is null
-     or (w.created_at, w.id) < (p_after_created_at, p_after_id)
+  where (w.created_at, w.id) < (
+    coalesce(p_after_created_at, 'infinity'::timestamptz),
+    coalesce(p_after_id, 'ffffffff-ffff-ffff-ffff-ffffffffffff'::uuid)
+  )
   order by w.created_at desc, w.id desc
   limit least(greatest(coalesce(p_limit, 1), 1), 100);
 $$;
