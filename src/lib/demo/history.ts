@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { DAY_MS, SLOT_MS } from "@/lib/adapters/simulated/simulation";
+import { isLoopbackUrl } from "@/lib/env";
 import { dailySummaryJobKey, runDailySummaryJob } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
 import type { ClaimedJob } from "@/lib/jobs/store";
@@ -35,19 +36,6 @@ export function demoSeedRefusal(input: Readonly<{ simulationEnabled: boolean; su
     return "NEXT_PUBLIC_SUPABASE_URL is not a Supabase stack on this computer. The demo seed only writes to a local stack (localhost or 127.0.0.1).";
   }
   return null;
-}
-
-/**
- * True for an http(s) URL whose host is this computer: `localhost`, any 127.x.x.x address, or
- * `[::1]`. The WHATWG parser has already normalized the host (`127.1` is `127.0.0.1`, user info
- * is split off), so a name that only starts with a loopback address is refused.
- */
-export function isLoopbackUrl(value: string): boolean {
-  if (!URL.canParse(value)) return false;
-  const url = new URL(value);
-  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
-  const host = url.hostname;
-  return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
 /**

@@ -19,19 +19,46 @@ const encryptionEnvSchema = z.object({
   DEVMACRO_ENCRYPTION_KEYS_PREVIOUS: z.string().min(1).optional(),
 });
 
-// Alert email (#152). Exactly one transport: SMTP for local and self-hosted installs (the local
-// Supabase mail catcher listens on SMTP), or Resend's HTTP API for the hosted instance. Neither set
-// means email is not set up on this instance; alerts still reach the app and the channels.
-const emailEnvSchema = z
-  .object({
-    DEVMACRO_EMAIL_FROM: z.string().trim().min(3),
-    DEVMACRO_SMTP_URL: z.url({ protocol: /^smtps?$/, error: "use smtp://host:port or smtps://user:password@host:port" }).optional(),
-    DEVMACRO_RESEND_API_KEY: z.string().min(1).optional(),
-  })
-  .refine((env) => env.DEVMACRO_SMTP_URL === undefined || env.DEVMACRO_RESEND_API_KEY === undefined, {
-    path: ["DEVMACRO_RESEND_API_KEY"],
-    error: "set either DEVMACRO_SMTP_URL or DEVMACRO_RESEND_API_KEY, not both",
-  });
+/**
+ * True for an http(s) URL whose host is this computer: `localhost`, any 127.x.x.x address, or
+ * `[::1]`. The WHATWG parser has already normalized the host (`127.1` is `127.0.0.1`, user info
+ * is split off), so a name that only starts with a loopback address is refused.
+ */
+export function isLoopbackUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const host = url.hostname;
+  return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+}
+
+const RESEND_API_URL = "https://api.resend.com";
+
+// Alert email (#152) goes through Resend's API (#244). Without DEVMACRO_RESEND_API_KEY email is not
+// set up on this instance; alerts still reach the app and the channels. DEVMACRO_RESEND_API_URL
+// points the client at another server that answers like Resend, such as the local fake
+// (`npm run email:fake`). Plain http only to this computer, so the key never crosses a network in
+// the clear. An origin only: the client appends `/emails` itself. Messages never echo the value.
+const emailEnvSchema = z.object({
+  DEVMACRO_EMAIL_FROM: z.string().trim().min(3),
+  DEVMACRO_RESEND_API_KEY: z.string().min(1),
+  DEVMACRO_RESEND_API_URL: z
+    .url({ protocol: /^https?$/, error: "use an https URL" })
+    // Each check passes text that is not a URL, which the check above already reports.
+    .refine((value) => !URL.canParse(value) || new URL(value).protocol === "https:" || isLoopbackUrl(value), {
+      error: "use https, or plain http only to this computer (localhost, 127.0.0.1, or [::1])",
+    })
+    .refine(
+      (value) => {
+        if (!URL.canParse(value)) return true;
+        const url = new URL(value);
+        return url.pathname === "/" && url.search === "" && url.hash === "" && url.username === "" && url.password === "";
+      },
+      { error: "use the scheme, host, and port only, with no path, query, or user name" },
+    )
+    .transform((value) => new URL(value).origin)
+    .default(RESEND_API_URL),
+});
 
 // Where the public routes' per IP rate limit (#149) finds the client. VERCEL=1 is Vercel's system
 // environment variable (https://vercel.com/docs/environment-variables/system-environment-variables).
@@ -48,9 +75,7 @@ const clientIpEnvSchema = z.object({
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
-export type EmailEnv =
-  | Readonly<{ transport: "smtp"; from: string; smtpUrl: string }>
-  | Readonly<{ transport: "resend"; from: string; resendApiKey: string }>;
+export type EmailEnv = Readonly<{ from: string; apiKey: string; apiUrl: string }>;
 export type ClientIpEnv = Readonly<{ header: "x-vercel-forwarded-for" | "x-forwarded-for"; trustedProxies: number }>;
 
 function parseEnv<Schema extends z.ZodType>(
@@ -118,9 +143,9 @@ export function encryptionEnv(): EncryptionEnv {
 }
 
 /**
- * The alert email transport, or null when neither DEVMACRO_SMTP_URL nor DEVMACRO_RESEND_API_KEY is
- * set. A transport without DEVMACRO_EMAIL_FROM, or both transports at once, is a configuration
- * error rather than a silent "off".
+ * The alert email settings, or null when neither DEVMACRO_RESEND_API_KEY nor DEVMACRO_RESEND_API_URL
+ * is set. A key without DEVMACRO_EMAIL_FROM, or a URL without a key, is a configuration error
+ * rather than a silent "off".
  */
 export function emailEnv(): EmailEnv | null {
   if (typeof window !== "undefined") {
@@ -128,18 +153,12 @@ export function emailEnv(): EmailEnv | null {
   }
   const input = {
     DEVMACRO_EMAIL_FROM: process.env.DEVMACRO_EMAIL_FROM,
-    DEVMACRO_SMTP_URL: process.env.DEVMACRO_SMTP_URL,
     DEVMACRO_RESEND_API_KEY: process.env.DEVMACRO_RESEND_API_KEY,
+    DEVMACRO_RESEND_API_URL: process.env.DEVMACRO_RESEND_API_URL,
   };
-  if (!input.DEVMACRO_SMTP_URL && !input.DEVMACRO_RESEND_API_KEY) return null;
+  if (!input.DEVMACRO_RESEND_API_KEY && !input.DEVMACRO_RESEND_API_URL) return null;
   const env = parseEnv(emailEnvSchema, input);
-  if (env.DEVMACRO_SMTP_URL !== undefined) {
-    return { transport: "smtp", from: env.DEVMACRO_EMAIL_FROM, smtpUrl: env.DEVMACRO_SMTP_URL };
-  }
-  if (env.DEVMACRO_RESEND_API_KEY !== undefined) {
-    return { transport: "resend", from: env.DEVMACRO_EMAIL_FROM, resendApiKey: env.DEVMACRO_RESEND_API_KEY };
-  }
-  return null;
+  return { from: env.DEVMACRO_EMAIL_FROM, apiKey: env.DEVMACRO_RESEND_API_KEY, apiUrl: env.DEVMACRO_RESEND_API_URL };
 }
 
 /**

@@ -66,7 +66,7 @@ export const CHANNEL_NEEDS_ATTENTION_TYPE_ID = "devmacro.channel_needs_attention
 export const DISPATCH_ALERT_LIMIT = 100;
 // Messages of one job sent at the same time. Each goes to a different recipient or webhook, so
 // per-webhook rate limits (Slack: about one post per second) are unaffected; the bound keeps an
-// instance with many owners from opening that many SMTP connections at once.
+// instance with many owners from sending that many emails to Resend at once.
 export const DELIVERY_CONCURRENCY = 4;
 
 export type WorkspaceInfo = Readonly<{ id: string; slug: string; name: string }>;
@@ -166,7 +166,6 @@ async function sendToTarget(
       const retryable = error instanceof EmailSendError ? error.retryable : true;
       const referenceId = deps.logError("notifications.email_failed", error, {
         workspaceId: workspace.id,
-        transport: deps.email.name,
         retryable,
       });
       return { ok: false, retryable, code: "email_failed", referenceId };

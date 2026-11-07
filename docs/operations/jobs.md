@@ -21,7 +21,7 @@ Each tick does three things, then answers with counts only (no data, no errors i
      The Discord embed and Slack Block Kit messages follow the vendors' documentation (the sources are listed at the top of `src/lib/notifications/channels.ts`). They are unconfirmed against a live Discord or Slack webhook until the manual check on #153 is done. A test message to a generic webhook, with its signature, is checked end to end by `e2e/alert-channels.spec.ts`.
    - **Digest**: one `digest` job per workspace with a connection per UTC day (dedupe key `digest:<workspace id>:YYYY-MM-DD`, for the previous day). It sends the daily digest to members and channels set to daily, and on Mondays the weekly digest for the week before to those set to weekly. Its highlights count the period's timeline events (deployments, signups, star events, payments), with PostHog's daily signup counts summed for the days that ended in the period.
 
-   Email goes through `DEVMACRO_SMTP_URL` or `DEVMACRO_RESEND_API_KEY` (see `.env.example`). Without either, email targets are skipped and channels still receive alerts. Locally, sent mail appears in the Supabase mail catcher at http://127.0.0.1:55424.
+   Email goes through Resend's API with `DEVMACRO_RESEND_API_KEY` (see `.env.example`). Without it, email targets are skipped and channels still receive alerts. Locally, set `DEVMACRO_RESEND_API_URL=http://127.0.0.1:55430` and run `npm run email:fake`: the fake Resend API prints each email the tick sends, and lists them at http://127.0.0.1:55430/fake/emails.
 2. **Claim.** Takes up to 10 runnable jobs from `sync_jobs` with `for update skip locked` and a 120 second lease, so overlapping ticks never run the same job.
 3. **Run.** Runs the claimed jobs, three at a time, within a 50 second budget. Jobs not started when the budget runs out go back to the queue without using an attempt. The route's `maxDuration` is 120 seconds, which leaves room for jobs already running.
 
@@ -155,6 +155,8 @@ The `pg_cron` and `pg_net` extensions are installed by migration. The cron job i
 ### Self-hosted (Docker Compose) and local Supabase
 
 The same SQL works with the Supabase stack in Compose. Use a URL the database container can reach: the app's service name on the Compose network (for example `http://app:3000`), or `http://host.docker.internal:3000` for a dev server on the host. Any other scheduler that can send the same `POST` with the bearer header every minute works too.
+
+Alert email needs a Resend account with a verified sending domain on a self-hosted install too (#244): set `DEVMACRO_RESEND_API_KEY` and `DEVMACRO_EMAIL_FROM`. Without the key, alerts still show in the app and reach channels.
 
 ## Where to look when syncs stop
 

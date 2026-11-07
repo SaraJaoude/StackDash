@@ -82,7 +82,7 @@ projects:
 | API | `http://127.0.0.1:55421` |
 | Database | `postgresql://postgres:postgres@127.0.0.1:55422/postgres` |
 | Studio | <http://localhost:55423> |
-| Email inbox (local SMTP catcher) | <http://localhost:55424> |
+| Email inbox (sign-in emails from the local stack) | <http://localhost:55424> |
 
 Stop the stack with `supabase stop`; your data is kept for the next `supabase start`.
 
@@ -277,6 +277,36 @@ It prints the dashboard and timeline links when it finishes, which takes seconds
 stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
 carries on from the replay's last sync without a gap or a repeat.
 
+### 12. Send alert and digest emails locally (optional)
+
+Alert and digest emails go through Resend. Locally they go to a fake Resend API instead, which
+prints each email it receives, so nothing leaves your machine and no Resend account is needed. Add
+these to `.env.local` and restart `npm run dev` (the key can be any value: the fake accepts the one
+set here):
+
+```bash
+DEVMACRO_EMAIL_FROM=DevMacro alerts <alerts@example.com>
+DEVMACRO_RESEND_API_KEY=local-fake-key
+DEVMACRO_RESEND_API_URL=http://127.0.0.1:55430
+```
+
+Start the fake in its own terminal and leave it running:
+
+```bash
+npm run email:fake
+```
+
+Then `npm run jobs:tick` sends what is due. A triggered alert goes to the owners and admins whose
+alert emails are set to **As each alert happens**, and the first tick of each day sends the
+**Daily digest** for the day before to members who chose it on the alerts page, in every workspace
+with a connection. Each email prints in the fake's terminal, and
+<http://127.0.0.1:55430/fake/emails> lists them all. To see how a failed email shows on the
+timeline, make the fake refuse the next one:
+
+```bash
+curl -X POST -d '{"status":500}' http://127.0.0.1:55430/fake/failures
+```
+
 ## Checks
 
 The Supabase stack from step 3 must be running for `test:db`, `db:types:check`, and `test:e2e`.
@@ -326,16 +356,14 @@ connects and syncs through `POST /api/jobs/tick`. `e2e/real-connection-while-sim
 checks, without a tick, that a real connection stays unlabeled and cannot be reconnected through
 the simulator.
 
-`e2e/alert-email.spec.ts` sends an alert email through SMTP and reads it back from the mail
-catcher, so `.env.local` also needs `DEVMACRO_EMAIL_FROM` (any sender, such as
-`DevMacro alerts <alerts@example.com>`) and `DEVMACRO_SMTP_URL=smtp://127.0.0.1:55425`, the local
-Supabase mail catcher. Without them the app sends no email and the spec times out waiting for
-one. The spec reads the catcher's inbox at `http://127.0.0.1:55424`; set `E2E_MAIL_URL` in the
-shell for a Supabase stack on other ports (and point `DEVMACRO_SMTP_URL` at its SMTP port). CI
-also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`,
-because it runs a production build, which sends no alert message without the first and refuses to
-post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without the second. The dev server
-needs neither.
+`e2e/alert-email.spec.ts` sends an alert email through the `resend` package and reads it back from
+the fake Resend API. Playwright starts the fake itself (`npm run email:fake`, on the app's port
+plus one, 3101 by default, or `E2E_RESEND_PORT`) and gives its dev server the fake's URL, a dummy
+key, and a sender, which take precedence over `.env.local`, so the spec needs no email settings
+and never reaches Resend. CI also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and
+`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`, because it runs a production build, which sends no alert
+message without the first and refuses to post to `e2e/alert-channels.spec.ts`'s receiver on
+127.0.0.1 without the second. The dev server needs neither.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
@@ -369,9 +397,9 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
 | `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
-| `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`; with Resend, on a domain verified in the Resend account | Server only | Required with either email transport |
-| `DEVMACRO_SMTP_URL` | SMTP server for alert email on local and self-hosted installs: `smtp://host:port` (STARTTLS when offered) or `smtps://user:password@host:port`. Locally `smtp://127.0.0.1:55425`, the Supabase mail catcher | Secret | Optional (one email transport, never with `DEVMACRO_RESEND_API_KEY`) |
-| `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access, for alert email on the hosted instance | Secret | Optional (one email transport, never with `DEVMACRO_SMTP_URL`) |
+| `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`, on a domain verified in the Resend account | Server only | Required with `DEVMACRO_RESEND_API_KEY` |
+| `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
+| `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
 | `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
@@ -409,7 +437,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `FAKE_PROVIDER_CLIENT_SECRET` | Any non-empty value for the fake provider | Test only | Optional (with the fake provider) |
 | `DEVMACRO_SIMULATE_PROVIDERS` | Set to `1` to replace the live providers with simulated ones that need no OAuth app | Local only | Optional (refused on Vercel production) |
 | `E2E_PORT` | Port of the Playwright dev server, read from the shell (default 3100) | Test only | Optional |
-| `E2E_MAIL_URL` | Mail catcher inbox that `e2e/alert-email.spec.ts` reads, from the shell (default `http://127.0.0.1:55424`) | Test only | Optional |
+| `E2E_RESEND_PORT` | Port of the fake Resend API that Playwright starts for `e2e/alert-email.spec.ts`, read from the shell (default `E2E_PORT` plus one) | Test only | Optional |
 
 A provider with any required variable empty shows as not set up in the connection catalog; the
 rest of the app keeps working. Each provider callback URL is
@@ -511,7 +539,7 @@ src/
     jobs/                      sync queue, runner, schedule, retries, retention, daily summary
     alerts/                    alert rule schema and evaluation
     notifications/             alert email and channel messages: dispatch, digests, Discord, Slack, webhooks
-    email/                     email transport: SMTP or Resend
+    email/                     email transport through the `resend` package, and the fake Resend API for local runs and tests
     dashboard/, timeline/      dashboard aggregation and timeline queries
     public-metrics/            public metric definitions, engine, history, published read API, badges, cards, yearly card
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
@@ -529,7 +557,7 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit

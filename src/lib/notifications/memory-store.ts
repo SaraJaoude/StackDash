@@ -120,7 +120,6 @@ export class MemoryNotificationStore implements NotificationStore {
 
 /** An email transport that keeps what it sends; `fail` makes the next sends throw. */
 export class MemoryEmailTransport implements EmailTransport {
-  readonly name = "smtp";
   sent: EmailMessage[] = [];
   fail: Error | null = null;
 

@@ -16,18 +16,19 @@
     "keys:rotate": "tsx --conditions=react-server scripts/rotate-encryption-key.ts",
     "invite": "tsx --conditions=react-server scripts/invite.ts",
     "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",
-    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts"
+    "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts",
+    "email:fake": "tsx scripts/fake-resend-api.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
     "next": "16.4.3",
-    "nodemailer": "^10.3.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
+    "resend": "^6.37.0",
     "server-only": "^0.0.1",
     "zod": "^4.6.7"
   },
