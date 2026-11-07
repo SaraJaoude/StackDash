@@ -397,6 +397,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
 | `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
+| `DEVMACRO_SUPER_ADMIN_EMAILS` | Comma separated email addresses of the people who can open the [instance overview](#instance-overview) at `/app/admin`, matched without regard to case against the email they sign in with | Server only | Optional (empty means nobody) |
 | `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`, on a domain verified in the Resend account | Server only | Required with `DEVMACRO_RESEND_API_KEY` |
 | `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
 | `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
@@ -468,6 +469,17 @@ The script reads `.env.local` when present, otherwise `NEXT_PUBLIC_SUPABASE_URL`
 `SUPABASE_SERVICE_ROLE_KEY` from the environment. Removing an invite does not delete an existing
 account. For production, follow [Deploy, invite testers](docs/operations/deploy.md#4-invite-testers).
 
+### Instance overview
+
+`/app/admin` shows a super admin how this server is configured and used: whether each environment
+variable above is set (never its value) and what that means, which provider OAuth apps are
+registered and how many workspaces use each provider, the background job queue and its failures in
+the last 24 hours, users, workspaces with their members and timeline events, and whether the
+database has this build's migrations. Super admins are the addresses in
+`DEVMACRO_SUPER_ADMIN_EMAILS`; anyone else gets page not found. Each view is logged with the
+viewer's user id (`admin.viewed`). Locally, add your GitHub email to `.env.local` and restart
+`npm run dev`.
+
 ### Rotate the encryption key
 
 `npm run keys:rotate` re-encrypts stored credentials under the current key without downtime. The
@@ -506,7 +518,7 @@ src/
     sign-in/                   GitHub sign-in page
     docs/                      the Markdown in docs/ published at /docs, one page per file
     auth/                      OAuth callback, error page, sign-out
-    app/                       entry after sign-in, sends you to a workspace
+    app/                       entry after sign-in, sends you to a workspace; app/admin/ is the super admin instance overview
     account/                   account page, delete account action, signed-out "account deleted" page
     w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings, year in review
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
@@ -528,6 +540,7 @@ src/
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
+    admin/                     instance overview tables and status pills
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
@@ -545,7 +558,8 @@ src/
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
-    auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
+    auth/, workspaces/, account/  session, redirects, super admins, roles and permissions, account deletion
+    admin/                     instance overview: configuration checks, deployment and migration state
     demo/                      the demo workspace and its replayed history (npm run demo:seed)
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
