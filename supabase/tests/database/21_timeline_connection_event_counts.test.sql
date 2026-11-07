@@ -5,10 +5,12 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(16);
+select plan(17);
 
 -- Fixtures as postgres: a viewer of workspace W, an outsider, a Vercel connection A with account
--- XA, a GitHub connection B with account XB, and events on both sides of each filter.
+-- XA, a GitHub connection B with account XB, and events on both sides of each filter. The outsider
+-- owns a second workspace W2 with one Stripe event, and the viewer belongs to W2 as well, so the
+-- viewer can see both workspaces and every count below proves it reads only the one asked for.
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, raw_app_meta_data, created_at, updated_at)
 values
   ('d2450001-0000-4000-8000-000000000000', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated',
@@ -19,17 +21,22 @@ values
    'badge-outsider@example.com', '{"user_name": "badge-outsider"}', '{"provider": "github", "providers": ["github"]}', now(), now());
 
 insert into public.workspaces (id, name, created_by)
-values ('d24500a0-0000-4000-8000-000000000000', 'Badge team', 'd2450001-0000-4000-8000-000000000000');
+values
+  ('d24500a0-0000-4000-8000-000000000000', 'Badge team', 'd2450001-0000-4000-8000-000000000000'),
+  ('d24500c0-0000-4000-8000-000000000000', 'Other badge team', 'd2450003-0000-4000-8000-000000000000');
 
 insert into public.workspace_members (workspace_id, user_id, role)
 values
   ('d24500a0-0000-4000-8000-000000000000', 'd2450001-0000-4000-8000-000000000000', 'owner'),
-  ('d24500a0-0000-4000-8000-000000000000', 'd2450002-0000-4000-8000-000000000000', 'viewer');
+  ('d24500a0-0000-4000-8000-000000000000', 'd2450002-0000-4000-8000-000000000000', 'viewer'),
+  ('d24500c0-0000-4000-8000-000000000000', 'd2450003-0000-4000-8000-000000000000', 'owner'),
+  ('d24500c0-0000-4000-8000-000000000000', 'd2450002-0000-4000-8000-000000000000', 'viewer');
 
 insert into public.connections (id, workspace_id, provider, status, display_name, poll_interval_seconds)
 values
   ('d24500a1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'vercel', 'active', 'Vercel badge', 3600),
-  ('d24500b1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub badge', 3600);
+  ('d24500b1-0000-4000-8000-000000000000', 'd24500a0-0000-4000-8000-000000000000', 'github', 'active', 'GitHub badge', 3600),
+  ('d24500c1-0000-4000-8000-000000000000', 'd24500c0-0000-4000-8000-000000000000', 'stripe', 'active', 'Stripe badge', 3600);
 
 insert into public.external_accounts (id, workspace_id, connection_id, external_id, display_name, kind)
 values
@@ -55,7 +62,10 @@ values
    null, 'devmacro.sync_failed', 'warning', 'Sync failed', '2026-11-04T13:00:00Z', 'badge-6'),
   -- No connection: a daily summary belongs to no badge.
   ('d24500a0-0000-4000-8000-000000000000', null, null,
-   null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-11-04T08:00:00Z', 'badge-7');
+   null, 'devmacro.daily_summary', 'info', 'Daily summary', '2026-11-04T08:00:00Z', 'badge-7'),
+  -- W2: one Stripe event, which no count for W may include.
+  ('d24500c0-0000-4000-8000-000000000000', 'd24500c1-0000-4000-8000-000000000000', null,
+   'stripe', 'stripe.payment_succeeded', 'success', 'Payment', '2026-11-04T09:00:00Z', 'badge-8');
 
 -- ---------------------------------------------------------------------------
 -- Shape: security definer, empty search_path, members only.
@@ -73,6 +83,10 @@ select ok(
   not has_function_privilege('anon',
     'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
   'timeline_connection_event_counts: anon cannot execute it');
+select ok(
+  not has_function_privilege('service_role',
+    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
+  'timeline_connection_event_counts: service_role cannot execute it');
 select ok(
   has_function_privilege('authenticated',
     'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
@@ -164,11 +178,12 @@ select is_empty(
   $$,
   'timeline_connection_event_counts: an empty window counts nothing');
 
-select is_empty(
+select results_eq(
   $$
-    select * from public.timeline_connection_event_counts('d2450fff-0000-4000-8000-000000000000')
+    select display_name, events from public.timeline_connection_event_counts('d24500c0-0000-4000-8000-000000000000')
   $$,
-  'timeline_connection_event_counts: another workspace id counts nothing');
+  $$ values ('Stripe badge'::text, 1::bigint) $$,
+  'timeline_connection_event_counts: a member of two workspaces counts only the workspace asked for');
 
 -- ---------------------------------------------------------------------------
 -- As someone outside W: the membership check returns nothing.

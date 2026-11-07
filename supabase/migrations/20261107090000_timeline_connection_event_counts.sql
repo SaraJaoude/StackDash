@@ -9,12 +9,24 @@
 -- every row, which took 427 ms for a workspace of 23,000 events in a local explain analyze; the
 -- same aggregate without them takes 6.5 ms. Every row read is still scoped to p_workspace_id.
 --
+-- Cost: with no filter this reads every event the workspace keeps (13 months, see
+-- HISTORY_RETENTION_MONTHS), on every timeline render. Measured with explain analyze on committed
+-- data in an isolated Postgres 17.11: 5.5 ms for 23,000 events, and 134 to 148 ms for 2.3
+-- million events in one workspace (the #191 scale), where a severity filter takes 88 ms, 30 days
+-- 54 ms, and one day 1 ms. Accepted while no workspace is near that size; serving the unfiltered
+-- badges from a rollup with connection_id and severity is #249.
+--
 -- Every filter mirrors listTimelineEvents (src/lib/data/timeline.ts), so a badge counts what the
 -- timeline lists across all of its pages. An empty array means no filter on that column, except
 -- p_hidden_type_ids, which always excludes what it lists. p_account_ids null means every account,
 -- and an empty array means none. The window is half open: occurred_at >= p_from and < p_until,
 -- and a null bound is open. Events with no connection (DevMacro's own, such as daily summaries)
 -- belong to no badge.
+--
+-- The window and account filters are "(p_x is null or ...)" predicates, which only a plan made
+-- for the call's own arguments can turn into a range scan of
+-- activity_events_workspace_timeline_idx, so every call is planned for its arguments, as in
+-- activity_event_counts.
 create function public.timeline_connection_event_counts(
   p_workspace_id uuid,
   p_type_ids text[] default '{}',
@@ -30,6 +42,7 @@ language plpgsql
 stable
 security definer
 set search_path = ''
+set plan_cache_mode = force_custom_plan
 as $$
 begin
   if not public.has_workspace_role(p_workspace_id, 'viewer') then
@@ -51,5 +64,10 @@ begin
 end;
 $$;
 
-revoke execute on function public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz) from public, anon;
-grant execute on function public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz) to authenticated;
+-- Supabase's default privileges grant execute on every new public function to anon,
+-- authenticated, and service_role, so all three are revoked before authenticated gets it back. The
+-- service key has no auth.uid() and would count nothing anyway; it has no reason to call this.
+revoke execute on function public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)
+  from public, anon, authenticated, service_role;
+grant execute on function public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)
+  to authenticated;
