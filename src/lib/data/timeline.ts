@@ -176,8 +176,9 @@ export async function listTimelineConnectionCounts(
       ...(range.from === null ? {} : { p_from: range.from }),
       ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
     })
-    // PostgREST orders a function's rows only by selected columns. Rows that tie on both are the
-    // same provider and count, so which of them comes first changes nothing the badges show.
+    // PostgREST orders a function's rows only by selected columns. Order matters only for which
+    // rows CONNECTION_COUNT_LIMIT keeps; rows that tie on both are the same provider and count, so
+    // which of them it keeps changes nothing the badges show.
     .select("provider, events")
     .order("events", { ascending: false })
     .order("provider", { ascending: true })
