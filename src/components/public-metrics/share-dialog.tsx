@@ -7,8 +7,9 @@ import { inputClass, smallButtonClass } from "@/components/alerts/form-controls"
 
 /*
  * The share dialog for milestone cards and badges (#149) and the yearly card (#151). Everything in
- * it is user-initiated: copying text, downloading the card, and "Share to X", which opens X's
- * prefilled post in a new tab for the person to edit and send. Nothing is posted automatically.
+ * it is user-initiated: copying text, downloading the card, and "Share to X" and "Share to
+ * LinkedIn", which open the network's prefilled post in a new tab for the person to edit and send.
+ * Nothing is posted automatically.
  *
  * A native modal `<dialog>` like the other confirmations in the app: focus moves into it on open,
  * Escape or Close closes it, and focus returns to the button that opened it. Its content mounts on
@@ -34,13 +35,15 @@ export type ShareDialogProps = Readonly<{
   }>;
   badge?: Readonly<{ src: string; alt: string; markdown: string }>;
   xIntentUrl: string;
+  /** The public link a post carries (#255): offers "Copy link" and "Share to LinkedIn". A private card has none. */
+  link?: Readonly<{ url: string; linkedInUrl: string }>;
   /** Extra lines under the heading: who can see this, how often it was served. */
   notes: readonly string[];
 }>;
 
-type CopyTarget = "badge Markdown" | "card URL" | "alt text";
+type CopyTarget = "badge Markdown" | "card URL" | "alt text" | "link";
 
-export function ShareDialog({ title, triggerText, subject, card, badge, xIntentUrl, notes }: ShareDialogProps) {
+export function ShareDialog({ title, triggerText, subject, card, badge, xIntentUrl, link, notes }: ShareDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [opened, setOpened] = useState(false);
@@ -166,13 +169,33 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
               </div>
             </section>
 
-            <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
-              <a href={xIntentUrl} target="_blank" rel="noopener noreferrer" className={smallButtonClass}>
-                Share to X<span className="sr-only"> (opens in a new tab)</span>
-              </a>
-              <p role="status" aria-live="polite" className="text-muted">
-                {status}
-              </p>
+            <div className="space-y-3 border-t border-line pt-4">
+              {link === undefined ? null : (
+                <>
+                  <label htmlFor={`${baseId}-link`} className="block font-medium">
+                    Link for a post
+                  </label>
+                  <input id={`${baseId}-link`} readOnly value={link.url} className={`${inputClass} border-line-strong`} />
+                </>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {link === undefined ? null : (
+                  <button type="button" onClick={() => copy(link.url, "link")} className={smallButtonClass}>
+                    Copy link
+                  </button>
+                )}
+                <a href={xIntentUrl} target="_blank" rel="noopener noreferrer" className={smallButtonClass}>
+                  Share to X<span className="sr-only"> (opens in a new tab)</span>
+                </a>
+                {link === undefined ? null : (
+                  <a href={link.linkedInUrl} target="_blank" rel="noopener noreferrer" className={smallButtonClass}>
+                    Share to LinkedIn<span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                )}
+                <p role="status" aria-live="polite" className="text-muted">
+                  {status}
+                </p>
+              </div>
             </div>
           </div>
         ) : null}

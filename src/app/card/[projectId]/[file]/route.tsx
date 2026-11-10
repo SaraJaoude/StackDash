@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { z } from "zod";
 
+import { loadPublicPageOfProject } from "@/lib/data/project-pages";
 import { logError } from "@/lib/log/logger";
 import { cardImageResponse, MetricCard, NoticeCard } from "@/lib/public-metrics/card-image";
 import { loadPublishedMetricCard } from "@/lib/public-metrics/published";
@@ -19,7 +20,8 @@ import { CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
  * page (#150). The same rules as the badge route beside it: the value comes from the public engine,
  * an unknown or unpublished metric gets a neutral "Unpublished" card (the badge's word) with a 200
  * (so a preview never breaks and never tells which projects exist), the same one minute cache and
- * per IP rate limit, and no session or cookie.
+ * per IP rate limit, and no session or cookie. While the project's page is public (#150), the card
+ * names the project, which that page already shows to anyone (#255); otherwise it names nothing.
  *
  * A Route Handler rather than the opengraph-image file convention: the convention attaches an
  * image to a page segment, and this card has no page of its own. Rendered at request time
@@ -45,16 +47,17 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
     }
 
     const metricId = metricIdFromFile(file, "png");
-    const card =
+    // Independent reads, so they run together; the page only matters once the card exists.
+    const [card, page] =
       metricId === null || !ProjectIdSchema.safeParse(projectId).success
-        ? null
-        : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
+        ? [null, null]
+        : await Promise.all([loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS), loadPublicPageOfProject(projectId)]);
     const headers = { ...IMAGE_HEADERS, "Cache-Control": PUBLIC_CACHE_CONTROL };
     if (card === null) {
       return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
     }
     countViewAfterResponse(projectId, card.metric.metricId, "card");
-    return cardImageResponse(<MetricCard card={card} />, { headers });
+    return cardImageResponse(<MetricCard card={card} projectName={page?.projectName ?? null} />, { headers });
   } catch (error) {
     logError("public_metrics.card_failed", error);
     return cardImageResponse(<NoticeCard title="Temporarily unavailable" body="Try again in a moment." />, {

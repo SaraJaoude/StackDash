@@ -4,21 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as CardImageModule from "@/lib/public-metrics/card-image";
 import type { PublicMetricId } from "@/lib/public-metrics/definitions";
 import type { PublishedMetricCard } from "@/lib/public-metrics/published";
+import type { ShareProjectPage } from "@/lib/public-metrics/share";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision, ShareSurface } from "@/lib/public-metrics/requests";
 
 import { GET } from "./route";
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { loadPublishedMetricCard, checkPublicRateLimit, countViewAfterResponse, cardImageResponse } = vi.hoisted(() => ({
+const { loadPublishedMetricCard, loadPublicPageOfProject, checkPublicRateLimit, countViewAfterResponse, cardImageResponse } = vi.hoisted(() => ({
   loadPublishedMetricCard:
     vi.fn<(projectId: string, metricId: PublicMetricId, now: Date, trendDays: number) => Promise<PublishedMetricCard | null>>(),
+  loadPublicPageOfProject: vi.fn<(projectId: string) => Promise<ShareProjectPage | null>>(),
   checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
   countViewAfterResponse: vi.fn<(projectId: string, metricId: PublicMetricId, surface: ShareSurface) => void>(),
   cardImageResponse: vi.fn<(element: ReactNode, init: { status?: number; headers: Record<string, string> }) => Response>(),
 }));
 
 vi.mock("@/lib/public-metrics/published", () => ({ loadPublishedMetricCard }));
+vi.mock("@/lib/data/project-pages", () => ({ loadPublicPageOfProject }));
 vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   ...(await importOriginal<typeof RequestsModule>()),
   checkPublicRateLimit,
@@ -73,6 +76,7 @@ function rendered(): { card: string; props: Record<string, unknown>; status: num
 beforeEach(() => {
   checkPublicRateLimit.mockResolvedValue({ allowed: true });
   cardImageResponse.mockReturnValue(new Response("png"));
+  loadPublicPageOfProject.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -88,9 +92,22 @@ describe("GET /card/[projectId]/[file]", () => {
     const { card, props, status, headers } = rendered();
     expect(card).toBe("MetricCard");
     expect(props.card).toBe(CARD);
+    // No public project page: the card names no project.
+    expect(props.projectName).toBeNull();
     expect(status).toBe(200);
     expect(headers).toEqual({ "Cross-Origin-Resource-Policy": "cross-origin", "Cache-Control": "public, max-age=60, s-maxage=60" });
     expect(countViewAfterResponse).toHaveBeenCalledWith(PROJECT_ID, "vercel-deployments-30d", "card");
+  });
+
+  it("names the project while its page is public", async () => {
+    loadPublishedMetricCard.mockResolvedValue(CARD);
+    loadPublicPageOfProject.mockResolvedValue({ path: "/@k3j4h5g6f7/acme-web", projectName: "Acme web" });
+    await get(PROJECT_ID, "vercel-deployments-30d.png");
+
+    expect(loadPublicPageOfProject).toHaveBeenCalledWith(PROJECT_ID);
+    const { card, props } = rendered();
+    expect(card).toBe("MetricCard");
+    expect(props.projectName).toBe("Acme web");
   });
 
   it.each([
@@ -107,6 +124,7 @@ describe("GET /card/[projectId]/[file]", () => {
     expect(status).toBe(200);
     expect(headers["Cache-Control"]).toBe("public, max-age=60, s-maxage=60");
     expect(loadPublishedMetricCard).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
+    expect(loadPublicPageOfProject).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
     expect(countViewAfterResponse).not.toHaveBeenCalled();
   });
 
@@ -119,10 +137,22 @@ describe("GET /card/[projectId]/[file]", () => {
     expect(status).toBe(429);
     expect(headers).toMatchObject({ "Retry-After": "30", "Cache-Control": "no-store" });
     expect(loadPublishedMetricCard).not.toHaveBeenCalled();
+    expect(loadPublicPageOfProject).not.toHaveBeenCalled();
   });
 
   it("answers 503 with an uncached card when the read fails", async () => {
     loadPublishedMetricCard.mockRejectedValue(new Error("timeout"));
+    await get(PROJECT_ID, "github-stars.png");
+
+    const { props, status, headers } = rendered();
+    expect(props.title).toBe("Temporarily unavailable");
+    expect(status).toBe(503);
+    expect(headers["Cache-Control"]).toBe("no-store");
+  });
+
+  it("answers 503 with an uncached card when the project page read fails", async () => {
+    loadPublishedMetricCard.mockResolvedValue(CARD);
+    loadPublicPageOfProject.mockRejectedValue(new Error("timeout"));
     await get(PROJECT_ID, "github-stars.png");
 
     const { props, status, headers } = rendered();
