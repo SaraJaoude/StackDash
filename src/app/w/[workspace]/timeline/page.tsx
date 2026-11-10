@@ -6,10 +6,12 @@ import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
@@ -77,6 +79,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const shown =
     count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
   const status = scopeDescription === null ? shown : `${shown} for ${scopeDescription}`;
+  // Events with a connection are the connections in view; DevMacro's own events have none (#269).
+  const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
   return (
     <>
@@ -111,10 +115,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           />
         )
       ) : (
-        // The list's URL is its scope: new filters or another page reset what counts as arrived.
-        <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
-          <EventList events={page.events} now={now} />
-        </ArrivalScope>
+        <>
+          {allSimulated ? <SimulatedNotice /> : null}
+          {/* The list's URL is its scope: new filters or another page reset what counts as arrived. */}
+          <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
+            <EventList events={page.events} now={now} markSimulated={!allSimulated} />
+          </ArrivalScope>
+        </>
       )}
 
       {page.nextCursor === null && !showNewestLink ? null : (

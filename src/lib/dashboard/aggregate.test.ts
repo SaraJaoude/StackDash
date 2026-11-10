@@ -22,6 +22,7 @@ import {
   isStale,
   latestSnapshots,
   percentUsed,
+  providerCardFields,
   spendToCount,
   staleNoticeText,
   withStaleNotice,
@@ -524,6 +525,49 @@ describe("aggregateDashboard simulated sources (#131)", () => {
         ["c2", true],
       ]);
     }
+  });
+});
+
+describe("providerCardFields (#269)", () => {
+  const summaryOf = (snapshots: SnapshotInput[]) => {
+    const summary = aggregateDashboard(input(snapshots)).byProvider[0];
+    if (summary === undefined) throw new Error("expected one provider card");
+    return summary;
+  };
+  const spend = money({ metric_key: "fake.spend.month", amount_minor: 1_000, currency: "USD" });
+  const credit = money({ metric_key: "fake.credit", kind: "credit_balance", amount_minor: 500, currency: "USD" });
+  const reset = quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests" });
+
+  it("keeps every row a provider declares, even before it has a value", () => {
+    expect(providerCardFields(summaryOf([]), { spending: true, credits: true })).toEqual({
+      billingPeriod: true,
+      resetsAt: false,
+      spend: true,
+      credits: true,
+    });
+  });
+
+  it("drops every row a provider that reports no money never fills, as for Sentry", () => {
+    expect(providerCardFields(summaryOf([]), { spending: false, credits: false })).toEqual({
+      billingPeriod: false,
+      resetsAt: false,
+      spend: false,
+      credits: false,
+    });
+  });
+
+  it("never hides a value that is there, whatever the provider declares", () => {
+    expect(providerCardFields(summaryOf([spend, credit, reset]), { spending: false, credits: false })).toEqual({
+      billingPeriod: true,
+      resetsAt: true,
+      spend: true,
+      credits: true,
+    });
+  });
+
+  it("shows a reset only when a reading carries one in the future", () => {
+    const past = quantity({ ...reset, resets_at: "2026-10-15T00:00:00.000Z" });
+    expect(providerCardFields(summaryOf([past]), { spending: true, credits: false }).resetsAt).toBe(false);
   });
 });
 

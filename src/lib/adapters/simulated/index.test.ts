@@ -34,7 +34,7 @@ import {
   SIMULATED_CODE_PREFIX,
   simulatedAdapters,
 } from "./index";
-import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
+import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
 import { DAY_MS, isLaunchDay, isWeekend, type SimulatedIncident } from "./simulation";
 import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
 
@@ -286,6 +286,17 @@ describe("simulated markers", () => {
       expect(isSimulatedAdapter(REAL[id])).toBe(false);
       expect(isSimulatedAdapter({ ...simulatedAdapters[id] })).toBe(false);
     }
+  });
+
+  it.each([
+    ["one simulated item", [true], true],
+    ["many simulated items", [true, true, true], true],
+    ["nothing in view", [], false],
+    ["one real item", [false], false],
+    ["a mix, real last", [true, true, false], false],
+    ["a mix, real first", [false, true], false],
+  ])("says the whole page is simulated (#269) only when all of it is: %s", (_title, flags, expected) => {
+    expect(everySimulated(flags.map((simulated) => ({ simulated })))).toBe(expected);
   });
 });
 

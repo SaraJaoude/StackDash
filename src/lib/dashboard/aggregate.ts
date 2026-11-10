@@ -18,6 +18,7 @@
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import type { AdapterCapabilities } from "@/lib/adapters/types";
 import { formatDateTime, formatList, formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -161,6 +162,29 @@ export type ProviderSummary = Readonly<{
   billingPeriod: Period | null;
   resetsAt: string | null;
 }>;
+
+/** What a provider's adapter declares it reports (`ProviderAdapter.capabilities`), as its card reads it. */
+export type DeclaredFields = Pick<AdapterCapabilities, "spending" | "credits">;
+
+/** Which of a provider card's fixed rows to show (#269). */
+export type ProviderCardFields = Readonly<{ billingPeriod: boolean; resetsAt: boolean; spend: boolean; credits: boolean }>;
+
+/**
+ * A provider card shows a row only when it can hold a value for that provider (#269), so no row
+ * reads "Unavailable" forever. Spend, the billing period it is read over, and the credit balance
+ * show when the adapter declares them, with "Unavailable" until the first reading. A reset comes
+ * with the reading itself (a quota reading carries when it resets) and no adapter declares one up
+ * front, so it shows only with a value. A row that has a value always shows, whatever the
+ * declaration says, so nothing a provider reported is ever hidden.
+ */
+export function providerCardFields(summary: ProviderSummary, declared: DeclaredFields): ProviderCardFields {
+  return {
+    billingPeriod: summary.billingPeriod !== null || declared.spending,
+    resetsAt: summary.resetsAt !== null,
+    spend: summary.spend.length > 0 || declared.spending,
+    credits: summary.credits.length > 0 || declared.credits,
+  };
+}
 
 export type ProjectSpend = Readonly<{
   /** null is the bucket for accounts not assigned to a project. */

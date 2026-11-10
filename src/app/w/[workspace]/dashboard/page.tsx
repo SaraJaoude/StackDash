@@ -9,17 +9,20 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { secondaryButtonClass } from "@/components/alerts/form-controls";
+import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView, renderedSeries } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { GaugeIcon } from "@/components/icons";
 import {
+  declaredCapabilities,
   declaredEventTypes,
   declaredProjectedSpend,
   declaredSignupDailyTotals,
   revenueProviderIds,
 } from "@/lib/adapters/registry";
+import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { aggregateDashboard, type ProviderId, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
@@ -222,6 +225,9 @@ async function DashboardContent({
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
   // One notice for the page when most connections are stale, instead of a line on every value (#267).
   const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input));
+  // One "Simulated" for the page when every connection in view is simulated, instead of a badge on
+  // every card, total, and chart; a mixed workspace keeps them (#269).
+  const allSimulated = everySimulated(dashboard.byProvider);
 
   const headlineInput = {
     connections: trendData.connections,
@@ -246,6 +252,7 @@ async function DashboardContent({
   // resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
+      {allSimulated ? <SimulatedNotice /> : null}
       {notice === null ? null : (
         <StaleNotice notice={notice} now={now} workspaceSlug={workspace.slug} canSync={canPerform(role, "manage_connections")} />
       )}
@@ -265,8 +272,11 @@ async function DashboardContent({
               week: dashboardHref(dashboardPath, scope, { ...view, window: "week" }),
               month: dashboardHref(dashboardPath, scope, { ...view, window: "month" }),
             }}
+            markSimulated={!allSimulated}
           />
         }
+        declared={declaredCapabilities}
+        markSimulated={!allSimulated}
         alerts={alerts}
         trends={{
           granularity: trend,

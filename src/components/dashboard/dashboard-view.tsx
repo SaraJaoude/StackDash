@@ -3,7 +3,13 @@ import { useId, type ReactNode } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
-import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
+import {
+  hasSimulatedSource,
+  type CurrencyAmounts,
+  type DashboardView as View,
+  type DeclaredFields,
+  type ProviderId,
+} from "@/lib/dashboard/aggregate";
 import { markerCategoryLabel, type MarkerCategory, type TrendMarker } from "@/lib/dashboard/markers";
 import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
 import { trendWindowLabel, type ProviderTrends, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
@@ -46,12 +52,14 @@ function CurrencyCards({
   group,
   now,
   projections = [],
+  markSimulated,
 }: {
   amounts: readonly CurrencyAmounts[];
   group: MoneyGroup;
   now: Date;
   /** Spend projections to the end of the period (#167), matched by currency. */
   projections?: readonly SpendProjection[];
+  markSimulated: boolean;
 }) {
   return (
     <ul className="grid gap-4 @xl:grid-cols-2 @4xl:grid-cols-3">
@@ -61,6 +69,7 @@ function CurrencyCards({
           amounts={entry}
           group={group}
           now={now}
+          markSimulated={markSimulated}
           projection={projections.find((projection) => projection.currency === entry.currency)}
         />
       ))}
@@ -68,17 +77,22 @@ function CurrencyCards({
   );
 }
 
-/** Labeled "Simulated" when any connection behind the totals was made by the provider simulator (#131). */
+/**
+ * Labeled "Simulated" when any connection behind the totals was made by the provider simulator
+ * (#131), unless the page says so once for every card (`markSimulated` false, #269).
+ */
 function CurrencyCard({
   amounts,
   group,
   now,
   projection,
+  markSimulated,
 }: {
   amounts: CurrencyAmounts;
   group: MoneyGroup;
   now: Date;
   projection: SpendProjection | undefined;
+  markSimulated: boolean;
 }) {
   const titleId = useId();
   const noun = GROUP_NOUNS[group];
@@ -91,7 +105,7 @@ function CurrencyCard({
             <h3 id={titleId} className="font-mono text-sm font-medium text-muted">
               {title}
             </h3>
-            {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+            {markSimulated && hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
           </div>
           <div className="mt-2">
             <CurrencyAmountsList
@@ -139,7 +153,7 @@ const TREND_PERIODS = [
   { granularity: "monthly", label: "Monthly" },
 ] as const satisfies readonly { granularity: TrendGranularity; label: string }[];
 
-function TrendsSection({ trends }: { trends: DashboardTrends }) {
+function TrendsSection({ trends, markSimulated }: { trends: DashboardTrends; markSimulated: boolean }) {
   const { markers } = trends;
   const anyShown = markers.toggles.some((toggle) => toggle.shown);
   const rendered = trends.providers.flatMap(renderedSeries);
@@ -192,7 +206,7 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
           )}
           <ul className="mt-4 grid gap-8">
             {trends.providers.map((group) => (
-              <ProviderTrendsGroup key={group.provider} group={group} markersOf={markersOf} />
+              <ProviderTrendsGroup key={group.provider} group={group} markersOf={markersOf} markSimulated={markSimulated} />
             ))}
           </ul>
         </>
@@ -210,9 +224,11 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
 function ProviderTrendsGroup({
   group,
   markersOf,
+  markSimulated,
 }: {
   group: ProviderTrendsView;
   markersOf: (key: string) => readonly TrendMarker[] | null;
+  markSimulated: boolean;
 }) {
   const titleId = useId();
   const moreId = useId();
@@ -232,7 +248,7 @@ function ProviderTrendsGroup({
           <ul className="mt-3 grid gap-4">
             {defaults.map((series) => (
               <li key={series.key} className="min-w-0">
-                <TrendChart series={series} markers={markersOf(series.key)} />
+                <TrendChart series={series} markers={markersOf(series.key)} markSimulated={markSimulated} />
               </li>
             ))}
           </ul>
@@ -251,7 +267,7 @@ function ProviderTrendsGroup({
               <ul id={moreId} className="mt-4 grid gap-4">
                 {more.map((series) => (
                   <li key={series.key} className="min-w-0">
-                    <TrendChart series={series} markers={markersOf(series.key)} />
+                    <TrendChart series={series} markers={markersOf(series.key)} markSimulated={markSimulated} />
                   </li>
                 ))}
               </ul>
@@ -275,6 +291,8 @@ export function DashboardView({
   headline,
   alerts,
   trends,
+  declared,
+  markSimulated,
 }: {
   view: View;
   /** Spend and quota projections to the end of the period (#167). */
@@ -292,6 +310,10 @@ export function DashboardView({
   /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
   alerts: ReactNode;
   trends: DashboardTrends;
+  /** What each provider's adapter declares it reports, so its card leaves out the rest (#269). */
+  declared: (provider: ProviderId) => DeclaredFields;
+  /** False when the page says "Simulated" once for every card, total, and chart (#269). */
+  markSimulated: boolean;
 }) {
   const count = view.byProvider.length;
   const shown = count === 0 ? "Showing no connections" : `Showing ${count} ${count === 1 ? "connection" : "connections"}`;
@@ -317,7 +339,7 @@ export function DashboardView({
             </p>
           ) : (
             <div className="@container">
-              <CurrencyCards amounts={view.totals} group="spend" now={now} projections={projections.totals} />
+              <CurrencyCards amounts={view.totals} group="spend" now={now} projections={projections.totals} markSimulated={markSimulated} />
             </div>
           )}
         </Section>
@@ -325,7 +347,7 @@ export function DashboardView({
         {hasRevenue ? (
           <Section title="Revenue this billing period" description="Money coming in, shown apart from spending.">
             <div className="@container">
-              <CurrencyCards amounts={view.revenue} group="revenue" now={now} />
+              <CurrencyCards amounts={view.revenue} group="revenue" now={now} markSimulated={markSimulated} />
             </div>
           </Section>
         ) : null}
@@ -342,9 +364,11 @@ export function DashboardView({
               <ProviderCard
                 key={summary.connectionId}
                 summary={summary}
+                declared={declared(summary.provider)}
                 spendProjections={projections.byConnection.get(summary.connectionId) ?? []}
                 quotaProjections={projections.quotas}
                 now={now}
+                markSimulated={markSimulated}
               />
             ))}
           </ul>
@@ -357,18 +381,34 @@ export function DashboardView({
         ) : (
           <ul className="grid gap-4 md:grid-cols-2">
             {view.byProject.map((project) => (
-              <ProjectCard key={project.projectId ?? "unassigned"} name={project.name} spend={project.spend} now={now} />
+              <ProjectCard
+                key={project.projectId ?? "unassigned"}
+                name={project.name}
+                spend={project.spend}
+                now={now}
+                markSimulated={markSimulated}
+              />
             ))}
           </ul>
         )}
       </Section>
 
-      <TrendsSection trends={trends} />
+      <TrendsSection trends={trends} markSimulated={markSimulated} />
     </>
   );
 }
 
-function ProjectCard({ name, spend, now }: { name: string; spend: readonly CurrencyAmounts[]; now: Date }) {
+function ProjectCard({
+  name,
+  spend,
+  now,
+  markSimulated,
+}: {
+  name: string;
+  spend: readonly CurrencyAmounts[];
+  now: Date;
+  markSimulated: boolean;
+}) {
   const titleId = useId();
   return (
     <li>
@@ -382,7 +422,7 @@ function ProjectCard({ name, spend, now }: { name: string; spend: readonly Curre
               <li key={amounts.currency}>
                 <div className="mb-1 flex flex-wrap items-center gap-2">
                   <p className="font-mono text-xs font-medium text-muted">{amounts.currency}</p>
-                  {hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
+                  {markSimulated && hasSimulatedSource(amounts) ? <SimulatedBadge /> : null}
                 </div>
                 <CurrencyAmountsList
                   amounts={amounts}

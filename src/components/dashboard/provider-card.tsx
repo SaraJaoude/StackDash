@@ -1,7 +1,13 @@
 import { useId } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import type { Allowance, ProviderSummary, QuantityValue } from "@/lib/dashboard/aggregate";
+import {
+  providerCardFields,
+  type Allowance,
+  type DeclaredFields,
+  type ProviderSummary,
+  type QuantityValue,
+} from "@/lib/dashboard/aggregate";
 import { quotaProjectionText, type AllowanceProjection, type QuotaProjection, type SpendProjection } from "@/lib/dashboard/projection";
 import { formatDateTime, formatPercent, formatPeriod, formatQuantity } from "@/lib/format";
 import { providerName } from "@/lib/providers";
@@ -100,22 +106,26 @@ function AllowanceCard({ allowance, quota, now }: { allowance: Allowance; quota:
               />
             </div>
           )}
-          <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-            <div className="flex gap-1">
-              <dt className="text-muted">Billing period:</dt>
-              <dd>{allowance.period === null ? <Unavailable /> : formatPeriod(allowance.period)}</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt className="text-muted">Resets:</dt>
-              <dd>
-                {allowance.resetsAt === null ? (
-                  <Unavailable />
-                ) : (
-                  <time dateTime={allowance.resetsAt}>{formatDateTime(allowance.resetsAt)}</time>
-                )}
-              </dd>
-            </div>
-          </dl>
+          {/* A point reading has no period and a reading without a reset says nothing of one, so
+              neither row is shown as a permanent "Unavailable" (#269). */}
+          {allowance.period === null && allowance.resetsAt === null ? null : (
+            <dl className="mt-3 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+              {allowance.period === null ? null : (
+                <div className="flex gap-1">
+                  <dt className="text-muted">Billing period:</dt>
+                  <dd>{formatPeriod(allowance.period)}</dd>
+                </div>
+              )}
+              {allowance.resetsAt === null ? null : (
+                <div className="flex gap-1">
+                  <dt className="text-muted">Resets:</dt>
+                  <dd>
+                    <time dateTime={allowance.resetsAt}>{formatDateTime(allowance.resetsAt)}</time>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          )}
           {quota === undefined ? null : (
             <ProjectionNote text={quotaProjectionText(quota)} estimate={quota.status === "runs_out" || quota.status === "within"} />
           )}
@@ -133,21 +143,30 @@ function AllowanceCard({ allowance, quota, now }: { allowance: Allowance; quota:
 /**
  * One connection: its spend, revenue, recurring revenue, credit balance, billing period, and
  * allowances, with the spend and quota projections to the end of the period beside them (#167).
+ * Only rows the provider can fill are shown (`providerCardFields`, #269); a provider that reports
+ * no spend says so in one line. "Simulated" shows here only with `markSimulated`, which the page
+ * turns off when it says so once for every connection.
  */
 export function ProviderCard({
   summary,
+  declared,
   spendProjections,
   quotaProjections,
   now,
+  markSimulated,
 }: {
   summary: ProviderSummary;
+  /** What the provider's adapter declares it reports. */
+  declared: DeclaredFields;
   spendProjections: readonly SpendProjection[];
   /** Keyed like `Allowance.key`. */
   quotaProjections: ReadonlyMap<string, AllowanceProjection>;
   now: Date;
+  markSimulated: boolean;
 }) {
   const titleId = useId();
   const name = providerName(summary.provider);
+  const fields = providerCardFields(summary, declared);
   // Allowances are cards of their own, so only the money on this card marks it as changed.
   const values = {
     ...amountValues("spend", summary.spend),
@@ -166,7 +185,7 @@ export function ProviderCard({
                 <h3 id={titleId} className="font-semibold">
                   {summary.name}
                 </h3>
-                {summary.simulated ? <SimulatedBadge /> : null}
+                {markSimulated && summary.simulated ? <SimulatedBadge /> : null}
               </div>
               <p className="text-xs text-muted">
                 {name}. Status: {connectionStatusLabel(summary.status)}
@@ -181,64 +200,76 @@ export function ProviderCard({
             </div>
           </header>
 
-          <dl className="mt-4 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
-            <div className="flex gap-1">
-              <dt className="text-muted">Billing period:</dt>
-              <dd>{summary.billingPeriod === null ? <Unavailable /> : formatPeriod(summary.billingPeriod)}</dd>
-            </div>
-            <div className="flex gap-1">
-              <dt className="text-muted">Next reset:</dt>
-              <dd>
-                {summary.resetsAt === null ? (
+          {fields.billingPeriod || fields.resetsAt ? (
+            <dl className="mt-4 grid gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
+              {fields.billingPeriod ? (
+                <div className="flex gap-1">
+                  <dt className="text-muted">Billing period:</dt>
+                  <dd>{summary.billingPeriod === null ? <Unavailable /> : formatPeriod(summary.billingPeriod)}</dd>
+                </div>
+              ) : null}
+              {summary.resetsAt === null ? null : (
+                <div className="flex gap-1">
+                  <dt className="text-muted">Next reset:</dt>
+                  <dd>
+                    <time dateTime={summary.resetsAt}>{formatDateTime(summary.resetsAt)}</time>
+                  </dd>
+                </div>
+              )}
+            </dl>
+          ) : null}
+
+          {fields.spend ? (
+            <>
+              <h4 className="mt-5 text-sm font-semibold">Spend this billing period</h4>
+              {summary.spend.length === 0 ? (
+                <p className="mt-1 text-sm">
                   <Unavailable />
-                ) : (
-                  <time dateTime={summary.resetsAt}>{formatDateTime(summary.resetsAt)}</time>
-                )}
-              </dd>
-            </div>
-          </dl>
-
-          <h4 className="mt-5 text-sm font-semibold">Spend this billing period</h4>
-          {summary.spend.length === 0 ? (
-            <p className="mt-1 text-sm">
-              <Unavailable />
-            </p>
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-4">
+                  {summary.spend.map((amounts) => (
+                    <li key={amounts.currency}>
+                      <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
+                      <CurrencyAmountsList
+                        amounts={amounts}
+                        group="spend"
+                        now={now}
+                        verifiedLabel="Verified spend"
+                        estimatedLabel="Estimated spend"
+                      />
+                      <SpendProjectionNote projection={spendProjections.find((projection) => projection.currency === amounts.currency)} />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : (
-            <ul className="mt-2 space-y-4">
-              {summary.spend.map((amounts) => (
-                <li key={amounts.currency}>
-                  <p className="mb-1 font-mono text-xs font-medium text-muted">{amounts.currency}</p>
-                  <CurrencyAmountsList
-                    amounts={amounts}
-                    group="spend"
-                    now={now}
-                    verifiedLabel="Verified spend"
-                    estimatedLabel="Estimated spend"
-                  />
-                  <SpendProjectionNote projection={spendProjections.find((projection) => projection.currency === amounts.currency)} />
-                </li>
-              ))}
-            </ul>
+            <p className="mt-4 text-sm text-muted">{name} does not report spend.</p>
           )}
 
-          <h4 className="mt-5 text-sm font-semibold">Credit balance</h4>
-          {summary.credits.length === 0 ? (
-            <p className="mt-1 text-sm">
-              <Unavailable />
-            </p>
-          ) : (
-            <ul className="mt-2 space-y-3">
-              {summary.credits.map((credit) => (
-                <li key={`${credit.currency}-${credit.provenance.status}`}>
-                  <MoneyValueBlock
-                    value={credit}
-                    valueKey={amountKey("credit", credit.currency, credit.provenance.status)}
-                    now={now}
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
+          {fields.credits ? (
+            <>
+              <h4 className="mt-5 text-sm font-semibold">Credit balance</h4>
+              {summary.credits.length === 0 ? (
+                <p className="mt-1 text-sm">
+                  <Unavailable />
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-3">
+                  {summary.credits.map((credit) => (
+                    <li key={`${credit.currency}-${credit.provenance.status}`}>
+                      <MoneyValueBlock
+                        value={credit}
+                        valueKey={amountKey("credit", credit.currency, credit.provenance.status)}
+                        now={now}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : null}
 
           {summary.revenue.length === 0 ? null : (
             <>

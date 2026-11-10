@@ -6,6 +6,7 @@ import {
   availableProviders,
   createAdapterContext,
   createOAuthContext,
+  declaredCapabilities,
   getAdapter,
   isProviderConfigured,
   isProviderSimulated,
@@ -139,6 +140,26 @@ describe("beta declarations", () => {
     vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", simulate);
     vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
     expect(availableProviders().filter((adapter) => adapter.beta !== undefined).map((adapter) => adapter.id)).toEqual(["resend"]);
+  });
+});
+
+describe("declaredCapabilities (#269)", () => {
+  it.each([
+    ["real", ""],
+    ["simulated", "1"],
+  ])("gives every provider its adapter's declaration, with %s providers", (_, simulate) => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", simulate);
+    for (const adapter of availableProviders()) expect(declaredCapabilities(adapter.id)).toEqual(adapter.capabilities);
+  });
+
+  it("says Sentry reports no spend and no credit balance, and Railway reports both", () => {
+    expect(declaredCapabilities("sentry")).toMatchObject({ spending: false, credits: false });
+    expect(declaredCapabilities("railway")).toMatchObject({ spending: true, credits: true });
+  });
+
+  it("answers for the fake provider whatever its flag says, since its stored data outlives the flag", () => {
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", undefined);
+    expect(declaredCapabilities("fake")).toEqual(fakeAdapter.capabilities);
   });
 });
 
