@@ -288,6 +288,7 @@ export function DashboardView({
   scopeOptions,
   scopeDescription,
   filterParams,
+  whatChanged,
   headline,
   alerts,
   trends,
@@ -305,6 +306,8 @@ export function DashboardView({
   scopeDescription: string | null;
   /** The page's other URL state (trend period, hidden markers, headline window), carried through the filter form. */
   filterParams: Readonly<Record<string, string | readonly string[]>>;
+  /** What was unusual lately, in words (#270), first under the filter it follows; the element renders nothing when nothing was. */
+  whatChanged: ReactNode;
   /** The headline strip: revenue against spend, signups, and deploys over one window (#173). */
   headline: ReactNode;
   /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
@@ -327,6 +330,8 @@ export function DashboardView({
         status={scopeDescription === null ? shown : `${shown} for ${scopeDescription}`}
         hidden={filterParams}
       />
+
+      {whatChanged}
 
       {headline}
 

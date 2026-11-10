@@ -14,6 +14,7 @@ import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView, renderedSeries } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { StaleNotice } from "@/components/dashboard/stale-notice";
+import { WhatChanged } from "@/components/dashboard/what-changed";
 import { GaugeIcon } from "@/components/icons";
 import {
   declaredCapabilities,
@@ -55,7 +56,8 @@ import {
   toggleExpanded,
   type TrendGranularity,
 } from "@/lib/dashboard/trends";
-import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
+import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
+import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
 import { getTrendData, getTrendEventCounts } from "@/lib/data/trends";
@@ -180,18 +182,35 @@ async function DashboardContent({
   const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
-  const [workspaceScope, data, trendData, eventCounts, alertsSummary, headlineSnapshots, headlineEvents, recentAnomalies] =
-    await Promise.all([
-      getWorkspaceScope(workspace.id),
-      getDashboardData(workspace.id, snapshotWindowStart(now), scope),
-      getTrendData(workspace.id, now, scope),
-      getTrendEventCounts(workspace.id, trend, now, scope, shown),
-      getUnacknowledgedSummary(workspace.id),
-      getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
-      getHeadlineEvents(workspace.id, scope, windows, eventTypes),
-      getRecentAnomalies(workspace.id, anomaliesSince),
-    ]);
-  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalies} />;
+  const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
+  // The summary names every category's events by day; the charts' own read already is that when
+  // they show the daily trend with no category hidden.
+  const dayCounts =
+    trend === "daily" && hidden.length === 0 ? viewCounts : getTrendEventCounts(workspace.id, "daily", now, scope, MARKER_CATEGORIES);
+  const [
+    workspaceScope,
+    data,
+    trendData,
+    eventCounts,
+    alertsSummary,
+    headlineSnapshots,
+    headlineEvents,
+    recentAnomalyEvents,
+    anomalyControls,
+    dayEventCounts,
+  ] = await Promise.all([
+    getWorkspaceScope(workspace.id),
+    getDashboardData(workspace.id, snapshotWindowStart(now), scope),
+    getTrendData(workspace.id, now, scope),
+    viewCounts,
+    getUnacknowledgedSummary(workspace.id),
+    getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
+    getHeadlineEvents(workspace.id, scope, windows, eventTypes),
+    getRecentAnomalies(workspace.id, anomaliesSince),
+    getAnomalyControls(workspace.id),
+    dayCounts,
+  ]);
+  const alerts = <AlertsSummary workspace={workspace} summary={alertsSummary} anomalies={recentAnomalyEvents} />;
 
   if (workspaceScope.connections.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
@@ -228,6 +247,21 @@ async function DashboardContent({
   // One "Simulated" for the page when every connection in view is simulated, instead of a badge on
   // every card, total, and chart; a mixed workspace keeps them (#269).
   const allSimulated = everySimulated(dashboard.byProvider);
+  // What was unusual in the last week, in words (#270): the days the daily summary jobs checked,
+  // found again from the trend rows already read, so it follows the filter and today's mutes.
+  const changes = whatChanged(
+    recentAnomalies({
+      now,
+      days: RECENT_ANOMALY_DAYS,
+      enabled: anomalyControls.enabled,
+      rows: trendData.snapshots,
+      connections: trendData.connections,
+      mutes: anomalyControls.mutes,
+      projectedSpend: declaredProjectedSpend,
+    }),
+    bucketEventCounts(dayEventCounts, "daily", now),
+    { timelinePath, scope },
+  );
 
   const headlineInput = {
     connections: trendData.connections,
@@ -265,6 +299,7 @@ async function DashboardContent({
         scopeOptions={scopeOptions}
         scopeDescription={describeScope(scope, scopeOptions)}
         filterParams={viewParams(view)}
+        whatChanged={<WhatChanged summary={changes} days={RECENT_ANOMALY_DAYS} />}
         headline={
           <HeadlineStrip
             headline={chooseHeadline(strip, fallback)}
