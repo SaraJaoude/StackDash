@@ -44,6 +44,7 @@ function connection(id: string, provider: ConnectionInput["provider"], overrides
     display_name: `${provider} connection`,
     status: "active",
     last_synced_at: "2026-11-05T11:00:00.000Z",
+    last_sync_requested_at: null,
     poll_interval_seconds: 3_600,
     granted_scopes: [],
     ...overrides,
@@ -713,8 +714,12 @@ describe("the last complete window when the window to date has no figure (#267)"
   const supabaseHistory = [allowance(supabase.id, "2026-10-01")];
   const connections = [stale(vercel), stale(supabase)];
 
+  /** The strip of the window to date with nothing to read, so it has no figure. */
+  const emptyStrip = (owners: readonly ConnectionInput[], kind: HeadlineWindowKind = "week", now = NOW) =>
+    headline({ snapshots: [], connections: owners, kind, now });
+
   function lastWeek(): HeadlineWindows {
-    const windows = fallbackWindows("week", connections, NOW);
+    const windows = fallbackWindows(emptyStrip(connections), connections, NOW);
     if (windows === null) throw new Error("expected a last complete week");
     return windows;
   }
@@ -724,13 +729,14 @@ describe("the last complete window when the window to date has no figure (#267)"
     expect(hasFigure(current)).toBe(false);
     expect(current.spend).toMatchObject({ lines: null, unavailable: ["Supabase", "Vercel"] });
 
-    const windows = lastWeek();
+    const windows = fallbackWindows(current, connections, NOW);
     expect(windows).toEqual({
       kind: "week",
       complete: true,
       current: { start: "2026-10-26", end: "2026-11-01" },
       previous: { start: "2026-10-19", end: "2026-10-25" },
     });
+    if (windows === null) throw new Error("expected a last complete week");
     const fallback = headline({
       snapshots: [...untilSync, ...supabaseHistory],
       connections,
@@ -751,7 +757,7 @@ describe("the last complete window when the window to date has no figure (#267)"
   });
 
   it("takes the last whole month, and the whole month before it, for the month view", () => {
-    expect(fallbackWindows("month", connections, NOW)).toEqual({
+    expect(fallbackWindows(emptyStrip(connections, "month"), connections, NOW)).toEqual({
       kind: "month",
       complete: true,
       current: { start: "2026-10-01", end: "2026-10-31" },
@@ -759,7 +765,8 @@ describe("the last complete window when the window to date has no figure (#267)"
     });
     const lastDay = [connection(vercel.id, "vercel", { last_synced_at: "2026-12-01T09:00:00.000Z" })];
     // Synced on 1 December: November is whole, and compares with all of October.
-    expect(fallbackWindows("month", lastDay, new Date("2026-12-03T12:00:00.000Z"))).toMatchObject({
+    const december = new Date("2026-12-03T12:00:00.000Z");
+    expect(fallbackWindows(emptyStrip(lastDay, "month", december), lastDay, december)).toMatchObject({
       current: { start: "2026-11-01", end: "2026-11-30" },
       previous: { start: "2026-10-01", end: "2026-10-31" },
     });
@@ -769,20 +776,35 @@ describe("the last complete window when the window to date has no figure (#267)"
     ["synced exactly 48 hours before now", "2026-11-03T12:00:00.000Z", ["2026-10-26", "2026-11-01"]],
     ["synced in the first minute of Monday, so Sunday is whole", "2026-11-02T00:01:00.000Z", ["2026-10-26", "2026-11-01"]],
     ["synced in the last minute of Sunday, so Sunday is not whole", "2026-11-01T23:59:00.000Z", ["2026-10-19", "2026-10-25"]],
-    ["synced an hour ago, so yesterday is the last whole day", "2026-11-05T11:00:00.000Z", ["2026-10-26", "2026-11-01"]],
+    ["synced one millisecond before Wednesday, the last required day", "2026-11-03T23:59:59.999Z", ["2026-10-26", "2026-11-01"]],
   ])("boundary: %s", (_name, lastSyncedAt, [start, end]) => {
-    const windows = fallbackWindows("week", [connection(vercel.id, "vercel", { last_synced_at: lastSyncedAt })], NOW);
-    expect(windows?.current).toEqual({ start, end });
+    const owners = [connection(vercel.id, "vercel", { last_synced_at: lastSyncedAt })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start, end });
   });
 
-  it("goes by the newest sync in view, so one fresh connection keeps the last complete week near", () => {
-    const mixed = [stale(supabase), connection(vercel.id, "vercel", { last_synced_at: "2026-10-20T09:00:00.000Z" })];
-    expect(fallbackWindows("week", mixed, NOW)?.current).toEqual({ start: "2026-10-26", end: "2026-11-01" });
+  it("takes no fallback when no connection is stale: a sync at the start of the last required day (boundary)", () => {
+    const owners = [connection(vercel.id, "vercel", { last_synced_at: "2026-11-04T00:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)).toBeNull();
+  });
+
+  it("keeps a fresh strip's own reasons, with no second read, when its providers report none of the figures (boundary: GitHub only)", () => {
+    const current = headline({ snapshots: [allowance(github.id, "2026-10-01")], connections: [github] });
+    expect(hasFigure(current)).toBe(false);
+    expect(current.spend).toMatchObject({ lines: null, unavailable: ["GitHub"] });
+    expect(fallbackWindows(current, [github], NOW)).toBeNull();
+    expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
+  });
+
+  it("goes by the stale connections only, so a fresh one behind no figure does not keep the window too recent", () => {
+    // GitHub reports nothing the strip counts and synced an hour ago; Vercel last synced on 2026-10-20.
+    const owners = [github, connection(vercel.id, "vercel", { last_synced_at: "2026-10-20T09:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start: "2026-10-12", end: "2026-10-18" });
   });
 
   it("has no last complete window when nothing in view has synced (boundary: no complete window at all)", () => {
-    expect(fallbackWindows("week", [connection(vercel.id, "vercel", { last_synced_at: null })], NOW)).toBeNull();
-    expect(fallbackWindows("week", [], NOW)).toBeNull();
+    const neverSynced = [connection(vercel.id, "vercel", { last_synced_at: null })];
+    expect(fallbackWindows(emptyStrip(neverSynced), neverSynced, NOW)).toBeNull();
+    expect(fallbackWindows(emptyStrip([]), [], NOW)).toBeNull();
   });
 
   it("explains once instead of six unavailable figures when the last complete week has none either (boundary: no complete window at all)", () => {
@@ -792,7 +814,8 @@ describe("the last complete window when the window to date has no figure (#267)"
     const fallback = headline({ snapshots: late, connections: [stale(vercel)], windows: lastWeek() });
     expect(hasFigure(fallback)).toBe(false);
     expect(chooseHeadline(current, fallback)).toEqual({ status: "empty", current: current.windows });
-    expect(chooseHeadline(current, null)).toEqual({ status: "empty", current: current.windows });
+    // Without a fallback taken, the strip keeps its own reasons.
+    expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
   });
 
   it("keeps the week so far when one connection is stale and the rest are fresh (boundary: one stale)", () => {
@@ -801,6 +824,7 @@ describe("the last complete window when the window to date has no figure (#267)"
     const current = headline({ snapshots: [...vercelSpend, ...fakeUntilSync], connections: [vercel, stale(fake)] });
     expect(hasFigure(current)).toBe(true);
     expect(current.spend).toMatchObject({ included: ["Vercel"], unavailable: ["Example provider"] });
+    expect(fallbackWindows(current, [vercel, stale(fake)], NOW)).toBeNull();
     expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
   });
 });

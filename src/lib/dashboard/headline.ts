@@ -30,10 +30,11 @@
  *   a reading, or the provider is unavailable for the window.
  * - A comparison needs every connection behind the current figure to be available in the previous
  *   window as well, and the previous figure is taken over those same connections.
- * - When no figure can be reported for the window to date (every connection stale, #267), the
- *   strip shows the last complete week or month instead: the newest one that ended before the day
- *   of the newest sync in view, against the whole one before it. When that has no figure either,
- *   one explanation replaces the figures, never six "Unavailable" cards.
+ * - When no figure can be reported for the window to date because a connection in view has not
+ *   synced since its last required day (stale, #267), the strip shows the last complete week or
+ *   month instead: the newest one that ended before the day of the newest of those stale syncs,
+ *   against the whole one before it. When that has no figure either, one explanation replaces the
+ *   figures, never six "Unavailable" cards. Without a stale connection the strip keeps its reasons.
  */
 import type { EventCategory, EventType } from "@/lib/adapters/events";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
@@ -178,16 +179,25 @@ function lastCompleteWindows(kind: HeadlineWindowKind, through: string): Headlin
 }
 
 /**
- * The windows to show when the window to date has no figure (#267): the last whole week or month
- * that ended before the day of the newest sync in view, so every day of it had been read, and never
- * after yesterday. Null when nothing in view has synced, so there is no complete window at all.
+ * The windows to show when the window to date has no figure because its data is stale (#267): the
+ * last whole week or month that ended before the day of the newest sync among the connections in
+ * view that have not synced since the window's last required day began (the test `eventsOf` applies),
+ * so every day of it had been read, and never after yesterday. Null when the strip has a figure, or
+ * when no connection in view is stale that way: a strip whose providers report none of its kinds,
+ * or one connected too recently, keeps its own reasons and costs no second read.
  */
-export function fallbackWindows(kind: HeadlineWindowKind, connections: readonly ConnectionInput[], now: Date): HeadlineWindows | null {
-  const synced = connections.flatMap((connection) => (connection.last_synced_at === null ? [] : [Date.parse(connection.last_synced_at)]));
-  if (synced.length === 0) return null;
+export function fallbackWindows(strip: HeadlineStrip, connections: readonly ConnectionInput[], now: Date): HeadlineWindows | null {
+  if (hasFigure(strip)) return null;
+  const requiredFrom = dayStart(windowSpecs(strip.windows).current.requiredEnd);
+  const staleSyncs = connections.flatMap((connection) => {
+    if (connection.last_synced_at === null) return [];
+    const syncedAt = Date.parse(connection.last_synced_at);
+    return syncedAt < requiredFrom ? [syncedAt] : [];
+  });
+  if (staleSyncs.length === 0) return null;
   const yesterday = addDays(isoDate(now.getTime()), -1);
-  const beforeSyncDay = addDays(isoDate(Math.max(...synced)), -1);
-  return lastCompleteWindows(kind, beforeSyncDay < yesterday ? beforeSyncDay : yesterday);
+  const beforeSyncDay = addDays(isoDate(Math.max(...staleSyncs)), -1);
+  return lastCompleteWindows(strip.windows.kind, beforeSyncDay < yesterday ? beforeSyncDay : yesterday);
 }
 
 /**
@@ -735,8 +745,9 @@ export function hasFigure(strip: HeadlineStrip): boolean {
 }
 
 /**
- * What the strip shows (#267): the window to date when it has a figure, else the last complete
- * window when that has one, else one explanation in place of the figures.
+ * What the strip shows (#267): the window to date when it has a figure or no fallback was taken
+ * (`fallbackWindows` is null), so its per-figure reasons stand; else the last complete window when
+ * that has a figure; else one explanation in place of the figures.
  */
 export type HeadlineView =
   | Readonly<{ status: "current"; strip: HeadlineStrip }>
@@ -744,8 +755,8 @@ export type HeadlineView =
   | Readonly<{ status: "empty"; current: HeadlineWindows }>;
 
 export function chooseHeadline(current: HeadlineStrip, fallback: HeadlineStrip | null): HeadlineView {
-  if (hasFigure(current)) return { status: "current", strip: current };
-  if (fallback !== null && hasFigure(fallback)) return { status: "fallback", strip: fallback, current: current.windows };
+  if (hasFigure(current) || fallback === null) return { status: "current", strip: current };
+  if (hasFigure(fallback)) return { status: "fallback", strip: fallback, current: current.windows };
   return { status: "empty", current: current.windows };
 }
 

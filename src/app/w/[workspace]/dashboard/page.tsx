@@ -25,7 +25,6 @@ import {
   buildHeadline,
   chooseHeadline,
   fallbackWindows,
-  hasFigure,
   HEADLINE_WINDOW_KINDS,
   headlineEventTypes,
   headlineWindows,
@@ -231,9 +230,9 @@ async function DashboardContent({
     revenueProviders: revenueProviderIds,
   };
   const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
-  // Only when the window to date has no figure: the last complete window, whose reads depend on the
-  // strip above, so they run after it rather than on every visit.
-  const lastComplete = hasFigure(strip) ? null : fallbackWindows(view.window, trendData.connections, now);
+  // Only when the window to date has no figure because a connection in view is stale: the last
+  // complete window, whose reads depend on the strip above, so they run after it.
+  const lastComplete = fallbackWindows(strip, trendData.connections, now);
   let fallback: HeadlineStripData | null = null;
   if (lastComplete !== null) {
     const [snapshots, events] = await Promise.all([
