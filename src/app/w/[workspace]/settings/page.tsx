@@ -8,7 +8,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LockIcon, MailIcon } from "@/components/icons";
 import { connectOrigin } from "@/lib/connections/oauth-state";
-import { API_KEYS_LIST_LIMIT, listApiKeys } from "@/lib/data/api-keys";
+import { API_KEYS_LIST_LIMIT, listApiKeys, MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
 import { formatDateTime } from "@/lib/format";
 import { mcpEndpointUrl } from "@/lib/mcp/setup";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -124,7 +124,12 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
         )}
       </section>
 
-      <AssistantSetup endpointUrl={endpointUrl} canManageKeys={canManageKeys} />
+      <AssistantSetup
+        workspaceSlug={workspace.slug}
+        endpointUrl={endpointUrl}
+        canManageKeys={canManageKeys}
+        maxKeys={MAX_ACTIVE_API_KEYS}
+      />
 
       {/* No action: inviting teammates is not built yet, and there is nothing to link to. */}
       <EmptyState

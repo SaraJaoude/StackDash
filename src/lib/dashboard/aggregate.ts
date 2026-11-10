@@ -239,7 +239,8 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
   });
 }
 
-const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
+/** Money spent and money coming in: the kinds that accumulate over a period, and the trends' default set (#263). */
+export const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
 
 /**
  * Drops money that another row of the same account, kind, and currency already covers for a

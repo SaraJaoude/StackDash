@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only.
@@ -132,11 +133,15 @@ ownerTest.describe("dashboard trends", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const trends = page.getByRole("region", { name: "Trends" });
       await expect(trends.getByRole("link", { name: "Daily, last 30 days" })).toHaveAttribute("aria-current", "page");
+      // One legend for the section, naming only what the charts on the page draw (#263).
+      const legend = trends.getByRole("list", { name: "Legend for every chart" });
+      await expect(legend).toContainText("Break in the line, mark on the baseline: unavailable");
+      await expect(legend).not.toContainText("Dashed line, hollow points: estimated");
 
       const spend = trends.getByRole("figure", { name: "Spend this month (Example provider, USD)" });
       await expect(spend).toContainText("No comparison: the previous day is unavailable");
       await expect(spend.getByRole("img")).toHaveAttribute("aria-label", /28 days unavailable\./);
-      await expect(spend).toContainText("Break in the line, mark on the baseline: unavailable");
+      await expect(spend).not.toContainText("Break in the line");
 
       await spend.getByText("Show the values as a table").click();
       const spendTable = spend.getByRole("table", { name: /daily values for the last 30 days/ });
@@ -148,24 +153,31 @@ ownerTest.describe("dashboard trends", () => {
       await expect(todayRow).toContainText("$3.00");
       await expect(todayRow.getByRole("cell", { name: "Verified", exact: true })).toBeVisible();
 
+      // The month's estimate is the provider's declared projection, so it waits behind the
+      // provider's disclosure until opened.
       const estimated = trends.getByRole("figure", { name: "Estimated spend for the month (Example provider, USD)" });
+      await expect(estimated).toHaveCount(0);
+      await trends.getByRole("link", { name: "Show 1 more Example provider series" }).click();
+      await expect(page).toHaveURL(/[?&]expand=fake(&|$)/);
       await expect(estimated).toContainText("Up 11 percent from the previous day");
-      await expect(estimated).toContainText("Dashed line, hollow points: estimated");
+      await expect(legend).toContainText("Dashed line, hollow points: estimated");
       await expect(estimated.getByRole("img")).toHaveAttribute("aria-label", /Includes estimated values\./);
       await estimated.getByText("Show the values as a table").click();
       const estimatedRow = estimated.getByRole("table").getByRole("row", { name: new RegExp(`^${today}`) });
       await expect(estimatedRow.getByRole("cell", { name: "Estimated", exact: true })).toBeVisible();
 
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
+      // The period links keep the open disclosure.
       await trends.getByRole("link", { name: "Monthly, last 13 months" }).click();
       await expect(page).toHaveURL(/[?&]trend=monthly(&|$)/);
+      await expect(page).toHaveURL(/[?&]expand=fake(&|$)/);
       const monthly = page.getByRole("region", { name: "Trends" });
       await expect(monthly.getByRole("link", { name: "Monthly, last 13 months" })).toHaveAttribute("aria-current", "page");
       await expect(
         monthly.getByRole("figure", { name: "Spend this month (Example provider, USD)" }).getByRole("img"),
       ).toHaveAttribute("aria-label", /last 13 months/);
+      await expect(monthly.getByRole("figure", { name: "Estimated spend for the month (Example provider, USD)" })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -182,7 +194,7 @@ ownerTest.describe("dashboard trends", () => {
       const toggles = trends.getByRole("navigation", { name: "Event markers" });
       await expect(toggles.getByRole("link", { name: "Hide deployments" })).toBeVisible();
 
-      // Charts are sorted by label, so the estimate chart comes first; both are the fake provider's.
+      // The month's estimate is a declared projection, so the spend chart is the only one on load.
       const spend = trends.getByRole("figure", { name: "Spend this month (Example provider, USD)" });
       const burst = spend.getByRole("link", { name: `14 deployments on ${twoDaysAgo}` });
       await expect(burst).toHaveAttribute(
@@ -193,8 +205,10 @@ ownerTest.describe("dashboard trends", () => {
         "href",
         `/w/${workspace.slug}/timeline?type=devmacro.alert_triggered&from=${today}&to=${today}`,
       );
-      await expect(spend).toContainText("Marker: deployments");
-      await expect(spend).toContainText("Marker: triggered alerts");
+      const legend = trends.getByRole("list", { name: "Legend for every chart" });
+      await expect(legend).toContainText("Marker: deployments");
+      await expect(legend).toContainText("Marker: triggered alerts");
+      await expect(spend).not.toContainText("Marker: deployments");
       const box = await burst.boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(24);
       expect(box?.height).toBeGreaterThanOrEqual(24);
@@ -220,15 +234,15 @@ ownerTest.describe("dashboard trends", () => {
       );
       expect(outline).not.toBe("none");
 
-      // The skip link jumps past every marker onto the legend, which is not outlined, as #main is
-      // not: a skip target is not a control. The next stop is the chart's table control.
+      // The skip link jumps past every marker onto the chart's table disclosure, which is not
+      // outlined, as #main is not: a skip target is not a control. The next stop is its control.
       await skip.focus();
       await page.keyboard.press("Enter");
-      const legend = firstChart.locator("ul[data-skip-focused]");
-      await expect(legend).toBeFocused();
-      expect(await legend.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
+      const skipTarget = firstChart.locator("details[data-skip-focused]");
+      await expect(skipTarget).toBeFocused();
+      expect(await skipTarget.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
       await page.keyboard.press("Tab");
-      await expect(legend).toHaveCount(0);
+      await expect(skipTarget).toHaveCount(0);
       await expect(firstChart.getByText("Show the values as a table")).toBeFocused();
 
       const scan = await new AxeBuilder({ page }).analyze();

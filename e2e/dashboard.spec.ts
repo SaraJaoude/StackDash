@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
@@ -201,6 +202,57 @@ ownerTest.describe("dashboard as the owner", () => {
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("puts By project before Trends and opens a provider's other series by keyboard", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard trend defaults");
+    try {
+      await seedDashboard(workspace);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const byProject = page.getByRole("region", { name: "By project" });
+      const trends = page.getByRole("region", { name: "Trends" });
+      const projectBox = await byProject.boundingBox();
+      const trendsBox = await trends.boundingBox();
+      expect(projectBox?.y ?? Infinity).toBeLessThan(trendsBox?.y ?? 0);
+
+      // On load, the default set only (#263): spend so far in each currency, and not the month's
+      // declared projection, the allowance, or the usage.
+      const provider = trends.getByRole("region", { name: "Example provider" });
+      await expect(provider.getByRole("figure")).toHaveCount(3);
+      await expect(provider.getByRole("figure", { name: "Spend this month (Example provider, USD)" })).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Spend this month in euros (Example provider, EUR)" })).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Estimated spend so far (Example provider, USD)" })).toBeVisible();
+      await expect(trends.getByRole("list", { name: "Legend for every chart" })).toHaveCount(1);
+
+      // Keyboard only: from the last chart's table control, Tab reaches the disclosure, and Enter
+      // opens it, rendering the other series with their own table alternative.
+      const show = provider.getByRole("link", { name: "Show 3 more Example provider series" });
+      await expect(show).toHaveAttribute("aria-expanded", "false");
+      await provider.getByRole("figure").last().getByText("Show the values as a table").focus();
+      await page.keyboard.press("Tab");
+      await expect(show).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]expand=fake(&|$)/);
+      const hide = provider.getByRole("link", { name: "Hide 3 more Example provider series" });
+      await expect(hide).toHaveAttribute("aria-expanded", "true");
+      await expect(provider.getByRole("figure")).toHaveCount(6);
+      const usage = provider.getByRole("figure", { name: "Requests this month (Example provider, requests)" });
+      await expect(usage).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Estimated spend for the month (Example provider, USD)" })).toBeVisible();
+      await expect(page.locator(`[id="${await hide.getAttribute("aria-controls")}"]`).getByRole("figure")).toHaveCount(3);
+      await usage.getByText("Show the values as a table").focus();
+      await page.keyboard.press("Enter");
+      await expect(usage.getByRole("table")).toBeVisible();
+      await expectNoAxeViolations(page);
+
+      await hide.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).not.toHaveURL(/expand=/);
+      await expect(provider.getByRole("figure")).toHaveCount(3);
+      await expect(show).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }

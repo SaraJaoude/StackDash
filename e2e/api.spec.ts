@@ -1,12 +1,18 @@
-import { createHash, randomBytes } from "node:crypto";
-
 import AxeBuilder from "@axe-core/playwright";
 import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
 import type { APIRequestContext, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
-import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import {
+  activeApiKeyCount,
+  adminClient,
+  createTestWorkspace,
+  deleteTestWorkspace,
+  seedApiKeys,
+  seededKey,
+  type TestWorkspace,
+} from "./fixtures/db";
 
 // The REST API with scoped keys (#162), and the MCP server on the same keys (#163). Each test creates
 // its own workspace and seeds only inside it.
@@ -118,15 +124,6 @@ async function createKeyWithKeyboard(page: Page, name: string, scopes: readonly 
 async function getJson(request: APIRequestContext, path: string, key: string | null) {
   const response = await request.get(path, key === null ? {} : { headers: { authorization: `Bearer ${key}` } });
   return { status: response.status(), headers: response.headers(), body: (await response.json()) as unknown };
-}
-
-/**
- * A key made the way src/lib/api/keys.ts makes one (that module is server-only), for rows the
- * service role inserts directly.
- */
-function seededKey(): { key: string; token_hash: string; token_prefix: string } {
-  const key = `dmk_${randomBytes(32).toString("base64url")}`;
-  return { key, token_hash: createHash("sha256").update(key, "utf8").digest("hex"), token_prefix: key.slice(0, 12) };
 }
 
 ownerTest.describe("API keys as the owner", () => {
@@ -303,22 +300,7 @@ ownerTest.describe("API keys as the owner", () => {
   ownerTest("refuses a key past the limit of 20 that are not revoked, and says how to make room", async ({ page }) => {
     const workspace = await createTestWorkspace("API key limit");
     try {
-      const { error } = await adminClient()
-        .from("api_keys")
-        .insert(
-          Array.from({ length: 20 }, (_, index) => {
-            const { token_hash, token_prefix } = seededKey();
-            return {
-              workspace_id: workspace.id,
-              name: `Seeded key ${index + 1}`,
-              token_hash,
-              token_prefix,
-              scopes: ["usage:read" as const],
-              created_by: workspace.ownerId,
-            };
-          }),
-        );
-      if (error) throw new Error(`Seeding keys failed (code ${error.code}).`);
+      await seedApiKeys(workspace, 20);
 
       await page.goto(`/w/${workspace.slug}/settings`);
       const section = keysSection(page);
@@ -334,12 +316,7 @@ ownerTest.describe("API keys as the owner", () => {
       await expect(section.getByLabel("Key name")).toHaveValue("One too many");
       await expect(section.getByRole("checkbox", { name: /usage:read/ })).toBeChecked();
       await expect(section.getByRole("listitem").filter({ hasText: "One too many" })).toHaveCount(0);
-      const { count, error: countError } = await adminClient()
-        .from("api_keys")
-        .select("id", { count: "exact", head: true })
-        .eq("workspace_id", workspace.id);
-      if (countError) throw new Error(`Counting keys failed (code ${countError.code}).`);
-      expect(count).toBe(20);
+      expect(await activeApiKeyCount(workspace)).toBe(20);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -504,13 +481,15 @@ ownerTest.describe("MCP server", () => {
       for (const client of clients) {
         await expect(section.getByRole("heading", { level: 3, name: client })).toBeVisible();
       }
-      await expect(section.getByText("Create an API key above for the assistant.", { exact: false })).toBeVisible();
+      await expect(section.getByText("Create a key for the assistant.", { exact: false })).toBeVisible();
       await expect(section.getByRole("region", { name: "Claude Code", exact: true })).toContainText(
         `claude mcp add --transport http devmacro ${endpoint}`,
       );
 
-      // Keyboard: the guide link, then each snippet in turn, which takes focus so it can scroll.
+      // Keyboard: the guide link, the create button, then each snippet in turn, which takes focus so it can scroll.
       await section.getByRole("link", { name: "Read the MCP guide" }).focus();
+      await page.keyboard.press("Tab");
+      await expect(section.getByRole("button", { name: "Create assistant key" })).toBeFocused();
       for (const client of clients) {
         await page.keyboard.press("Tab");
         await expect(section.getByRole("region", { name: client, exact: true })).toBeFocused();
