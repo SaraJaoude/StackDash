@@ -63,9 +63,15 @@ export const EventSchema = z.object({
 });
 export type StripeEvent = z.infer<typeof EventSchema>;
 
-// Only the fields the timeline uses. `failure_code` is a Stripe enum; free-text `failure_message` is never read.
+// Only the fields the timeline uses. Since #261 that includes the charge's amount, the total refunded
+// so far, and their currency, which the event title prints; each is optional, and a title without
+// one simply has no amount. `failure_code` is a Stripe enum shown as a sentence, never as the code;
+// free-text `failure_message` is never read.
 export const ChargeObjectSchema = z.object({
   id: StripeIdSchema,
+  amount: z.int().nonnegative().optional(),
+  amount_refunded: z.int().nonnegative().optional(),
+  currency: StripeCurrencySchema.optional(),
   refunded: z.boolean().optional(),
   failure_code: z.string().nullable().optional(),
 });

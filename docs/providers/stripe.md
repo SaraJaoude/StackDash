@@ -271,6 +271,8 @@ All list endpoints share cursor pagination: `limit` (1 to 100, default 10), `sta
 | `customer.subscription.deleted` | Subscription ended | `id`, `status`, `currency`, `canceled_at`, `ended_at` |
 | `charge.refunded` | Refund, full or partial | `id`, `amount`, `amount_refunded`, `currency`, `refunded`, `created` |
 
+The adapter polls `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments (Unverified item 1), reading `amount`, `amount_refunded`, `currency`, `refunded`, and `failure_code` from the charge. Payment titles carry the amount and its currency, formatted with the currency's own number of minor digits, one payment at a time and never summed (#261): "Payment succeeded: $49.00", "Payment failed: ¥1,900", "Payment refunded: €49.00", and "Payment partially refunded: $9.00 of $49.00", where the first amount is the total refunded so far. A charge without an amount or currency gets the title alone. A failed payment's body is its `failure_code` as a plain sentence ("The card issuer declined the payment."); a code DevMacro does not list reads "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it." The code itself is never shown.
+
 Polling algorithm:
 
 1. First sync: `created[gte]` = now minus 30 days, `limit=100`, page with `starting_after` = last id of the previous page until `has_more` is `false`.
