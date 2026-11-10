@@ -1,6 +1,8 @@
 # Resend
 
-Provider id: `resend`. Issues: #46 (adapter), #11 (research). Docs checked 2026-10-31.
+Provider id: `resend`. Verification: documentation only. Docs checked 2026-10-31.
+
+DevMacro reads your Resend email usage for the day and the month, your plan limits, and when they reset. Resend shares usage only with full access, which also allows sending email and changing your Resend team, so DevMacro asks you to agree to that first.
 
 ## Go or no-go
 

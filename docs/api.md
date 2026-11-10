@@ -2,8 +2,6 @@
 
 The REST API lets your own scripts, tools, and dashboards read one workspace: usage and spend, timeline events, triggered alerts, and connection status, in the same units and with the same verified or estimated labels as the dashboard. It only reads. No key can change anything in a workspace.
 
-Issues: #162 (this API), #96 (rate limits per plan), #163 (read-only MCP server, built on the same keys).
-
 The OpenAPI 3.1 document for every endpoint below is published at `/docs/api/openapi.json` on your DevMacro site. It is generated from the same schemas the endpoints validate requests with, so it always matches what the server accepts and returns.
 
 The same keys also connect an AI assistant to the workspace through the read-only [MCP server](mcp.md).
@@ -146,7 +144,7 @@ Messages never contain internal details. Quote the `reference_id` when you ask f
 
 ## Rate limit
 
-Each key may make 120 requests per minute, counted in fixed one minute windows across every server. Every answer to a working key carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds). Past the limit the answer is `429` with `Retry-After` in seconds. Limits per plan are planned in #96.
+Each key may make 120 requests per minute, counted in fixed one minute windows across every server. Every answer to a working key carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (Unix seconds). Past the limit the answer is `429` with `Retry-After` in seconds. Limits per plan are planned.
 
 ## Try it against the local seed data
 

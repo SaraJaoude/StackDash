@@ -1,6 +1,6 @@
 # Register the OAuth apps
 
-Issues: #88 (hosted apps), #57 (self-hosting), #23 (sign-in), #115 (PostHog), #112 (GitLab). Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs twelve registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
+Connections are OAuth only: DevMacro never asks users for API keys. Each deployment therefore needs twelve registrations: one GitHub OAuth app for signing in to DevMacro, and one app per provider for connecting accounts. PostHog's is a document the deployment serves itself, with nothing to create in PostHog.
 
 This page lists the settings that must match the code. The provider pages under `docs/providers/` hold the full click paths, the reasons for each permission, and what each permission also allows; follow the linked section for each app.
 
@@ -13,7 +13,7 @@ All variables below are server only: never give them a `NEXT_PUBLIC_` prefix. Se
 - **Hosted DevMacro**: Eddie registers each app once, owned by the DevMacro account or organization, with callbacks on the production origin. Hosted users connect through these apps and never create their own.
 - **Self-hosted DevMacro**: every install registers its own apps with the same permissions, because the callback URLs, client secrets, and private keys belong to one deployment. Never reuse the hosted apps' credentials.
 - **Local development and previews**: provider callbacks are fixed per app (Vercel allows a single Redirect URL), so a preview deployment cannot complete a provider connection with the production apps. Register separate development apps with `http://localhost:3000/...` callbacks where the provider allows them. End-to-end tests use the fake provider instead (`DEVMACRO_ENABLE_FAKE_PROVIDER=1`, never in production). To try every provider locally without registering any app, simulate them (`DEVMACRO_SIMULATE_PROVIDERS=1`, local only and refused on a Vercel production deployment): each connection is labeled "Simulated" and its data is made up on your machine.
-- **Webhooks** are Post-MVP (#28). Leave every webhook setting empty or inactive.
+- **Webhooks** are Post-MVP. Leave every webhook setting empty or inactive.
 
 ## Summary
 
@@ -117,7 +117,7 @@ Variables: `RESEND_CLIENT_ID`, `RESEND_CLIENT_SECRET`. The secret is shown once 
 
 ## DigitalOcean OAuth app
 
-Reads the balance, month-to-date usage, invoices, daily spend by SKU, Droplet actions, and App Platform deployments. Full steps: [DigitalOcean, Self-hosted registration](../providers/digitalocean.md#self-hosted-registration). Scopes and what they also allow: [DigitalOcean, Permissions](../providers/digitalocean.md#permissions) and [Permission risks](../providers/digitalocean.md#permission-risks). Not yet tried with a real account (#141).
+Reads the balance, month-to-date usage, invoices, daily spend by SKU, Droplet actions, and App Platform deployments. Full steps: [DigitalOcean, Self-hosted registration](../providers/digitalocean.md#self-hosted-registration). Scopes and what they also allow: [DigitalOcean, Permissions](../providers/digitalocean.md#permissions) and [Permission risks](../providers/digitalocean.md#permission-risks). Not yet tried with a real account.
 
 Settings that must match the code:
 
@@ -137,11 +137,11 @@ Settings that must match the code:
 - `POSTHOG_OAUTH_CLIENT_ID` is exactly `<SITE_URL>/oauth/posthog/client-metadata`. The route refuses to serve the document under any other client id.
 - The document lists `<SITE_URL>/api/connections/posthog/callback` as its only redirect URI, `<SITE_URL>/oauth/posthog/jwks` as its `jwks_uri`, and the four read scopes as its scope ceiling. All three come from the code; there is nothing to configure.
 
-Variables: `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` (a P-256 or RSA private key in PEM, generated with `openssl`; `\n` escapes are accepted). Check both routes answer JSON after deploying. Whether PostHog grants `billing:read` to a document-registered app is unconfirmed (#11); see [PostHog, Unverified](../providers/posthog.md#unverified).
+Variables: `POSTHOG_OAUTH_CLIENT_ID`, `POSTHOG_OAUTH_PRIVATE_KEY` (a P-256 or RSA private key in PEM, generated with `openssl`; `\n` escapes are accepted). Check both routes answer JSON after deploying. Whether PostHog grants `billing:read` to a document-registered app is unconfirmed; see [PostHog, Unverified](../providers/posthog.md#unverified).
 
 ## Polar OAuth client
 
-Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted DevMacro (#141); the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
+Reads revenue, Polar fees, recurring revenue, order and subscription counts, new customers, and order, subscription, and refund events. Not yet registered for hosted DevMacro; the adapter is built from Polar's documentation and every unconfirmed claim is listed in [Polar, Unverified](../providers/polar.md#unverified). Full steps: [Polar, Self-hosted registration](../providers/polar.md#self-hosted-registration). Scopes and what they also allow: [Polar, Permissions](../providers/polar.md#permissions) and [Permission risks](../providers/polar.md#permission-risks).
 
 Settings that must match the code:
 
@@ -162,7 +162,7 @@ Settings that must match the code:
 - **Redirect URL**: `<SITE_URL>/api/connections/sentry/callback`. Sentry sends `code`, `installationId`, `orgSlug`, and the `state` from the install URL here.
 - **Verify Installation**: unchecked. Checking it would need a write request to Sentry after every install.
 - **Permissions**: Organization Read, Issue & Event Read, Project Read (`org:read`, `event:read`, `project:read`). Everything else No Access. Team, Member, and Release permissions are not needed: releases are read with Project Read.
-- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off. Webhooks are Post-MVP (#28).
+- **Webhook URL**, **Alert Rule Action**, and every webhook subscription: empty or off. Webhooks are Post-MVP.
 
 Variables: `SENTRY_CLIENT_ID` and `SENTRY_CLIENT_SECRET` (the integration's **Credentials**; the secret also signs the token refresh JWT), `SENTRY_INTEGRATION_SLUG` (the slug in `https://sentry.io/sentry-apps/<slug>/external-install/`).
 
@@ -183,7 +183,7 @@ Variables: `RAILWAY_CLIENT_ID`, `RAILWAY_CLIENT_SECRET`. The secret is shown onc
 
 ## GitLab OAuth application
 
-Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Registering the hosted application is deferred (#141), so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
+Reads compute minutes, storage, plan, pipelines, deployments, releases, and merged merge requests on GitLab.com. Full steps: [GitLab, Self-hosted registration](../providers/gitlab.md#self-hosted-registration). Scopes and what they also allow: [GitLab, Permissions](../providers/gitlab.md#permissions) and [Permission risks](../providers/gitlab.md#permission-risks). Registering the hosted application is deferred, so the adapter is not yet confirmed with a real account ([GitLab, Unverified](../providers/gitlab.md#unverified)).
 
 Settings that must match the code:
 
@@ -198,4 +198,4 @@ Variables: `GITLAB_CLIENT_ID` (the Application ID), `GITLAB_CLIENT_SECRET` (the 
 
 1. Set the variables for the environment and redeploy (Vercel reads server variables at runtime, but a new deployment picks them up reliably).
 2. In a test workspace, connect each provider once and check that the connection becomes active with no missing permissions.
-3. Record on #88 which apps are registered, under which account, and which origin they point at. Never record the secrets.
+3. Record which apps are registered, under which account, and which origin they point at. Never record the secrets.

@@ -1,8 +1,8 @@
 # Supabase
 
-Provider id: `supabase`. Issues: #118 (adapter), #11 (research), #57 (self-hosted registration), #44 (scheduled syncs).
+Provider id: `supabase`. Verification: documentation only.
 
-DevMacro reads a Supabase organization's plan and limits, each project's health, and the project's auth activity: new signups, logins, logouts, deleted users, and daily active users. It never reads database rows, and it stores counts and timestamps only.
+DevMacro reads your Supabase organization's plan and limits, each project's health, and auth activity: signups, logins, logouts, deleted users, and daily active users. It asks for three read-only scopes, never reads database rows, and stores counts and timestamps only.
 
 All facts below were checked against Supabase's documentation and the Management API OpenAPI spec on 2026-10-31. Anything not confirmed by those sources is marked unverified and listed in [Unverified](#unverified).
 
@@ -19,9 +19,9 @@ All facts below were checked against Supabase's documentation and the Management
 | Rate limit | 120 requests per minute per endpoint per project or organization, shared by every user of the OAuth app |
 | Biggest constraint | Auth audit logs are kept for 1 hour on the Free plan, so the adapter must poll well inside that hour |
 
-### Correction to #118
+### Correction to the original plan
 
-#118 names `GET /v1/projects/{ref}/analytics/endpoints/logs.all`. That endpoint was removed on 2026-09-23 and now always returns `410 Gone` ([changelog](https://supabase.com/changelog/48235-migration-of-supabase-management-api-logs-all-analytics-endpoint-to-logs-endpoint), OpenAPI operation `v1-get-project-logs-all`). Use `GET /v1/projects/{ref}/analytics/endpoints/logs` instead. It takes ClickHouse SQL against one unified `logs` table, with the same `analytics:read` scope and the same 24 hour window rule.
+The original plan named `GET /v1/projects/{ref}/analytics/endpoints/logs.all`. That endpoint was removed on 2026-09-23 and now always returns `410 Gone` ([changelog](https://supabase.com/changelog/48235-migration-of-supabase-management-api-logs-all-analytics-endpoint-to-logs-endpoint), OpenAPI operation `v1-get-project-logs-all`). Use `GET /v1/projects/{ref}/analytics/endpoints/logs` instead. It takes ClickHouse SQL against one unified `logs` table, with the same `analytics:read` scope and the same 24 hour window rule.
 
 ## Connection
 
@@ -262,7 +262,7 @@ From the [Management API reference](https://supabase.com/docs/reference/api/intr
 - For OAuth apps the identifier is the OAuth app id, so the limit is shared by everyone calling through the app. For a hosted DevMacro, every user who connects the same Supabase project shares that project's budget.
 - Calls without a project or organization in the path (`GET /v1/projects`, `GET /v1/organizations`) are tracked on the identifier alone. Reading the docs, for an OAuth app this is one budget for the whole app across all users [inference]. Call them only at connect time.
 - Analytics endpoints are stricter. The exceptions table lists 30 requests per minute for `logs.all`, `usage.api-counts`, and `usage.api-requests-count`. It does not list the new `logs` endpoint. Budget 30 per minute per project for it until confirmed.
-- Over the limit, every call returns `429` for the rest of the minute. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (seconds). Back off using `X-RateLimit-Reset`, and stagger projects across the interval (#44).
+- Over the limit, every call returns `429` for the rest of the minute. Responses carry `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` (seconds). Back off using `X-RateLimit-Reset`, and stagger projects across the interval.
 
 ### Log query allowance
 
@@ -437,7 +437,7 @@ The documented audit log event format, shown only so implementers know what not 
 
 ## Confirm first, with a test project
 
-The #118 checklist, restated with what the docs say. Run each on a Free organization and a Pro organization before building the adapter.
+The original checklist, restated with what the docs say. Run each on a Free organization and a Pro organization before building the adapter.
 
 - [ ] **Auth audit events appear in the logs endpoint, and which source and fields hold the action.** Docs: source `auth_audit_logs`, action in `log_attributes['auth_audit_event.action']`, user in `auth_audit_event.actor_id`. Confirm with one signup, one login, one logout, one deletion, and one token refresh. Also confirm whether the filter column is `source` (query guide) or `source_name` (changelog), and that these events are recorded without turning on "Write audit logs to the database".
 - [ ] **Log retention on the Free plan is longer than the polling interval.** Docs: auth audit logs are kept 1 hour on Free (7 days Pro, 28 days Team); API and database logs 1 day on Free. A 15 minute poll fits. Confirm the 1 hour figure by querying a window 50 to 70 minutes old, and record what `security.audit_logs_days` returns on Free.

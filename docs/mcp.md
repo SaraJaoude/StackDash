@@ -2,8 +2,6 @@
 
 The MCP server lets an AI assistant such as Claude Code, Claude Desktop, or Cursor answer questions about one workspace from its own data: what changed in the stack this week, how much of an allowance is left, which alerts fired. It only reads. No tool can change anything in a workspace, and no answer contains a provider credential.
 
-Issues: #163 (this server), #162 (the API keys and scopes it uses), #254 (the prompts and the one-step assistant key).
-
 It speaks the [Model Context Protocol](https://modelcontextprotocol.io/specification/2026-07-28) over the Streamable HTTP transport at `/api/mcp` on your DevMacro site, and serves clients of the 2025 protocol revisions as well as 2026-07-28. Self-hosted installs serve the same endpoint; nothing about it depends on the hosted instance.
 
 ## Create a key
