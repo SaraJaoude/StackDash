@@ -1,14 +1,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { Client, StreamableHTTPClientTransport, type CallToolResult } from "@modelcontextprotocol/client";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+  type CallToolResult,
+  type GetPromptResult,
+} from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateApiKey } from "@/lib/api/keys";
 import { ErrorResponseSchema } from "@/lib/api/schemas";
 import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
-import { PROVIDER_DOC_URI_PREFIX } from "@/lib/mcp/server";
+import { PROVIDER_DOC_URI_PREFIX, WEEKLY_STACK_REVIEW, WHY_DID_SPEND_CHANGE } from "@/lib/mcp/server";
 
 import { POST } from "./route";
 
@@ -263,7 +268,39 @@ function textOf(result: CallToolResult): string {
   return first?.type === "text" ? first.text : "";
 }
 
+// A prompt step reads "Call `tool` with `{json}`"; this pulls each call out to run it.
+const PROMPT_TOOL_CALL = /Call `(\w+)` with `(\{[^`]*\})`/g;
+
+function promptTextOf(result: GetPromptResult): string {
+  return result.messages.map((message) => (message.content.type === "text" ? message.content.text : "")).join("\n");
+}
+
+function toolCallsOf(result: GetPromptResult): { name: string; arguments: Record<string, unknown> }[] {
+  return [...promptTextOf(result).matchAll(PROMPT_TOOL_CALL)].map(([, name = "", args = "{}"]) => ({
+    name,
+    arguments: JSON.parse(args) as Record<string, unknown>,
+  }));
+}
+
 describe.each(ERAS)("MCP over Streamable HTTP, $era", ({ mode }) => {
+  it("lists the two prompts with their arguments, reading nothing", async () => {
+    const client = await connect(generateApiKey().key, mode);
+    const { prompts } = await client.listPrompts();
+    expect(prompts).toEqual([
+      { name: WEEKLY_STACK_REVIEW, title: "Weekly stack review", description: expect.any(String) },
+      {
+        name: WHY_DID_SPEND_CHANGE,
+        title: "Why did spend change",
+        description: expect.any(String),
+        arguments: [
+          { name: "days", description: "How many days to look back, from 1 to 90. Leave it out for 7.", required: false },
+          { name: "provider", description: expect.stringContaining("Provider id"), required: false },
+        ],
+      },
+    ]);
+    expect(readCalls()).toEqual([]);
+  });
+
   it("lists the five read-only tools with their input and output schemas", async () => {
     const client = await connect(generateApiKey().key, mode);
     const { tools } = await client.listTools();
@@ -378,6 +415,108 @@ describe("tools against the seed data", () => {
     ]);
     // Docs are public, so reading them touches no workspace data.
     expect(readCalls()).toEqual([]);
+  });
+});
+
+describe("prompts", () => {
+  // The prompts date their window from the server's clock, so it is fixed to a seed day.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Runs every tool call a prompt asks for, as an assistant would, and returns the results. */
+  async function runPrompt(client: Client, prompt: GetPromptResult): Promise<CallToolResult[]> {
+    const calls = toolCallsOf(prompt);
+    const { tools } = await client.listTools();
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.map((call) => call.name).every((name) => tools.some((tool) => tool.name === name))).toBe(true);
+    const results: CallToolResult[] = [];
+    for (const call of calls) results.push(await client.callTool(call));
+    return results;
+  }
+
+  it("weekly_stack_review answers from the seed through the five tools, over the last 7 UTC days", async () => {
+    const { key, tokenHash } = generateApiKey();
+    const client = await connect(key);
+    const prompt = await client.getPrompt({ name: WEEKLY_STACK_REVIEW });
+    expect(readCalls()).toEqual([]);
+    expect(promptTextOf(prompt)).toContain("for the week from 2026-10-29 to 2026-11-05 (UTC days)");
+
+    const results = await runPrompt(client, prompt);
+    expect(results.every((result) => !result.isError)).toBe(true);
+    expect(readCalls()).toEqual([
+      ["api_workspaces", { p_token_hash: tokenHash }],
+      ["api_projects", { p_token_hash: tokenHash, p_limit: 51 }],
+      ["api_connections", { p_token_hash: tokenHash, p_limit: 51 }],
+      ["api_usage_snapshots", { p_token_hash: tokenHash, p_from: "2026-10-29", p_to: TODAY, p_limit: 101 }],
+      ["api_activity_events", expect.objectContaining({ p_from: "2026-10-29T00:00:00Z", p_limit: 101 })],
+      ["api_triggered_alerts", expect.objectContaining({ p_acknowledged: false, p_limit: 101 })],
+    ]);
+    // The answer has the seed's spend, events, and alerts to work from.
+    const text = results.map(textOf).join("\n");
+    expect(text).toContain("$12.50");
+    expect(text).toContain("Deployment failed");
+    expect(text).toContain("acme-team");
+  });
+
+  it("why_did_spend_change reads both spend kinds, usage, events, and alerts for one provider", async () => {
+    const { key } = generateApiKey();
+    const client = await connect(key);
+    const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: { provider: "fake", days: "30" } });
+    expect(promptTextOf(prompt)).toContain("for Example provider over the 30 days from 2026-10-06 to 2026-11-05");
+
+    const results = await runPrompt(client, prompt);
+    expect(results.every((result) => !result.isError)).toBe(true);
+    const usage = { p_from: "2026-10-06", p_to: TODAY, p_provider: "fake", p_limit: 101 };
+    expect(readCalls()).toEqual([
+      ["api_usage_snapshots", expect.objectContaining({ ...usage, p_kind: "verified_spend" })],
+      ["api_usage_snapshots", expect.objectContaining({ ...usage, p_kind: "estimated_spend" })],
+      ["api_usage_snapshots", expect.objectContaining({ ...usage, p_kind: "usage" })],
+      ["api_activity_events", expect.objectContaining({ p_from: "2026-10-06T00:00:00Z" })],
+      ["api_triggered_alerts", expect.objectContaining({ p_limit: 101 })],
+    ]);
+    expect(results.map(textOf).join("\n")).toContain("Spend so far this month: 10.75 USD.");
+  });
+
+  it.each([
+    ["no days, the 7 day default", {}, "2026-10-29"],
+    ["1 day, the minimum", { days: "1" }, "2026-11-04"],
+    ["90 days, the maximum", { days: "90" }, "2026-08-07"],
+  ])("why_did_spend_change accepts %s", async (_case, args, from) => {
+    const client = await connect(generateApiKey().key);
+    const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: args });
+    expect(promptTextOf(prompt)).toContain(`from ${from} to ${TODAY}`);
+    expect(promptTextOf(prompt)).toContain("spend changed in this DevMacro workspace over the");
+    expect(toolCallsOf(prompt)[0]?.arguments).toEqual({ kind: "verified_spend", from, to: TODAY, limit: 100 });
+  });
+
+  it.each([
+    ["0 days", { days: "0" }],
+    ["91 days, one over the maximum", { days: "91" }],
+    ["a fraction of a day", { days: "7.5" }],
+    ["an empty number of days", { days: "" }],
+    ["a provider DevMacro does not have", { provider: "not-a-provider" }],
+    ["an unknown argument", { workspace_id: WORKSPACE_ID }],
+  ])("why_did_spend_change refuses %s with an invalid params error and reads nothing", async (_case, args) => {
+    const client = await connect(generateApiKey().key);
+    await expect(client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: args })).rejects.toMatchObject({ code: -32602 });
+    expect(readCalls()).toEqual([]);
+  });
+
+  it("gives a key without usage:read the prompt, and its spend steps answer with the scope to ask for", async () => {
+    keySetup = { status: "valid", scopes: ["events:read", "alerts:read"] };
+    const client = await connect(generateApiKey().key);
+    const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE });
+    expect(promptTextOf(prompt)).toContain("say which scope would show that part instead of guessing it");
+
+    const results = await runPrompt(client, prompt);
+    expect(results.map((result) => result.isError === true)).toEqual([true, true, true, false, false]);
+    expect(textOf(results[0] ?? { content: [] })).toContain("does not have the usage:read scope");
+    expect(readCalls().map(([fn]) => fn)).toEqual(["api_activity_events", "api_triggered_alerts"]);
   });
 });
 

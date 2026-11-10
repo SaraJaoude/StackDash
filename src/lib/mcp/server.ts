@@ -1,12 +1,14 @@
 import "server-only";
 
-import { McpServer, type AuthInfo, type CallToolResult } from "@modelcontextprotocol/server";
+import { McpServer, type AuthInfo, type CallToolResult, type GetPromptResult } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
+import { addUtcDays, ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import { requireApiScope, type ApiPrincipal } from "@/lib/api/auth";
 import { API_ENDPOINTS } from "@/lib/api/endpoints";
 import { reportApiError } from "@/lib/api/errors";
 import {
+  API_PAGE_SIZE_MAX,
   ConnectionSchema,
   EventSchema,
   EventsQuerySchema,
@@ -22,6 +24,8 @@ import {
 import { API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { listDocs, type DocPage } from "@/lib/docs";
 import { formatMoney, formatQuantity } from "@/lib/format";
+import { utcDate } from "@/lib/jobs/ingest";
+import { providerName } from "@/lib/providers";
 
 /*
  * The read-only MCP server (#163). Every tool reads through the REST API's loaders
@@ -33,6 +37,9 @@ import { formatMoney, formatQuantity } from "@/lib/format";
  * list_alerts withhold the fields that can quote an amount (event text written by providers and by
  * DevMacro's own alerts and daily summaries, an alert's message and money). The decision and its
  * evidence are on #163.
+ *
+ * The prompts (#254) read nothing: each is a message naming the tools to call, with their exact
+ * arguments, so every number in the answer still comes through a tool and its scope check.
  */
 
 export const MCP_SERVER_INFO = { name: "devmacro", title: "DevMacro", version: "1.0.0" } as const;
@@ -49,6 +56,17 @@ const INSTRUCTIONS = [
   "withheld names fields this key cannot read and the scope that would return them.",
   "The provider pages under devmacro://docs/providers/ explain each metric and whether it is verified or estimated.",
 ].join("\n");
+
+/** The tools' names, so a prompt can only name a tool this server registers. */
+export const MCP_TOOLS = {
+  listProjects: "list_projects",
+  getUsage: "get_usage",
+  listEvents: "list_events",
+  listAlerts: "list_alerts",
+  getConnectionStatus: "get_connection_status",
+} as const;
+
+type McpToolName = (typeof MCP_TOOLS)[keyof typeof MCP_TOOLS];
 
 // Every tool reads, never changes anything, and answers from DevMacro's own database.
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
@@ -183,13 +201,125 @@ export function principalFrom(authInfo: AuthInfo | undefined): ApiPrincipal {
   };
 }
 
+/** Prompt names, as prompts/list gives them. */
+export const WEEKLY_STACK_REVIEW = "weekly_stack_review";
+export const WHY_DID_SPEND_CHANGE = "why_did_spend_change";
+
+const WEEK_DAYS = 7;
+// The prompts ask for the largest page, so the assistant follows as few cursors as it can.
+const PROMPT_PAGE = { limit: API_PAGE_SIZE_MAX } as const;
+
+// Prompt arguments are strings in MCP. 90 days keeps each call to a few pages of daily rows.
+const SpendChangeArgsSchema = z.strictObject({
+  days: z
+    .string()
+    .regex(/^(?:[1-9]|[1-8][0-9]|90)$/, "Use a whole number of days from 1 to 90.")
+    .optional()
+    .meta({ description: "How many days to look back, from 1 to 90. Leave it out for 7." }),
+  provider: UsageSnapshotsQuerySchema.shape.provider,
+});
+
+type MetricKind = NonNullable<z.infer<typeof UsageSnapshotsQuerySchema>["kind"]>;
+
+/** A step of a prompt: one call of a registered tool, with the arguments to pass. */
+type PromptToolCall = Readonly<{
+  tool: McpToolName;
+  arguments: Readonly<Record<string, string | number | boolean>>;
+  purpose: string;
+}>;
+
+/** The UTC days from `days` days ago to today, and the start of the first one as an RFC 3339 time. */
+function lookBack(now: Date, days: number): { from: string; to: string; since: string } {
+  const to = utcDate(now);
+  const from = addUtcDays(to, -days);
+  return { from, to, since: `${from}T00:00:00Z` };
+}
+
+/**
+ * One user message: the task, the tool calls in order with their exact arguments, then how to
+ * answer. Every number in the answer comes from those calls; the prompt adds no data of its own.
+ */
+function promptResult(task: string, calls: readonly PromptToolCall[], answer: readonly string[]): GetPromptResult {
+  const text = [
+    task,
+    "",
+    "Call these DevMacro tools in order. When a result has a next_cursor, call the same tool again with the same arguments plus that cursor, until next_cursor is null.",
+    ...calls.map((call, index) => `${index + 1}. Call \`${call.tool}\` with \`${JSON.stringify(call.arguments)}\`: ${call.purpose}`),
+    "",
+    ...answer,
+    "",
+    "Quote only numbers the tools returned, using display where a row has it, and say whether each is verified or estimated. Never add amounts in different currencies.",
+    "If a tool answers that the key lacks a scope, or a result lists withheld fields, say which scope would show that part instead of guessing it.",
+  ].join("\n");
+  return { messages: [{ role: "user", content: { type: "text", text } }] };
+}
+
+function weeklyStackReview(now: Date): GetPromptResult {
+  const { from, to, since } = lookBack(now, WEEK_DAYS);
+  return promptResult(
+    `Review this DevMacro workspace's developer stack for the week from ${from} to ${to} (UTC days).`,
+    [
+      { tool: MCP_TOOLS.listProjects, arguments: {}, purpose: "the workspace and its projects, to group the review by." },
+      { tool: MCP_TOOLS.getConnectionStatus, arguments: {}, purpose: "connections that are not active need attention first." },
+      { tool: MCP_TOOLS.getUsage, arguments: { from, to, ...PROMPT_PAGE }, purpose: "spend, usage, and allowances for each day of the week." },
+      {
+        tool: MCP_TOOLS.listEvents,
+        arguments: { from: since, ...PROMPT_PAGE },
+        purpose: "deployments, failures, payments, and anomalies during the week.",
+      },
+      { tool: MCP_TOOLS.listAlerts, arguments: { acknowledged: false, ...PROMPT_PAGE }, purpose: "alerts nobody has acknowledged yet." },
+    ],
+    [
+      "Then write the review under these headings, leaving out any heading with nothing to report:",
+      "- Connections: each one that is not active, and what to do about it.",
+      "- Spend: each spend metric on its newest day beside its first day in the week, per provider and currency.",
+      "- Allowances: each remaining_allowance that is running low, and its resets_at.",
+      `- Events: failed deployments, sync failures, and anomalies (type ${ANOMALY_TYPE_ID}), with the day of each.`,
+      "- Alerts: each unacknowledged alert and what it measured.",
+      "Finish with the one thing most worth doing next.",
+    ],
+  );
+}
+
+function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSchema>, now: Date): GetPromptResult {
+  const span = days === undefined ? WEEK_DAYS : Number(days);
+  const { from, to, since } = lookBack(now, span);
+  const usage = (kind: MetricKind) => ({ kind, from, to, ...(provider === undefined ? {} : { provider }), ...PROMPT_PAGE });
+  const scope = provider === undefined ? "" : ` for ${providerName(provider)}`;
+  return promptResult(
+    `Explain why spend changed in this DevMacro workspace${scope} over the ${span} days from ${from} to ${to} (UTC days).`,
+    [
+      { tool: MCP_TOOLS.getUsage, arguments: usage("verified_spend"), purpose: "spend each provider reported." },
+      { tool: MCP_TOOLS.getUsage, arguments: usage("estimated_spend"), purpose: "spend DevMacro estimated from a price list." },
+      {
+        tool: MCP_TOOLS.getUsage,
+        arguments: usage("usage"),
+        purpose: "the usage that estimated spend is priced from, and that often drives reported spend.",
+      },
+      {
+        tool: MCP_TOOLS.listEvents,
+        arguments: { from: since, ...PROMPT_PAGE },
+        purpose: `deployments, usage warnings, anomalies (type ${ANOMALY_TYPE_ID}), and daily summaries in the same days.`,
+      },
+      { tool: MCP_TOOLS.listAlerts, arguments: PROMPT_PAGE, purpose: "spend and usage alerts; keep the ones whose triggered_at falls in the period." },
+    ],
+    [
+      "How to read spend: a spend row is a running total for its billing period (period_start to period_end), so a day's spend is its reading minus the previous day's reading in the same period. When period_start changes, a new period began: a drop is not a saving, and the first day of a period includes charges billed once per period, such as a plan fee.",
+      "Then answer:",
+      "- For each provider and currency: spend at the start and at the end of the period, and how much it changed.",
+      "- The days with the biggest increases, each tied to the usage metric that grew and to any event or alert on that day.",
+      "- If spend did not change, say so plainly.",
+    ],
+  );
+}
+
 /** One server instance for one authenticated request (the SDK's per-request factory). */
 export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
   const server = new McpServer(MCP_SERVER_INFO, { instructions: INSTRUCTIONS });
   const { tokenHash } = principal;
 
   server.registerTool(
-    "list_projects",
+    MCP_TOOLS.listProjects,
     {
       title: "List projects",
       description:
@@ -211,7 +341,7 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
   );
 
   server.registerTool(
-    "get_usage",
+    MCP_TOOLS.getUsage,
     {
       title: "Get usage and spend",
       description:
@@ -232,7 +362,7 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
   );
 
   server.registerTool(
-    "list_events",
+    MCP_TOOLS.listEvents,
     {
       title: "List timeline events",
       description:
@@ -259,7 +389,7 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
   );
 
   server.registerTool(
-    "list_alerts",
+    MCP_TOOLS.listAlerts,
     {
       title: "List triggered alerts",
       description:
@@ -282,7 +412,7 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
   );
 
   server.registerTool(
-    "get_connection_status",
+    MCP_TOOLS.getConnectionStatus,
     {
       title: "Get connection status",
       description:
@@ -307,6 +437,27 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
       (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: doc.source }] }),
     );
   }
+
+  server.registerPrompt(
+    WEEKLY_STACK_REVIEW,
+    {
+      title: "Weekly stack review",
+      description:
+        "Reviews the last 7 days of this workspace: connections that need attention, spend, allowances running low, failures, and open alerts.",
+    },
+    () => weeklyStackReview(new Date()),
+  );
+
+  server.registerPrompt(
+    WHY_DID_SPEND_CHANGE,
+    {
+      title: "Why did spend change",
+      description:
+        "Explains how spend moved over the last few days and ties each change to the usage and events behind it.",
+      argsSchema: SpendChangeArgsSchema,
+    },
+    (args) => whyDidSpendChange(args, new Date()),
+  );
 
   return server;
 }
