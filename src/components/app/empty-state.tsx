@@ -19,6 +19,7 @@ export function EmptyState({
   icon,
   action,
   deniedReason,
+  secondaryAction,
   children,
 }: {
   title: string;
@@ -27,6 +28,8 @@ export function EmptyState({
   action?: EmptyStateAction | undefined;
   /** Set when the current role cannot take `action`; shown in its place. */
   deniedReason?: string | undefined;
+  /** A second control beside `action`, such as a form; hidden with it when `deniedReason` is set. */
+  secondaryAction?: ReactNode;
   /** Extra controls, such as a list of choices, shown below the description. */
   children?: ReactNode;
 }) {
@@ -54,7 +57,7 @@ export function EmptyState({
           <span>{deniedReason}</span>
         </p>
       ) : action === undefined ? null : (
-        <div className="mt-6 flex justify-center">
+        <div className="mt-6 flex flex-wrap items-start justify-center gap-3">
           <Link
             href={action.href}
             className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
@@ -62,6 +65,7 @@ export function EmptyState({
             {action.label}
             <ArrowRightIcon />
           </Link>
+          {secondaryAction}
         </div>
       )}
     </section>

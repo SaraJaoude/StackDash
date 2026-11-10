@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { DAY_MS, SLOT_MS } from "@/lib/adapters/simulated/simulation";
+import { headlineWindows } from "@/lib/dashboard/headline";
 import { isLoopbackUrl } from "@/lib/env";
 import { dailySummaryJobKey, runDailySummaryJob } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
@@ -73,6 +74,37 @@ export function historySteps(now: Date, days: number = DEMO_HISTORY_DAYS): Histo
   }
   steps.push({ at: now, summaryDate: null });
   return steps;
+}
+
+/**
+ * How many London days `historySteps` must replay so the dashboard headline's week to date (#173,
+ * UTC, Monday first) has figures: every day since the week started, plus the day before it, whose
+ * reading of each running billing period total is what the window's first day is measured from
+ * (without it, that day's change would span the window edge and leave every provider
+ * unavailable). 1 on a Monday, 7 on a Sunday. When London is already on the next day (the first
+ * hour of a summer day), one more day is counted, so no UTC day is missed.
+ */
+export function headlineWeekDays(now: Date): number {
+  const weekStart = Date.parse(`${headlineWindows("week", now).current.start}T00:00:00Z`);
+  return Math.round((Date.parse(`${londonDate(now)}T00:00:00Z`) - weekStart) / DAY_MS) + 1;
+}
+
+/**
+ * The live job dependencies with every clock (the jobs' and the adapters') reading one movable
+ * clock that starts at `start`, and the `setNow` that moves it, for `replayHistory`.
+ */
+export function replayClock(live: SyncDeps, start: Date): Pick<ReplayInput, "deps" | "setNow"> {
+  let clock = start;
+  return {
+    deps: {
+      ...live,
+      now: () => clock,
+      createOAuthContext: (client) => ({ ...live.createOAuthContext(client), now: () => clock }),
+    },
+    setNow: (at) => {
+      clock = at;
+    },
+  };
 }
 
 export type ReplayInput = Readonly<{

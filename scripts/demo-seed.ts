@@ -26,7 +26,7 @@ import { z } from "zod";
 
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { connectOrigin } from "@/lib/connections/oauth-state";
-import { DEMO_HISTORY_DAYS, demoCommandRefusal, historySteps, replayHistory } from "@/lib/demo/history";
+import { DEMO_HISTORY_DAYS, demoCommandRefusal, historySteps, replayClock, replayHistory } from "@/lib/demo/history";
 import {
   assignDemoProjects,
   connectSimulatedProviders,
@@ -39,7 +39,6 @@ import {
   resolveMembers,
 } from "@/lib/demo/workspace";
 import { createJobDeps } from "@/lib/jobs/queue";
-import type { SyncDeps } from "@/lib/jobs/sync-connection";
 import { providerName } from "@/lib/providers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -103,19 +102,9 @@ async function main(): Promise<number> {
   await createDemoAlerts(admin, { workspaceId: workspace.id, userId });
   console.log(`Connected ${connections.length} simulated providers. Replaying ${DEMO_HISTORY_DAYS} days of history...`);
 
-  // The live job wiring, with every clock (the jobs' and the adapters') reading the replay clock.
-  let clock = first.at;
-  const live = createJobDeps();
-  const deps: SyncDeps = {
-    ...live,
-    now: () => clock,
-    createOAuthContext: (client) => ({ ...live.createOAuthContext(client), now: () => clock }),
-  };
   await replayHistory({
-    deps,
-    setNow: (at) => {
-      clock = at;
-    },
+    // The live job wiring, with every clock (the jobs' and the adapters') reading the replay clock.
+    ...replayClock(createJobDeps(), first.at),
     workspaceId: workspace.id,
     connectionIds: connections.map((connection) => connection.id),
     steps,
