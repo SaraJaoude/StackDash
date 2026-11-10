@@ -40,6 +40,9 @@ export function demoCommandRefusal(input: Readonly<{ simulationEnabled: boolean;
   return null;
 }
 
+/** The seed text `npm run demo:seed` uses when `--seed` is not given. */
+export const DEMO_SEED_TEXT = "devmacro-demo";
+
 /**
  * The seed a simulated provider derives its accounts from, fixed by the demo seed text so a
  * rehearsed demo shows the same accounts, projects, and launch days every time.

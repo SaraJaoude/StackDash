@@ -26,7 +26,7 @@ import { z } from "zod";
 
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { connectOrigin } from "@/lib/connections/oauth-state";
-import { DEMO_HISTORY_DAYS, demoCommandRefusal, historySteps, replayClock, replayHistory } from "@/lib/demo/history";
+import { DEMO_HISTORY_DAYS, DEMO_SEED_TEXT, demoCommandRefusal, historySteps, replayClock, replayHistory } from "@/lib/demo/history";
 import {
   assignDemoProjects,
   connectSimulatedProviders,
@@ -44,7 +44,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { workspacePath } from "@/lib/workspaces/paths";
 
 const USAGE = "Usage: npm run demo:seed -- [--member you@example.com] [--seed <text>]";
-const DEFAULT_SEED = "devmacro-demo";
 const DEFAULT_ORIGIN = "http://localhost:3000";
 // Progress is printed every this many replayed days.
 const PROGRESS_EVERY_DAYS = 10;
@@ -58,7 +57,7 @@ async function main(): Promise<number> {
     ({ values } = parseArgs({
       options: {
         member: { type: "string", multiple: true, default: [] },
-        seed: { type: "string", default: DEFAULT_SEED },
+        seed: { type: "string", default: DEMO_SEED_TEXT },
       },
     }));
   } catch (error) {
