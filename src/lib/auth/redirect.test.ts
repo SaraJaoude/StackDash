@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DEFAULT_NEXT_PATH, isAppPath, safeNextPath } from "./redirect";
+import { DEFAULT_NEXT_PATH, isAppPath, safeNextPath, signInErrorUrl } from "./redirect";
 
 describe("safeNextPath", () => {
   it.each([
@@ -65,5 +65,17 @@ describe("isAppPath", () => {
     ["/auth/callback", false],
   ])("%j -> %j", (pathname, expected) => {
     expect(isAppPath(pathname)).toBe(expected);
+  });
+});
+
+describe("signInErrorUrl", () => {
+  it("points at /sign-in on the request's origin with the code, the reference, and next", () => {
+    const url = signInErrorUrl("http://localhost:3000/auth/confirm?token_hash=abc", "link_failed", "/w/k3j9x2m4pq/dashboard", "REF-1234");
+    expect(url.toString()).toBe("http://localhost:3000/sign-in?error=link_failed&ref=REF-1234&next=%2Fw%2Fk3j9x2m4pq%2Fdashboard");
+  });
+
+  it("leaves out ref when there is no reference, and carries nothing else from the request", () => {
+    const url = signInErrorUrl("http://localhost:3000/auth/callback?code=secret&next=%2Fapp", "cancelled", DEFAULT_NEXT_PATH);
+    expect(url.toString()).toBe("http://localhost:3000/sign-in?error=cancelled&next=%2Fapp");
   });
 });

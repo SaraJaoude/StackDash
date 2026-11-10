@@ -16,6 +16,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { demoAccountSeed, headlineWeekDays, historySteps, replayClock, replayHistory } from "./history";
+import { DEMO_USER_MARKER, isDemoAccount } from "./sign-in";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
@@ -33,8 +34,6 @@ type Admin = SupabaseClient<Database>;
 export const DEMO_USER_EMAIL = "demo@example.com";
 export const DEMO_WORKSPACE_NAME = "Demo workspace";
 export const DEMO_PROJECT_NAMES = ["Storefront", "Marketing site", "Internal tools"] as const;
-// Set in app_metadata, which only the service role can write, when the seed creates the account.
-const DEMO_USER_MARKER = "devmacro_demo";
 const USER_PAGE_SIZE = 1000;
 // A local stack holds a handful of users; past this the email is treated as not found.
 const USER_MAX_PAGES = 20;
@@ -52,11 +51,6 @@ async function findUserByEmail(admin: Admin, email: string): Promise<User | null
   return null;
 }
 
-function isDemoUser(user: User): boolean {
-  const marker: unknown = user.app_metadata[DEMO_USER_MARKER];
-  return marker === true;
-}
-
 /**
  * The demo account's id, creating it on the first run. Refuses an account with the demo email that
  * the seed did not create, so a rerun never deletes anything it does not own.
@@ -64,7 +58,7 @@ function isDemoUser(user: User): boolean {
 export async function ensureDemoUser(admin: Admin): Promise<string> {
   const existing = await findUserByEmail(admin, DEMO_USER_EMAIL);
   if (existing !== null) {
-    if (!isDemoUser(existing)) {
+    if (!isDemoAccount(existing.app_metadata)) {
       throw new Error(`${DEMO_USER_EMAIL} already exists and was not made by the demo seed, so the seed leaves it alone.`);
     }
     return existing.id;
@@ -74,7 +68,8 @@ export async function ensureDemoUser(admin: Admin): Promise<string> {
     .from("access_invites")
     .upsert({ email: DEMO_USER_EMAIL, invited_by: "demo seed" }, { onConflict: "email", ignoreDuplicates: true });
   if (inviteError) throw new Error(`Inviting ${DEMO_USER_EMAIL} failed (code ${inviteError.code}).`);
-  // No password: sign-in is GitHub only, so nobody signs in as the demo account (see #166).
+  // No password: the demo account signs in only with the one-time link `npm run demo` and
+  // `npm run demo:seed` print (#260), which `/auth/confirm` accepts on a local stack only.
   const { data, error } = await admin.auth.admin.createUser({
     email: DEMO_USER_EMAIL,
     email_confirm: true,
@@ -153,7 +148,7 @@ export async function resetDemoWorkspace(
  */
 export async function findDemoWorkspace(admin: Admin): Promise<(DemoWorkspace & { name: string }) | null> {
   const user = await findUserByEmail(admin, DEMO_USER_EMAIL);
-  if (user === null || !isDemoUser(user)) return null;
+  if (user === null || !isDemoAccount(user.app_metadata)) return null;
   const { data, error } = await admin
     .from("workspaces")
     .select("id, slug, name")
