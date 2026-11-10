@@ -51,7 +51,7 @@ function main(): Promise<number> {
     origin,
     print,
     printError: (line) => console.error(line),
-    then: async () => {
+    afterSummary: async () => {
       print("Start the app with npm run dev if it is not running, then open the link. The history now continues live:");
       print("");
       // The replay's last step is now, so the watch carries on from its cursors without a gap.

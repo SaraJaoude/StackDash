@@ -103,7 +103,7 @@ describe("runDemoCommand", () => {
         origin: "http://localhost:3000",
         print: (line) => out.push(line),
         printError: (line) => err.push(line),
-        then: async () => {
+        afterSummary: async () => {
           calls.push("watch");
         },
         ...overrides,

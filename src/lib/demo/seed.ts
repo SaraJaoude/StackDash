@@ -153,13 +153,13 @@ export type DemoCommand = Readonly<{
   print: (line: string) => void;
   printError: (line: string) => void;
   /** Runs once the summary is printed: the live watch for `npm run demo`, a hint for the seed. */
-  then: () => Promise<void>;
+  afterSummary: () => Promise<void>;
 }>;
 
 /**
  * A demo command from its arguments to its exit code: arguments, then the refusal (nothing is
  * read or written before it), then the seed, the sign-in link to the dashboard, the summary, and
- * `then` last, so the watch starts only on the finished history. 2 for a refusal.
+ * `afterSummary` last, so the watch starts only on the finished history. 2 for a refusal.
  */
 export async function runDemoCommand(argv: readonly string[], command: DemoCommand): Promise<number> {
   const args = parseDemoSeedArgs(argv, command.usage);
@@ -175,6 +175,6 @@ export async function runDemoCommand(argv: readonly string[], command: DemoComma
   const seeded = await command.seed({ memberEmails: args.memberEmails, seed: args.seed });
   const signInLink = await command.signInLink(workspacePath(seeded.workspace.slug, "dashboard"));
   for (const line of demoSummaryLines(seeded, { origin: command.origin, signInLink })) command.print(line);
-  await command.then();
+  await command.afterSummary();
   return 0;
 }

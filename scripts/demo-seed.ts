@@ -53,7 +53,7 @@ function main(): Promise<number> {
     origin,
     print,
     printError: (line) => console.error(line),
-    then: async () => {
+    afterSummary: async () => {
       print("Keep the history going live with: npm run jobs:tick -- --watch");
     },
   });
