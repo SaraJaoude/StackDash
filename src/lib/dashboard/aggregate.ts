@@ -18,7 +18,7 @@
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { formatRelative } from "@/lib/format";
+import { formatDateTime, formatList, formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -655,4 +655,88 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
 export function freshnessLabel(retrievedAt: string, stale: boolean, now: Date): string {
   const relative = formatRelative(retrievedAt, now);
   return stale ? `Stale: last updated ${relative}` : `Updated ${relative}`;
+}
+
+/**
+ * The dashboard's one stale notice (#267), shown when most or all of the connections in view that
+ * can sync have not synced within two poll intervals (`ProviderSummary.stale`). A connection that
+ * never synced or is disconnected cannot be brought up to date by a sync, so it is not counted.
+ */
+export type StaleNotice = Readonly<{
+  connections: readonly Readonly<{ connectionId: string; name: string }>[];
+  /** Connections in view that have synced and can sync again. */
+  total: number;
+  /** The newest last sync among the stale connections: none of them has synced since. */
+  lastSyncedAt: string;
+}>;
+
+function withoutStaleMark<T extends Freshness>(value: T): T {
+  return { ...value, stale: false };
+}
+
+function amountsWithoutStaleMarks(list: readonly CurrencyAmounts[]): CurrencyAmounts[] {
+  return list.map((amounts) => ({
+    ...amounts,
+    verified: amounts.verified === null ? null : withoutStaleMark(amounts.verified),
+    estimated: amounts.estimated === null ? null : withoutStaleMark(amounts.estimated),
+  }));
+}
+
+/**
+ * The notice for `view`, and the view to show under it. With a notice, no value or card carries its
+ * own stale mark, because the notice says it once for the page; each still says when it was read.
+ * Without one (fewer than half stale), the view is returned as it is, so a lone stale value stands out.
+ */
+export function withStaleNotice(view: DashboardView): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
+  const syncable = view.byProvider.flatMap((summary) =>
+    summary.lastSyncedAt === null || summary.status === "revoked" ? [] : [{ summary, lastSyncedAt: summary.lastSyncedAt }],
+  );
+  const stale = syncable.filter(({ summary }) => summary.stale);
+  if (stale.length === 0 || stale.length * 2 <= syncable.length) return { view, notice: null };
+  const newest = stale.reduce((latest, entry) => (Date.parse(entry.lastSyncedAt) > Date.parse(latest.lastSyncedAt) ? entry : latest));
+  return {
+    notice: {
+      connections: stale.map(({ summary }) => ({ connectionId: summary.connectionId, name: summary.name })),
+      total: syncable.length,
+      lastSyncedAt: newest.lastSyncedAt,
+    },
+    view: {
+      totals: amountsWithoutStaleMarks(view.totals),
+      revenue: amountsWithoutStaleMarks(view.revenue),
+      byProvider: view.byProvider.map((summary) => ({
+        ...summary,
+        stale: false,
+        spend: amountsWithoutStaleMarks(summary.spend),
+        revenue: amountsWithoutStaleMarks(summary.revenue),
+        recurringRevenue: summary.recurringRevenue.map((rate) => ({ ...rate, value: withoutStaleMark(rate.value) })),
+        credits: summary.credits.map(withoutStaleMark),
+        allowances: summary.allowances.map((allowance) => ({
+          ...allowance,
+          included: allowance.included === null ? null : withoutStaleMark(allowance.included),
+          used: allowance.used === null ? null : withoutStaleMark(allowance.used),
+          remaining: allowance.remaining === null ? null : withoutStaleMark(allowance.remaining),
+        })),
+      })),
+      byProject: view.byProject.map((project) => ({ ...project, spend: amountsWithoutStaleMarks(project.spend) })),
+    },
+  };
+}
+
+/**
+ * The notice in words: "Data last synced 3 days ago", and which connections, since when. The time
+ * is in Europe/London, as every time the app prints.
+ */
+export function staleNoticeText(notice: StaleNotice, now: Date): Readonly<{ title: string; body: string }> {
+  const count = notice.connections.length;
+  const since = formatDateTime(notice.lastSyncedAt);
+  const title = `Data last synced ${formatRelative(notice.lastSyncedAt, now)}`;
+  if (count === notice.total) {
+    const who = count === 1 ? "The only connection in view has" : `None of the ${count} connections in view has`;
+    return { title, body: `${who} ${count === 1 ? "not synced" : "synced"} since ${since}, so every figure on this page is from then or earlier.` };
+  }
+  const names = formatList(notice.connections.map((connection) => connection.name));
+  return {
+    title,
+    body: `${count} of ${notice.total} connections in view have not synced since ${since}: ${names}. Their figures on this page are from then or earlier.`,
+  };
 }

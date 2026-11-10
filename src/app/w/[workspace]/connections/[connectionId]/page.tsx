@@ -204,7 +204,7 @@ async function ConnectionContent({
         {canManage ? (
           <div className="mt-4 flex flex-wrap items-start gap-4">
             {revoked ? null : (
-              <SyncNowForm workspaceSlug={workspace.slug} connectionId={connection.id} cooldownNotice={cooldownNotice} />
+              <SyncNowForm workspaceSlug={workspace.slug} connectionIds={[connection.id]} cooldownNotice={cooldownNotice} />
             )}
             <Link href={reconnectHref} className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm">
               Reconnect

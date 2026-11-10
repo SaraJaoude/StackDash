@@ -55,7 +55,8 @@ function EstimateIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function StaleIcon(props: SVGProps<SVGSVGElement>) {
+/** A clock: data that has not been refreshed. Always beside the word that says so. */
+export function StaleIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
       width={14}

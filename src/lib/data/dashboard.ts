@@ -23,8 +23,9 @@ export const SNAPSHOT_WINDOW_DAYS = 45;
 // Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
 const SNAPSHOT_MAX_ROWS = 10_000;
 
-// Bounds for the small lists. A workspace in the MVP has a handful of each.
-const CONNECTIONS_LIMIT = 100;
+// Bounds for the small lists. A workspace in the MVP has a handful of each. The dashboard's "Sync
+// now" (#267) queues at most as many connections as it lists.
+export const CONNECTIONS_LIMIT = 100;
 const ACCOUNTS_LIMIT = 1000;
 const PROJECTS_LIMIT = 500;
 

@@ -23,6 +23,8 @@ import {
   latestSnapshots,
   percentUsed,
   spendToCount,
+  staleNoticeText,
+  withStaleNotice,
   type AccountInput,
   type ConnectionInput,
   type CurrencyAmounts,
@@ -591,6 +593,110 @@ describe("isStale", () => {
     );
     expect(view.totals[0]?.verified?.stale).toBe(true);
     expect(view.totals[0]?.verified?.retrievedAt).toBe("2026-10-15T09:59:59.000Z");
+  });
+});
+
+describe("withStaleNotice (#267)", () => {
+  const threeDaysAgo = "2026-10-12T09:00:00.000Z";
+  const twoDaysAgo = "2026-10-13T09:00:00.000Z";
+  const second: ConnectionInput = { ...connection, id: "c2", provider: "github", display_name: "GitHub org" };
+  const third: ConnectionInput = { ...connection, id: "c3", provider: "vercel", display_name: "Vercel team" };
+  const secondAccount: AccountInput = { id: "a3", connection_id: "c2", display_name: "Org", project_id: null };
+
+  function view(connections: readonly ConnectionInput[]) {
+    return aggregateDashboard(
+      input(
+        [
+          money({ metric_key: "fake.spend.usd", amount_minor: 100, currency: "USD", retrieved_at: threeDaysAgo }),
+          money({ connection_id: "c2", external_account_id: "a3", metric_key: "github.spend.month", amount_minor: 50, currency: "USD", retrieved_at: twoDaysAgo }),
+          quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests", retrieved_at: threeDaysAgo }),
+          quantity({ metric_key: "fake.requests.month", kind: "usage", value: 250, unit: "requests", retrieved_at: threeDaysAgo }),
+        ],
+        { connections, accounts: [...accounts, secondAccount] },
+      ),
+    );
+  }
+
+  it("shows one notice naming every stale connection and the newest of their syncs when all are stale, and drops each value's stale mark", () => {
+    const { notice, view: shown } = withStaleNotice(
+      view([
+        { ...connection, last_synced_at: threeDaysAgo },
+        { ...second, last_synced_at: twoDaysAgo },
+      ]),
+    );
+    expect(notice).toEqual({
+      connections: [
+        { connectionId: "c1", name: "Fake account" },
+        { connectionId: "c2", name: "GitHub org" },
+      ],
+      total: 2,
+      lastSyncedAt: twoDaysAgo,
+    });
+    const stale = [
+      ...shown.totals.flatMap((amounts) => [amounts.verified, amounts.estimated]),
+      ...shown.byProvider.flatMap((summary) => [
+        summary,
+        ...summary.spend.flatMap((amounts) => [amounts.verified, amounts.estimated]),
+        ...summary.allowances.flatMap((allowance) => [allowance.included, allowance.used, allowance.remaining]),
+      ]),
+      ...shown.byProject.flatMap((project) => project.spend.flatMap((amounts) => [amounts.verified, amounts.estimated])),
+    ].filter((value) => value?.stale === true);
+    expect(stale).toEqual([]);
+    // Each value still says when it was read; only the warning moved to the notice.
+    expect(shown.totals[0]?.verified?.retrievedAt).toBe(threeDaysAgo);
+    expect(shown.byProvider[0]?.lastSyncedAt).toBe(threeDaysAgo);
+  });
+
+  it("shows the notice when most connections are stale: two of three", () => {
+    const { notice } = withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, { ...second, last_synced_at: twoDaysAgo }, third]));
+    expect(notice).toMatchObject({ total: 3, connections: [{ connectionId: "c1" }, { connectionId: "c2" }] });
+  });
+
+  it.each([
+    ["one stale and the rest fresh", [{ ...connection, last_synced_at: threeDaysAgo }, second, third]],
+    ["exactly half stale", [{ ...connection, last_synced_at: threeDaysAgo }, second]],
+    ["nothing stale", [connection, second]],
+    ["no connection synced yet", [{ ...connection, last_synced_at: null }]],
+    ["no connections", []],
+  ] as const)("keeps each value's own stale mark and shows no notice (boundary: %s)", (_name, connections) => {
+    const before = view(connections);
+    const { notice, view: shown } = withStaleNotice(before);
+    expect(notice).toBeNull();
+    expect(shown).toBe(before);
+  });
+
+  it("is fresh at exactly two poll intervals, as every stale mark is (boundary: two intervals)", () => {
+    const exactlyTwo = "2026-10-15T10:00:00.000Z";
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: exactlyTwo }])).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: "2026-10-15T09:59:59.999Z" }])).notice).not.toBeNull();
+  });
+
+  it("leaves out a disconnected connection, which no sync can bring up to date, and one never synced", () => {
+    const revoked = { ...second, status: "revoked" as const, last_synced_at: threeDaysAgo };
+    const neverSynced = { ...third, last_synced_at: null };
+    expect(withStaleNotice(view([connection, revoked, neverSynced])).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, revoked])).notice).toMatchObject({
+      total: 1,
+      connections: [{ connectionId: "c1" }],
+    });
+  });
+
+  it("says since when in words, naming the stale connections only when some are fresh", () => {
+    const one = { connectionId: "c1", name: "Fake account" };
+    const two = { connectionId: "c2", name: "GitHub org" };
+    const all = staleNoticeText({ connections: [one, two], total: 2, lastSyncedAt: twoDaysAgo }, NOW);
+    expect(all).toEqual({
+      title: "Data last synced 2 days ago",
+      body: "None of the 2 connections in view has synced since 2026-10-13 10:00 BST, so every figure on this page is from then or earlier.",
+    });
+    expect(staleNoticeText({ connections: [one], total: 1, lastSyncedAt: threeDaysAgo }, NOW).body).toBe(
+      "The only connection in view has not synced since 2026-10-12 10:00 BST, so every figure on this page is from then or earlier.",
+    );
+    const most = staleNoticeText({ connections: [one, two], total: 3, lastSyncedAt: twoDaysAgo }, NOW);
+    expect(most.body).toBe(
+      "2 of 3 connections in view have not synced since 2026-10-13 10:00 BST: Fake account and GitHub org. Their figures on this page are from then or earlier.",
+    );
+    for (const text of [all.title, all.body, most.body]) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });
 });
 

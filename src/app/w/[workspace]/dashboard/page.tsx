@@ -12,6 +12,7 @@ import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
+import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { GaugeIcon } from "@/components/icons";
 import {
   declaredEventTypes,
@@ -19,7 +20,7 @@ import {
   declaredSignupDailyTotals,
   revenueProviderIds,
 } from "@/lib/adapters/registry";
-import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import { aggregateDashboard, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
   chooseHeadline,
@@ -198,6 +199,9 @@ async function DashboardContent({
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
+  // One notice for the page when most connections are stale, instead of a line on every value (#267).
+  const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input));
+
   const headlineInput = {
     connections: trendData.connections,
     eventTypes,
@@ -221,8 +225,11 @@ async function DashboardContent({
   // resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
+      {notice === null ? null : (
+        <StaleNotice notice={notice} now={now} workspaceSlug={workspace.slug} canSync={canPerform(role, "manage_connections")} />
+      )}
       <DashboardView
-        view={aggregateDashboard(input)}
+        view={dashboard}
         projections={projectDashboard(input)}
         now={now}
         dashboardPath={dashboardPath}
