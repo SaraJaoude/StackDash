@@ -17,7 +17,7 @@ import { demoAccountSeed } from "./history";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
- * (the caller checks `demoSeedRefusal` first). A rerun deletes the workspaces the demo account
+ * (the caller checks `demoCommandRefusal` first). A rerun deletes the workspaces the demo account
  * created, except its personal one, and builds a fresh one, so there is only ever one demo
  * workspace. Connections go through `completeConnection`, exactly as the OAuth callback makes
  * them; budgets and alert rules go through the alerts page's input schemas.
