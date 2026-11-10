@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { addUtcDays, type Anomaly, type AnomalyConnection, type AnomalyRow } from "@/lib/alerts/anomaly";
+import type { ConnectionInput } from "@/lib/dashboard/aggregate";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
 
 import type { EventBucketCount } from "./markers";
 import { recentAnomalies, WHAT_CHANGED_LIMIT, whatChanged } from "./what-changed";
 
 const TIMELINE = "/w/acme/timeline";
-const VERCEL: AnomalyConnection = { id: "c0000000-0000-4000-8000-000000000001", provider: "vercel" };
-const RESEND: AnomalyConnection = { id: "c0000000-0000-4000-8000-000000000002", provider: "resend" };
+type Connection = AnomalyConnection & Pick<ConnectionInput, "status">;
+
+const VERCEL: Connection = { id: "c0000000-0000-4000-8000-000000000001", provider: "vercel", status: "active" };
+const RESEND: Connection = { id: "c0000000-0000-4000-8000-000000000002", provider: "resend", status: "active" };
 const ACCOUNT = "a0000000-0000-4000-8000-000000000001";
 // A Tuesday in November (GMT), so "yesterday" is Monday 2026-11-09.
 const NOW = new Date("2026-11-10T12:00:00.000Z");
@@ -52,8 +55,8 @@ describe("whatChanged", () => {
       {
         key: "anomaly:2026-11-08:vercel:vercel.spend.total:money:USD:verified",
         text:
-          "Vercel: Billed spend, month to date (verified) went up by $412.00 on Sunday, 2026-11-08, a day with 14 deployments: " +
-          "4 times the usual $103.00 a day, the median of the 14 days from 2026-10-25 to 2026-11-07.",
+          "Vercel: Billed spend, month to date (verified) went up by $412.00 on Sunday, 2026-11-08, 4 times the usual $103.00 a day " +
+          "(the median of the 14 days from 2026-10-25 to 2026-11-07), with 14 deployments that day.",
         linkText: "Show Vercel events on 2026-11-08",
         href: `${TIMELINE}?from=2026-11-08&to=2026-11-08&provider=vercel`,
       },
@@ -106,29 +109,34 @@ describe("whatChanged", () => {
       count({ category: "alerts", count: 2, provider: null }),
     ];
     const [sentence] = whatChanged([anomaly()], events, link).sentences;
-    expect(sentence?.text).toContain("on Sunday, 2026-11-08, a day with 3 deployments and 1 payment: 4 times");
+    // The comparison stays beside the amount, so it is never read as being about the events.
+    expect(sentence?.text).toBe(
+      "Vercel: Billed spend, month to date (verified) went up by $412.00 on Sunday, 2026-11-08, 4 times the usual $103.00 a day " +
+        "(the median of the 14 days from 2026-10-25 to 2026-11-07), with 3 deployments and 1 payment that day.",
+    );
   });
 
   it("leaves the events out when the day had none", () => {
     const [sentence] = whatChanged([anomaly()], [count({ bucket: "2026-11-07" })], link).sentences;
-    expect(sentence?.text).toContain("on Sunday, 2026-11-08: 4 times the usual");
+    expect(sentence?.text).toMatch(/2026-11-07\)\.$/);
+    expect(sentence?.text).not.toContain("that day");
   });
 
   it.each([
     {
       name: "a day's own amount says was",
       fields: { accrual: "daily", value: 900, usual: 200, ratio: 4.5, measure: { type: "quantity", unit: "requests" } },
-      expected: "was 900 requests on Sunday, 2026-11-08: 4.5 times the usual 200 requests a day",
+      expected: "was 900 requests on Sunday, 2026-11-08, 4.5 times the usual 200 requests a day (the median",
     },
     {
       name: "a usual of zero has no ratio",
       fields: { usual: 0, ratio: null, value: 1_000 },
-      expected: "went up by $10.00 on Sunday, 2026-11-08: up from a usual $0.00 a day",
+      expected: "went up by $10.00 on Sunday, 2026-11-08, up from a usual $0.00 a day (the median",
     },
     {
       name: "a short history says how many days had an amount",
       fields: { historyDays: 9 },
-      expected: "the median of 9 of the 14 days from 2026-10-25 to 2026-11-07.",
+      expected: "(the median of 9 of the 14 days from 2026-10-25 to 2026-11-07).",
     },
     { name: "a ratio of 10 or more is whole", fields: { ratio: 12.46 }, expected: "12 times the usual" },
     { name: "a large ratio is grouped", fields: { ratio: 1234.4 }, expected: "1,234 times the usual" },
@@ -247,6 +255,14 @@ describe("recentAnomalies", () => {
     const rows = monthToDate("2026-11-08");
     expect(recent(rows, { enabled: false })).toEqual([]);
     expect(recent(rows, { mutes: [{ provider: "vercel", metric_key: "vercel.spend.total" }] })).toEqual([]);
+  });
+
+  it("leaves out a revoked connection, which the daily summary job no longer reads", () => {
+    const rows = monthToDate("2026-11-08");
+    expect(recent(rows, { connections: [{ ...VERCEL, status: "revoked" }, RESEND] })).toEqual([]);
+    for (const status of ["pending", "needs_attention", "failed"] as const) {
+      expect(recent(rows, { connections: [{ ...VERCEL, status }] }), status).toHaveLength(1);
+    }
   });
 
   it("finds nothing with no rows or no days (boundary: empty)", () => {

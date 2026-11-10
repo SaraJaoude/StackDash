@@ -633,12 +633,12 @@ ownerTest.describe("dashboard what changed", () => {
       const items = summary.getByRole("listitem");
       await expect(items).toHaveCount(2);
       await expect(items.nth(0)).toContainText(
-        `Example provider: Spend per day (verified) was $50.00 on ${dayLabel(utcDay(-2))}, a day with 3 deployments: ` +
-          `5 times the usual $10.00 a day, the median of the 14 days from ${utcDay(-16)} to ${utcDay(-3)}.`,
+        `Example provider: Spend per day (verified) was $50.00 on ${dayLabel(utcDay(-2))}, 5 times the usual $10.00 a day ` +
+          `(the median of the 14 days from ${utcDay(-16)} to ${utcDay(-3)}), with 3 deployments that day.`,
       );
       await expect(items.nth(1)).toContainText(
-        `Example provider: Requests per day (verified) was 900 requests on ${dayLabel(utcDay(-3))}: ` +
-          `4.5 times the usual 200 requests a day, the median of the 14 days from ${utcDay(-17)} to ${utcDay(-4)}.`,
+        `Example provider: Requests per day (verified) was 900 requests on ${dayLabel(utcDay(-3))}, 4.5 times the usual 200 requests a day ` +
+          `(the median of the 14 days from ${utcDay(-17)} to ${utcDay(-4)}).`,
       );
       // It opens the page: before the headline strip and the totals.
       const summaryBox = await summary.boundingBox();

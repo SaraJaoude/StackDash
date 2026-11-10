@@ -7,9 +7,13 @@
  * Rules decided here, once:
  * - The anomalies are the ones the daily summary job finds: `findAnomalies` for each of the last
  *   `days` UTC days before today, with the rows that job reads (`anomalySnapshotRange`, spend and
- *   usage over a period), the workspace's mutes, and nothing at all when detection is off. Today
- *   is never checked, because its job has not run and a day still going is not a day's amount.
- *   Only anomalies dated within those `days` are kept, so "the last 7 days" is true of each one.
+ *   usage over a period), the connections it reads (every one but revoked ones, as
+ *   `listSummaryConnections`), the workspace's mutes, and nothing at all when detection is off.
+ *   Today is never checked, because its job has not run and a day still going is not a day's
+ *   amount. Only anomalies dated within those `days` are kept, so "the last 7 days" is true of
+ *   each one.
+ * - The comparison sits beside the amount it describes and the day's events come last, so the
+ *   ratio is never read as being about the events.
  * - Order: newest day first; then the biggest change, where a rise from a usual of zero (no ratio)
  *   comes before any ratio and a larger ratio before a smaller one; then provider name, label,
  *   and source, so equal inputs always give the same three. At most `WHAT_CHANGED_LIMIT` are kept.
@@ -40,9 +44,10 @@ import {
 import type { ScopeFilters } from "@/lib/filters/scope";
 import { formatList } from "@/lib/format";
 import { providerName } from "@/lib/providers";
-import { londonDate, londonDayLabel } from "@/lib/timeline/days";
+import { londonDayLabel } from "@/lib/timeline/days";
 import { timelineHref } from "@/lib/timeline/query";
 
+import type { ConnectionInput } from "./aggregate";
 import { markerCountText, MARKER_CATEGORIES, type EventBucketCount } from "./markers";
 import { formatTrendValue } from "./trends";
 
@@ -60,7 +65,7 @@ export function recentAnomalies(input: {
   days: number;
   enabled: boolean;
   rows: readonly AnomalyRow[];
-  connections: readonly AnomalyConnection[];
+  connections: readonly (AnomalyConnection & Pick<ConnectionInput, "status">)[];
   mutes: readonly AnomalyMute[];
   projectedSpend: readonly string[];
 }): Anomaly[] {
@@ -72,12 +77,14 @@ export function recentAnomalies(input: {
   const candidates = input.rows
     .filter((row) => KINDS.includes(row.kind) && row.point_at === null && row.snapshot_date >= anomalySnapshotRange(first).from && row.snapshot_date < today)
     .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
+  // The job reads every connection but revoked ones (`listSummaryConnections`).
+  const connections = input.connections.filter((connection) => connection.status !== "revoked");
   const found: Anomaly[] = [];
   for (let back = input.days; back >= 1; back -= 1) {
     const date = addUtcDays(today, -back);
     const range = anomalySnapshotRange(date);
     const rows = candidates.filter((row) => row.snapshot_date >= range.from && row.snapshot_date <= range.to);
-    for (const anomaly of findAnomalies({ date, rows, connections: input.connections, mutes: input.mutes, projectedSpend: input.projectedSpend })) {
+    for (const anomaly of findAnomalies({ date, rows, connections, mutes: input.mutes, projectedSpend: input.projectedSpend })) {
       // A one day period is checked the day before the job's date, so the oldest job reaches one
       // day past the window.
       if (anomaly.date >= first) found.push(anomaly);
@@ -112,15 +119,15 @@ export type WhatChanged = Readonly<{
   total: number;
 }>;
 
-/** The UTC day `date` (`YYYY-MM-DD`) as an instant: its first moment, which London shows as the same date. */
+/** The UTC day `date` (`YYYY-MM-DD`) as an instant: its first moment, which London shows as the same date, for its weekday. */
 function dayStart(date: string): Date {
   return new Date(`${date}T00:00:00.000Z`);
 }
 
 /**
- * "Example provider: Spend per day (verified) was $50.00 on Sunday, 2026-11-08, a day with 3
- * deployments: 5 times the usual $10.00 a day, the median of the 14 days from 2026-10-25 to
- * 2026-11-07."
+ * "Example provider: Spend per day (verified) was $50.00 on Sunday, 2026-11-08, 5 times the usual
+ * $10.00 a day (the median of the 14 days from 2026-10-25 to 2026-11-07), with 3 deployments that
+ * day."
  */
 export function changeSentence(anomaly: Anomaly, events: readonly EventBucketCount[]): string {
   const provider = providerName(anomaly.provider);
@@ -131,12 +138,12 @@ export function changeSentence(anomaly: Anomaly, events: readonly EventBucketCou
       .filter((count) => count.category === category && count.provider === anomaly.provider && count.bucket === anomaly.date)
       .map((count) => markerCountText(category, count.count)),
   );
-  const eventWords = sameDay.length === 0 ? "" : `, a day with ${formatList(sameDay)}`;
-  const from = londonDate(dayStart(addUtcDays(anomaly.date, -ANOMALY_WINDOW_DAYS)));
-  const to = londonDate(dayStart(addUtcDays(anomaly.date, -1)));
+  const eventWords = sameDay.length === 0 ? "" : `, with ${formatList(sameDay)} that day`;
+  const from = addUtcDays(anomaly.date, -ANOMALY_WINDOW_DAYS);
+  const to = addUtcDays(anomaly.date, -1);
   return (
-    `${provider}: ${anomaly.label} (${anomaly.source}) ${amountWords(anomaly)} on ${londonDayLabel(dayStart(anomaly.date))}${eventWords}: ` +
-    `${size}, the median of ${usualDaysWords(anomaly.historyDays)} from ${from} to ${to}.`
+    `${provider}: ${anomaly.label} (${anomaly.source}) ${amountWords(anomaly)} on ${londonDayLabel(dayStart(anomaly.date))}, ` +
+    `${size} (the median of ${usualDaysWords(anomaly.historyDays)} from ${from} to ${to})${eventWords}.`
   );
 }
 
@@ -152,7 +159,7 @@ export function whatChanged(
     .map((anomaly) => ({
       key: anomalyEventKey(anomaly),
       text: changeSentence(anomaly, events),
-      linkText: `Show ${providerName(anomaly.provider)} events on ${londonDate(dayStart(anomaly.date))}`,
+      linkText: `Show ${providerName(anomaly.provider)} events on ${anomaly.date}`,
       href: timelineHref(
         link.timelinePath,
         {
