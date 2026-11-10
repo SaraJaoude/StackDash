@@ -306,7 +306,7 @@ export function DashboardView({
   scopeDescription: string | null;
   /** The page's other URL state (trend period, hidden markers, headline window), carried through the filter form. */
   filterParams: Readonly<Record<string, string | readonly string[]>>;
-  /** What was unusual lately, in words (#270), first under the filter it follows; null when nothing was. */
+  /** What was unusual lately, in words (#270), first under the filter it follows; the element renders nothing when nothing was. */
   whatChanged: ReactNode;
   /** The headline strip: revenue against spend, signups, and deploys over one window (#173). */
   headline: ReactNode;
