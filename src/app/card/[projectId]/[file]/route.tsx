@@ -47,15 +47,17 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
     }
 
     const metricId = metricIdFromFile(file, "png");
-    // Independent reads, so they run together; the page only matters once the card exists.
-    const [card, page] =
+    const card =
       metricId === null || !ProjectIdSchema.safeParse(projectId).success
-        ? [null, null]
-        : await Promise.all([loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS), loadPublicPageOfProject(projectId)]);
+        ? null
+        : await loadPublishedMetricCard(projectId, metricId, now, CARD_TREND_DAYS);
     const headers = { ...IMAGE_HEADERS, "Cache-Control": PUBLIC_CACHE_CONTROL };
     if (card === null) {
       return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
     }
+    // Read after the card, not beside it: an unknown or unpublished metric costs no page read, and a
+    // failing page read can never turn the cached Unpublished card into a 503.
+    const page = await loadPublicPageOfProject(projectId);
     countViewAfterResponse(projectId, card.metric.metricId, "card");
     return cardImageResponse(<MetricCard card={card} projectName={page?.projectName ?? null} />, { headers });
   } catch (error) {

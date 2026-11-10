@@ -116,6 +116,8 @@ describe("GET /card/[projectId]/[file]", () => {
     ["the badge's extension", PROJECT_ID, "github-stars.svg", false],
   ])("answers %s with a cached Unpublished card and counts nothing", async (_title, projectId, file, reachesDatabase) => {
     loadPublishedMetricCard.mockResolvedValue(null);
+    // Boundary: a page read that would fail never decides an Unpublished answer.
+    loadPublicPageOfProject.mockRejectedValue(new Error("timeout"));
     await get(projectId, file);
 
     const { card, props, status, headers } = rendered();
@@ -124,7 +126,7 @@ describe("GET /card/[projectId]/[file]", () => {
     expect(status).toBe(200);
     expect(headers["Cache-Control"]).toBe("public, max-age=60, s-maxage=60");
     expect(loadPublishedMetricCard).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
-    expect(loadPublicPageOfProject).toHaveBeenCalledTimes(reachesDatabase ? 1 : 0);
+    expect(loadPublicPageOfProject).not.toHaveBeenCalled();
     expect(countViewAfterResponse).not.toHaveBeenCalled();
   });
 
