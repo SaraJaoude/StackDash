@@ -8,8 +8,9 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } fro
 /*
  * The Sentry adapter (#117), simulated end to end: Sentry connects from the catalog through the
  * dev consent screen with its three example projects as accounts, a tick syncs them, and the
- * timeline shows Sentry's issues and releases labeled "Simulated". Like simulated-providers.spec.ts
- * it runs the instance-wide tick, so it lives in the `instance-wide` Playwright project.
+ * timeline shows Sentry's issues and releases under one "Simulated" notice for the page (#269),
+ * since Sentry is the workspace's only connection. Like simulated-providers.spec.ts it runs the
+ * instance-wide tick, so it lives in the `instance-wide` Playwright project.
  */
 
 ownerTest.describe("simulated Sentry", () => {
@@ -63,9 +64,24 @@ ownerTest.describe("simulated Sentry", () => {
       const release = events.filter({ hasText: /Release \S+ created/ }).first();
       await expect(release).toBeVisible();
       await expect(release.getByText("Sentry", { exact: true })).toBeVisible();
-      await expect(release.getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Simulated data" })).toContainText("Every connection in view is simulated");
+      await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);
+      await expect(release.getByText("Simulated", { exact: true })).toHaveCount(0);
       const timeline = await new AxeBuilder({ page }).analyze();
       expect(timeline.violations).toEqual([]);
+
+      // Sentry reports no spend, credit balance, billing period, or reset, so its card lists none of
+      // them as "Unavailable" and says once that there is no spend (#269).
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const card = page.getByRole("region", { name: "By provider" }).getByRole("article");
+      await expect(card).toHaveCount(1);
+      await expect(card).toContainText("Sentry does not report spend.");
+      await expect(card.getByText("Unavailable", { exact: true })).toHaveCount(0);
+      for (const label of ["Billing period:", "Next reset:"]) await expect(card.getByText(label, { exact: true })).toHaveCount(0);
+      for (const heading of ["Spend this billing period", "Credit balance"]) {
+        await expect(card.getByRole("heading", { name: heading })).toHaveCount(0);
+      }
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

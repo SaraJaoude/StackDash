@@ -253,8 +253,17 @@ function Figures({ strip }: { strip: Strip }) {
 /**
  * The window to date; or, when it has no figure, the last complete window, labeled with its dates
  * and why it is shown; or, when that has none either, one explanation instead of the figures (#267).
+ * `markSimulated` is false when the page says "Simulated" once for everything on it (#269).
  */
-export function HeadlineStrip({ headline, hrefs }: { headline: HeadlineView; hrefs: Readonly<Record<HeadlineWindowKind, string>> }) {
+export function HeadlineStrip({
+  headline,
+  hrefs,
+  markSimulated,
+}: {
+  headline: HeadlineView;
+  hrefs: Readonly<Record<HeadlineWindowKind, string>>;
+  markSimulated: boolean;
+}) {
   const titleId = useId();
   const windows = headline.status === "empty" ? headline.current : headline.strip.windows;
   return (
@@ -265,7 +274,7 @@ export function HeadlineStrip({ headline, hrefs }: { headline: HeadlineView; hre
             <h2 id={titleId} className="text-lg font-semibold tracking-tight">
               {headlineTitle(windows)}
             </h2>
-            {headline.status !== "empty" && headline.strip.simulated ? <SimulatedBadge /> : null}
+            {markSimulated && headline.status !== "empty" && headline.strip.simulated ? <SimulatedBadge /> : null}
           </div>
           <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{windowDescription(windows)}</p>
           {headline.status === "fallback" ? (

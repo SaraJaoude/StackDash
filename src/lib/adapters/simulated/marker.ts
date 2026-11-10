@@ -23,6 +23,16 @@ export function isSimulatedConnection(connection: Readonly<{ granted_scopes: rea
   return connection.granted_scopes.includes(SIMULATED_SCOPE);
 }
 
+/**
+ * True when something is in view and the simulator made every connection behind it (#269). A page
+ * then says "Simulated" once, in `SimulatedNotice`, instead of on every row, card, and chart. A
+ * page that mixes real and simulated connections keeps the badge on each simulated item, so the
+ * real ones stand apart.
+ */
+export function everySimulated(items: readonly Readonly<{ simulated: boolean }>[]): boolean {
+  return items.length > 0 && items.every((item) => item.simulated);
+}
+
 /** True when the simulator minted this credential. */
 export function isSimulatedCredential(credential: Pick<OAuthCredential, "metadata">): boolean {
   return credential.metadata?.[SIMULATED_METADATA_KEY] === "1";

@@ -14,3 +14,24 @@ export function SimulatedBadge() {
     </span>
   );
 }
+
+/**
+ * Says "Simulated" once for a page whose every connection in view the simulator made (#269), in
+ * place of a badge on every row, card, and chart (`everySimulated` decides). A labeled region, so a
+ * screen reader user reaches it by landmark as well as in reading order, and the explanation is
+ * visible text rather than the badge's hover title.
+ */
+export function SimulatedNotice() {
+  return (
+    <section
+      aria-label="Simulated data"
+      className="mt-6 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-warning/40 bg-panel px-5 py-3 text-sm"
+    >
+      <SimulatedBadge />
+      <p className="leading-6 text-muted">
+        Every connection in view is simulated, so what this page shows is example data made up on this computer, not read
+        from a provider.
+      </p>
+    </section>
+  );
+}

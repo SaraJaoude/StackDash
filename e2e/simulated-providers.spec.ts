@@ -9,7 +9,9 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
  * (playwright.config.ts), so Vercel, Stripe, Polar, and Railway connect from the catalog through the
  * dev consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up
- * data, and every screen labels it "Simulated". Nothing leaves the machine.
+ * data, and every screen labels it "Simulated": once per page while every connection in view is
+ * simulated, and on each simulated item once a real connection joins them (#269). Nothing leaves
+ * the machine.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
@@ -22,6 +24,8 @@ const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
 const POLAR_CONNECTION = "Polar (Example organization)";
 const RAILWAY_CONNECTION = "Railway (Example workspace)";
+const REAL_CONNECTION = "Vercel (real team)";
+const REAL_EVENT = "Real deployment ready";
 
 /** Ticks until every simulated connection has synced; other specs' jobs may share a tick. */
 async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<void> {
@@ -37,6 +41,50 @@ async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<vo
     if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
     expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["polar", "railway", "stripe", "vercel"]);
   }).toPass({ timeout: 90_000 });
+}
+
+/** The page's one "Simulated" notice (#269), a region, so a screen reader can reach it by landmark. */
+function simulatedNotice(page: Page) {
+  return page.getByRole("region", { name: "Simulated data" });
+}
+
+/** A page that says "Simulated" exactly once, in its notice, which assistive technology can read. */
+async function expectOneSimulatedNotice(page: Page): Promise<void> {
+  await expect(simulatedNotice(page)).toMatchAriaSnapshot(`
+    - region "Simulated data":
+      - text: Simulated
+      - paragraph: /^Every connection in view is simulated/
+  `);
+  await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);
+}
+
+/** A real Vercel connection with one event that happened just now, so it leads the timeline. */
+async function seedRealConnection(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({ workspace_id: workspace.id, provider: "vercel", status: "active", display_name: REAL_CONNECTION, poll_interval_seconds: 3600 })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "team_real", display_name: "Real team", kind: "team" })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const { error } = await admin.from("activity_events").insert({
+    workspace_id: workspace.id,
+    connection_id: connection.id,
+    external_account_id: account.id,
+    provider: "vercel",
+    type_id: "vercel.deployment_ready",
+    severity: "info",
+    title: REAL_EVENT,
+    occurred_at: new Date().toISOString(),
+    dedupe_key: "e2e-simulated-providers-real",
+  });
+  if (error) throw new Error(`Seeding an event failed (code ${error.code}).`);
 }
 
 ownerTest.describe("simulated providers", () => {
@@ -62,7 +110,8 @@ ownerTest.describe("simulated providers", () => {
       await tickUntilSynced(page, workspace);
 
       // Each provider is checked on its own filtered timeline (the shared scope filter's
-      // `provider` parameter), so Stripe's volume never pushes Vercel off the first page.
+      // `provider` parameter), so Stripe's volume never pushes Vercel off the first page. Every
+      // connection in view is simulated, so the page says so once and no row repeats it (#269).
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
 
@@ -71,32 +120,39 @@ ownerTest.describe("simulated providers", () => {
       await expect(status).toHaveText(/^Showing \d+ events? for provider Stripe$/);
       await expect(events.first()).toBeVisible();
       await expect(events.first().getByText("Stripe", { exact: true })).toBeVisible();
-      await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
+      await expectOneSimulatedNotice(page);
+      await expect(events.getByText("Simulated", { exact: true })).toHaveCount(0);
+      const timelineScan = await new AxeBuilder({ page }).analyze();
+      expect(timelineScan.violations).toEqual([]);
 
-      // Polar's backfill holds paid orders (about one a minute); each row is labeled.
+      // Polar's backfill holds paid orders (about one a minute).
       await page.goto(`/w/${workspace.slug}/timeline?provider=polar`);
       await expect(status).toHaveText(/^Showing \d+ events? for provider Polar$/);
       await expect(events.first()).toBeVisible();
       await expect(events.first().getByText("Polar", { exact: true })).toBeVisible();
-      await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
+      await expectOneSimulatedNotice(page);
 
       // A Vercel or Railway deployment is not guaranteed in the backfill, so the filtered page may
-      // be empty; every row that is there is labeled. The dashboard cards below always are.
+      // be empty, and then nothing is in view to call simulated. The dashboard below always is.
       for (const [slug, name] of [["vercel", "Vercel"], ["railway", "Railway"]] as const) {
         await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
         await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
         const rows = await events.count();
         for (let index = 0; index < rows; index += 1) {
           await expect(events.nth(index).getByText(name, { exact: true })).toBeVisible();
-          await expect(events.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
         }
+        if (rows > 0) await expectOneSimulatedNotice(page);
+        else await expect(simulatedNotice(page)).toHaveCount(0);
       }
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const byProvider = page.getByRole("region", { name: "By provider" });
       for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
-        await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
+        await expect(byProvider.getByRole("article", { name })).toBeVisible();
       }
+      await expect(page.getByRole("region", { name: "Trends" }).getByRole("figure").first()).toBeVisible();
+      // Every card, total, and chart is simulated, so only the notice says so.
+      await expectOneSimulatedNotice(page);
       // Polar's revenue shows as revenue and its fees as spend on its own card, never mixed.
       const polarCard = byProvider.getByRole("article", { name: POLAR_CONNECTION });
       await expect(polarCard.getByRole("heading", { name: "Revenue this billing period", level: 4 })).toBeVisible();
@@ -105,6 +161,38 @@ ownerTest.describe("simulated providers", () => {
       await expect(polarCard.getByRole("heading", { name: "Recurring revenue", level: 4 })).toBeVisible();
       for (const label of ["Monthly recurring revenue (USD)", "Annual recurring revenue (USD)"]) {
         await expect(polarCard.getByText(label, { exact: true })).toBeVisible();
+      }
+      // A card lists only what its provider can report (#269): Railway declares a credit balance,
+      // Vercel does not, and Vercel reports no allowance reset, so no row of its card is a
+      // permanent "Unavailable".
+      const railwayCard = byProvider.getByRole("article", { name: RAILWAY_CONNECTION });
+      await expect(railwayCard.getByRole("heading", { name: "Credit balance", level: 4 })).toBeVisible();
+      const vercelCard = byProvider.getByRole("article", { name: VERCEL_CONNECTION });
+      await expect(vercelCard.getByRole("heading", { name: "Spend this billing period", level: 4 })).toBeVisible();
+      await expect(vercelCard.getByRole("heading", { name: "Credit balance", level: 4 })).toHaveCount(0);
+      await expect(vercelCard.getByText("Next reset:", { exact: true })).toHaveCount(0);
+      await expect(vercelCard.getByText("Unavailable", { exact: true })).toHaveCount(0);
+      const dashboardScan = await new AxeBuilder({ page }).analyze();
+      expect(dashboardScan.violations).toEqual([]);
+
+      // A real connection joins: the workspace is mixed, so the notice goes and every simulated
+      // row, card, total, and chart carries its own badge again, while the real ones carry none.
+      await seedRealConnection(workspace);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(events.first()).toBeVisible();
+      await expect(simulatedNotice(page)).toHaveCount(0);
+      const realRow = events.filter({ has: page.getByRole("heading", { name: REAL_EVENT, exact: true }) });
+      await expect(realRow).toBeVisible();
+      await expect(realRow.getByText("Simulated", { exact: true })).toHaveCount(0);
+      const simulatedRow = events.filter({ hasNot: page.getByRole("heading", { name: REAL_EVENT, exact: true }) }).first();
+      await expect(simulatedRow.getByText("Simulated", { exact: true })).toBeVisible();
+
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await expect(byProvider.getByRole("article", { name: REAL_CONNECTION })).toBeVisible();
+      await expect(simulatedNotice(page)).toHaveCount(0);
+      await expect(byProvider.getByRole("article", { name: REAL_CONNECTION }).getByText("Simulated", { exact: true })).toHaveCount(0);
+      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
+        await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
       }
       // Every total the simulated connections contribute to says so, not only their own cards.
       const spendCards = page
@@ -121,6 +209,7 @@ ownerTest.describe("simulated providers", () => {
       for (let index = 0; index < (await revenueCards.count()); index += 1) {
         await expect(revenueCards.nth(index).getByText("Simulated", { exact: true })).toBeVisible();
       }
+      // The real connection has not synced, so every chart is the simulated connections'.
       const trends = page.getByRole("region", { name: "Trends" }).getByRole("figure");
       await expect(trends.first()).toBeVisible();
       for (let index = 0; index < (await trends.count()); index += 1) {

@@ -30,10 +30,11 @@ const SEVERITY_FLASH: Record<EventSeverity, string> = {
  * One page of events, newest first, under a heading per London day. The events region holds one
  * list per day, labelled by that day's heading, so a screen reader can jump between days by
  * heading and still hear how many rows each day holds. A burst of identical events is one row
- * (#253). Every row prints "Simulated" when its connection was made by the provider simulator.
+ * (#253). With `markSimulated`, a row prints "Simulated" when its connection was made by the
+ * provider simulator; the page passes false when it says so once for every row instead (#269).
  * Events that arrive while the page is open are marked (#171).
  */
-export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
+export function EventList({ events, now, markSimulated }: { events: readonly TimelineEvent[]; now: Date; markSimulated: boolean }) {
   return (
     <section aria-label="Events" className="mt-6 grid gap-6">
       <ArrivalEvents eventIds={events.map((event) => event.id)}>
@@ -52,9 +53,9 @@ export function EventList({ events, now }: { events: readonly TimelineEvent[]; n
                   // Keyed by the run's oldest event: arrivals join a run at its newest end, so the
                   // row they join keeps its key, stays mounted, and keeps its disclosure state.
                   run.length === 1 ? (
-                    <EventItem key={run[0].id} event={run[0]} now={now} />
+                    <EventItem key={run[0].id} event={run[0]} now={now} markSimulated={markSimulated} />
                   ) : (
-                    <EventRunItem key={(run.at(-1) ?? run[0]).id} run={run} now={now} />
+                    <EventRunItem key={(run.at(-1) ?? run[0]).id} run={run} now={now} markSimulated={markSimulated} />
                   ),
                 )}
               </ol>
@@ -66,7 +67,7 @@ export function EventList({ events, now }: { events: readonly TimelineEvent[]; n
   );
 }
 
-function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
+function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: Date; markSimulated: boolean }) {
   const platform = providerPlatform(event.provider);
   // The account says which team or repository; the connection name is the fallback.
   const source = event.accountName ?? event.connectionName;
@@ -99,7 +100,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {event.simulated ? <SimulatedBadge /> : null}
+            {markSimulated && event.simulated ? <SimulatedBadge /> : null}
             <SeverityBadge severity={severityBadge(event.severity)} />
           </div>
         </div>
@@ -129,7 +130,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
  * the same heading as a single event. The heading stays outside the summary, whose children are
  * presentational, so heading navigation still reaches the row.
  */
-function EventRunItem({ run, now }: { run: EventRun<TimelineEvent>; now: Date }) {
+function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent>; now: Date; markSimulated: boolean }) {
   const [latest] = run;
   const platform = providerPlatform(latest.provider);
   const source = latest.accountName ?? latest.connectionName;
@@ -170,7 +171,7 @@ function EventRunItem({ run, now }: { run: EventRun<TimelineEvent>; now: Date })
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {latest.simulated ? <SimulatedBadge /> : null}
+            {markSimulated && latest.simulated ? <SimulatedBadge /> : null}
             <SeverityBadge severity={severityBadge(latest.severity)} />
           </div>
         </div>
