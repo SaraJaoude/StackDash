@@ -1,11 +1,11 @@
--- Timeline connection badges (20261107090000_timeline_connection_event_counts.sql): one row per
--- connection under the same filters as the event list, members only, half open windows, and events
--- with no connection in no row.
+-- Timeline connection badges (20261107090000_timeline_connection_event_counts.sql, title search
+-- from 20261110090000_timeline_title_search.sql): one row per connection under the same filters as
+-- the event list, members only, half open windows, and events with no connection in no row.
 begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(17);
+select plan(19);
 
 -- Fixtures as postgres: a viewer of workspace W, an outsider, a Vercel connection A with account
 -- XA, a GitHub connection B with account XB, and events on both sides of each filter. The outsider
@@ -72,24 +72,24 @@ values
 -- ---------------------------------------------------------------------------
 select ok(
   (select p.prosecdef from pg_catalog.pg_proc p
-   where p.oid = 'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)'::regprocedure),
+   where p.oid = 'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)'::regprocedure),
   'timeline_connection_event_counts: security definer, gated by one membership check rather than per row policies');
 select ok(
   (select coalesce(p.proconfig && array['search_path=""', 'search_path='], false)
    from pg_catalog.pg_proc p
-   where p.oid = 'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)'::regprocedure),
+   where p.oid = 'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)'::regprocedure),
   'timeline_connection_event_counts: sets search_path to empty');
 select ok(
   not has_function_privilege('anon',
-    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
+    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)', 'execute'),
   'timeline_connection_event_counts: anon cannot execute it');
 select ok(
   not has_function_privilege('service_role',
-    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
+    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)', 'execute'),
   'timeline_connection_event_counts: service_role cannot execute it');
 select ok(
   has_function_privilege('authenticated',
-    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz)', 'execute'),
+    'public.timeline_connection_event_counts(uuid, text[], text[], public.event_severity[], public.provider_id[], uuid[], timestamptz, timestamptz, text)', 'execute'),
   'timeline_connection_event_counts: authenticated can execute it');
 
 -- ---------------------------------------------------------------------------
@@ -177,6 +177,24 @@ select is_empty(
       p_from => '2026-11-06T00:00:00Z', p_until => '2026-11-06T00:00:00Z')
   $$,
   'timeline_connection_event_counts: an empty window counts nothing');
+
+select results_eq(
+  $$
+    select display_name, events from public.timeline_connection_event_counts(
+      'd24500a0-0000-4000-8000-000000000000', p_title_pattern => 'FAIL')
+    order by display_name
+  $$,
+  $$ values ('GitHub badge'::text, 1::bigint), ('Vercel badge'::text, 1::bigint) $$,
+  'timeline_connection_event_counts: a title pattern counts titles containing it, ignoring case');
+
+-- The app escapes every metacharacter (titleSearchPattern), so "Deploy." is sent as "Deploy\.":
+-- a literal dot, which no title has, where an unescaped dot would match "Deployed".
+select is_empty(
+  $$
+    select * from public.timeline_connection_event_counts(
+      'd24500a0-0000-4000-8000-000000000000', p_title_pattern => 'Deploy\.')
+  $$,
+  'timeline_connection_event_counts: an escaped metacharacter in the title pattern matches literally');
 
 select results_eq(
   $$

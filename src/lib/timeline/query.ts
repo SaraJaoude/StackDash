@@ -12,7 +12,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
- * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&cursor=..`) and its
+ * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&q=..&cursor=..`) and its
  * keyset cursor. Nothing here touches the database, so every boundary is unit tested. Anything
  * invalid in the URL is dropped rather than failing the page: a hand-edited or stale link still
  * shows the timeline.
@@ -170,6 +170,19 @@ export function decodeCursor(token: string): TimelineCursor | null {
   return isCursor(cursor) ? cursor : null;
 }
 
+/** Longest title search the URL may carry; the search box stops at the same length. */
+export const MAX_SEARCH_LENGTH = 100;
+
+/**
+ * A case-insensitive Postgres regular expression (`~*`) matching titles that contain `search`
+ * literally: every regex metacharacter is escaped. The list query and the provider badges' count
+ * both filter with it, so they match the same events. A regex rather than ILIKE because PostgREST
+ * reads `*` in a LIKE pattern as `%`, so a search for `*` would match every title.
+ */
+export function titleSearchPattern(search: string): string {
+  return search.replace(/[\\^$.|?*+()[\]{}]/g, "\\$&");
+}
+
 export type TimelineQuery = {
   types: string[];
   severities: EventSeverity[];
@@ -177,6 +190,8 @@ export type TimelineQuery = {
   from: string | null;
   /** London calendar date `YYYY-MM-DD`, inclusive. */
   to: string | null;
+  /** Text every event title must contain, ignoring case; trimmed and never empty. */
+  search: string | null;
   cursor: TimelineCursor | null;
   /** Provider, project, and account filter shared with the dashboard. */
   scope: ScopeFilters;
@@ -202,6 +217,7 @@ const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
   severity: repeatedParam(isSeverity, EVENT_SEVERITIES.length),
   from: one((value) => (isIsoDate(value) ? value : null)),
   to: one((value) => (isIsoDate(value) ? value : null)),
+  q: one((value) => (value.length <= MAX_SEARCH_LENGTH ? value : null)),
   cursor: one(decodeCursor),
 });
 
@@ -213,6 +229,7 @@ export function parseTimelineSearchParams(searchParams: RawSearchParams): Timeli
     severities: parsed.severity,
     from: parsed.from,
     to: parsed.to,
+    search: parsed.q,
     cursor: parsed.cursor,
     scope: { providers: parsed.provider, projects: parsed.project, accounts: parsed.account },
   };
@@ -224,6 +241,7 @@ export function hasActiveFilters(query: TimelineQuery): boolean {
     query.severities.length > 0 ||
     query.from !== null ||
     query.to !== null ||
+    query.search !== null ||
     hasScopeFilters(query.scope)
   );
 }
@@ -235,6 +253,7 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   for (const severity of query.severities) params.append("severity", severity);
   if (query.from !== null) params.set("from", query.from);
   if (query.to !== null) params.set("to", query.to);
+  if (query.search !== null) params.set("q", query.search);
   appendScopeParams(params, query.scope);
   if (cursor !== null) params.set("cursor", encodeCursor(cursor));
   const search = params.toString();

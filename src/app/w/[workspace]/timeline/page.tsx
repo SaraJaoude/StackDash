@@ -76,7 +76,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const scopeDescription = describeScope(query.scope, scopeOptions);
   const shown =
     count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
-  const status = scopeDescription === null ? shown : `${shown} for ${scopeDescription}`;
+  const matching = query.search === null ? shown : `${shown} with “${query.search}” in the title`;
+  const status = scopeDescription === null ? matching : `${matching} for ${scopeDescription}`;
 
   return (
     <>
