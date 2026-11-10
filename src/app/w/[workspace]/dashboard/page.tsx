@@ -22,9 +22,13 @@ import {
 import { aggregateDashboard } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
+  chooseHeadline,
+  fallbackWindows,
+  hasFigure,
   HEADLINE_WINDOW_KINDS,
   headlineEventTypes,
   headlineWindows,
+  type HeadlineStrip as HeadlineStripData,
   type HeadlineWindowKind,
 } from "@/lib/dashboard/headline";
 import {
@@ -194,6 +198,25 @@ async function DashboardContent({
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
+  const headlineInput = {
+    connections: trendData.connections,
+    eventTypes,
+    projectedSpend: declaredProjectedSpend,
+    revenueProviders: revenueProviderIds,
+  };
+  const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
+  // Only when the window to date has no figure: the last complete window, whose reads depend on the
+  // strip above, so they run after it rather than on every visit.
+  const lastComplete = hasFigure(strip) ? null : fallbackWindows(view.window, trendData.connections, now);
+  let fallback: HeadlineStripData | null = null;
+  if (lastComplete !== null) {
+    const [snapshots, events] = await Promise.all([
+      getHeadlineSnapshots(workspace.id, scope, lastComplete, eventTypes),
+      getHeadlineEvents(workspace.id, scope, lastComplete, eventTypes),
+    ]);
+    fallback = buildHeadline({ ...headlineInput, windows: lastComplete, snapshots, events });
+  }
+
   // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
   // resets what counts as changed.
   return (
@@ -209,16 +232,7 @@ async function DashboardContent({
         filterParams={viewParams(view)}
         headline={
           <HeadlineStrip
-            strip={buildHeadline({
-              snapshots: headlineSnapshots,
-              connections: trendData.connections,
-              events: headlineEvents,
-              eventTypes,
-              projectedSpend: declaredProjectedSpend,
-              revenueProviders: revenueProviderIds,
-              kind: view.window,
-              now,
-            })}
+            headline={chooseHeadline(strip, fallback)}
             hrefs={{
               week: dashboardHref(dashboardPath, scope, { ...view, window: "week" }),
               month: dashboardHref(dashboardPath, scope, { ...view, window: "month" }),

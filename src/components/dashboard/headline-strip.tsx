@@ -8,6 +8,8 @@ import {
   HEADLINE_WINDOW_KINDS,
   headlineChoiceLabel,
   headlineComparisonText,
+  headlineEmptyNote,
+  headlineFallbackNote,
   headlineTitle,
   moneyFormatter,
   wholeDaysNote,
@@ -19,7 +21,9 @@ import {
   type FigureSources,
   type FigureValue,
   type HeadlineStrip as Strip,
+  type HeadlineView,
   type HeadlineWindowKind,
+  type HeadlineWindowLabel,
   type MoneyFigure,
   type MoneyLine,
 } from "@/lib/dashboard/headline";
@@ -77,14 +81,14 @@ function providersGap(names: readonly string[]): ComparisonGap | null {
 function Value({
   value,
   format,
-  kind,
+  windows,
   gap,
   estimated,
   currency,
 }: {
   value: FigureValue;
   format: (value: number) => string;
-  kind: HeadlineWindowKind;
+  windows: HeadlineWindowLabel;
   gap: ComparisonGap | null;
   estimated?: boolean | undefined;
   currency?: string | undefined;
@@ -96,13 +100,13 @@ function Value({
         {currency === undefined ? null : <span className="font-mono text-xs text-muted">{currency}</span>}
         {estimated === undefined ? null : <ProvenanceBadge provenance={estimated ? ESTIMATED : VERIFIED} />}
       </p>
-      <p className="mt-1 text-xs leading-5 text-muted">{headlineComparisonText(value.comparison, format, kind, gap)}</p>
+      <p className="mt-1 text-xs leading-5 text-muted">{headlineComparisonText(value.comparison, format, windows, gap)}</p>
     </div>
   );
 }
 
 /** Each currency on its own line, verified and estimated side by side, never added together. */
-function MoneyLines({ lines, gap, kind }: { lines: readonly MoneyLine[]; gap: ComparisonGap | null; kind: HeadlineWindowKind }) {
+function MoneyLines({ lines, gap, windows }: { lines: readonly MoneyLine[]; gap: ComparisonGap | null; windows: HeadlineWindowLabel }) {
   return (
     <ul className="space-y-3">
       {lines.map((line) => {
@@ -110,10 +114,10 @@ function MoneyLines({ lines, gap, kind }: { lines: readonly MoneyLine[]; gap: Co
         return (
           <li key={line.currency} className="space-y-2">
             {line.verified === null ? null : (
-              <Value value={line.verified} format={format} kind={kind} gap={gap} estimated={false} currency={line.currency} />
+              <Value value={line.verified} format={format} windows={windows} gap={gap} estimated={false} currency={line.currency} />
             )}
             {line.estimated === null ? null : (
-              <Value value={line.estimated} format={format} kind={kind} gap={gap} estimated currency={line.currency} />
+              <Value value={line.estimated} format={format} windows={windows} gap={gap} estimated currency={line.currency} />
             )}
           </li>
         );
@@ -122,11 +126,11 @@ function MoneyLines({ lines, gap, kind }: { lines: readonly MoneyLine[]; gap: Co
   );
 }
 
-function MoneyFigureBody({ figure, kind, noun }: { figure: MoneyFigure; kind: HeadlineWindowKind; noun: string }) {
+function MoneyFigureBody({ figure, windows, noun }: { figure: MoneyFigure; windows: HeadlineWindowLabel; noun: string }) {
   if (figure.lines === null) return <UnavailableFigure reason={sourcesUnavailable(figure, noun)} />;
   return (
     <>
-      <MoneyLines lines={figure.lines} gap={providersGap(figure.previousUnavailable)} kind={kind} />
+      <MoneyLines lines={figure.lines} gap={providersGap(figure.previousUnavailable)} windows={windows} />
       <SourcesLine sources={figure} />
     </>
   );
@@ -134,13 +138,13 @@ function MoneyFigureBody({ figure, kind, noun }: { figure: MoneyFigure; kind: He
 
 function CountFigureBody({
   figure,
-  kind,
+  windows,
   noun,
   singular,
   children,
 }: {
   figure: CountFigure;
-  kind: HeadlineWindowKind;
+  windows: HeadlineWindowLabel;
   noun: string;
   singular: string;
   children?: ReactNode;
@@ -158,7 +162,7 @@ function CountFigureBody({
       <Value
         value={figure.value}
         format={(value) => formatCount(value, singular, noun)}
-        kind={kind}
+        windows={windows}
         gap={providersGap(figure.previousUnavailable)}
       />
       {children}
@@ -190,25 +194,87 @@ function WholeDays({ names }: { names: readonly string[] }) {
   return <p className="text-xs leading-5 text-muted">{wholeDaysNote(names)}</p>;
 }
 
-export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<Record<HeadlineWindowKind, string>> }) {
+/** The six figures of one window. */
+function Figures({ strip }: { strip: Strip }) {
+  const { windows, net, costPerSignup } = strip;
+  return (
+    <>
+      <dl className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <Figure label="Revenue">
+          <MoneyFigureBody figure={strip.revenue} windows={windows} noun="revenue" />
+        </Figure>
+        <Figure label="Spend">
+          <MoneyFigureBody figure={strip.spend} windows={windows} noun="spend" />
+        </Figure>
+        <Figure label="Revenue minus spend">
+          {net.lines === null ? (
+            <UnavailableFigure reason="Needs both revenue and spend for this window." />
+          ) : (
+            <>
+              <MoneyLines lines={net.lines} gap={providersGap(net.previousUnavailable)} windows={windows} />
+              <LeftOut side="revenue" names={strip.revenue.unavailable} />
+              <LeftOut side="spend" names={strip.spend.unavailable} />
+            </>
+          )}
+        </Figure>
+        <Figure label="Signups">
+          <CountFigureBody figure={strip.signups} windows={windows} noun="signups" singular="signup">
+            <WholeDays names={strip.signups.wholeDays} />
+          </CountFigureBody>
+        </Figure>
+        <Figure
+          label="Cost per signup"
+          extra={<InfoTooltip label="How cost per signup is worked out" text={costPerSignupExplanation(costPerSignup)} />}
+        >
+          {costPerSignup.missing === null ? (
+            <MoneyLines lines={costPerSignup.lines} gap={costPerSignup.comparisonGap} windows={windows} />
+          ) : (
+            <UnavailableFigure reason={COST_PER_SIGNUP_MISSING[costPerSignup.missing]} />
+          )}
+        </Figure>
+        <Figure label="Deploys">
+          <CountFigureBody figure={strip.deploys} windows={windows} noun="deploys" singular="deploy">
+            <DeploysExtra figure={strip.deploys} />
+          </CountFigureBody>
+        </Figure>
+      </dl>
+
+      {strip.otherBillingPeriods.length > 0 ? (
+        <p className="mt-3 max-w-3xl text-xs leading-5 text-muted">
+          {`Worked out from daily readings for this window, not from billing periods. ${formatList(strip.otherBillingPeriods)} ${
+            strip.otherBillingPeriods.length === 1 ? "bills" : "bill"
+          } over a different period, so these figures will not match an invoice.`}
+        </p>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * The window to date; or, when it has no figure, the last complete window, labeled with its dates
+ * and why it is shown; or, when that has none either, one explanation instead of the figures (#267).
+ */
+export function HeadlineStrip({ headline, hrefs }: { headline: HeadlineView; hrefs: Readonly<Record<HeadlineWindowKind, string>> }) {
   const titleId = useId();
-  const { kind } = strip.windows;
-  const { net, costPerSignup } = strip;
+  const windows = headline.status === "empty" ? headline.current : headline.strip.windows;
   return (
     <section aria-labelledby={titleId} className="mt-6 min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h2 id={titleId} className="text-lg font-semibold tracking-tight">
-              {headlineTitle(kind)}
+              {headlineTitle(windows)}
             </h2>
-            {strip.simulated ? <SimulatedBadge /> : null}
+            {headline.status !== "empty" && headline.strip.simulated ? <SimulatedBadge /> : null}
           </div>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{windowDescription(strip.windows)}</p>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{windowDescription(windows)}</p>
+          {headline.status === "fallback" ? (
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-muted">{headlineFallbackNote(headline.current)}</p>
+          ) : null}
         </div>
         <nav aria-label="Headline window" className="flex flex-wrap gap-2">
           {HEADLINE_WINDOW_KINDS.map((option) => {
-            const current = option === kind;
+            const current = option === windows.kind;
             return (
               <Link
                 key={option}
@@ -225,53 +291,13 @@ export function HeadlineStrip({ strip, hrefs }: { strip: Strip; hrefs: Readonly<
         </nav>
       </div>
 
-      <dl className="mt-3 grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <Figure label="Revenue">
-          <MoneyFigureBody figure={strip.revenue} kind={kind} noun="revenue" />
-        </Figure>
-        <Figure label="Spend">
-          <MoneyFigureBody figure={strip.spend} kind={kind} noun="spend" />
-        </Figure>
-        <Figure label="Revenue minus spend">
-          {net.lines === null ? (
-            <UnavailableFigure reason="Needs both revenue and spend for this window." />
-          ) : (
-            <>
-              <MoneyLines lines={net.lines} gap={providersGap(net.previousUnavailable)} kind={kind} />
-              <LeftOut side="revenue" names={strip.revenue.unavailable} />
-              <LeftOut side="spend" names={strip.spend.unavailable} />
-            </>
-          )}
-        </Figure>
-        <Figure label="Signups">
-          <CountFigureBody figure={strip.signups} kind={kind} noun="signups" singular="signup">
-            <WholeDays names={strip.signups.wholeDays} />
-          </CountFigureBody>
-        </Figure>
-        <Figure
-          label="Cost per signup"
-          extra={<InfoTooltip label="How cost per signup is worked out" text={costPerSignupExplanation(costPerSignup)} />}
-        >
-          {costPerSignup.missing === null ? (
-            <MoneyLines lines={costPerSignup.lines} gap={costPerSignup.comparisonGap} kind={kind} />
-          ) : (
-            <UnavailableFigure reason={COST_PER_SIGNUP_MISSING[costPerSignup.missing]} />
-          )}
-        </Figure>
-        <Figure label="Deploys">
-          <CountFigureBody figure={strip.deploys} kind={kind} noun="deploys" singular="deploy">
-            <DeploysExtra figure={strip.deploys} />
-          </CountFigureBody>
-        </Figure>
-      </dl>
-
-      {strip.otherBillingPeriods.length > 0 ? (
-        <p className="mt-3 max-w-3xl text-xs leading-5 text-muted">
-          {`Worked out from daily readings for this window, not from billing periods. ${formatList(strip.otherBillingPeriods)} ${
-            strip.otherBillingPeriods.length === 1 ? "bills" : "bill"
-          } over a different period, so these figures will not match an invoice.`}
+      {headline.status === "empty" ? (
+        <p className="mt-3 max-w-3xl rounded-lg border border-line bg-panel p-4 text-sm leading-6 text-muted">
+          {headlineEmptyNote(headline.current)}
         </p>
-      ) : null}
+      ) : (
+        <Figures strip={headline.strip} />
+      )}
     </section>
   );
 }
