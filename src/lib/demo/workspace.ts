@@ -12,9 +12,10 @@ import { createJobDeps } from "@/lib/jobs/queue";
 import { PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
-import { demoAccountSeed, replayHistory } from "./history";
+import { demoAccountSeed, headlineWeekDays, historySteps, replayClock, replayHistory } from "./history";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
@@ -217,20 +218,30 @@ export function sampleDataRefusal(input: Readonly<{ simulationEnabled: boolean; 
 
 /**
  * Sample data for an empty workspace (#257): every simulated provider connected as the demo seed
- * connects them, then each one's first sync run straight away, the same job a tick would run next,
- * so the timeline and dashboard fill in one action. The caller authorizes the user as an owner or
- * admin of the workspace and checks `sampleDataRefusal` first.
+ * connects them, then the current week and the day before it replayed through the same jobs a
+ * tick runs, ending at the present (`headlineWeekDays`), so the timeline, the billing period cards,
+ * and the dashboard headline's week to date all have figures in one action. At most nine steps (a
+ * summer Sunday night, already Monday in London), against the seed's 90 days, so it fits in a
+ * request. Replayed alerts count as already sent, as the seed's do. The caller authorizes the user
+ * as an owner or admin of the workspace and checks `sampleDataRefusal` first.
  */
 export async function addSampleData(input: Readonly<{ workspaceId: string; userId: string; now: Date }>): Promise<DemoConnection[]> {
-  const connections = await connectSimulatedProviders({ ...input, seed: input.workspaceId });
+  const steps = historySteps(input.now, headlineWeekDays(input.now));
+  const [first] = steps;
+  if (first === undefined) throw new Error("The sample data history has no steps.");
+  const connections = await connectSimulatedProviders({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    seed: input.workspaceId,
+    now: first.at,
+  });
   await replayHistory({
-    deps: createJobDeps(),
-    // One step, at the `now` the live clock has only just passed, so there is no clock to move.
-    setNow: () => undefined,
+    ...replayClock(createJobDeps(), first.at),
     workspaceId: input.workspaceId,
     connectionIds: connections.map((connection) => connection.id),
-    steps: [{ at: input.now, summaryDate: null }],
+    steps,
   });
+  await markDemoAlertsSent(createAdminClient(), { workspaceId: input.workspaceId, at: input.now });
   return connections;
 }
 

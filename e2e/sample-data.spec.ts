@@ -65,6 +65,12 @@ ownerTest.describe("sample data as the owner", () => {
       const cards = page.getByRole("region", { name: "By provider" }).getByRole("article");
       await expect(cards.first()).toBeVisible();
       await expect(cards.first().getByText("Simulated", { exact: true })).toBeVisible();
+      // The replayed week gives the headline strip a reading on every day it needs, so Spend has a
+      // figure whatever day of the week this runs, not the "could not report" of a single sync.
+      const strip = page.getByRole("region", { name: "This week so far" });
+      await expect(strip.getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(strip.getByRole("definition").nth(1)).toContainText(/\$[\d,]+\.\d{2}/);
+      await expect(strip.getByRole("definition").nth(1)).not.toContainText("could not report spend for this window");
     } finally {
       await deleteTestWorkspace(workspace);
     }
