@@ -3,10 +3,12 @@ import { request as playwrightRequest, type APIRequestContext, type Locator, typ
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { turnOffPage, turnOnPage } from "./fixtures/public-pages";
 import { ALL_METRIC_IDS, publishMetrics, seedShareProject, STARS_TODAY } from "./fixtures/share";
 
-// Badges, milestone cards, and the share dialog (#149), and the yearly card (#151). Each test
-// creates its own workspace and seeds only inside it, so tests run in any order.
+// Badges, milestone cards, and the share dialog (#149), the yearly card (#151), and links to the
+// project page (#255). Each test creates its own workspace and seeds only inside it, so tests run
+// in any order.
 
 const STARS_TEXT = new Intl.NumberFormat("en-US").format(STARS_TODAY);
 
@@ -84,6 +86,12 @@ function publicMetricsPath(workspace: TestWorkspace, projectId: string): string 
 async function axeViolations(page: Page, selector?: string) {
   const builder = new AxeBuilder({ page });
   return (await (selector === undefined ? builder : builder.include(selector)).analyze()).violations;
+}
+
+/** The `url` parameter of a share link's `href`: what the post would link to. */
+async function sharedUrl(link: Locator): Promise<string | null> {
+  const href = await link.getAttribute("href");
+  return href === null ? null : new URL(href).searchParams.get("url");
 }
 
 ownerTest.describe("badges and cards", () => {
@@ -166,12 +174,18 @@ ownerTest.describe("badges and cards", () => {
       await expect(markdown).toHaveValue(new RegExp(`/badge/${projectId}/github-stars\\.svg`));
       const cardUrl = dialog.getByLabel("Card URL");
       await expect(cardUrl).toHaveValue(new RegExp(`/card/${projectId}/github-stars\\.png$`));
-      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/GitHub stars/);
+      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^DevMacro card\. GitHub stars/);
       await expectImageLoaded(dialog.getByRole("img", { name: /^DevMacro card/ }), 1200);
-      await expect(dialog.getByRole("link", { name: "Share to X (opens in a new tab)" })).toHaveAttribute(
-        "href",
-        /^https:\/\/x\.com\/intent\/tweet\?text=/,
-      );
+      const shareToX = dialog.getByRole("link", { name: "Share to X (opens in a new tab)" });
+      const shareToLinkedIn = dialog.getByRole("link", { name: "Share to LinkedIn (opens in a new tab)" });
+      await expect(shareToX).toHaveAttribute("href", /^https:\/\/x\.com\/intent\/tweet\?text=/);
+      await expect(shareToLinkedIn).toHaveAttribute("href", /^https:\/\/www\.linkedin\.com\/sharing\/share-offsite\/\?url=/);
+      // The project page is off, so posts link to the card itself and the badge to its formula.
+      const link = dialog.getByLabel("Link for a post");
+      await expect(link).toHaveValue(await cardUrl.inputValue());
+      expect(await sharedUrl(shareToX)).toBe(await cardUrl.inputValue());
+      expect(await sharedUrl(shareToLinkedIn)).toBe(await cardUrl.inputValue());
+      await expect(markdown).toHaveValue(/\/docs\/architecture\/public-metrics#github-stars\)$/);
 
       expect(await axeViolations(page, "dialog[open]")).toEqual([]);
 
@@ -183,14 +197,23 @@ ownerTest.describe("badges and cards", () => {
         dialog.getByRole("button", { name: "Copy card URL" }),
         dialog.getByLabel("Alt text for the card"),
         dialog.getByRole("button", { name: "Copy alt text" }),
-        dialog.getByRole("link", { name: "Share to X (opens in a new tab)" }),
+        link,
+        dialog.getByRole("button", { name: "Copy link" }),
+        shareToX,
+        shareToLinkedIn,
       ];
       for (const control of order) {
         await page.keyboard.press("Tab");
         await expect(control).toBeFocused();
       }
       await page.keyboard.press("Shift+Tab");
-      await expect(dialog.getByRole("button", { name: "Copy alt text" })).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(dialog.getByRole("button", { name: "Copy link" })).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(dialog.getByRole("status")).toHaveText("Copied the link.");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(await cardUrl.inputValue());
+
+      await dialog.getByRole("button", { name: "Copy alt text" }).focus();
       await page.keyboard.press("Enter");
       await expect(dialog.getByRole("status")).toHaveText("Copied the alt text.");
       expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/^DevMacro card\. GitHub stars/);
@@ -200,6 +223,55 @@ ownerTest.describe("badges and cards", () => {
       await expect(trigger).toBeFocused();
       expect(await axeViolations(page)).toEqual([]);
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("with the project page on, the card names the project and posts and the badge lead to the page", async ({ page, baseURL }) => {
+    const workspace = await createTestWorkspace("Share project page");
+    const api = await anonymous(baseURL);
+    try {
+      const { projectId } = await seedShareProject(workspace);
+      await publishMetrics(workspace, projectId, ["github-stars"]);
+      const unnamed = await expectCard(api, projectId, "github-stars");
+      await turnOnPage(workspace, projectId, "acme-web", false);
+      // The same card with the project's name added: the route reads the page, not only the metric.
+      const named = await expectCard(api, projectId, "github-stars");
+      expect(named.equals(unnamed)).toBe(false);
+
+      await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+      await page.goto(publicMetricsPath(workspace, projectId));
+      await page.getByRole("button", { name: "Share GitHub stars", exact: true }).click();
+      const dialog = page.getByRole("dialog", { name: "Share GitHub stars" });
+      const pageUrl = new RegExp(`/@${workspace.slug}/acme-web$`);
+      const link = dialog.getByLabel("Link for a post");
+      await expect(link).toHaveValue(pageUrl);
+      const address = await link.inputValue();
+      const shareToX = dialog.getByRole("link", { name: "Share to X (opens in a new tab)" });
+      expect(await sharedUrl(shareToX)).toBe(address);
+      const xText = new URL((await shareToX.getAttribute("href")) ?? "").searchParams.get("text");
+      expect(xText).toBe(`GitHub stars for Acme web: ${STARS_TEXT} stars. Verified by DevMacro.`);
+      expect(await sharedUrl(dialog.getByRole("link", { name: "Share to LinkedIn (opens in a new tab)" }))).toBe(address);
+      expect(await dialog.getByLabel("Badge Markdown for a README").inputValue()).toMatch(new RegExp(`/badge/${projectId}/github-stars\\.svg\\)\\]\\(`));
+      expect((await dialog.getByLabel("Badge Markdown for a README").inputValue()).endsWith(`](${address})`)).toBe(true);
+      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(/^DevMacro card for Acme web\. GitHub stars/);
+      await expect(dialog).toContainText(`Posts and the badge link to the project page at /@${workspace.slug}/acme-web.`);
+      await expectImageLoaded(dialog.getByRole("img", { name: /^DevMacro card for Acme web\./ }), 1200);
+
+      await dialog.getByRole("button", { name: "Copy link" }).click();
+      await expect(dialog.getByRole("status")).toHaveText("Copied the link.");
+      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(address);
+
+      // Turned off, the page answers 404 again: nothing links to it, and the card drops the name.
+      await turnOffPage(workspace, projectId);
+      expect((await expectCard(api, projectId, "github-stars")).equals(unnamed)).toBe(true);
+      await page.reload();
+      await page.getByRole("button", { name: "Share GitHub stars", exact: true }).click();
+      await expect(link).toHaveValue(new RegExp(`/card/${projectId}/github-stars\\.png$`));
+      expect(await sharedUrl(shareToX)).not.toContain("/@");
+      await expect(dialog.getByLabel("Badge Markdown for a README")).not.toHaveValue(/\/@/);
+    } finally {
+      await api.dispose();
       await deleteTestWorkspace(workspace);
     }
   });

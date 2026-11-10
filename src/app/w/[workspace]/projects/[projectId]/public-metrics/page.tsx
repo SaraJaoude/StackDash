@@ -36,14 +36,13 @@ import { projectPagePath, suggestPageSlug } from "@/lib/public-metrics/project-p
 import type { PublishedValue } from "@/lib/public-metrics/published";
 import {
   badgeAltText,
-  badgeMarkdown,
   badgePath,
   CARD_SIZE,
   cardAltText,
   cardPath,
+  metricShareLinks,
   shareableMetric,
-  shareText,
-  shareToXUrl,
+  type ShareProjectPage,
 } from "@/lib/public-metrics/share";
 import { ACCOUNTS_LIMIT } from "@/lib/public-metrics/supabase-store";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -116,6 +115,9 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   const publicDataPath = `/api/public/projects/${project.id}/metrics`;
   const anyPublished = metrics.some((metric) => metric.publication !== null) || selfReported.length > 0;
   const pagePath = pageSettings === null ? null : projectPagePath(workspace.slug, pageSettings.slug);
+  // Share links lead to the page only while it answers: it is on, and the metric being shared is
+  // published, so the project has a live publication.
+  const sharePage: ShareProjectPage | null = pageSettings?.enabled === true && pagePath !== null ? { path: pagePath, projectName: project.name } : null;
 
   return (
     <>
@@ -252,6 +254,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
                 projectId={project.id}
                 canPublish={canPublish}
                 origin={origin}
+                projectPage={sharePage}
               />
             ))}
           </ul>
@@ -312,33 +315,36 @@ function times(count: number): string {
 }
 
 /** The share dialog of a published metric: its badge, its card, and where they are served. */
-function ShareMetric({ metric, publication, projectId, origin }: {
+function ShareMetric({ metric, publication, projectId, origin, projectPage }: {
   metric: ProjectMetricStatus;
   publication: NonNullable<ProjectMetricStatus["publication"]>;
   projectId: string;
   origin: string;
+  projectPage: ShareProjectPage | null;
 }) {
   const shareable = shareableMetric(publication);
   // The previews load from this page's own origin, which the app's img-src 'self' allows even when
   // NEXT_PUBLIC_SITE_URL names another host; the copied links use the public origin.
   const badgeSrc = badgePath(projectId, metric.metricId);
   const cardSrc = cardPath(projectId, metric.metricId);
-  const badgeUrl = new URL(badgeSrc, origin).href;
-  const cardUrl = new URL(cardSrc, origin).href;
+  const links = metricShareLinks({ origin, projectId, metricId: metric.metricId, formulaPath: metric.formulaPath, metric: shareable, projectPage });
   return (
     <ShareDialog
       title={`Share ${metric.label}`}
       triggerText="Share"
       subject={metric.label}
-      badge={{
-        src: badgeSrc,
-        alt: badgeAltText(shareable),
-        markdown: badgeMarkdown({ badgeUrl, formulaUrl: new URL(metric.formulaPath, origin).href, label: metric.label }),
-      }}
-      card={{ src: cardSrc, alt: cardAltText(shareable), ...CARD_SIZE, publicUrl: cardUrl }}
-      xIntentUrl={shareToXUrl(shareText(shareable), cardUrl)}
+      badge={{ src: badgeSrc, alt: badgeAltText(shareable), markdown: links.badgeMarkdown }}
+      card={{ src: cardSrc, alt: cardAltText(shareable, projectPage?.projectName ?? null), ...CARD_SIZE, publicUrl: links.cardUrl }}
+      xIntentUrl={links.xIntentUrl}
+      link={{ url: links.link, linkedInUrl: links.linkedInUrl }}
       notes={[
-        "Anyone with these links sees the published value, and nothing else. Unpublishing turns both into an Unpublished image within a minute.",
+        projectPage === null
+          ? "Anyone with these links sees the published value, and nothing else. Unpublishing turns both into an Unpublished image within a minute."
+          : "Anyone with these links sees the published value and the project name, which the project page already shows. Unpublishing turns both into an Unpublished image within a minute.",
+        // Cards are cached for a minute (PUBLIC_CACHE_CONTROL), so the name follows the page that late.
+        projectPage === null
+          ? "Posts link to the card, and the badge to how the metric is counted. Turn on the project page to link posts and the badge to it; the card shows the project name within a minute."
+          : `Posts and the badge link to the project page at ${projectPage.path}. The card shows the project name within a minute of turning the page on, and drops it within a minute of turning it off.`,
         `In the last ${VIEW_WINDOW_DAYS} days DevMacro served the badge ${times(metric.views.badge)} and the card ${times(metric.views.card)}, including previews here. Views a cache answers, such as GitHub's image proxy, are not counted.`,
       ]}
     />
@@ -351,12 +357,14 @@ function MetricRow({
   projectId,
   canPublish,
   origin,
+  projectPage,
 }: {
   metric: ProjectMetricStatus;
   workspaceSlug: string;
   projectId: string;
   canPublish: boolean;
   origin: string;
+  projectPage: ShareProjectPage | null;
 }) {
   const { publication } = metric;
   const simulated =
@@ -421,7 +429,7 @@ function MetricRow({
               focusId={METRICS_HEADING_ID}
             />
           ) : null}
-          <ShareMetric metric={metric} publication={publication} projectId={projectId} origin={origin} />
+          <ShareMetric metric={metric} publication={publication} projectId={projectId} origin={origin} projectPage={projectPage} />
         </div>
       )}
     </li>
