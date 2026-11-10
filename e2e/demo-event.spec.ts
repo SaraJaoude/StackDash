@@ -114,11 +114,13 @@ ownerTest.describe("demo event", () => {
       await expect(events.first().getByRole("heading", { name: FAILED_DEPLOYMENT, exact: true })).toBeVisible();
       await expect(events.first().getByText(/^,?\s*New$/)).toHaveCount(0);
 
-      // With the timeline open, the next one arrives without a reload: the newest event, marked new.
+      // With the timeline open, the next one arrives without a reload: the newest row, marked new.
+      // When nothing the sync wrote lands between the two incidents, the second joins the first as
+      // one run (#253), and its "New" shows on the row and on the event inside it.
       const deployment = await demoEvent("failed-deployment", workspace);
       expect(deployment.code).toBe(0);
       expect(deployment.stdout).toContain(`A failed production deployment of web is on the timeline of ${workspace.name}`);
-      await expect(events.first().getByText(/^,?\s*New$/)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(events.first().getByText(/^,?\s*New$/).first()).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(events.first().getByRole("heading", { name: FAILED_DEPLOYMENT, exact: true })).toBeVisible();
 
       const crossing = await demoEvent("budget-crossing", workspace);

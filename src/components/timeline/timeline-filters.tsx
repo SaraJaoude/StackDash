@@ -6,6 +6,7 @@ import { typeOwnerName } from "@/lib/providers";
 import {
   EVENT_SEVERITIES,
   eventTypeLabel,
+  MAX_SEARCH_LENGTH,
   severityBadge,
   timelineHref,
   type TimelineQuery,
@@ -13,7 +14,7 @@ import {
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
 const CHECKBOX = "size-4 shrink-0 accent-accent";
-const DATE_INPUT =
+const TEXT_INPUT =
   "mt-1 block min-h-10 w-full rounded-md border border-line-strong bg-panel-raised px-3 py-2 text-sm text-foreground [color-scheme:dark]";
 
 const SEVERITY_LINK = "inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors";
@@ -51,9 +52,9 @@ export function SeverityLinks({ action, query }: { action: string; query: Timeli
 }
 
 /**
- * The shared scope filter (provider, project, account) with the timeline's own fields: event
- * type, severity, and dates. Submitting starts from the newest events, because the form carries
- * no cursor.
+ * The shared scope filter (provider, project, account) with the timeline's own fields: a title
+ * search, event type, severity, and dates. Submitting starts from the newest events, because the
+ * form carries no cursor.
  */
 export function TimelineFilters({
   action,
@@ -72,7 +73,11 @@ export function TimelineFilters({
 }) {
   const typeOptions = [...new Set([...typeIds, ...query.types])].sort();
   const extraActiveCount =
-    query.types.length + query.severities.length + (query.from === null ? 0 : 1) + (query.to === null ? 0 : 1);
+    query.types.length +
+    query.severities.length +
+    (query.from === null ? 0 : 1) +
+    (query.to === null ? 0 : 1) +
+    (query.search === null ? 0 : 1);
   return (
     <ScopeFilter
       action={action}
@@ -80,8 +85,19 @@ export function TimelineFilters({
       options={scopeOptions}
       status={status}
       extraActiveCount={extraActiveCount}
-      resetKey={JSON.stringify([query.types, query.severities, query.from, query.to])}
+      resetKey={JSON.stringify([query.types, query.severities, query.from, query.to, query.search])}
     >
+      <label className="block text-sm font-medium">
+        Search event titles
+        <input
+          type="search"
+          name="q"
+          defaultValue={query.search ?? ""}
+          maxLength={MAX_SEARCH_LENGTH}
+          autoComplete="off"
+          className={`${TEXT_INPUT} font-normal`}
+        />
+      </label>
       <div className="grid gap-6 md:grid-cols-[2fr_1fr_1fr]">
         <fieldset className="min-w-0">
           <legend className="text-sm font-medium">Event type</legend>
@@ -134,7 +150,7 @@ export function TimelineFilters({
                 name="from"
                 defaultValue={query.from ?? ""}
                 aria-describedby="timeline-dates-hint"
-                className={DATE_INPUT}
+                className={TEXT_INPUT}
               />
             </label>
             <label className="block text-sm">
@@ -144,7 +160,7 @@ export function TimelineFilters({
                 name="to"
                 defaultValue={query.to ?? ""}
                 aria-describedby="timeline-dates-hint"
-                className={DATE_INPUT}
+                className={TEXT_INPUT}
               />
             </label>
           </div>

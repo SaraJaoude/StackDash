@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   occurredRange,
   TIMELINE_PAGE_SIZE,
+  titleSearchPattern,
   type EventSeverity,
   type TimelineCursor,
 } from "@/lib/timeline/query";
@@ -17,7 +18,16 @@ type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
 
 export type TimelineEvent = Pick<
   ActivityEventRow,
-  "id" | "type_id" | "severity" | "title" | "body" | "url" | "occurred_at" | "provider"
+  | "id"
+  | "type_id"
+  | "severity"
+  | "title"
+  | "body"
+  | "url"
+  | "occurred_at"
+  | "provider"
+  | "external_account_id"
+  | "connection_id"
 > & {
   accountName: string | null;
   connectionName: string | null;
@@ -32,6 +42,8 @@ export type TimelineFilters = {
   /** London calendar dates, inclusive; converted to UTC instants here. */
   from: string | null;
   to: string | null;
+  /** Text the title must contain, ignoring case. */
+  search: string | null;
   /** Event types the viewer chose to hide (#119); excluded from every page. */
   hiddenTypeIds: readonly string[];
   cursor: TimelineCursor | null;
@@ -105,7 +117,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   let query = supabase
     .from("activity_events")
     .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_accounts(display_name), connections(display_name, granted_scopes)",
+      "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)",
     )
     .eq("workspace_id", workspaceId);
 
@@ -114,6 +126,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (filters.severities.length > 0) query = query.in("severity", [...filters.severities]);
   if (scope.providers.length > 0) query = query.in("provider", [...scope.providers]);
   if (scope.accountIds !== null) query = query.in("external_account_id", [...scope.accountIds]);
+  if (filters.search !== null) query = query.regexIMatch("title", titleSearchPattern(filters.search));
   const range = occurredRange(filters.from, filters.to);
   if (range.from !== null) query = query.gte("occurred_at", range.from);
   if (range.toExclusive !== null) query = query.lt("occurred_at", range.toExclusive);
@@ -175,6 +188,7 @@ export async function listTimelineConnectionCounts(
       ...(scope.accountIds === null ? {} : { p_account_ids: [...scope.accountIds] }),
       ...(range.from === null ? {} : { p_from: range.from }),
       ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
+      ...(filters.search === null ? {} : { p_title_pattern: titleSearchPattern(filters.search) }),
     })
     // PostgREST orders a function's rows only by selected columns. Order matters only for which
     // rows CONNECTION_COUNT_LIMIT keeps; rows that tie on both are the same provider and count, so

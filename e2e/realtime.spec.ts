@@ -66,13 +66,21 @@ async function seedConnection(workspace: TestWorkspace): Promise<SeededConnectio
   return { workspaceId: workspace.id, connectionId: connection.id, accountId: account.id };
 }
 
-async function insertEvent(seeded: SeededConnection, title: string): Promise<void> {
+/**
+ * One synced event, dated now. Each event gets a type of its own unless `typeId` is given, so
+ * events written seconds apart stay separate timeline rows instead of collapsing into a run (#253).
+ */
+async function insertEvent(
+  seeded: SeededConnection,
+  title: string,
+  typeId = `fake.e2e_${randomUUID().slice(0, 8)}`,
+): Promise<void> {
   const { error } = await adminClient().from("activity_events").insert({
     workspace_id: seeded.workspaceId,
     connection_id: seeded.connectionId,
     external_account_id: seeded.accountId,
     provider: "fake",
-    type_id: "fake.deploy.succeeded",
+    type_id: typeId,
     severity: "info",
     title,
     occurred_at: new Date().toISOString(),
@@ -410,6 +418,48 @@ ownerTest.describe("arriving data", () => {
     }
   });
 
+  ownerTest("marks a run of identical events when one more joins it, and keeps the run open", async ({ page }) => {
+    const workspace = await createTestWorkspace("Arrival run");
+    try {
+      const seeded = await seedConnection(workspace);
+      for (let index = 0; index < 2; index += 1) await insertEvent(seeded, "Deploy succeeded", "fake.deploy.succeeded");
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const rows = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
+      const run = rows.filter({ has: page.getByRole("heading", { name: "Deploy succeeded", exact: true, level: 3 }) });
+      await expect(rows).toHaveCount(1);
+      await expect(run.getByText("2 events", { exact: true })).toBeVisible();
+      await expectSubscribed(live);
+      const announcements = await recordAnnouncements(page);
+
+      // Opened by keyboard before the arrival, to show the row stays mounted when the run grows.
+      await run.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      const members = run.getByRole("list", { name: "Deploy succeeded: 2 events" });
+      await expect(members.getByRole("listitem")).toHaveCount(2);
+
+      await insertEvent(seeded, "Deploy succeeded", "fake.deploy.succeeded");
+      await expect(run.getByText("3 events", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      // Still one row, still open, and announced as one new event, not a new row.
+      const grown = run.getByRole("list", { name: "Deploy succeeded: 3 events" });
+      await expect(grown.getByRole("listitem")).toHaveCount(3);
+      await expect(page.getByText("Hide the 3 events", { exact: true })).toBeVisible();
+      await expect(page.getByTestId("arrival-announcement")).toHaveText("1 new event.");
+      // "New" on the run's row and on the event that joined it, the newest; the others are not new.
+      await expect(run.getByText(/^,?\s*New$/).first()).toBeVisible();
+      await expect(grown.getByRole("listitem").first().getByText(/^,?\s*New$/)).toBeVisible();
+      await expect(grown.getByRole("listitem").nth(1).getByText(/^,?\s*New$/)).toHaveCount(0);
+      await expectNoAxeViolations(page);
+
+      await expect(grown.getByRole("listitem").first().getByText(/^,?\s*New$/)).toBeHidden({
+        timeout: HIGHLIGHT_CLEARED_MS,
+      });
+      expect(await announcements()).toEqual(["1 new event."]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("says connecting until the channel joins, and offline, still retrying, when Realtime refuses it", async ({
     page,
   }) => {
@@ -503,7 +553,7 @@ ownerTest.describe("arriving data", () => {
     try {
       const seeded = await seedConnection(workspace);
       const snapshotId = await insertMoneySnapshot(seeded, 4_321);
-      await insertEvent(seeded, "Deployed before the page opened");
+      await insertEvent(seeded, "Deployed before the page opened", "fake.deploy.succeeded");
       const today = new Date().toISOString().slice(0, 10);
       const animations = await recordArrivalAnimations(page);
       const live = watchLiveChannel(page, workspace.id);
