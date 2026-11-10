@@ -2,17 +2,19 @@
 
 The MCP server lets an AI assistant such as Claude Code, Claude Desktop, or Cursor answer questions about one workspace from its own data: what changed in the stack this week, how much of an allowance is left, which alerts fired. It only reads. No tool can change anything in a workspace, and no answer contains a provider credential.
 
-Issues: #163 (this server), #162 (the API keys and scopes it uses).
+Issues: #163 (this server), #162 (the API keys and scopes it uses), #254 (the prompts and the one-step assistant key).
 
 It speaks the [Model Context Protocol](https://modelcontextprotocol.io/specification/2026-07-28) over the Streamable HTTP transport at `/api/mcp` on your DevMacro site, and serves clients of the 2025 protocol revisions as well as 2026-07-28. Self-hosted installs serve the same endpoint; nothing about it depends on the hosted instance.
 
 ## Create a key
 
-The server uses the same API keys as the [REST API](api.md). An owner or admin creates one in the workspace's **Settings**, under **API keys**; see [Create a key](api.md#create-a-key) for the details.
+The server uses the same API keys as the [REST API](api.md). Give a key for an assistant every scope, so it can answer any question about the workspace. A key without `usage:read` never sees an amount: `get_usage` refuses it, and `list_events` and `list_alerts` withhold the text and money that can quote one (see [What a tool returns](#what-a-tool-returns)).
 
-Give a key for an assistant every scope, so it can answer any question about the workspace. A key without `usage:read` never sees an amount: `get_usage` refuses it, and `list_events` and `list_alerts` withhold the text and money that can quote one (see [What a tool returns](#what-a-tool-returns)).
+The quickest way is **Settings**, under **AI assistants**: an owner or admin selects **Create assistant key**, and DevMacro creates a key named `AI assistant` with every scope. It is an ordinary API key: it counts toward the workspace's 20 keys that are not revoked, it is listed under **API keys**, and it is revoked there. A workspace that already has 20 gets the same message as the API keys section, saying to revoke one first; a viewer sees no button and is told to ask an owner or admin.
 
-**Settings**, under **AI assistants**, shows this site's server URL and the snippets below with that URL filled in.
+The new key is shown once, with a button to copy it, and the snippets below it fill in this site's server URL. The Claude Desktop and other clients snippets also hold the new key, because those clients keep it in their own configuration anyway. The Claude Code and Cursor snippets never do: put the key in `DEVMACRO_API_KEY` as described below. Once you select **Hide key**, or leave the page, the key cannot be shown again; revoke it and create another if you lose it.
+
+To choose the scopes yourself, create the key under **API keys** instead; see [Create a key](api.md#create-a-key) for the details.
 
 ## Connect a client
 
@@ -87,6 +89,19 @@ The arguments are the REST API's query parameters, with the same limits: `limit`
 
 Each provider page in [`docs/providers/`](providers) is a Markdown resource at `devmacro://docs/providers/<provider>`, for example `devmacro://docs/providers/resend`. An assistant reads them to explain what a metric means, how DevMacro reads it, and whether it is verified or estimated.
 
+## Prompts
+
+Prompts are questions ready to ask: a client lists them, for example as slash commands, and running one hands the assistant a message that says which tools to call, with their exact arguments, and how to answer from the results. A prompt reads nothing itself, so every number in the answer still comes through a tool and its scope.
+
+| Prompt | Title | What it asks | Arguments |
+|---|---|---|---|
+| `weekly_stack_review` | Weekly stack review | Review the 7 UTC days ending today: connections that need attention, spend on the newest day beside the starting reading, allowances running low, failed deployments, sync failures, and anomalies, and unacknowledged alerts. Calls all five tools | none |
+| `why_did_spend_change` | Why did spend change | Explain how spend moved over the period: reads verified spend, estimated spend, and usage with `get_usage`, then events and alerts, and ties each increase to the usage and events behind it | `days` (1 to 90, default 7), `provider` (a provider id, default all) |
+
+The period is the `days` UTC days ending today on the server's clock (7 for the weekly review), and the prompts also read the day before them as the starting reading, because a day's spend is its reading minus the previous day's. So the tool calls cover `days + 1` dates: for 7 days ending 2026-11-05, `from` is 2026-10-29. Arguments arrive as text, as MCP requires: `days` is a whole number from 1 to 90, and an unknown provider, an unknown argument, or a `days` outside that range is refused with an invalid params error (`-32602`) before anything is read.
+
+In Claude Code, type `/` to find them as `/devmacro:weekly_stack_review (MCP)`, or run `/mcp__devmacro__why_did_spend_change 30 vercel`; arguments go in the order of the table, separated by spaces ([Claude Code, MCP](https://code.claude.com/docs/en/mcp), "Use MCP prompts as commands"). A key without `usage:read` still gets both prompts; the spend steps then answer with the scope error, and the prompt tells the assistant to say which scope would show them rather than guess.
+
 ## What a tool returns
 
 Every tool answers with JSON, both as `structuredContent` (with an `outputSchema` in the tool list) and as text for clients that read only text:
@@ -106,7 +121,7 @@ Every tool answers with JSON, both as `structuredContent` (with an `outputSchema
 
 ## Try it against the demo data
 
-On a local install with the simulated providers on (`DEVMACRO_SIMULATE_PROVIDERS=1`), `npm run demo:seed -- --member you@example.com` builds a demo workspace with 90 days of history and adds your account as an admin (see the header of `scripts/demo-seed.ts`). Create a key with every scope in that workspace's settings, connect Claude Code as above with `DEVMACRO_URL=http://localhost:3000`, and ask, for example, "Which projects are in my DevMacro workspace, and how much Resend quota is left?"
+On a local install with the simulated providers on (`DEVMACRO_SIMULATE_PROVIDERS=1`), `npm run demo:seed -- --member you@example.com` builds a demo workspace with 90 days of history and adds your account as an admin (see the header of `scripts/demo-seed.ts`). In that workspace's settings, under **AI assistants**, select **Create assistant key**, connect Claude Code as above with `DEVMACRO_URL=http://localhost:3000`, and run `/mcp__devmacro__weekly_stack_review`, or ask, for example, "Which projects are in my DevMacro workspace, and how much Resend quota is left?"
 
 ## Security
 
