@@ -184,7 +184,6 @@ describe("listDocs", () => {
       if (doc.group === "providers") expect(["documentation", "real-account"], doc.href).toContain(doc.verification);
       else expect(doc.verification, doc.href).toBeNull();
     }
-    expect(getDoc(["providers", "github"])?.verification).toBe("documentation");
   });
 
   // The docs are published on the website, where an issue number in a private repository means

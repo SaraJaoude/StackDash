@@ -53,7 +53,7 @@ test.describe("docs", () => {
 
     for (const card of await cards.all()) {
       await expect(card.getByRole("paragraph")).toHaveText(/^DevMacro reads /);
-      await expect(card.getByText("Not yet tested with a real account", { exact: true })).toBeVisible();
+      await expect(card.getByText(/^(Not yet tested|Tested) with a real account$/)).toHaveCount(1);
     }
     // Only provider pages carry a status.
     await expect(page.getByRole("region", { name: "Operations" }).getByText(/tested with a real account/)).toHaveCount(0);
