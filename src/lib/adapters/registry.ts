@@ -18,6 +18,7 @@ import { supabaseAdapter } from "./supabase";
 import {
   liveProviderIds,
   Secret,
+  type AdapterCapabilities,
   type AdapterContext,
   type LiveProviderId,
   type OAuthClient,
@@ -95,6 +96,15 @@ export const declaredProjectedSpend: readonly string[] = declaringAdapters.flatM
 export const revenueProviderIds: readonly ProviderId[] = declaringAdapters
   .filter((adapter) => adapter.capabilities.revenue)
   .map((adapter) => adapter.id);
+
+/**
+ * What the adapter for `provider` declares it reports, whatever the flags say: a simulated twin
+ * declares its live adapter's, and stored fake provider data outlives its flag. The dashboard's
+ * provider cards leave out what a provider never reports (#269).
+ */
+export function declaredCapabilities(provider: ProviderId): AdapterCapabilities {
+  return provider === "fake" ? fakeAdapter.capabilities : liveAdapters[provider].capabilities;
+}
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];

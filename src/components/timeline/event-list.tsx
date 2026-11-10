@@ -28,11 +28,12 @@ const SEVERITY_FLASH: Record<EventSeverity, string> = {
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
  * list per day, labelled by that day's heading, so a screen reader can jump between days by
- * heading and still hear how many events each day holds. Every row prints "Simulated" when its
- * connection was made by the provider simulator. Events that arrive while the page is open are
+ * heading and still hear how many events each day holds. With `markSimulated`, a row prints
+ * "Simulated" when its connection was made by the provider simulator; the page passes false when
+ * it says so once for every row instead (#269). Events that arrive while the page is open are
  * marked (#171).
  */
-export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
+export function EventList({ events, now, markSimulated }: { events: readonly TimelineEvent[]; now: Date; markSimulated: boolean }) {
   return (
     <section aria-label="Events" className="mt-6 grid gap-6">
       <ArrivalEvents eventIds={events.map((event) => event.id)}>
@@ -48,7 +49,7 @@ export function EventList({ events, now }: { events: readonly TimelineEvent[]; n
                 className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel"
               >
                 {day.events.map((event) => (
-                  <EventItem key={event.id} event={event} now={now} />
+                  <EventItem key={event.id} event={event} now={now} markSimulated={markSimulated} />
                 ))}
               </ol>
             </section>
@@ -59,7 +60,7 @@ export function EventList({ events, now }: { events: readonly TimelineEvent[]; n
   );
 }
 
-function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
+function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: Date; markSimulated: boolean }) {
   const platform = providerPlatform(event.provider);
   // The account says which team or repository; the connection name is the fallback.
   const source = event.accountName ?? event.connectionName;
@@ -92,7 +93,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {event.simulated ? <SimulatedBadge /> : null}
+            {markSimulated && event.simulated ? <SimulatedBadge /> : null}
             <SeverityBadge severity={severityBadge(event.severity)} />
           </div>
         </div>

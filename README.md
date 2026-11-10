@@ -190,9 +190,11 @@ Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Su
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
-is marked as simulated when it is made, so it and its data are labeled **Simulated** on the
-connection pages, the dashboard, and the timeline whether the flag is on or off, and a real
-connection never is. While the flag is on the catalog labels every provider **Simulated** too.
+is marked as simulated when it is made and keeps that mark whether the flag is later on or off, and
+a real connection never has it. The connection pages label it **Simulated**. The dashboard and the
+timeline say **Simulated** once per page while every connection in view is simulated, and on each
+simulated item in a workspace that mixes real and simulated connections. While the flag is on the
+catalog labels every provider **Simulated** too.
 It is for local use only: the app refuses it on a Vercel production deployment.
 
 1. Add the flag to `.env.local` and restart `npm run dev`:

@@ -44,7 +44,10 @@ ownerTest.describe("sample data as the owner", () => {
       await expect(page.getByRole("region", { name: "No activity yet" })).toHaveCount(0);
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       await expect(events.first()).toBeVisible();
-      await expect(events.first().getByText("Simulated", { exact: true })).toBeVisible();
+      // Every connection is simulated, so the page says it once rather than on every row (#269).
+      await expect(page.getByRole("region", { name: "Simulated data" })).toContainText("Every connection in view is simulated");
+      await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);
+      await expect(events.getByText("Simulated", { exact: true })).toHaveCount(0);
       await expectNoAxeViolations(page);
 
       // Every connection it made is simulated, and each one has synced.
@@ -64,11 +67,13 @@ ownerTest.describe("sample data as the owner", () => {
       await expect(page.getByRole("heading", { name: "Connect your first provider" })).toHaveCount(0);
       const cards = page.getByRole("region", { name: "By provider" }).getByRole("article");
       await expect(cards.first()).toBeVisible();
-      await expect(cards.first().getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Simulated data" })).toContainText("Every connection in view is simulated");
+      await expect(page.getByText("Simulated", { exact: true })).toHaveCount(1);
+      await expect(cards.first().getByText("Simulated", { exact: true })).toHaveCount(0);
       // The replayed week gives the headline strip a reading on every day it needs, so Spend has a
       // figure whatever day of the week this runs, not the "could not report" of a single sync.
       const strip = page.getByRole("region", { name: "This week so far" });
-      await expect(strip.getByText("Simulated", { exact: true })).toBeVisible();
+      await expect(strip.getByText("Simulated", { exact: true })).toHaveCount(0);
       await expect(strip.getByRole("definition").nth(1)).toContainText(/\$[\d,]+\.\d{2}/);
       await expect(strip.getByRole("definition").nth(1)).not.toContainText("could not report spend for this window");
     } finally {

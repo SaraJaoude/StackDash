@@ -33,8 +33,17 @@ const ESTIMATE_DASH = "6 4";
  *
  * `markers` are the event markers drawn under the chart and listed in the table's "Events"
  * column (#168); null when every marker category is hidden, which drops the column too.
+ * `markSimulated` is false when the page says "Simulated" once for every chart (#269).
  */
-export function TrendChart({ series, markers }: { series: TrendSeries; markers: readonly TrendMarker[] | null }) {
+export function TrendChart({
+  series,
+  markers,
+  markSimulated,
+}: {
+  series: TrendSeries;
+  markers: readonly TrendMarker[] | null;
+  markSimulated: boolean;
+}) {
   const titleId = useId();
   const tableId = useId();
   const { points, measure, granularity } = series;
@@ -86,7 +95,7 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
         <h4 id={titleId} className="font-semibold">
           {seriesTitle(series)}
         </h4>
-        {series.simulated ? <SimulatedBadge /> : null}
+        {markSimulated && series.simulated ? <SimulatedBadge /> : null}
       </div>
       <p className="mt-1 text-sm text-muted">{comparisonText(series.comparison, measure, granularity)}</p>
 
