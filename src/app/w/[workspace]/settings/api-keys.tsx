@@ -3,6 +3,7 @@
 import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
+import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
 import {
   createApiKey,
@@ -244,6 +245,12 @@ function CreateApiKeyForm({
   const failure = failureOf(state);
   const nameError = failure?.fieldErrors?.name;
   const scopesError = failure?.fieldErrors?.scopes;
+  const nameRef = useRef<HTMLInputElement>(null);
+  // Arriving from the palette's "Create API key" (`createApiKeyPath`) starts in the name field, so
+  // the action reads as one step. The URL fragment is read once, on arrival.
+  useEffect(() => {
+    if (window.location.hash === `#${CREATE_API_KEY_FIELD_ID}`) nameRef.current?.focus();
+  }, []);
 
   return (
     <form
@@ -257,14 +264,15 @@ function CreateApiKeyForm({
       }}
     >
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <label htmlFor={`${id}-name`} className="block text-sm font-medium">
+      <label htmlFor={CREATE_API_KEY_FIELD_ID} className="block text-sm font-medium">
         Key name
       </label>
       <p id={nameHintId} className="mt-1 text-sm text-muted">
         Up to 80 characters. Name it after the script or tool that will use it.
       </p>
       <input
-        id={`${id}-name`}
+        ref={nameRef}
+        id={CREATE_API_KEY_FIELD_ID}
         name="name"
         type="text"
         autoComplete="off"

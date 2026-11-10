@@ -1,46 +1,59 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_SCOPE, parseScopeFilters, UNASSIGNED_PROJECT, type ScopeOptions } from "@/lib/filters/scope";
+import { EMPTY_SCOPE, parseScopeFilters, UNASSIGNED_PROJECT } from "@/lib/filters/scope";
 import { parseTimelineSearchParams } from "@/lib/timeline/query";
+import type { WorkspaceRole } from "@/lib/workspaces/permissions";
 
-import { buildPaletteCommands, type PaletteSources } from "./commands";
-import type { PaletteCommand } from "./search";
+import { buildPaletteCommands, type PaletteScope, type PaletteSources } from "./commands";
+import { searchCommands, type PaletteCommand, type PaletteKind } from "./search";
 
 const SLUG = "abc123";
+const OTHER_SLUG = "def456";
 const P1 = "10000000-0000-4000-8000-000000000001";
 const A1 = "20000000-0000-4000-8000-000000000001";
+const A2 = "20000000-0000-4000-8000-000000000002";
+const C1 = "30000000-0000-4000-8000-000000000001";
+const C2 = "30000000-0000-4000-8000-000000000002";
+const C3 = "30000000-0000-4000-8000-000000000003";
 
-const SCOPE_OPTIONS: ScopeOptions = {
-  providers: [{ value: "vercel", label: "Vercel" }],
-  projects: [
-    { value: P1, label: "Checkout & billing?" },
-    { value: UNASSIGNED_PROJECT, label: "Unassigned" },
+// The demo's Stripe connection is named after its account, which the old labels repeated (#265).
+const SCOPE: PaletteScope = {
+  connections: [
+    { id: C1, provider: "vercel", display_name: "Vercel team", status: "active" },
+    { id: C2, provider: "stripe", display_name: "Stripe (Example Stripe account (test mode))", status: "active" },
   ],
-  accounts: [{ value: A1, label: "Production (Vercel team)" }],
+  accounts: [
+    { id: A1, connection_id: C1, display_name: "Production" },
+    { id: A2, connection_id: C2, display_name: "Example Stripe account (test mode)" },
+  ],
+  projects: [{ id: P1, name: "Checkout & billing?" }],
 };
 
 const SOURCES: PaletteSources = {
   workspaceSlug: SLUG,
-  scopeOptions: SCOPE_OPTIONS,
+  role: "owner",
+  scope: SCOPE,
   eventTypeIds: ["vercel.deployment.failed"],
-  connectable: [{ id: "resend", displayName: "Resend" }],
+  configuredProviders: [{ id: "resend", displayName: "Resend" }],
+  workspaces: [
+    { slug: SLUG, name: "Acme" },
+    { slug: OTHER_SLUG, name: "Side project" },
+  ],
+  reviewYear: 2026,
 };
 
-const EMPTY_SOURCES: PaletteSources = {
-  workspaceSlug: SLUG,
-  scopeOptions: { providers: [], projects: [], accounts: [] },
-  eventTypeIds: [],
-  connectable: [],
-};
+const NO_SCOPE: PaletteScope = { connections: [], accounts: [], projects: [] };
 
 function hrefOf(command: PaletteCommand | undefined): string {
   if (command?.action.kind !== "navigate") throw new Error("Expected a navigation command");
   return command.action.href;
 }
 
-function byLabel(commands: readonly PaletteCommand[], label: string): PaletteCommand | undefined {
-  return commands.find((command) => command.label === label);
+function find(commands: readonly PaletteCommand[], kind: PaletteKind, label: string): PaletteCommand | undefined {
+  return commands.find((command) => command.kind === kind && command.label === label);
 }
+
+const ACTION_IDS = /^(action:|connect:)/;
 
 /** The search params of an app-relative href, as a page's `searchParams` would hold them. */
 function searchParamsOf(href: string): Record<string, string[]> {
@@ -53,41 +66,38 @@ function searchParamsOf(href: string): Record<string, string[]> {
 describe("buildPaletteCommands", () => {
   const commands = buildPaletteCommands(SOURCES);
 
-  it("goes to every workspace section in nav order, then the account", () => {
-    expect(commands.slice(0, 7).map((command) => [command.label, hrefOf(command)])).toEqual([
-      ["Go to timeline", `/w/${SLUG}/timeline`],
-      ["Go to dashboard", `/w/${SLUG}/dashboard`],
-      ["Go to connections", `/w/${SLUG}/connections`],
-      ["Go to alerts", `/w/${SLUG}/alerts`],
-      ["Go to projects", `/w/${SLUG}/projects`],
-      ["Go to settings", `/w/${SLUG}/settings`],
-      ["Go to account", "/account"],
+  it("goes to every workspace section in nav order, then the year in review and the account", () => {
+    expect(commands.slice(0, 8).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
+      ["Timeline", "Page", `/w/${SLUG}/timeline`],
+      ["Dashboard", "Page", `/w/${SLUG}/dashboard`],
+      ["Connections", "Page", `/w/${SLUG}/connections`],
+      ["Alerts", "Page", `/w/${SLUG}/alerts`],
+      ["Projects", "Page", `/w/${SLUG}/projects`],
+      ["Settings", "Page", `/w/${SLUG}/settings`],
+      ["Year in review", "Page", `/w/${SLUG}/year/2026`],
+      ["Account", "Page", "/account"],
     ]);
   });
 
-  it("scopes the dashboard to one provider, project, unassigned, or account", () => {
-    expect(hrefOf(byLabel(commands, "Show dashboard for provider Vercel"))).toBe(`/w/${SLUG}/dashboard?provider=vercel`);
-    expect(hrefOf(byLabel(commands, "Show dashboard for project Checkout & billing?"))).toBe(
-      `/w/${SLUG}/dashboard?project=${P1}`,
-    );
-    expect(hrefOf(byLabel(commands, "Show dashboard for project Unassigned"))).toBe(
+  it("scopes the dashboard to one provider, project, unassigned, or account, labeled by name alone", () => {
+    expect(hrefOf(find(commands, "Provider dashboard", "Vercel"))).toBe(`/w/${SLUG}/dashboard?provider=vercel`);
+    expect(hrefOf(find(commands, "Project dashboard", "Checkout & billing?"))).toBe(`/w/${SLUG}/dashboard?project=${P1}`);
+    expect(hrefOf(find(commands, "Project dashboard", "Unassigned"))).toBe(
       `/w/${SLUG}/dashboard?project=${UNASSIGNED_PROJECT}`,
     );
-    expect(hrefOf(byLabel(commands, "Show dashboard for account Production (Vercel team)"))).toBe(
-      `/w/${SLUG}/dashboard?account=${A1}`,
-    );
+    expect(hrefOf(find(commands, "Account dashboard", "Production"))).toBe(`/w/${SLUG}/dashboard?account=${A1}`);
   });
 
   it("builds dashboard hrefs the dashboard parses back to exactly that scope", () => {
-    const project = searchParamsOf(hrefOf(byLabel(commands, "Show dashboard for project Checkout & billing?")));
+    const project = searchParamsOf(hrefOf(find(commands, "Project dashboard", "Checkout & billing?")));
     expect(parseScopeFilters(project)).toEqual({ ...EMPTY_SCOPE, projects: [P1] });
-    const account = searchParamsOf(hrefOf(byLabel(commands, "Show dashboard for account Production (Vercel team)")));
+    const account = searchParamsOf(hrefOf(find(commands, "Account dashboard", "Production")));
     expect(parseScopeFilters(account)).toEqual({ ...EMPTY_SCOPE, accounts: [A1] });
   });
 
   it("opens the timeline for a provider or an event type, in the type filter's words", () => {
-    expect(hrefOf(byLabel(commands, "Show timeline for Vercel"))).toBe(`/w/${SLUG}/timeline?provider=vercel`);
-    const byType = byLabel(commands, "Show timeline for Vercel: Deployment failed");
+    expect(hrefOf(find(commands, "Provider timeline", "Vercel"))).toBe(`/w/${SLUG}/timeline?provider=vercel`);
+    const byType = find(commands, "Event timeline", "Vercel: Deployment failed");
     expect(hrefOf(byType)).toBe(`/w/${SLUG}/timeline?type=vercel.deployment.failed`);
     expect(parseTimelineSearchParams(searchParamsOf(hrefOf(byType)))).toMatchObject({
       types: ["vercel.deployment.failed"],
@@ -98,39 +108,140 @@ describe("buildPaletteCommands", () => {
     expect(byType?.keywords).toContain("deployment failed");
   });
 
-  it("connects each connectable provider through its connect screen", () => {
-    expect(hrefOf(byLabel(commands, "Connect Resend"))).toBe(`/w/${SLUG}/connections/new/resend`);
+  it("never repeats an account's name in its label, and still finds it by its provider", () => {
+    const stripe = find(commands, "Account dashboard", "Example Stripe account (test mode)");
+    expect(hrefOf(stripe)).toBe(`/w/${SLUG}/dashboard?account=${A2}`);
+    for (const command of commands) {
+      expect(command.label.split("Example Stripe account").length, command.label).toBeLessThanOrEqual(2);
+    }
+    expect(searchCommands(commands, "stripe").results.map((command) => command.id)).toContain(`dashboard:account:${A2}`);
+  });
+
+  it("adds the connection to an account's label only when another account has the same name", () => {
+    const twins = buildPaletteCommands({
+      ...SOURCES,
+      scope: {
+        ...SCOPE,
+        accounts: [
+          { id: A1, connection_id: C1, display_name: "Production" },
+          { id: A2, connection_id: C2, display_name: "Production" },
+        ],
+      },
+    });
+    const labels = twins.filter((command) => command.kind === "Account dashboard").map((command) => command.label);
+    expect(labels).toEqual(["Production (Stripe (Example Stripe account (test mode)))", "Production (Vercel team)"]);
+  });
+
+  it("syncs each connection now through the sync action, named by its provider", () => {
+    const syncs = commands.filter((command) => command.action.kind === "sync");
+    expect(syncs.map((command) => [command.label, command.kind, command.action])).toEqual([
+      ["Sync Vercel now", "Action", { kind: "sync", connectionId: C1, name: "Vercel" }],
+      ["Sync Stripe now", "Action", { kind: "sync", connectionId: C2, name: "Stripe" }],
+    ]);
+  });
+
+  it("names a sync by its connection when the provider is connected twice, and skips a disconnected one", () => {
+    const scope: PaletteScope = {
+      ...NO_SCOPE,
+      connections: [
+        { id: C1, provider: "vercel", display_name: "Vercel team", status: "active" },
+        { id: C2, provider: "vercel", display_name: "Vercel hobby", status: "needs_attention" },
+        { id: C3, provider: "stripe", display_name: "Stripe live", status: "revoked" },
+      ],
+    };
+    const labels = buildPaletteCommands({ ...SOURCES, scope })
+      .filter((command) => command.action.kind === "sync")
+      .map((command) => command.label);
+    expect(labels).toEqual(["Sync Vercel team now", "Sync Vercel hobby now"]);
+  });
+
+  it("opens the create API key form in settings", () => {
+    expect(hrefOf(find(commands, "Action", "Create API key"))).toBe(`/w/${SLUG}/settings#create-api-key`);
+  });
+
+  it("connects each configured provider through its connect screen", () => {
+    expect(hrefOf(find(commands, "Action", "Connect Resend"))).toBe(`/w/${SLUG}/connections/new/resend`);
+  });
+
+  it("switches to every other workspace, never the current one", () => {
+    const workspaces = commands.filter((command) => command.kind === "Workspace");
+    expect(workspaces.map((command) => [command.label, hrefOf(command)])).toEqual([["Side project", `/w/${OTHER_SLUG}/timeline`]]);
+  });
+
+  it("offers no workspace switch to a member of one workspace", () => {
+    const single = buildPaletteCommands({ ...SOURCES, workspaces: [{ slug: SLUG, name: "Acme" }] });
+    expect(single.filter((command) => command.kind === "Workspace")).toEqual([]);
+  });
+
+  it.each<[WorkspaceRole, boolean]>([
+    ["owner", true],
+    ["admin", true],
+    ["viewer", false],
+  ])("lists actions to %s only when the role can run them (%s)", (role, allowed) => {
+    const forRole = buildPaletteCommands({ ...SOURCES, role });
+    const actions = forRole.filter((command) => ACTION_IDS.test(command.id)).map((command) => command.label);
+    expect(actions).toEqual(allowed ? ["Sync Vercel now", "Sync Stripe now", "Create API key", "Connect Resend"] : []);
+    // Pages, views, and other workspaces are for every member.
+    expect(forRole.filter((command) => !ACTION_IDS.test(command.id))).toEqual(
+      commands.filter((command) => !ACTION_IDS.test(command.id)),
+    );
   });
 
   it("ends with the shortcut list", () => {
-    expect(commands.at(-1)).toMatchObject({ label: "Show keyboard shortcuts", action: { kind: "shortcuts" } });
+    expect(commands.at(-1)).toMatchObject({ label: "Keyboard shortcuts", kind: "Help", action: { kind: "shortcuts" } });
   });
 
   it("gives every command a unique id", () => {
     expect(new Set(commands.map((command) => command.id)).size).toBe(commands.length);
   });
 
-  it("offers only pages and the shortcut list when the workspace has nothing connected and the member cannot connect", () => {
-    const bare = buildPaletteCommands(EMPTY_SOURCES);
-    expect(bare.map((command) => command.id)).toEqual([
+  it("offers no provider, account, or sync results when nothing is connected", () => {
+    const bare = buildPaletteCommands({ ...SOURCES, scope: NO_SCOPE, eventTypeIds: [] });
+    expect(bare.filter((command) => command.action.kind === "sync")).toEqual([]);
+    // The scope filter always offers Unassigned, and so does the palette.
+    expect(bare.filter((command) => command.id.startsWith("dashboard:") || command.id.startsWith("timeline:")).map((c) => c.id)).toEqual([
+      `dashboard:project:${UNASSIGNED_PROJECT}`,
+    ]);
+  });
+
+  it("still offers pages, actions, and workspaces when the scope could not be loaded", () => {
+    const unloaded = buildPaletteCommands({ ...SOURCES, scope: null, eventTypeIds: [] });
+    expect(unloaded.map((command) => command.id)).toEqual([
       "page:timeline",
       "page:dashboard",
       "page:connections",
       "page:alerts",
       "page:projects",
       "page:settings",
+      "page:year",
       "page:account",
+      "action:create-api-key",
+      `workspace:${OTHER_SLUG}`,
+      "connect:resend",
       "help:shortcuts",
     ]);
   });
 
+  it("keeps a very long name whole and unrepeated, for the list to wrap", () => {
+    const longName = `Workspace ${"with a very long name ".repeat(12)}end`;
+    const longAccount = `Account ${"x".repeat(300)}`;
+    const long = buildPaletteCommands({
+      ...SOURCES,
+      workspaces: [...SOURCES.workspaces, { slug: "ghi789", name: longName }],
+      scope: { ...SCOPE, accounts: [{ id: A1, connection_id: C1, display_name: longAccount }] },
+    });
+    expect(find(long, "Workspace", longName)).toBeDefined();
+    expect(find(long, "Account dashboard", longAccount)).toBeDefined();
+  });
+
   it("keeps a thousand accounts as a thousand distinct commands", () => {
     const accounts = Array.from({ length: 1000 }, (_, index) => ({
-      value: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-      label: `Account ${index}`,
+      id: `20000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      connection_id: C1,
+      display_name: `Account ${index}`,
     }));
-    const many = buildPaletteCommands({ ...EMPTY_SOURCES, scopeOptions: { ...EMPTY_SOURCES.scopeOptions, accounts } });
-    const accountCommands = many.filter((command) => command.id.startsWith("dashboard:account:"));
+    const many = buildPaletteCommands({ ...SOURCES, scope: { ...SCOPE, accounts } });
+    const accountCommands = many.filter((command) => command.kind === "Account dashboard");
     expect(accountCommands).toHaveLength(1000);
     expect(new Set(many.map((command) => command.id)).size).toBe(many.length);
   });

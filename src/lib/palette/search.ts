@@ -5,13 +5,37 @@
  * searches in memory: typing never reaches the server.
  */
 
-export type PaletteAction = Readonly<{ kind: "navigate"; href: string }> | Readonly<{ kind: "shortcuts" }>;
+/**
+ * What choosing a command does: open a URL, show the shortcut list, or run a Server Action from
+ * the palette (#265). An action names the server work only; the palette calls the existing Server
+ * Action for it, which authorizes the caller again.
+ */
+export type PaletteAction =
+  | Readonly<{ kind: "navigate"; href: string }>
+  | Readonly<{ kind: "shortcuts" }>
+  | Readonly<{ kind: "sync"; connectionId: string; name: string }>;
+
+/**
+ * The kind of result, shown beside its label and read with it, so the label itself can stay short:
+ * "Stripe" as a provider dashboard and "Stripe" as a provider timeline are told apart here.
+ */
+export type PaletteKind =
+  | "Page"
+  | "Provider dashboard"
+  | "Project dashboard"
+  | "Account dashboard"
+  | "Provider timeline"
+  | "Event timeline"
+  | "Action"
+  | "Workspace"
+  | "Help";
 
 export type PaletteCommand = Readonly<{
   /** Stable and unique within one list, for React keys. */
   id: string;
-  /** What choosing it does, in words: "Go to dashboard", "Connect Vercel". */
+  /** What the result is, in as few words as tell it apart: "Dashboard", "Stripe", "Connect Vercel". */
   label: string;
+  kind: PaletteKind;
   /** Extra words it matches but does not show, such as the provider id or "spend". */
   keywords: string;
   action: PaletteAction;
@@ -36,9 +60,10 @@ export type PaletteSearch = Readonly<{
 }>;
 
 /**
- * Commands matching every word of `query` in their label or keywords, in any order. A label that
- * starts with the query ranks first, then a label with a word starting with the query's first
- * word, then the rest; ties keep the list's own order. A blank query matches everything.
+ * Commands matching every word of `query` in their label, kind, or keywords, in any order, so
+ * "stripe dashboard" finds the Stripe provider dashboard. A label that starts with the query ranks
+ * first, then a label with a word starting with the query's first word, then the rest; ties keep
+ * the list's own order. A blank query matches everything.
  */
 export function searchCommands(
   commands: readonly PaletteCommand[],
@@ -53,7 +78,7 @@ export function searchCommands(
   const matches: { command: PaletteCommand; rank: number; index: number }[] = [];
   commands.forEach((command, index) => {
     const label = normalize(command.label);
-    const haystack = `${label} ${normalize(command.keywords)}`;
+    const haystack = `${label} ${normalize(command.kind)} ${normalize(command.keywords)}`;
     if (!tokens.every((token) => haystack.includes(token))) return;
     const rank = label.startsWith(needle) ? 0 : label.split(" ").some((word) => word.startsWith(firstToken)) ? 1 : 2;
     matches.push({ command, rank, index });

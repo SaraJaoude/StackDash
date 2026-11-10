@@ -9,11 +9,13 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  useTransition,
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 
+import { syncNow } from "@/app/w/[workspace]/connections/actions";
 import { SearchIcon } from "@/components/icons";
 import {
   isApplePlatform,
@@ -24,6 +26,7 @@ import {
   paletteShortcut,
   pointerMoved,
   searchCommands,
+  type PaletteAction,
   type PaletteCommand,
   type PaletteSearch,
   type PointerPosition,
@@ -64,11 +67,42 @@ function trapTab(event: ReactKeyboardEvent<HTMLDialogElement>): void {
 const count = new Intl.NumberFormat("en-US");
 
 function resultStatus(search: PaletteSearch, query: string): string {
-  if (search.total === 0) return `No commands match "${query.trim()}". Try a page, provider, project, or account name.`;
+  if (search.total === 0) {
+    return `No commands match "${query.trim()}". Try a page, action, workspace, provider, project, or account name.`;
+  }
   if (search.results.length < search.total) {
     return `Showing ${count.format(search.results.length)} of ${count.format(search.total)} results. Type more to narrow the list.`;
   }
   return `${count.format(search.total)} ${search.total === 1 ? "result" : "results"}`;
+}
+
+/** What an action run from the palette is doing, or how it ended, in words for its live region. */
+type ActionOutcome = Readonly<{ tone: "pending" | "success" | "error"; message: string }>;
+
+/**
+ * Queues a sync through the connection page's own Server Action, which authorizes the caller and
+ * words every result, so the palette adds only the case where the request never got an answer.
+ */
+async function syncConnection(
+  workspaceSlug: string,
+  action: Extract<PaletteAction, { kind: "sync" }>,
+): Promise<ActionOutcome> {
+  const formData = new FormData();
+  formData.set("workspace", workspaceSlug);
+  formData.append("connectionId", action.connectionId);
+  try {
+    const result = await syncNow(null, formData);
+    if (result.ok) return { tone: "success", message: result.message ?? `Sync queued for ${action.name}.` };
+    const reference = result.referenceId === undefined ? "" : ` Reference ${result.referenceId}.`;
+    return { tone: "error", message: `${result.message}${reference}` };
+  } catch {
+    // A rejected Server Action means the request or its response was lost on the way; the server
+    // logs its own failures, so all the palette can add is the next step.
+    return {
+      tone: "error",
+      message: `The sync for ${action.name} could not be requested because DevMacro did not answer. Check your connection, then try again.`,
+    };
+  }
 }
 
 const KBD = "rounded border border-line-strong bg-panel-raised px-1.5 font-mono text-[11px] leading-5 text-foreground";
@@ -101,9 +135,12 @@ const SECONDARY_BUTTON =
  * `commands` arrive from the server already built; filtering happens here, in memory.
  */
 export function CommandPalette({
+  workspaceSlug,
   commands,
   notice,
 }: {
+  /** The workspace the actions run in; each Server Action checks the member's role there again. */
+  workspaceSlug: string;
   commands: readonly PaletteCommand[];
   /** Shown above the results when part of the list could not be loaded. */
   notice: string | null;
@@ -114,6 +151,8 @@ export function CommandPalette({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
+  const [outcome, setOutcome] = useState<ActionOutcome | null>(null);
+  const [running, startRunning] = useTransition();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const paletteRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +196,7 @@ export function CommandPalette({
     rememberFocus();
     setQuery("");
     setActive(0);
+    setOutcome(null);
     setOpen(true);
     paletteRef.current?.showModal();
     inputRef.current?.focus();
@@ -187,9 +227,27 @@ export function CommandPalette({
   }
 
   function choose(command: PaletteCommand): void {
-    if (command.action.kind === "shortcuts") shortcutsNextRef.current = true;
+    const { action } = command;
+    // An action runs with the palette open, so its result is announced where focus already is.
+    if (action.kind === "sync") {
+      if (running) return;
+      setOutcome({ tone: "pending", message: `Queueing a sync for ${action.name}.` });
+      startRunning(async () => setOutcome(await syncConnection(workspaceSlug, action)));
+      return;
+    }
+    if (action.kind === "shortcuts") shortcutsNextRef.current = true;
+    if (action.kind === "navigate") {
+      // A result for part of this page (Create API key, chosen on settings) leaves focus there:
+      // navigating within the page mounts nothing new that could take it.
+      const destination = new URL(action.href, window.location.href);
+      const target =
+        destination.hash !== "" && destination.pathname === window.location.pathname
+          ? document.getElementById(destination.hash.slice(1))
+          : null;
+      if (target !== null) returnFocusRef.current = target;
+    }
     paletteRef.current?.close();
-    if (command.action.kind === "navigate") router.push(command.action.href);
+    if (action.kind === "navigate") router.push(action.href);
   }
 
   function onInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>): void {
@@ -253,7 +311,7 @@ export function CommandPalette({
     { keys: <kbd className={KBD}>{shortcut.label}</kbd>, description: "Open the command palette" },
     { keys: <kbd className={KBD}>?</kbd>, description: "Show this list of shortcuts" },
     { keys: <ArrowKeys />, description: "Move through the palette's results" },
-    { keys: <kbd className={KBD}>Enter</kbd>, description: "Open the selected result" },
+    { keys: <kbd className={KBD}>Enter</kbd>, description: "Open or run the selected result" },
     { keys: <kbd className={KBD}>Esc</kbd>, description: "Close the palette or this list" },
   ];
 
@@ -303,7 +361,7 @@ export function CommandPalette({
             autoCorrect="off"
             spellCheck={false}
             maxLength={MAX_QUERY_LENGTH}
-            placeholder="Search pages, providers, projects, and accounts"
+            placeholder="Search pages, actions, workspaces, providers, and accounts"
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
@@ -322,6 +380,19 @@ export function CommandPalette({
             {notice}
           </p>
         )}
+
+        {/* Always mounted, so screen readers announce every change: progress and success politely,
+            a failure at once. */}
+        <div role="status" aria-live="polite" className="text-sm">
+          {outcome === null || outcome.tone === "error" ? null : (
+            <p className={`border-b border-line px-4 py-2 ${outcome.tone === "success" ? "text-success" : "text-muted"}`}>
+              {outcome.message}
+            </p>
+          )}
+        </div>
+        <div role="alert" aria-live="assertive" className="text-sm">
+          {outcome?.tone === "error" ? <p className="border-b border-line px-4 py-2 text-danger">{outcome.message}</p> : null}
+        </div>
 
         {hasResults ? (
           <ul
@@ -343,12 +414,18 @@ export function CommandPalette({
                   onClick={() => choose(command)}
                   onPointerEnter={onOptionPointerEnter}
                   onPointerMove={(event) => onOptionPointerMove(event, index)}
-                  className={`flex min-h-9 cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-1.5 text-sm ${
+                  className={`flex min-h-9 cursor-pointer items-center gap-3 rounded-md border px-3 py-1.5 text-sm ${
                     selected ? "border-line-strong bg-panel-raised text-foreground" : "border-transparent text-muted"
                   }`}
                 >
-                  <span className="min-w-0 break-words">{command.label}</span>
-                  {/* Shape as well as color marks the selection; the name stays the label alone. */}
+                  <span className="min-w-0 flex-1 break-words">{command.label}</span>
+                  {/* The kind is part of the option's name, after a pause, so a screen reader tells
+                      "Stripe, Provider dashboard" from "Stripe, Provider timeline". */}
+                  <span className="shrink-0 text-xs text-muted">
+                    <span className="sr-only">, </span>
+                    {command.kind}
+                  </span>
+                  {/* Shape as well as color marks the selection. */}
                   {selected ? (
                     <kbd aria-hidden="true" className={`shrink-0 ${KBD}`}>
                       Enter
@@ -365,7 +442,7 @@ export function CommandPalette({
             {search === null ? null : resultStatus(search, query)}
           </p>
           <p aria-hidden="true" className="hidden sm:block">
-            <ArrowKeys /> to move, <kbd className={KBD}>Enter</kbd> to open, <kbd className={KBD}>Esc</kbd> to close
+            <ArrowKeys /> to move, <kbd className={KBD}>Enter</kbd> to choose, <kbd className={KBD}>Esc</kbd> to close
           </p>
         </div>
       </dialog>
