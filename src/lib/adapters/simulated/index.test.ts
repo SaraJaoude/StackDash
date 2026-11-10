@@ -40,6 +40,7 @@ import {
 } from "./index";
 import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
 import { DAY_MS, isLaunchDay, isWeekend, type SimulatedIncident } from "./simulation";
+import { NEW_CUSTOMERS_PER_DAY } from "./stripe";
 import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
@@ -464,25 +465,22 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     // busy account cannot hide a silent sibling (Supabase's two projects write 52 and 6). A day and
     // not the two hour span: the sparsest profiles write a few events a day, so two hours leaves them
     // one or two (Resend 1, Polar 1, PostHog 2 on the seed). Over the day the seed gives Polar 3,
-    // PostHog 5, Supabase staging 6, Resend 13, Stripe 3,440 (its new customers), and every other
-    // account 50 or more. A 0 here means that account's syncs after the backfill stopped writing, or
-    // a simulator's random keying changed: check its `eventsInSlot` before watch mode.
+    // PostHog 5, Supabase staging 6, Resend 13, Stripe 63 (60 of them new customers), and every
+    // other account 50 or more. A 0 here means that account's syncs after the backfill stopped
+    // writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
     const accounts = byAccount(dayTicks);
     expect(accounts.size).toBeGreaterThan(0);
     for (const [accountId, syncs] of accounts) expect(eventCount(syncs), accountId).toBeGreaterThan(0);
   });
 
-  it("writes fewer events a tick on average on every account than its ceiling as watch mode ticks every 10 seconds", () => {
+  it("writes under one event in ten ticks on average on every account as watch mode ticks every 10 seconds", () => {
     // The flood check, bounded per account like the silence check, because one account's
     // `eventsInSlot` is what floods and a provider-wide mean would dilute it with quiet siblings.
-    // Stripe's new customers keep the live feed busy (#264, decided on pull request #290), about 0.4
-    // a tick on the seed (291 over 720 ticks), so its ceiling stays at 1, the bound before #264.
-    // Every other account runs at a small product's pace: the busiest on the seed are Sentry's ios
-    // project, Railway, and GitLab, at about 0.02 a tick (12 to 14 over 720 ticks), so their
-    // ceiling is 0.1, five times them. Tuning any profile past its ceiling fails here.
-    const ceiling = id === "stripe" ? 1 : 0.1;
+    // The busiest accounts on the seed are Sentry's ios project, Railway, and GitLab, at about 0.02
+    // a tick (12 to 14 over 720 ticks), so this ceiling is five times them: a small product's pace
+    // (#264), where Stripe alone wrote 0.7 a tick before. Tuning any profile past it fails here.
     for (const [accountId, syncs] of byAccount(ticks)) {
-      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(ceiling);
+      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(0.1);
     }
   });
 
@@ -578,7 +576,7 @@ describe("simulated sync boundaries", () => {
 const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("keep the live feed busy with Stripe's new customers across the #131 providers, never in a burst, and keep Vercel spend moving", async () => {
+  it("bring events at a small product's pace (#264) across the #131 providers, never in a burst, and keep Vercel spend moving", async () => {
     const connections = await Promise.all(
       WATCH_GROUP.map(async (id) => {
         const adapter = simulatedAdapters[id];
@@ -604,9 +602,9 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
       // The first tick is the 30 minute backfill.
       if (tick > 0) perTick.push(written);
     }
-    // On the seed: 311 events over these 720 ticks, 291 of them Stripe's new customers (#264,
-    // decided on pull request #290), on 298 ticks, and never more than 11 quiet ticks in a row.
-    // The money behind them stays a small product's: see "a small product's demo (#264)" below.
+    // A small product's timeline: 23 events over these 720 ticks on the seed, 3 of them Stripe's
+    // new customers, where Stripe alone wrote 497 before #264. Never a burst, and never silent for
+    // a whole backfill window (the longest quiet run on the seed is 118 ticks).
     const total = perTick.reduce((sum, count) => sum + count, 0);
     let quiet = 0;
     let longestQuiet = 0;
@@ -614,10 +612,10 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
       quiet = count > 0 ? 0 : quiet + 1;
       longestQuiet = Math.max(longestQuiet, quiet);
     }
-    expect(perTick.filter((count) => count > 0).length / perTick.length).toBeGreaterThan(1 / 3);
-    expect(total / perTick.length).toBeLessThan(1);
+    expect(total).toBeGreaterThan(0);
+    expect(total / perTick.length).toBeLessThan(0.1);
     expect(Math.max(...perTick)).toBeLessThanOrEqual(10);
-    expect(longestQuiet).toBeLessThan(30);
+    expect(longestQuiet).toBeLessThan(SIMULATED_BACKFILL_MS / SLOT_MS);
     // Stripe's few payments a day leave its revenue still for hours at a time (and a refund lowers
     // it), so what keeps an open dashboard moving is spend accruing by the millisecond: Vercel's
     // total changes on 142 of the 720 ticks on the seed, overnight in UTC.
@@ -1083,7 +1081,7 @@ describe("a small product's demo (#264)", () => {
     expect(total(budgetCurrency)).toBeGreaterThanOrEqual(budgetMinor / 10);
   });
 
-  it("keeps payments within ten times Vercel's deployments over the demo seed's 90 days, new customers aside", async () => {
+  it("keeps payments within ten times Vercel's deployments over the demo seed's 90 days", async () => {
     // The seed's own replay: one sync per account at each of its steps, cursors chained the way
     // `replayHistory` runs them, so each day keeps the half hour before London midnight.
     const steps = historySteps(new Date("2026-11-10T12:00:00.000Z"));
@@ -1106,20 +1104,22 @@ describe("a small product's demo (#264)", () => {
     const deployments = vercel.filter((event) => event.typeId.startsWith("vercel.deployment.")).length;
     const payments = [...stripe, ...polar].filter((event) => event.typeId === "stripe.charge.succeeded" || event.typeId === "polar.order.paid").length;
     // 168 deployments against 11 Stripe payments and 3 Polar orders. Payments only (#264, decided on
-    // pull request #290): Stripe's other 6,646 events are almost all new customers, which carry no
-    // money and keep the live feed busy. Before #264 Stripe wrote 8,163 payments, 49 a deployment.
+    // pull request #290): Stripe's other 99 events are almost all new customers, which carry no
+    // money. Before #264 Stripe wrote 8,163 payments, 49 a deployment.
     expect(deployments).toBeGreaterThan(0);
     expect(payments).toBeGreaterThan(0);
     expect(payments).toBeLessThanOrEqual(10 * deployments);
   });
 
-  it("keeps Stripe's live feed busy with new customers, which carry no money", async () => {
-    // A UTC day of chained half hour syncs on the seed: 3,437 new customers, about one every 25
-    // seconds, beside 2 payments and 1 new subscription (#264, decided on pull request #290).
+  it("adds Stripe's new customers at their stated daily rate, and they carry no money", async () => {
+    // The bounds follow NEW_CUSTOMERS_PER_DAY, not a fitted count: a UTC day of chained half hour
+    // syncs holds between half and twice the target (60 on the seed, beside 2 payments), so a
+    // retune of the target moves the test with it and a chance that misses it fails here.
     const syncs = await syncChain(simulatedAdapters.stripe, await connect(simulatedAdapters.stripe), DAY_CHAIN);
     const events = syncs.filter(({ backfill }) => !backfill).flatMap(({ result }) => result.events);
     const customers = events.filter((event) => event.typeId === "stripe.customer.created");
-    expect(customers.length).toBeGreaterThan(DAY_MS / SLOT_MS / 4);
+    expect(customers.length).toBeGreaterThanOrEqual(NEW_CUSTOMERS_PER_DAY / 2);
+    expect(customers.length).toBeLessThanOrEqual(NEW_CUSTOMERS_PER_DAY * 2);
     expect(events.filter((event) => event.typeId === "stripe.charge.succeeded").length).toBeLessThanOrEqual(5);
     // "New customer" and nothing else: no amount, no currency, nothing that reads as money.
     for (const event of customers) {

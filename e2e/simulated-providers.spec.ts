@@ -12,9 +12,8 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
  * their made-up data, and every screen labels it "Simulated": once per page while every connection
  * in view is simulated, and on each simulated item once a real connection joins them (#269).
  * Nothing leaves the machine. Sentry is here because its releases are the only events a 30 minute
- * backfill holds by construction. Stripe's new customers come on about 2 in 5 slots, so its backfill
- * almost always holds some, but only by chance; the others make up a small product's activity
- * (#264), a few payments and orders a day, so their first sync may bring none.
+ * backfill holds by construction: the others make up a small product's activity (#264), a few
+ * payments and about 50 new customers a day, so their first sync may bring none.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has

@@ -12,6 +12,7 @@ import {
   DAY_MS,
   HOUR_MS,
   MINUTE_MS,
+  SLOT_MS,
   instantInSlot,
   unit,
   utcMonthStart,
@@ -20,28 +21,33 @@ import {
 
 /*
  * Simulated Stripe account of a small product selling in USD and EUR (#264): about three payments a
- * day, a few thousand dollars a month, the odd failure and refund, and a subscription started most
- * days. Fees and revenue accrue hour by hour as balance transactions per currency. Both go through
- * the real adapter's `toActivityEvent` and `moneyMetrics`, so currencies stay apart and amounts are
- * integer minor units exactly as in a real sync.
- *
- * New customers are the exception, by choice (#264, decided on pull request #290): one lands about
- * every 25 seconds, so `npm run jobs:tick -- --watch` shows a busy live feed while the money stays
- * small. `customer.created` is the one event the real adapter maps that carries no amount ("New
- * customer", no body), and it never feeds revenue, spend, or the headline's signups (see
- * `eventTypes` in src/lib/adapters/stripe/index.ts). It is far more customers than a product with
- * three payments a day would make; the live feed is what it is for.
+ * day, a few thousand dollars a month, the odd failure and refund, about 50 new customers and a
+ * subscription started most days. Fees and revenue accrue hour by hour as balance transactions per
+ * currency. Both go through the real adapter's `toActivityEvent` and `moneyMetrics`, so currencies
+ * stay apart and amounts are integer minor units exactly as in a real sync.
  */
+
+/**
+ * New Stripe customers a day (#264, decided on pull request #290): in line with the simulated
+ * Supabase signups (about 52 on a weekday). A `customer.created` event carries no amount, but it is
+ * counted in more than the timeline, so its rate has to stay believable beside the money:
+ * - the "Signups" trend marker category (`src/lib/dashboard/markers.ts`), which also names the
+ *   events in the dashboard's "What changed" sentences (`src/lib/dashboard/what-changed.ts`);
+ * - the public metric "New customers in 30 days" (`stripe-customers-30d` in
+ *   `src/lib/public-metrics/definitions.ts`), which the demo seed publishes on its project page.
+ * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts).
+ */
+export const NEW_CUSTOMERS_PER_DAY = 50;
 
 type StripeType = (typeof timelineEvents)[number]["stripeType"];
 
 // Chance of each event type in one 10 second slot (8,640 a day). Payments match CURRENCIES below,
-// about 3 a day, and the money events are scaled to them; new customers come on about 2 in 5 slots.
+// about 3 a day, and the money events are scaled to them.
 const EVENT_CHANCES: Readonly<Record<StripeType, readonly number[]>> = {
   "charge.succeeded": [0.00036],
   "charge.failed": [0.00003],
   "charge.refunded": [0.00001],
-  "customer.created": [0.4],
+  "customer.created": [NEW_CUSTOMERS_PER_DAY / (DAY_MS / SLOT_MS)],
   "customer.subscription.created": [0.00012],
   "customer.subscription.deleted": [0.00004],
 };
