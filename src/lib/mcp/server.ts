@@ -228,11 +228,16 @@ type PromptToolCall = Readonly<{
   purpose: string;
 }>;
 
-/** The UTC days from `days` days ago to today, and the start of the first one as an RFC 3339 time. */
-function lookBack(now: Date, days: number): { from: string; to: string; since: string } {
+/**
+ * The `days` UTC days ending today, plus the day before them: `from` is that earlier day, read as
+ * the baseline each day's change is measured against, so the calls cover `days + 1` dates. `label`
+ * names the period that way for the prompt text, and `since` is the start of `from` in RFC 3339.
+ */
+function lookBack(now: Date, days: number): { from: string; to: string; since: string; label: string } {
   const to = utcDate(now);
   const from = addUtcDays(to, -days);
-  return { from, to, since: `${from}T00:00:00Z` };
+  const period = days === 1 ? "the day" : `the ${days} days`;
+  return { from, to, since: `${from}T00:00:00Z`, label: `${period} ending ${to}, starting from the ${from} reading (UTC days)` };
 }
 
 /**
@@ -255,24 +260,28 @@ function promptResult(task: string, calls: readonly PromptToolCall[], answer: re
 }
 
 function weeklyStackReview(now: Date): GetPromptResult {
-  const { from, to, since } = lookBack(now, WEEK_DAYS);
+  const { from, to, since, label } = lookBack(now, WEEK_DAYS);
   return promptResult(
-    `Review this DevMacro workspace's developer stack for the week from ${from} to ${to} (UTC days).`,
+    `Review this DevMacro workspace's developer stack for ${label}.`,
     [
       { tool: MCP_TOOLS.listProjects, arguments: {}, purpose: "the workspace and its projects, to group the review by." },
       { tool: MCP_TOOLS.getConnectionStatus, arguments: {}, purpose: "connections that are not active need attention first." },
-      { tool: MCP_TOOLS.getUsage, arguments: { from, to, ...PROMPT_PAGE }, purpose: "spend, usage, and allowances for each day of the week." },
+      {
+        tool: MCP_TOOLS.getUsage,
+        arguments: { from, to, ...PROMPT_PAGE },
+        purpose: "spend, usage, and allowances for each day, plus the starting reading.",
+      },
       {
         tool: MCP_TOOLS.listEvents,
         arguments: { from: since, ...PROMPT_PAGE },
-        purpose: "deployments, failures, payments, and anomalies during the week.",
+        purpose: "deployments, failures, payments, and anomalies in the same days.",
       },
       { tool: MCP_TOOLS.listAlerts, arguments: { acknowledged: false, ...PROMPT_PAGE }, purpose: "alerts nobody has acknowledged yet." },
     ],
     [
       "Then write the review under these headings, leaving out any heading with nothing to report:",
       "- Connections: each one that is not active, and what to do about it.",
-      "- Spend: each spend metric on its newest day beside its first day in the week, per provider and currency.",
+      `- Spend: each spend metric on its newest day beside its ${from} reading, per provider and currency.`,
       "- Allowances: each remaining_allowance that is running low, and its resets_at.",
       `- Events: failed deployments, sync failures, and anomalies (type ${ANOMALY_TYPE_ID}), with the day of each.`,
       "- Alerts: each unacknowledged alert and what it measured.",
@@ -283,11 +292,11 @@ function weeklyStackReview(now: Date): GetPromptResult {
 
 function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSchema>, now: Date): GetPromptResult {
   const span = days === undefined ? WEEK_DAYS : Number(days);
-  const { from, to, since } = lookBack(now, span);
+  const { from, to, since, label } = lookBack(now, span);
   const usage = (kind: MetricKind) => ({ kind, from, to, ...(provider === undefined ? {} : { provider }), ...PROMPT_PAGE });
   const scope = provider === undefined ? "" : ` for ${providerName(provider)}`;
   return promptResult(
-    `Explain why spend changed in this DevMacro workspace${scope} over the ${span} days from ${from} to ${to} (UTC days).`,
+    `Explain why spend changed in this DevMacro workspace${scope} over ${label}.`,
     [
       { tool: MCP_TOOLS.getUsage, arguments: usage("verified_spend"), purpose: "spend each provider reported." },
       { tool: MCP_TOOLS.getUsage, arguments: usage("estimated_spend"), purpose: "spend DevMacro estimated from a price list." },

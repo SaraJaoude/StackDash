@@ -444,7 +444,9 @@ describe("prompts", () => {
     const client = await connect(key);
     const prompt = await client.getPrompt({ name: WEEKLY_STACK_REVIEW });
     expect(readCalls()).toEqual([]);
-    expect(promptTextOf(prompt)).toContain("for the week from 2026-10-29 to 2026-11-05 (UTC days)");
+    expect(promptTextOf(prompt)).toContain(
+      "for the 7 days ending 2026-11-05, starting from the 2026-10-29 reading (UTC days).",
+    );
 
     const results = await runPrompt(client, prompt);
     expect(results.every((result) => !result.isError)).toBe(true);
@@ -467,7 +469,9 @@ describe("prompts", () => {
     const { key } = generateApiKey();
     const client = await connect(key);
     const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: { provider: "fake", days: "30" } });
-    expect(promptTextOf(prompt)).toContain("for Example provider over the 30 days from 2026-10-06 to 2026-11-05");
+    expect(promptTextOf(prompt)).toContain(
+      "for Example provider over the 30 days ending 2026-11-05, starting from the 2026-10-06 reading (UTC days).",
+    );
 
     const results = await runPrompt(client, prompt);
     expect(results.every((result) => !result.isError)).toBe(true);
@@ -483,14 +487,15 @@ describe("prompts", () => {
   });
 
   it.each([
-    ["no days, the 7 day default", {}, "2026-10-29"],
-    ["1 day, the minimum", { days: "1" }, "2026-11-04"],
-    ["90 days, the maximum", { days: "90" }, "2026-08-07"],
-  ])("why_did_spend_change accepts %s", async (_case, args, from) => {
+    ["no days, the 7 day default", {}, "the 7 days", "2026-10-29"],
+    ["1 day, the minimum, named in the singular", { days: "1" }, "the day", "2026-11-04"],
+    ["90 days, the maximum", { days: "90" }, "the 90 days", "2026-08-07"],
+  ])("why_did_spend_change accepts %s", async (_case, args, period, from) => {
     const client = await connect(generateApiKey().key);
     const prompt = await client.getPrompt({ name: WHY_DID_SPEND_CHANGE, arguments: args });
-    expect(promptTextOf(prompt)).toContain(`from ${from} to ${TODAY}`);
-    expect(promptTextOf(prompt)).toContain("spend changed in this DevMacro workspace over the");
+    expect(promptTextOf(prompt)).toContain(
+      `spend changed in this DevMacro workspace over ${period} ending ${TODAY}, starting from the ${from} reading (UTC days).`,
+    );
     expect(toolCallsOf(prompt)[0]?.arguments).toEqual({ kind: "verified_spend", from, to: TODAY, limit: 100 });
   });
 
