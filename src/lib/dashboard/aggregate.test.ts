@@ -299,10 +299,9 @@ describe("aggregateDashboard PostHog spend (#204)", () => {
 
   /** What one sync at `at` stores: the adapter's own `billingMetrics` through the sync's `toSnapshotRow`. */
   function synced(at: string, account = "a1"): SnapshotInput[] {
-    return postHogBillingMetrics(BillingResponseSchema.parse(billing), account, new Date(at), "us").map((metric) => ({
-      ...money({ metric_key: metric.metricKey, amount_minor: null, currency: null }),
-      ...toSnapshotRow(metric, { id: "c1", workspace_id: "w1" }, { id: account }),
-    }));
+    return postHogBillingMetrics(BillingResponseSchema.parse(billing), account, new Date(at), "us").map((metric) =>
+      toSnapshotRow(metric, { id: "c1", workspace_id: "w1" }, { id: account }),
+    );
   }
 
   /** The same sync as PostHog's rows were stored before #204: each product's spend as `posthog.<type>.spend`. */
@@ -399,26 +398,9 @@ describe("aggregateDashboard declared projections (#223)", () => {
   const posthog: ConnectionInput = { ...connection, id: "c-posthog", provider: "posthog", display_name: "PostHog (Example organization)" };
   const railway: ConnectionInput = { ...connection, id: "c-railway", provider: "railway", display_name: "Railway (Example workspace)" };
 
-  /**
-   * What one sync stores, through the adapter's own billing metrics and the sync's `toSnapshotRow`,
-   * read back with every nullable column present, as the stores read it.
-   */
+  /** What one sync stores, through the adapter's own billing metrics and the sync's `toSnapshotRow`. */
   function synced(owner: ConnectionInput, metrics: readonly AdapterMetric[]): SnapshotInput[] {
-    return metrics.map((metric) => {
-      const row = toSnapshotRow(metric, { id: owner.id, workspace_id: "w1" }, { id: `a-${owner.provider}` });
-      return {
-        ...row,
-        value: row.value ?? null,
-        unit: row.unit ?? null,
-        amount_minor: row.amount_minor ?? null,
-        currency: row.currency ?? null,
-        period_start: row.period_start ?? null,
-        period_end: row.period_end ?? null,
-        point_at: row.point_at ?? null,
-        resets_at: row.resets_at ?? null,
-        pricing_source: row.pricing_source ?? null,
-      };
-    });
+    return metrics.map((metric) => toSnapshotRow(metric, { id: owner.id, workspace_id: "w1" }, { id: `a-${owner.provider}` }));
   }
 
   // The demo seed on 2026-11-05: PostHog has billed nothing yet and projects $29.86 for the period;

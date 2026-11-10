@@ -285,8 +285,9 @@ export async function assignDemoProjects(
 
 // A month of simulated Vercel spend runs to about $760 with its launch day
 // (src/lib/adapters/simulated/vercel.ts), so this budget's 90 percent threshold ($540) is crossed
-// in the third week of each full month of the history.
-const VERCEL_BUDGET = { name: "Vercel monthly", amount: "600", currency: "USD" } as const;
+// in the third week of each full month of the history. Exported because the simulated providers'
+// scale is pinned against it (#264): a month of their revenue and spend stays within ten times it.
+export const DEMO_VERCEL_BUDGET = { name: "Vercel monthly", amount: "600", currency: "USD" } as const;
 // The simulated Resend team sends about 97 percent of its 3,000 emails a month
 // (src/lib/adapters/simulated/resend.ts), so this quota alert fires in the last days of a month.
 const RESEND_MONTHLY_QUOTA = "resend.emails.monthly";
@@ -299,7 +300,7 @@ const DEMO_THRESHOLD_PERCENT = "90";
  */
 export async function createDemoAlerts(admin: Admin, input: Readonly<{ workspaceId: string; userId: string }>): Promise<void> {
   const audit = { workspace_id: input.workspaceId, created_by: input.userId, updated_by: input.userId };
-  const budget = budgetInputSchema.parse({ ...VERCEL_BUDGET, scope: "provider", provider: "vercel" });
+  const budget = budgetInputSchema.parse({ ...DEMO_VERCEL_BUDGET, scope: "provider", provider: "vercel" });
   const { data, error } = await admin.from("budgets").insert({ ...budget, ...audit }).select("id").single();
   if (error) throw new Error(`Creating the demo budget failed (code ${error.code}).`);
   const rules = [

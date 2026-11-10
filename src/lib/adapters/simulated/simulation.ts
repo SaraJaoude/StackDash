@@ -118,6 +118,23 @@ export function isLaunchDay(accountId: string, ms: number): boolean {
 }
 
 /**
+ * How many of a UTC day's `between(min, max)` occurrences land in the hour starting at `hourMs`,
+ * each at a stable hour of its day. Unlike independent hourly chances, the day's total is bounded,
+ * so a small product's few payments a day never add up to a spend spike by chance alone (#264),
+ * which anomaly detection (#169) would flag.
+ */
+export function dailyCountInHour(min: number, max: number, hourMs: number, ...parts: readonly (string | number)[]): number {
+  const dayMs = utcDayStart(hourMs);
+  const hour = new Date(hourMs).getUTCHours();
+  const count = between(min, max, ...parts, dayMs, "count");
+  let inHour = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (between(0, 23, ...parts, dayMs, index, "hour") === hour) inHour += 1;
+  }
+  return inHour;
+}
+
+/**
  * A running total from `startMs` to `atMs` (both whole slots) of an amount that accrues hour by
  * hour: whole hours count in full and the current hour pro rata to the millisecond, rounded down,
  * so the total never shrinks as the clock moves forward within a period.

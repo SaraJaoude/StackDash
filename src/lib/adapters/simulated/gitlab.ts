@@ -39,7 +39,13 @@ const PROJECTS = [
   { id: 1003, name: "docs", defaultBranch: "main" },
 ] as const;
 const BRANCHES = ["main", "feature/checkout", "fix/login-redirect", "chore/deps"] as const;
-const ENVIRONMENTS = ["production", "staging", "review/feature-checkout"] as const;
+// Each environment with the branch it deploys, so an event never names one branch's review app
+// beside another branch's ref (#264).
+const ENVIRONMENTS = [
+  { name: "production", ref: "main" },
+  { name: "staging", ref: "main" },
+  { name: "review/feature-checkout", ref: "feature/checkout" },
+] as const;
 const BYTES_PER_GIB = 2 ** 30;
 // 10 GiB, the Free plan's storage figure on the pricing page.
 const STORAGE_LIMIT_BYTES = 10 * BYTES_PER_GIB;
@@ -133,7 +139,8 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
   // About 10 deployments a day, mostly to staging and review apps.
   if (chance(0.0012, accountId, "deployment", slot)) {
     const parts = [accountId, "deployment", slot] as const;
-    const environment = ENVIRONMENTS[between(0, ENVIRONMENTS.length - 1, ...parts, "environment")] ?? "staging";
+    const index = between(0, ENVIRONMENTS.length - 1, ...parts, "environment");
+    const environment = ENVIRONMENTS[index] ?? ENVIRONMENTS[1];
     push(
       deploymentEvent(
         projectRef(accountId, 0),
@@ -141,9 +148,9 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
           id: slot,
           iid: (slot % 100_000) + 1,
           status: chance(0.1, ...parts, "failed") ? "failed" : "success",
-          ref: "main",
+          ref: environment.ref,
           updated_at: instantInSlot(slot, ...parts),
-          environment: { id: ENVIRONMENTS.indexOf(environment) + 1, name: environment },
+          environment: { id: index + 1, name: environment.name },
         },
         accountId,
       ),

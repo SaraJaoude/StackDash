@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { DEMO_DEFAULT_SEED, demoSummaryLines, parseDemoSeedArgs, runDemoCommand, type DemoCommand, type SeededDemo } from "./seed";
+import { DEMO_SEED_TEXT } from "./history";
+import { demoSummaryLines, parseDemoSeedArgs, runDemoCommand, type DemoCommand, type SeededDemo } from "./seed";
 import { DEMO_USER_EMAIL } from "./workspace";
 
 const USAGE = "Usage: npm run demo -- [--member you@example.com] [--seed <text>]";
 
 describe("parseDemoSeedArgs", () => {
   it.each([
-    ["no arguments: no members and the default seed", [], { kind: "run", memberEmails: [], seed: DEMO_DEFAULT_SEED }],
-    ["one member", ["--member", "ada@example.com"], { kind: "run", memberEmails: ["ada@example.com"], seed: DEMO_DEFAULT_SEED }],
+    ["no arguments: no members and the default seed", [], { kind: "run", memberEmails: [], seed: DEMO_SEED_TEXT }],
+    ["one member", ["--member", "ada@example.com"], { kind: "run", memberEmails: ["ada@example.com"], seed: DEMO_SEED_TEXT }],
     [
       "many members and a seed, in any order",
       ["--seed", "rehearsal", "--member", "ada@example.com", "--member", "grace@example.com"],
@@ -17,7 +18,7 @@ describe("parseDemoSeedArgs", () => {
     [
       "a member in capitals with spaces, lowercased and trimmed as auth stores it",
       ["--member", "  Ada@Example.COM "],
-      { kind: "run", memberEmails: ["ada@example.com"], seed: DEMO_DEFAULT_SEED },
+      { kind: "run", memberEmails: ["ada@example.com"], seed: DEMO_SEED_TEXT },
     ],
   ])("accepts %s", (_title, argv, expected) => {
     expect(parseDemoSeedArgs(argv, USAGE)).toEqual(expected);
@@ -153,6 +154,6 @@ describe("runDemoCommand", () => {
       },
     });
     await expect(runDemoCommand([], demo)).rejects.toThrow("User not found");
-    expect(calls).toEqual(["refusal", `seed  ${DEMO_DEFAULT_SEED}`]);
+    expect(calls).toEqual(["refusal", `seed  ${DEMO_SEED_TEXT}`]);
   });
 });

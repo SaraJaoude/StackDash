@@ -16,6 +16,7 @@ import {
   between,
   chance,
   countOf,
+  dailyCountInHour,
   DAY_MS,
   HOUR_MS,
   instantInSlot,
@@ -26,22 +27,24 @@ import {
 } from "./simulation";
 
 /*
- * Simulated Polar organization selling a software subscription and a few one-time products.
- * Paid orders (mostly renewals), new and canceled subscriptions, and the odd refund trickle in
- * every minute or so; revenue, fees, and order counts accrue hour by hour into the daily periods
- * Polar's metrics endpoint returns. Both go through the real adapter's `analyticsMetrics` and
- * event builders, so amounts are rounded once into USD cents and kinds stay apart exactly as in a
- * real sync: revenue as revenue, Polar fees as spend, MRR and ARR as recurring revenue.
+ * Simulated Polar organization of a small product (#264) selling a software subscription and a few
+ * one-time products: a paid order (mostly renewals) or two a day, about a thousand dollars of
+ * MRR, a new subscription most days, and the odd cancellation and refund. Revenue, fees, and order
+ * counts accrue hour by hour into the daily periods Polar's metrics endpoint returns. Both go
+ * through the real adapter's `analyticsMetrics` and event builders, so amounts are rounded once
+ * into USD cents and kinds stay apart exactly as in a real sync: revenue as revenue, Polar fees as
+ * spend, MRR and ARR as recurring revenue.
  */
 
 type Stream = "order" | "started" | "canceled" | "refund";
 
-// Chance of each event in one 10 second slot: about one paid order a minute.
+// Chance of each event in one 10 second slot (8,640 a day), in line with the hourly totals below:
+// about 1.5 paid orders, 0.7 new and 0.3 canceled subscriptions a day, and a refund a month.
 const EVENT_CHANCES: Readonly<Record<Stream, readonly number[]>> = {
-  order: [0.08, 0.02],
-  started: [0.02],
-  canceled: [0.008],
-  refund: [0.005],
+  order: [0.00017],
+  started: [0.00008],
+  canceled: [0.00003],
+  refund: [0.000004],
 };
 
 const BILLING_REASONS = ["subscription_cycle", "subscription_cycle", "subscription_create", "purchase"] as const;
@@ -121,7 +124,9 @@ const EMPTY_TOTALS: Readonly<HourTotals> = {
 
 /** One hour's orders, gross revenue, and revenue after Polar's fees (cents), plus counts. */
 function hourOf(accountId: string, hourMs: number): HourTotals {
-  const orders = between(2, 9, accountId, "orders", hourMs);
+  // One or two orders a day at $9 to $49: roughly $1,300 a month, in line with the MRR below. A
+  // day's fees never pass $6, so they never look like a spend spike (#169).
+  const orders = dailyCountInHour(1, 2, hourMs, accountId, "orders");
   const revenue = orders * between(900, 4900, accountId, "price", hourMs);
   // Polar's Starter rate, 5% + 50¢ per transaction (Polar, Merchant of Record, Fees,
   // https://polar.sh/docs/merchant-of-record/fees, checked 2026-11-05).
@@ -130,9 +135,9 @@ function hourOf(accountId: string, hourMs: number): HourTotals {
     orders,
     revenue,
     netRevenue: Math.max(0, revenue - fees),
-    newSubscriptions: between(0, 2, accountId, "new-subs", hourMs),
-    canceledSubscriptions: chance(0.3, accountId, "canceled-subs", hourMs) ? 1 : 0,
-    newCustomers: between(0, 3, accountId, "customers", hourMs),
+    newSubscriptions: chance(0.03, accountId, "new-subs", hourMs) ? 1 : 0,
+    canceledSubscriptions: chance(0.012, accountId, "canceled-subs", hourMs) ? 1 : 0,
+    newCustomers: chance(0.05, accountId, "customers", hourMs) ? 1 : 0,
   };
 }
 
@@ -165,7 +170,8 @@ function dailyTotals(accountId: string, monthStartMs: number, nowMs: number): Ma
 function metrics(accountId: string, at: Date, ctx: AdapterContext): AdapterMetric[] {
   const nowMs = at.getTime();
   const monthStartMs = utcMonthStart(at).getTime();
-  const baseMrrCents = between(150_000, 400_000, accountId, "mrr");
+  // $800 to $2,000 of MRR, the order of the month's revenue from the orders above.
+  const baseMrrCents = between(80_000, 200_000, accountId, "mrr");
   // A yearly plan counts a twelfth of its price, so MRR carries a fraction of a cent like Polar's.
   const yearlyCents = 19_000 * between(1, 5, accountId, "yearly");
   const periods: MetricPeriod[] = [];

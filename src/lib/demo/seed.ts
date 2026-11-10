@@ -10,7 +10,7 @@ import { providerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 import { workspacePath } from "@/lib/workspaces/paths";
 
-import { DEMO_HISTORY_DAYS, historySteps, replayClock, replayHistory } from "./history";
+import { DEMO_HISTORY_DAYS, DEMO_SEED_TEXT, historySteps, replayClock, replayHistory } from "./history";
 import {
   assignDemoProjects,
   connectSimulatedProviders,
@@ -33,7 +33,6 @@ import {
 
 type Admin = SupabaseClient<Database>;
 
-export const DEMO_DEFAULT_SEED = "devmacro-demo";
 // Progress is printed every this many replayed days.
 const PROGRESS_EVERY_DAYS = 10;
 
@@ -52,7 +51,7 @@ export function parseDemoSeedArgs(argv: readonly string[], usage: string): DemoS
       args: [...argv],
       options: {
         member: { type: "string", multiple: true, default: [] },
-        seed: { type: "string", default: DEMO_DEFAULT_SEED },
+        seed: { type: "string", default: DEMO_SEED_TEXT },
       },
     }));
   } catch (error) {
