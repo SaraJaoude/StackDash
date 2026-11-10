@@ -49,7 +49,14 @@ export type SnapshotInput = Pick<
 
 export type ConnectionInput = Pick<
   Tables["connections"]["Row"],
-  "id" | "provider" | "display_name" | "status" | "last_synced_at" | "poll_interval_seconds" | "granted_scopes"
+  | "id"
+  | "provider"
+  | "display_name"
+  | "status"
+  | "last_synced_at"
+  | "last_sync_requested_at"
+  | "poll_interval_seconds"
+  | "granted_scopes"
 >;
 
 export type AccountInput = Pick<Tables["external_accounts"]["Row"], "id" | "connection_id" | "display_name" | "project_id">;
@@ -142,6 +149,8 @@ export type ProviderSummary = Readonly<{
   simulated: boolean;
   status: ConnectionStatus;
   lastSyncedAt: string | null;
+  /** The last "Sync now" request, for the dashboard's cooldown hint (#267); null when never asked. */
+  lastSyncRequestedAt: string | null;
   /** True when the connection has synced before but not within two poll intervals. */
   stale: boolean;
   spend: readonly CurrencyAmounts[];
@@ -555,6 +564,7 @@ function providerSummary(
     simulated: isSimulatedConnection(connection),
     status: connection.status,
     lastSyncedAt: connection.last_synced_at,
+    lastSyncRequestedAt: connection.last_sync_requested_at,
     stale: connection.last_synced_at !== null && isStale(connection.last_synced_at, connection.poll_interval_seconds, now),
     spend: sumByCurrency(spend, now),
     revenue: sumByCurrency(
@@ -669,6 +679,11 @@ export type StaleNotice = Readonly<{
   total: number;
   /** The newest last sync among the stale connections: none of them has synced since. */
   lastSyncedAt: string;
+  /**
+   * The earliest of the stale connections' last "Sync now" requests, or null when one has none: the
+   * button waits out the cooldown only while every one of them is in it (#161).
+   */
+  syncRequestedAt: string | null;
 }>;
 
 function withoutStaleMark<T extends Freshness>(value: T): T {
@@ -684,9 +699,11 @@ function amountsWithoutStaleMarks(list: readonly CurrencyAmounts[]): CurrencyAmo
 }
 
 /**
- * The notice for `view`, and the view to show under it. With a notice, no value or card carries its
- * own stale mark, because the notice says it once for the page; each still says when it was read.
- * Without one (fewer than half stale), the view is returned as it is, so a lone stale value stands out.
+ * The notice for `view`, and the view to show under it. With a notice, the stale connections' cards
+ * and values, and the totals that mix connections, carry no stale mark of their own, because the
+ * notice says it once for the page; each still says when it was read. A connection the notice does
+ * not name keeps its own marks. Without a notice (half or fewer stale), the view is returned as it
+ * is, so a lone stale value stands out.
  */
 export function withStaleNotice(view: DashboardView): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
   const syncable = view.byProvider.flatMap((summary) =>
@@ -695,29 +712,37 @@ export function withStaleNotice(view: DashboardView): Readonly<{ view: Dashboard
   const stale = syncable.filter(({ summary }) => summary.stale);
   if (stale.length === 0 || stale.length * 2 <= syncable.length) return { view, notice: null };
   const newest = stale.reduce((latest, entry) => (Date.parse(entry.lastSyncedAt) > Date.parse(latest.lastSyncedAt) ? entry : latest));
+  const requests = stale.flatMap(({ summary }) => (summary.lastSyncRequestedAt === null ? [] : [summary.lastSyncRequestedAt]));
+  const named = new Set(stale.map(({ summary }) => summary.connectionId));
   return {
     notice: {
       connections: stale.map(({ summary }) => ({ connectionId: summary.connectionId, name: summary.name })),
       total: syncable.length,
       lastSyncedAt: newest.lastSyncedAt,
+      syncRequestedAt:
+        requests.length < stale.length ? null : requests.reduce((earliest, at) => (Date.parse(at) < Date.parse(earliest) ? at : earliest)),
     },
     view: {
       totals: amountsWithoutStaleMarks(view.totals),
       revenue: amountsWithoutStaleMarks(view.revenue),
-      byProvider: view.byProvider.map((summary) => ({
-        ...summary,
-        stale: false,
-        spend: amountsWithoutStaleMarks(summary.spend),
-        revenue: amountsWithoutStaleMarks(summary.revenue),
-        recurringRevenue: summary.recurringRevenue.map((rate) => ({ ...rate, value: withoutStaleMark(rate.value) })),
-        credits: summary.credits.map(withoutStaleMark),
-        allowances: summary.allowances.map((allowance) => ({
-          ...allowance,
-          included: allowance.included === null ? null : withoutStaleMark(allowance.included),
-          used: allowance.used === null ? null : withoutStaleMark(allowance.used),
-          remaining: allowance.remaining === null ? null : withoutStaleMark(allowance.remaining),
-        })),
-      })),
+      byProvider: view.byProvider.map((summary) =>
+        named.has(summary.connectionId)
+          ? {
+              ...summary,
+              stale: false,
+              spend: amountsWithoutStaleMarks(summary.spend),
+              revenue: amountsWithoutStaleMarks(summary.revenue),
+              recurringRevenue: summary.recurringRevenue.map((rate) => ({ ...rate, value: withoutStaleMark(rate.value) })),
+              credits: summary.credits.map(withoutStaleMark),
+              allowances: summary.allowances.map((allowance) => ({
+                ...allowance,
+                included: allowance.included === null ? null : withoutStaleMark(allowance.included),
+                used: allowance.used === null ? null : withoutStaleMark(allowance.used),
+                remaining: allowance.remaining === null ? null : withoutStaleMark(allowance.remaining),
+              })),
+            }
+          : summary,
+      ),
       byProject: view.byProject.map((project) => ({ ...project, spend: amountsWithoutStaleMarks(project.spend) })),
     },
   };

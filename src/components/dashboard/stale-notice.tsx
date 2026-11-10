@@ -1,8 +1,10 @@
 import { useId } from "react";
 
 import { SyncNowForm } from "@/components/connections/connection-controls";
+import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { LockIcon } from "@/components/icons";
 import { staleNoticeText, type StaleNotice as Notice } from "@/lib/dashboard/aggregate";
+import { MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { actionDeniedReason } from "@/lib/workspaces/permissions";
 
 import { StaleIcon } from "./value-meta";
@@ -10,8 +12,10 @@ import { StaleIcon } from "./value-meta";
 /**
  * The dashboard's one stale notice (#267), in place of a stale line on every value: since when
  * most or all connections have not synced, and the same "Sync now" as a connection's page, for
- * every stale connection at once. Members who cannot manage connections are told why there is no
- * button. The warning is in words and an icon, never in color alone.
+ * every stale connection at once. While every one of them is in its Sync now cooldown, the button
+ * is unavailable with the same hint as on a connection's page (#161). Members who cannot manage
+ * connections are told why there is no button. The warning is in words and an icon, never in color
+ * alone.
  */
 export function StaleNotice({
   notice,
@@ -38,7 +42,13 @@ export function StaleNotice({
           <SyncNowForm
             workspaceSlug={workspaceSlug}
             connectionIds={notice.connections.map((connection) => connection.connectionId)}
-            cooldownNotice={null}
+            cooldownNotice={syncCooldownNotice(
+              cooldownRemainingSeconds(
+                notice.syncRequestedAt === null ? null : new Date(notice.syncRequestedAt),
+                MANUAL_SYNC_COOLDOWN_SECONDS,
+                now,
+              ),
+            )}
           />
         </div>
       ) : (

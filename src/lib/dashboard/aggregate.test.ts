@@ -43,6 +43,7 @@ const connection: ConnectionInput = {
   display_name: "Fake account",
   status: "active",
   last_synced_at: "2026-10-15T11:30:00.000Z",
+  last_sync_requested_at: null,
   poll_interval_seconds: HOUR,
   granted_scopes: ["usage:read"],
 };
@@ -602,6 +603,7 @@ describe("withStaleNotice (#267)", () => {
   const second: ConnectionInput = { ...connection, id: "c2", provider: "github", display_name: "GitHub org" };
   const third: ConnectionInput = { ...connection, id: "c3", provider: "vercel", display_name: "Vercel team" };
   const secondAccount: AccountInput = { id: "a3", connection_id: "c2", display_name: "Org", project_id: null };
+  const thirdAccount: AccountInput = { id: "a4", connection_id: "c3", display_name: "Team", project_id: null };
 
   function view(connections: readonly ConnectionInput[]) {
     return aggregateDashboard(
@@ -611,8 +613,10 @@ describe("withStaleNotice (#267)", () => {
           money({ connection_id: "c2", external_account_id: "a3", metric_key: "github.spend.month", amount_minor: 50, currency: "USD", retrieved_at: twoDaysAgo }),
           quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests", retrieved_at: threeDaysAgo }),
           quantity({ metric_key: "fake.requests.month", kind: "usage", value: 250, unit: "requests", retrieved_at: threeDaysAgo }),
+          // A fresh connection's metric that was last read three days ago: its own stale value.
+          money({ connection_id: "c3", external_account_id: "a4", metric_key: "vercel.spend.month", amount_minor: 70, currency: "EUR", retrieved_at: threeDaysAgo }),
         ],
-        { connections, accounts: [...accounts, secondAccount] },
+        { connections, accounts: [...accounts, secondAccount, thirdAccount] },
       ),
     );
   }
@@ -631,6 +635,7 @@ describe("withStaleNotice (#267)", () => {
       ],
       total: 2,
       lastSyncedAt: twoDaysAgo,
+      syncRequestedAt: null,
     });
     const stale = [
       ...shown.totals.flatMap((amounts) => [amounts.verified, amounts.estimated]),
@@ -647,9 +652,23 @@ describe("withStaleNotice (#267)", () => {
     expect(shown.byProvider[0]?.lastSyncedAt).toBe(threeDaysAgo);
   });
 
-  it("shows the notice when most connections are stale: two of three", () => {
-    const { notice } = withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, { ...second, last_synced_at: twoDaysAgo }, third]));
+  it("shows the notice when most connections are stale: two of three, and a connection it does not name keeps its own stale value", () => {
+    const { notice, view: shown } = withStaleNotice(
+      view([{ ...connection, last_synced_at: threeDaysAgo }, { ...second, last_synced_at: twoDaysAgo }, third]),
+    );
     expect(notice).toMatchObject({ total: 3, connections: [{ connectionId: "c1" }, { connectionId: "c2" }] });
+    const vercelCard = shown.byProvider.find((summary) => summary.connectionId === "c3");
+    expect(vercelCard?.spend[0]?.verified?.stale).toBe(true);
+    expect(shown.byProvider.find((summary) => summary.connectionId === "c1")?.spend[0]?.verified?.stale).toBe(false);
+  });
+
+  it("waits out the Sync now cooldown only while every stale connection is in it (#161)", () => {
+    const asked = (owner: ConnectionInput, at: string | null) => ({ ...owner, last_synced_at: threeDaysAgo, last_sync_requested_at: at });
+    const early = "2026-10-15T11:56:00.000Z";
+    const late = "2026-10-15T11:58:00.000Z";
+    expect(withStaleNotice(view([asked(connection, late), asked(second, early)])).notice?.syncRequestedAt).toBe(early);
+    // One never asked: it can sync now, so there is no cooldown to wait out.
+    expect(withStaleNotice(view([asked(connection, late), asked(second, null)])).notice?.syncRequestedAt).toBeNull();
   });
 
   it.each([
@@ -684,15 +703,15 @@ describe("withStaleNotice (#267)", () => {
   it("says since when in words, naming the stale connections only when some are fresh", () => {
     const one = { connectionId: "c1", name: "Fake account" };
     const two = { connectionId: "c2", name: "GitHub org" };
-    const all = staleNoticeText({ connections: [one, two], total: 2, lastSyncedAt: twoDaysAgo }, NOW);
+    const all = staleNoticeText({ connections: [one, two], total: 2, lastSyncedAt: twoDaysAgo, syncRequestedAt: null }, NOW);
     expect(all).toEqual({
       title: "Data last synced 2 days ago",
       body: "None of the 2 connections in view has synced since 2026-10-13 10:00 BST, so every figure on this page is from then or earlier.",
     });
-    expect(staleNoticeText({ connections: [one], total: 1, lastSyncedAt: threeDaysAgo }, NOW).body).toBe(
+    expect(staleNoticeText({ connections: [one], total: 1, lastSyncedAt: threeDaysAgo, syncRequestedAt: null }, NOW).body).toBe(
       "The only connection in view has not synced since 2026-10-12 10:00 BST, so every figure on this page is from then or earlier.",
     );
-    const most = staleNoticeText({ connections: [one, two], total: 3, lastSyncedAt: twoDaysAgo }, NOW);
+    const most = staleNoticeText({ connections: [one, two], total: 3, lastSyncedAt: twoDaysAgo, syncRequestedAt: null }, NOW);
     expect(most.body).toBe(
       "2 of 3 connections in view have not synced since 2026-10-13 10:00 BST: Fake account and GitHub org. Their figures on this page are from then or earlier.",
     );

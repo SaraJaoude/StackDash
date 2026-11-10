@@ -463,6 +463,7 @@ describe("digestFigures", () => {
       display_name: "PostHog",
       status: "active",
       last_synced_at: null,
+      last_sync_requested_at: null,
       poll_interval_seconds: 3600,
       granted_scopes: [],
     };

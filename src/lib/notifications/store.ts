@@ -255,7 +255,7 @@ export function createSupabaseNotificationStore(): NotificationStore {
       const [connections, accounts, projects, snapshots] = await Promise.all([
         db
           .from("connections")
-          .select("id, provider, display_name, status, last_synced_at, poll_interval_seconds, granted_scopes")
+          .select("id, provider, display_name, status, last_synced_at, last_sync_requested_at, poll_interval_seconds, granted_scopes")
           .eq("workspace_id", workspaceId)
           .neq("status", "revoked")
           .order("created_at", { ascending: true })

@@ -13,7 +13,7 @@ import {
   SyncNowForm,
 } from "@/components/connections/connection-controls";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
-import { cooldownRemainingSeconds } from "@/components/connections/cooldown";
+import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
@@ -69,8 +69,7 @@ async function ConnectionContent({
     MANUAL_SYNC_COOLDOWN_SECONDS,
     now,
   );
-  const cooldownNotice =
-    remaining > 0 ? `Sync now is available again in ${Math.ceil(remaining / 60)} minute${remaining > 60 ? "s" : ""}.` : null;
+  const cooldownNotice = syncCooldownNotice(remaining);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const revoked = connection.status === "revoked";
 

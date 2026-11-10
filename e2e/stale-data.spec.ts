@@ -63,9 +63,10 @@ ownerTest.describe("stale data as the owner", () => {
       expect(scan.violations).toEqual([]);
       await page.keyboard.press("Enter");
       await expect(page.getByRole("status").filter({ hasText: "Sync queued for 4 connections. New numbers appear within a few minutes." })).toBeVisible();
-      // A second request inside the cooldown says how long to wait instead of queueing again.
-      await sync.click();
-      await expect(page.getByRole("status").filter({ hasText: /^A sync was requested recently\. Try again in / })).toBeVisible();
+      // Inside the cooldown the button stays focused but unavailable, with the connection page's hint (#161).
+      await expect(sync).toHaveAttribute("aria-disabled", "true");
+      await expect(sync).toBeFocused();
+      await expect(sync).toHaveAccessibleDescription("Sync now is available again in 5 minutes.");
       await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
