@@ -25,14 +25,16 @@ describe("parseVerification", () => {
     ["a prototype member as the phrase", "Verification: constructor.", null],
     ["a phrase in another case", "Verification: Documentation only.", null],
     ["a sentence only inside a code fence", "```\nVerification: documentation only.\n```", null],
+    ["a sentence only after the lead paragraph", "Provider id: `x`.\n\nVerification: tested with a real account.", null],
+    ["a sentence on the lead paragraph's second line", "Provider id: `x`.\nVerification: documentation only.", "documentation"],
   ])("reads %s", (_case, source, expected) => {
     expect(parseVerification(`# Title\n\n${source}\n`)).toBe(expected);
   });
 
-  it("takes the first sentence when a page states two", () => {
+  it("reads the lead paragraph, never a later sentence that disagrees", () => {
     expect(
-      parseVerification("Verification: tested with a real account.\n\nVerification: documentation only.\n"),
-    ).toBe("real-account");
+      parseVerification("# Title\n\nVerification: documentation only.\n\nVerification: tested with a real account.\n"),
+    ).toBe("documentation");
   });
 });
 

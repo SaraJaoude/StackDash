@@ -110,19 +110,23 @@ function parseTitle(lines: readonly string[]): string | null {
   return null;
 }
 
-function parseDescription(lines: readonly string[]): string {
+/** Prose paragraphs in order, each joined into one line. Headings, lists, tables, and quotes end one. */
+function paragraphs(lines: readonly string[]): string[] {
   let paragraph: string[] = [];
-  const candidates: string[] = [];
+  const found: string[] = [];
   for (const line of [...lines, ""]) {
     if (line.trim() === "" || NON_PARAGRAPH.test(line)) {
-      if (paragraph.length > 0) candidates.push(paragraph.join(" "));
+      if (paragraph.length > 0) found.push(paragraph.join(" "));
       paragraph = [];
       continue;
     }
     paragraph.push(line.trim());
   }
+  return found;
+}
 
-  for (const candidate of candidates) {
+function parseDescription(lines: readonly string[]): string {
+  for (const candidate of paragraphs(lines)) {
     let text = candidate;
     for (let match = TRACKING_SENTENCE.exec(text); match; match = TRACKING_SENTENCE.exec(text)) {
       text = text.slice(match[0].length);
@@ -134,17 +138,17 @@ function parseDescription(lines: readonly string[]): string {
 }
 
 /**
- * The status a provider page states in its first `Verification: <phrase>.` sentence outside code,
- * or null when it states none or a phrase that is not one of `VERIFICATION_PHRASES`.
+ * The status a provider page states in a `Verification: <phrase>.` sentence of its lead paragraph
+ * (the first prose paragraph outside code), or null when the lead paragraph states none or a
+ * phrase that is not one of `VERIFICATION_PHRASES`. A sentence further down never counts, so a
+ * note in the body cannot change the badge.
  */
 export function parseVerification(source: string): DocVerification | null {
-  for (const line of proseLines(source)) {
-    const phrase = VERIFICATION_SENTENCE.exec(line)?.[1];
-    if (phrase === undefined) continue;
-    // `hasOwn`, so a phrase such as "constructor" never resolves to an Object prototype member.
-    return Object.hasOwn(VERIFICATION_PHRASES, phrase) ? (VERIFICATION_PHRASES[phrase] ?? null) : null;
-  }
-  return null;
+  const lead = paragraphs(proseLines(source))[0];
+  const phrase = lead === undefined ? undefined : VERIFICATION_SENTENCE.exec(lead)?.[1];
+  if (phrase === undefined) return null;
+  // `hasOwn`, so a phrase such as "constructor" never resolves to an Object prototype member.
+  return Object.hasOwn(VERIFICATION_PHRASES, phrase) ? (VERIFICATION_PHRASES[phrase] ?? null) : null;
 }
 
 function requireVerification(relativeFile: string, source: string): DocVerification {
