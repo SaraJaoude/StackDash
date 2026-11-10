@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { createServer, type Server } from "node:http";
 import { promisify } from "node:util";
 
 import type { Page } from "@playwright/test";
@@ -10,6 +9,7 @@ import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { fakeEmails } from "./fixtures/fake-resend";
 import { expectSubscribed, LIVE_TIMEOUT_MS, watchLiveChannel } from "./fixtures/realtime";
+import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
 
 /*
  * `npm run demo:event` (#256), end to end: with the timeline open, the command makes a failed
@@ -27,32 +27,6 @@ const FAILED_DEPLOYMENT = "Production deployment of web failed";
 const BUDGET_ALERT = "Budget Vercel monthly passed 90 percent";
 
 const FAILED_RUN = z.object({ code: z.number(), stdout: z.string(), stderr: z.string() });
-
-type Received = { body: string };
-
-async function startReceiver(): Promise<{ server: Server; url: string; received: Received[] }> {
-  const received: Received[] = [];
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      received.push({ body: Buffer.concat(chunks).toString("utf8") });
-      response.writeHead(204).end();
-    });
-  });
-  const listening = Promise.withResolvers<void>();
-  server.listen(0, "127.0.0.1", () => listening.resolve());
-  await listening.promise;
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("the receiver has no TCP address");
-  return { server, url: `http://127.0.0.1:${address.port}/devmacro`, received };
-}
-
-async function stopReceiver(server: Server): Promise<void> {
-  const closed = Promise.withResolvers<void>();
-  server.close(() => closed.resolve());
-  await closed.promise;
-}
 
 /** Runs the command against this workspace; `simulate` is the flag the command reads. */
 async function demoEvent(type: string, workspace: TestWorkspace, simulate = "1"): Promise<{ code: number; stdout: string; stderr: string }> {
