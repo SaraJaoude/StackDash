@@ -12,6 +12,7 @@ import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView, renderedSeries } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
+import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { GaugeIcon } from "@/components/icons";
 import {
   declaredEventTypes,
@@ -19,12 +20,15 @@ import {
   declaredSignupDailyTotals,
   revenueProviderIds,
 } from "@/lib/adapters/registry";
-import { aggregateDashboard, type ProviderId } from "@/lib/dashboard/aggregate";
+import { aggregateDashboard, type ProviderId, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
+  chooseHeadline,
+  fallbackWindows,
   HEADLINE_WINDOW_KINDS,
   headlineEventTypes,
   headlineWindows,
+  type HeadlineStrip as HeadlineStripData,
   type HeadlineWindowKind,
 } from "@/lib/dashboard/headline";
 import {
@@ -216,12 +220,37 @@ async function DashboardContent({
   const rendered = providers.flatMap(renderedSeries);
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
+  // One notice for the page when most connections are stale, instead of a line on every value (#267).
+  const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input));
+
+  const headlineInput = {
+    connections: trendData.connections,
+    eventTypes,
+    projectedSpend: declaredProjectedSpend,
+    revenueProviders: revenueProviderIds,
+  };
+  const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
+  // Only when the window to date has no figure because a connection in view is stale: the last
+  // complete window, whose reads depend on the strip above, so they run after it.
+  const lastComplete = fallbackWindows(strip, trendData.connections, now);
+  let fallback: HeadlineStripData | null = null;
+  if (lastComplete !== null) {
+    const [snapshots, events] = await Promise.all([
+      getHeadlineSnapshots(workspace.id, scope, lastComplete, eventTypes),
+      getHeadlineEvents(workspace.id, scope, lastComplete, eventTypes),
+    ]);
+    fallback = buildHeadline({ ...headlineInput, windows: lastComplete, snapshots, events });
+  }
+
   // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
   // resets what counts as changed.
   return (
     <ArrivalScope scope={dashboardHref(dashboardPath, scope, view)}>
+      {notice === null ? null : (
+        <StaleNotice notice={notice} now={now} workspaceSlug={workspace.slug} canSync={canPerform(role, "manage_connections")} />
+      )}
       <DashboardView
-        view={aggregateDashboard(input)}
+        view={dashboard}
         projections={projectDashboard(input)}
         now={now}
         dashboardPath={dashboardPath}
@@ -231,16 +260,7 @@ async function DashboardContent({
         filterParams={viewParams(view)}
         headline={
           <HeadlineStrip
-            strip={buildHeadline({
-              snapshots: headlineSnapshots,
-              connections: trendData.connections,
-              events: headlineEvents,
-              eventTypes,
-              projectedSpend: declaredProjectedSpend,
-              revenueProviders: revenueProviderIds,
-              kind: view.window,
-              now,
-            })}
+            headline={chooseHeadline(strip, fallback)}
             hrefs={{
               week: dashboardHref(dashboardPath, scope, { ...view, window: "week" }),
               month: dashboardHref(dashboardPath, scope, { ...view, window: "month" }),

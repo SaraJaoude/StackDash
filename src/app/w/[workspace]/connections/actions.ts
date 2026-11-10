@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import type { ProviderId } from "@/lib/adapters/types";
 import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
+import { CONNECTIONS_LIMIT } from "@/lib/data/dashboard";
 import { enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
 import { logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
@@ -60,10 +61,23 @@ async function findConnection(access: WorkspaceAccess, connectionId: string) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("connections")
-    .select("id, provider, status, last_sync_requested_at")
+    .select("id, provider, status")
     .eq("workspace_id", access.workspace.id)
     .eq("id", connectionId)
     .maybeSingle();
+  if (error) throw new Error("Connection lookup failed", { cause: error });
+  return data;
+}
+
+/** The given connections of the caller's workspace, in one read; an id from elsewhere is absent. */
+async function findConnections(access: WorkspaceAccess, connectionIds: readonly string[]) {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("connections")
+    .select("id, status, last_sync_requested_at")
+    .eq("workspace_id", access.workspace.id)
+    .in("id", [...connectionIds])
+    .limit(connectionIds.length);
   if (error) throw new Error("Connection lookup failed", { cause: error });
   return data;
 }
@@ -161,49 +175,90 @@ function formatWait(seconds: number): string {
   return minutes <= 1 ? "about a minute" : `${minutes} minutes`;
 }
 
+// One connection from its page, or every stale one from the dashboard's notice (#267); never more
+// than the dashboard lists.
+const syncNowSchema = z
+  .object({ workspace: z.string().min(1), connectionIds: z.array(Id).min(1).max(CONNECTIONS_LIMIT) })
+  .strict();
+
 export async function syncNow(
   _previous: ConnectionActionResult | null,
   formData: FormData,
 ): Promise<ConnectionActionResult> {
-  const parsed = connectionSchema.safeParse({
+  const parsed = syncNowSchema.safeParse({
     workspace: formData.get("workspace"),
-    connectionId: formData.get("connectionId"),
+    connectionIds: formData.getAll("connectionId"),
   });
   if (!parsed.success) return { ok: false, message: STALE_FORM_MESSAGE };
+  const connectionIds = [...new Set(parsed.data.connectionIds)];
 
+  let queued: number;
+  let failed: number;
+  let requested: number;
+  let referenceId: string | undefined;
   try {
     const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
-    const connection = await findConnection(access, parsed.data.connectionId);
-    if (connection === null) return { ok: false, message: NOT_FOUND_MESSAGE };
-    if (connection.status === "revoked") {
-      return { ok: false, message: "This connection is disconnected. Reconnect it before syncing." };
+    const connections = await findConnections(access, connectionIds);
+    if (connections.length < connectionIds.length) return { ok: false, message: NOT_FOUND_MESSAGE };
+    const syncable = connections.filter((connection) => connection.status !== "revoked");
+    if (syncable.length === 0) {
+      return {
+        ok: false,
+        message:
+          connectionIds.length === 1
+            ? "This connection is disconnected. Reconnect it before syncing."
+            : "These connections are disconnected. Reconnect them before syncing.",
+      };
     }
-    const { queued } = await enqueueSync({
-      workspaceId: access.workspace.id,
-      connectionId: connection.id,
-      reason: "manual",
-    });
-    if (!queued) {
-      // Re-read after the attempt: the queue records the request time when it accepts one.
-      const latest = await findConnection(access, connection.id);
-      const requestedAt = latest?.last_sync_requested_at ?? null;
+    // Settled, not all: one connection's failed request must not hide that the others were queued.
+    const results = await Promise.allSettled(
+      syncable.map((connection) => enqueueSync({ workspaceId: access.workspace.id, connectionId: connection.id, reason: "manual" })),
+    );
+    const rejected = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    queued = results.filter((result) => result.status === "fulfilled" && result.value.queued).length;
+    failed = rejected.length;
+    requested = syncable.length;
+    if (failed > 0) {
+      referenceId = logError(
+        "connections.sync_now_failed",
+        new AggregateError(rejected, `${failed} of ${requested} manual syncs could not be queued`),
+      );
+    }
+    if (queued === 0 && failed > 0) {
+      return { ok: false, message: "The sync could not be queued. Try again in a moment.", ...(referenceId === undefined ? {} : { referenceId }) };
+    }
+    if (queued === 0) {
+      // Re-read after the attempt: the queue records the request time when it accepts one. The
+      // newest request is the one to wait out.
+      const latest = await findConnections(access, syncable.map((connection) => connection.id));
+      const requestedAt = latest.flatMap((connection) =>
+        connection.last_sync_requested_at === null ? [] : [Date.parse(connection.last_sync_requested_at)],
+      );
       const remaining =
-        requestedAt === null
-          ? 0
-          : Math.ceil((new Date(requestedAt).getTime() + MANUAL_SYNC_COOLDOWN_SECONDS * 1000 - Date.now()) / 1000);
+        requestedAt.length === 0 ? 0 : Math.ceil((Math.max(...requestedAt) + MANUAL_SYNC_COOLDOWN_SECONDS * 1000 - Date.now()) / 1000);
       return {
         ok: false,
         message:
           remaining > 0
             ? `A sync was requested recently. Try again in ${formatWait(remaining)}.`
-            : "A sync is already queued for this connection. It runs within a minute.",
+            : `A sync is already queued for ${requested === 1 ? "this connection" : "these connections"}. It runs within a minute.`,
       };
     }
   } catch (error) {
     return failure("connections.sync_now_failed", error, "The sync could not be queued. Try again in a moment.");
   }
   refresh();
-  return { ok: true, message: "Sync queued. New numbers appear within a few minutes." };
+  if (requested === 1) return { ok: true, message: "Sync queued. New numbers appear within a few minutes." };
+  const waiting = requested - queued - failed;
+  const parts = [queued === requested ? `Sync queued for ${requested} connections.` : `Sync queued for ${queued} of ${requested} connections.`];
+  if (waiting > 0) {
+    parts.push(
+      `${waiting === 1 ? "One already has" : `${waiting} already have`} a sync queued or requested in the last ${MANUAL_SYNC_COOLDOWN_SECONDS / 60} minutes.`,
+    );
+  }
+  if (failed > 0) parts.push(`${failed === 1 ? "One" : failed} could not be queued. Try again in a moment, reference ${referenceId ?? "unknown"}.`);
+  parts.push("New numbers appear within a few minutes.");
+  return { ok: true, message: parts.join(" ") };
 }
 
 export async function disconnect(

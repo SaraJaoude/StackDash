@@ -52,6 +52,8 @@ The timeline gets exactly one `devmacro.sync_failed` event per failure episode. 
 
 `enqueueSync({ reason: "manual" })` in `src/lib/jobs/queue.ts` accepts one request per connection every 5 minutes (`MANUAL_SYNC_COOLDOWN_SECONDS`). The check and the `last_sync_requested_at` stamp happen in one statement (`request_manual_sync`), so two quick clicks cannot both pass.
 
+The same Server Action (`syncNow` in `src/app/w/[workspace]/connections/actions.ts`) serves a connection's page and the dashboard's stale notice (#267). The notice appears when most or all connections in view have not synced within two poll intervals, and its "Sync now" sends every stale connection at once: one read checks they belong to the workspace, then each goes through `enqueueSync` with its own cooldown, settled one by one, so a failure for one connection is logged with a reference and the answer still says how many were queued. The notice's button is unavailable, with the connection page's hint, only while every stale connection is in its cooldown.
+
 ## Retention
 
 The daily retention job deletes, in batches of 1000 rows:

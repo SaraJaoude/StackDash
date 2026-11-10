@@ -147,11 +147,12 @@ export function AccountIncludedForm({
 
 export function SyncNowForm({
   workspaceSlug,
-  connectionId,
+  connectionIds,
   cooldownNotice,
 }: {
   workspaceSlug: string;
-  connectionId: string;
+  /** One connection on its page; every stale one in the dashboard's notice (#267). */
+  connectionIds: readonly string[];
   // Set while the manual sync cooldown runs, e.g. "Available again in 4 minutes."
   cooldownNotice: string | null;
 }) {
@@ -160,7 +161,9 @@ export function SyncNowForm({
   return (
     <form action={formAction} className="flex flex-col gap-2">
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <input type="hidden" name="connectionId" value={connectionId} />
+      {connectionIds.map((connectionId) => (
+        <input key={connectionId} type="hidden" name="connectionId" value={connectionId} />
+      ))}
       {/* Unavailable rather than disabled during the cooldown too: a sync that starts one leaves
           focus on the button instead of dropping it to the page (#161). */}
       <GuardedButton

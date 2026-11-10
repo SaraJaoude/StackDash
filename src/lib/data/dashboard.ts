@@ -23,13 +23,16 @@ export const SNAPSHOT_WINDOW_DAYS = 45;
 // Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
 const SNAPSHOT_MAX_ROWS = 10_000;
 
-// Bounds for the small lists. A workspace in the MVP has a handful of each.
-const CONNECTIONS_LIMIT = 100;
+// Bounds for the small lists. A workspace in the MVP has a handful of each. The dashboard's "Sync
+// now" (#267) queues at most as many connections as it lists.
+export const CONNECTIONS_LIMIT = 100;
 const ACCOUNTS_LIMIT = 1000;
 const PROJECTS_LIMIT = 500;
 
-// granted_scopes says whether the provider simulator made the connection (#131).
-const CONNECTION_COLUMNS = "id, provider, display_name, status, last_synced_at, poll_interval_seconds, granted_scopes";
+// granted_scopes says whether the provider simulator made the connection (#131); last_sync_requested_at
+// drives the stale notice's Sync now cooldown (#267).
+const CONNECTION_COLUMNS =
+  "id, provider, display_name, status, last_synced_at, last_sync_requested_at, poll_interval_seconds, granted_scopes";
 const ACCOUNT_COLUMNS = "id, connection_id, display_name, project_id";
 const PROJECT_COLUMNS = "id, name";
 const SNAPSHOT_COLUMNS =

@@ -1,8 +1,8 @@
 import { formatUtcDate } from "@/lib/format";
 
 import { UNAVAILABLE_LABELS } from "./display";
-import type { PublicMetricId } from "./definitions";
-import { computePublicMetrics, historyStart, type PublicMetricStore } from "./engine";
+import { publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { computePublicMetrics, historyStart, STALE_AFTER_MS, type PublicMetricStore, type SourceAccount } from "./engine";
 
 /*
  * The yearly stack summary (#151): a card of what a workspace did in a calendar year, computed by
@@ -18,6 +18,10 @@ import { computePublicMetrics, historyStart, type PublicMetricStore } from "./en
  * connected in August shows August to December instead of "not enough history". Emails and GitHub
  * Actions minutes are monthly totals in the engine, with no yearly formula, so they are left off
  * (decision on issue #151). No money, ever.
+ *
+ * A figure whose provider has not synced within the engine's `STALE_AFTER_MS` is counted up to its
+ * oldest last sync instead, and says "counted up to" that day (#267): a count over the year is
+ * still true up to there, where a public current value is not.
  *
  * Pure apart from the injected store, so it is unit tested against the in-memory store.
  */
@@ -72,6 +76,8 @@ export type YearStat =
       value: number;
       /** The window's start when it is later than 1 January, else null. */
       since: Date | null;
+      /** The provider's oldest last sync when it is more than `STALE_AFTER_MS` old, else null. */
+      countedUpTo: Date | null;
       simulated: boolean;
     }>
   | Readonly<{ label: string; status: "unavailable"; text: string }>;
@@ -102,6 +108,18 @@ function withSharedAccounts(store: PublicMetricStore): PublicMetricStore {
   };
 }
 
+/**
+ * Where a stale provider's figure is counted up to: the oldest last sync of its accounts, when that
+ * is more than `STALE_AFTER_MS` before `asOf`. Null when the data is fresh, and when an account has
+ * never synced, which the engine reports as it is.
+ */
+function staleSyncedUpTo(accounts: readonly SourceAccount[], asOf: Date): Date | null {
+  const synced = accounts.flatMap((account) => (account.lastSyncedAt === null ? [] : [account.lastSyncedAt.getTime()]));
+  if (synced.length === 0 || synced.length < accounts.length) return null;
+  const oldest = Math.min(...synced);
+  return asOf.getTime() - oldest > STALE_AFTER_MS ? new Date(oldest) : null;
+}
+
 export async function computeYearSummary(source: PublicMetricStore, year: number, now: Date): Promise<YearSummary> {
   const store = withSharedAccounts(source);
   const start = new Date(Date.UTC(year, 0, 1));
@@ -116,12 +134,18 @@ export async function computeYearSummary(source: PublicMetricStore, year: number
   const windows = YEARLY_METRICS.map((metric, index) => {
     const historyFrom = starts[index] ?? null;
     const from = historyFrom !== null && historyFrom.getTime() > start.getTime() ? historyFrom : start;
-    return { ...metric, from, inYear: from.getTime() < asOf.getTime() };
+    const { provider } = publicMetricDefinition(metric.metricId);
+    const countedUpTo = staleSyncedUpTo(
+      accounts.filter((account) => account.provider === provider),
+      asOf,
+    );
+    const metricAsOf = countedUpTo ?? asOf;
+    return { ...metric, from, asOf: metricAsOf, countedUpTo, inYear: from.getTime() < metricAsOf.getTime() };
   });
   const counted = windows.filter((window) => window.inYear);
   const computed = await computePublicMetrics(
     store,
-    counted.map((window) => ({ metricId: window.metricId, asOf, from: window.from })),
+    counted.map((window) => ({ metricId: window.metricId, asOf: window.asOf, from: window.from })),
   );
 
   const stats = windows.map((window): YearStat => {
@@ -131,7 +155,14 @@ export async function computeYearSummary(source: PublicMetricStore, year: number
     if (result.status === "unavailable") return { label: window.label, status: "unavailable", text: UNAVAILABLE_LABELS[result.reason] };
     // A start within the first day of the year is still the whole year.
     const since = window.from.getTime() - start.getTime() >= DAY_MS ? window.from : null;
-    return { label: window.label, status: "available", value: result.value, since, simulated: result.simulated };
+    return {
+      label: window.label,
+      status: "available",
+      value: result.value,
+      since,
+      countedUpTo: window.countedUpTo,
+      simulated: result.simulated,
+    };
   });
 
   const connected = accounts.filter((account) => account.connectionCreatedAt.getTime() < asOf.getTime());
@@ -143,19 +174,33 @@ export async function computeYearSummary(source: PublicMetricStore, year: number
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
-/** One figure as the card and the page show it. */
-export type YearFigure = Readonly<{ label: string; value: string; note: string | null }>;
+/** One figure as the card and the page show it; dates are UTC days, `YYYY-MM-DD`. */
+export type YearFigure = Readonly<{ label: string; value: string; since: string | null; countedUpTo: string | null }>;
 
 /** Every figure of the summary, the engine's metrics first, then the provider count. */
 export function yearFigures(summary: YearSummary): YearFigure[] {
   return [
     ...summary.stats.map((stat) =>
       stat.status === "available"
-        ? { label: stat.label, value: NUMBER_FORMAT.format(stat.value), note: stat.since === null ? null : `since ${formatUtcDate(stat.since)}` }
-        : { label: stat.label, value: stat.text, note: null },
+        ? {
+            label: stat.label,
+            value: NUMBER_FORMAT.format(stat.value),
+            since: stat.since === null ? null : formatUtcDate(stat.since),
+            countedUpTo: stat.countedUpTo === null ? null : formatUtcDate(stat.countedUpTo),
+          }
+        : { label: stat.label, value: stat.text, since: null, countedUpTo: null },
     ),
-    { label: "Providers connected", value: NUMBER_FORMAT.format(summary.providers), note: null },
+    { label: "Providers connected", value: NUMBER_FORMAT.format(summary.providers), since: null, countedUpTo: null },
   ];
+}
+
+/** "since 2026-08-07, counted up to 2026-11-07", either part alone, or null with neither. */
+export function yearFigureNote(figure: Pick<YearFigure, "since" | "countedUpTo">): string | null {
+  const parts = [
+    ...(figure.since === null ? [] : [`since ${figure.since}`]),
+    ...(figure.countedUpTo === null ? [] : [`counted up to ${figure.countedUpTo}`]),
+  ];
+  return parts.length === 0 ? null : parts.join(", ");
 }
 
 /** "2025-01-01 to 2025-12-31", or to today while the year runs. */
@@ -175,7 +220,10 @@ export function yearProvenance(summary: YearSummary): string {
 /** Alt text for the yearly card: every figure in words. */
 export function yearCardAltText(summary: YearSummary): string {
   const figures = yearFigures(summary)
-    .map((figure) => `${figure.label}: ${figure.value}${figure.note === null ? "" : `, ${figure.note}`}.`)
+    .map((figure) => {
+      const note = yearFigureNote(figure);
+      return `${figure.label}: ${figure.value}${note === null ? "" : `, ${note}`}.`;
+    })
     .join(" ");
   return `DevMacro card: your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${figures} ${yearProvenance(summary)}.`;
 }

@@ -475,8 +475,8 @@ describe("projectDashboard", () => {
     const result = projectDashboard({
       snapshots: rows,
       connections: [
-        { id: "c1", provider: "fake", display_name: "One", status: "active", last_synced_at: null, poll_interval_seconds: 3600, granted_scopes: [] },
-        { id: "c2", provider: "vercel", display_name: "Two", status: "active", last_synced_at: null, poll_interval_seconds: 3600, granted_scopes: [] },
+        { id: "c1", provider: "fake", display_name: "One", status: "active", last_synced_at: null, last_sync_requested_at: null, poll_interval_seconds: 3600, granted_scopes: [] },
+        { id: "c2", provider: "vercel", display_name: "Two", status: "active", last_synced_at: null, last_sync_requested_at: null, poll_interval_seconds: 3600, granted_scopes: [] },
       ],
       accounts: [
         { id: "a1", connection_id: "c1", display_name: "A1", project_id: null },

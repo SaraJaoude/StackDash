@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { SnapshotPoint, SourceAccount, StoredEvent } from "./engine";
+import { STALE_AFTER_MS, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
 import {
   computeYearSummary,
@@ -9,6 +9,7 @@ import {
   latestCardYear,
   parseCardYear,
   yearCardAltText,
+  yearFigureNote,
   yearFigures,
   yearLabel,
   yearShareText,
@@ -57,8 +58,8 @@ describe("computeYearSummary", () => {
 
     expect(summary.asOf).toEqual(new Date("2026-01-01T00:00:00Z"));
     expect(summary.stats).toEqual([
-      { label: "Deployments shipped", status: "available", value: 2, since: new Date("2025-06-01T09:00:00Z"), simulated: false },
-      { label: "Stars gained", status: "available", value: 30, since: new Date("2025-03-10T00:00:00Z"), simulated: false },
+      { label: "Deployments shipped", status: "available", value: 2, since: new Date("2025-06-01T09:00:00Z"), countedUpTo: null, simulated: false },
+      { label: "Stars gained", status: "available", value: 30, since: new Date("2025-03-10T00:00:00Z"), countedUpTo: null, simulated: false },
       { label: "Signups", status: "unavailable", text: "Not connected" },
     ]);
     // Stripe was connected after the year ended, so it is not one of the year's providers.
@@ -73,7 +74,7 @@ describe("computeYearSummary", () => {
       [deploy("2024-12-31T23:59:59Z"), deploy("2025-01-01T00:00:00Z"), deploy("2025-07-01T00:00:00Z")],
     );
     const [deployments] = (await computeYearSummary(store, 2025, NOW)).stats;
-    expect(deployments).toEqual({ label: "Deployments shipped", status: "available", value: 2, since: null, simulated: false });
+    expect(deployments).toEqual({ label: "Deployments shipped", status: "available", value: 2, since: null, countedUpTo: null, simulated: false });
   });
 
   it("runs this year's card up to now and labels it the year to date (boundary: the year is not over)", async () => {
@@ -104,16 +105,74 @@ describe("computeYearSummary", () => {
   });
 });
 
+describe("computeYearSummary with stale data (#267)", () => {
+  const threeDaysAgo = new Date("2026-11-02T09:00:00Z");
+  const history = [deploy("2026-03-01T00:00:00Z"), deploy("2026-11-01T10:00:00Z"), deploy("2026-11-02T08:00:00Z")];
+  const starHistory = [stars("2026-01-01T06:00:00Z", 100), stars("2026-11-02T08:30:00Z", 160)];
+
+  it("counts a provider that has not synced for three days up to its last sync and says so", async () => {
+    const store = new MemoryMetricStore([account("vercel", "2025-12-01T00:00:00Z", { lastSyncedAt: threeDaysAgo })], [], history);
+    const summary = await computeYearSummary(store, 2026, NOW);
+    expect(summary.stats[0]).toEqual({
+      label: "Deployments shipped",
+      status: "available",
+      value: 3,
+      since: null,
+      countedUpTo: threeDaysAgo,
+      simulated: false,
+    });
+    const [deployments] = yearFigures(summary);
+    expect(deployments).toEqual({ label: "Deployments shipped", value: "3", since: null, countedUpTo: "2026-11-02" });
+    expect(yearFigureNote(deployments ?? { since: null, countedUpTo: null })).toBe("counted up to 2026-11-02");
+    expect(yearCardAltText(summary)).toContain("Deployments shipped: 3, counted up to 2026-11-02.");
+  });
+
+  it.each([
+    ["exactly 48 hours ago is still counted up to now", 0, null],
+    ["one millisecond past 48 hours is counted up to the sync", 1, "2026-11-03"],
+  ])("%s (boundary: the 48 hour rule)", async (_title, extraMs, countedUpTo) => {
+    const lastSyncedAt = new Date(NOW.getTime() - STALE_AFTER_MS - extraMs);
+    const store = new MemoryMetricStore([account("vercel", "2025-12-01T00:00:00Z", { lastSyncedAt })], [], history);
+    const [deployments] = yearFigures(await computeYearSummary(store, 2026, NOW));
+    expect(deployments).toMatchObject({ value: "3", countedUpTo });
+  });
+
+  it("counts only the stale provider up to its sync when the others are fresh (boundary: one stale, the rest fresh)", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-12-01T00:00:00Z", { lastSyncedAt: threeDaysAgo }), account("github", "2025-12-01T00:00:00Z")],
+      [...starHistory, stars("2026-11-05T11:40:00Z", 175)],
+      history,
+    );
+    const figures = yearFigures(await computeYearSummary(store, 2026, NOW));
+    expect(figures.slice(0, 2)).toEqual([
+      { label: "Deployments shipped", value: "3", since: null, countedUpTo: "2026-11-02" },
+      { label: "Stars gained", value: "75", since: null, countedUpTo: null },
+    ]);
+  });
+
+  it("reads a stale snapshot change from the readings up to the sync, never a number beside the text", async () => {
+    const store = new MemoryMetricStore([account("github", "2025-12-01T00:00:00Z", { lastSyncedAt: threeDaysAgo })], starHistory, []);
+    const [, gained] = yearFigures(await computeYearSummary(store, 2026, NOW));
+    expect(gained).toEqual({ label: "Stars gained", value: "60", since: null, countedUpTo: "2026-11-02" });
+  });
+
+  it("joins both notes when the history starts after 1 January and the data is stale", () => {
+    expect(yearFigureNote({ since: "2026-08-07", countedUpTo: "2026-11-02" })).toBe("since 2026-08-07, counted up to 2026-11-02");
+    expect(yearFigureNote({ since: "2026-08-07", countedUpTo: null })).toBe("since 2026-08-07");
+    expect(yearFigureNote({ since: null, countedUpTo: null })).toBeNull();
+  });
+});
+
 describe("the year card's words", () => {
   it("lists every figure with its note, then the provider count, and says it all in the alt text of a whole year", async () => {
     const synced = { lastSyncedAt: new Date("2026-12-01T23:00:00Z") };
     const store = new MemoryMetricStore([account("vercel", "2025-08-07T10:00:00Z", synced)], [], [deploy("2025-09-01T00:00:00Z")]);
     const summary = await computeYearSummary(store, 2025, NOW);
     expect(yearFigures(summary)).toEqual([
-      { label: "Deployments shipped", value: "1", note: "since 2025-08-07" },
-      { label: "Stars gained", value: "Not connected", note: null },
-      { label: "Signups", value: "Not connected", note: null },
-      { label: "Providers connected", value: "1", note: null },
+      { label: "Deployments shipped", value: "1", since: "2025-08-07", countedUpTo: null },
+      { label: "Stars gained", value: "Not connected", since: null, countedUpTo: null },
+      { label: "Signups", value: "Not connected", since: null, countedUpTo: null },
+      { label: "Providers connected", value: "1", since: null, countedUpTo: null },
     ]);
     expect(yearCardAltText(summary)).toBe(
       "DevMacro card: your stack in 2025, 2025-01-01 to 2025-12-31. Deployments shipped: 1, since 2025-08-07. Stars gained: Not connected. Signups: Not connected. Providers connected: 1. Counted by DevMacro from stored data.",
