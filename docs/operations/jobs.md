@@ -84,6 +84,8 @@ The flag is read once, when the watcher starts, so restart a running watcher aft
 
 `npm run demo:event -- --type failed-deployment|budget-crossing` (#256, local stack only, same refusal as the seed) makes one incident happen now in the demo workspace, or in the workspace `--workspace <slug>` names. It builds a simulated Vercel adapter that carries the incident (an extra failed deployment, or spend read past the highest budget alert threshold that covers Vercel) and runs one `runSyncJob` for that workspace's simulated Vercel connection, the same direct call the seed makes, so validation, ingest, Realtime, and alert evaluation are the real ones. It does not deliver: an alert it triggers keeps `dispatched_at` null, and the next tick's `alert_dispatch` sends it like any other. A watcher may sync the same connection at the same moment; the event's dedupe key keeps that harmless, and the watcher's next sync reads the usual spend again.
 
+**Explore with sample data** (#257, only while `DEVMACRO_SIMULATE_PROVIDERS=1`) is the in-app version for one workspace: an owner or admin of a workspace with no connections selects it on the empty timeline, and the Server Action connects every simulated provider through `completeConnection` (which queues each one's initial sync as usual), then runs one `runSyncJob` per new connection at the present, the same direct call the seed makes, so the timeline and dashboard have data when the page opens. The queued initial jobs still run on the next tick and continue from the cursors that sync left.
+
 To call the route itself (dev server running):
 
 ```bash

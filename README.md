@@ -203,6 +203,9 @@ It is for local use only: the app refuses it on a Vercel production deployment.
 
 2. In your workspace, open **Connections** and connect several providers from the catalog, for
    example Vercel, Stripe, and Resend. Each one approves at once and fills the last 30 minutes.
+   Or, in a workspace with nothing connected, select **Explore with sample data** on the empty
+   timeline: it connects every simulated provider to that workspace and runs their first sync in
+   one step. Only owners and admins see it, and only while the flag is on.
 3. Keep the data coming:
 
    ```bash
@@ -571,7 +574,7 @@ src/
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
-    demo/                      the demo workspace, its replayed history, and incidents on cue (npm run demo:seed, demo:event)
+    demo/                      the demo workspace, its replayed history, incidents on cue (npm run demo:seed, demo:event), and in-app sample data
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
