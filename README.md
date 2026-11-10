@@ -69,8 +69,9 @@ supabase start
 ```
 
 Placeholders are enough for everything except signing in with GitHub in the browser (the checks
-and the end-to-end suite never sign in through GitHub). To sign in locally, register a separate
-GitHub OAuth app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
+and the end-to-end suite never sign in through GitHub, and `npm run demo` from step 11 signs you in
+as the demo account without it). To sign in locally with GitHub, register a separate GitHub OAuth
+app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
 [OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in),
 export its real client ID and secret instead (or put both lines in `supabase/.env.local`, which is
 git ignored), and run `supabase stop` then `supabase start` again.
@@ -252,10 +253,12 @@ recovers on its own after the flag is gone.
 ### 11. Seed a demo workspace with 90 days of history (optional)
 
 For a demo that is not mostly empty charts, one command builds a whole workspace on your local
-stack with every simulated provider connected and 90 days behind it:
+stack with every simulated provider connected and 90 days behind it, signs you in to it, and keeps
+it updating live. No GitHub OAuth app is needed. With the stack from step 3, `.env.local` from
+step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1` added (step 10), and `npm run dev` running:
 
 ```bash
-npm run demo:seed -- --member you@example.com
+npm run demo
 ```
 
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
@@ -270,20 +273,28 @@ npm run demo:seed -- --member you@example.com
   limit, and the budget alert triggers in the third week of each full month. The alerts the replay
   triggers count as already sent, so the first tick afterwards emails and posts none of them;
   alerts that trigger once the history runs live are delivered as usual.
-- `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
-  demo workspace; repeat it for more people (an email given twice counts once, and
-  `demo@example.com` is refused because it already owns the workspace). The demo account has no
-  sign-in of its own, because sign-in is GitHub only. `--seed <text>` picks different simulated
-  accounts; the same seed rehearses the same demo (default `devmacro-demo`).
+- It prints the dashboard, timeline, and public page links, and a one-time sign-in link for
+  `demo@example.com`. Open that link in the browser to sign in as the demo account and land on the
+  dashboard. The link works once and expires after an hour (`otp_expiry` in
+  `supabase/config.toml`); run the command again for a new one. The link only works while
+  `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL` points at this computer,
+  and only for the demo account: anywhere else, `/auth/confirm` answers every link as expired.
+- It then runs `npm run jobs:tick -- --watch` itself, carrying on from the replay's last sync
+  without a gap or a repeat. Press Ctrl+C to stop it after the tick in progress.
+- `--member you@example.com` also adds an account that has already signed in with GitHub (step 7)
+  as an admin of the demo workspace; repeat it for more people (an email given twice counts once,
+  and `demo@example.com` is refused because it already owns the workspace). `--seed <text>` picks
+  different simulated accounts; the same seed rehearses the same demo (default `devmacro-demo`).
 - Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
   changes nothing outside the demo account's workspaces.
-- It refuses to run unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL`
-  points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it can never write to a
-  hosted project.
+- It refuses to run, and writes nothing, unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and
+  `NEXT_PUBLIC_SUPABASE_URL` points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it
+  can never write to a hosted project.
 
-It prints the dashboard and timeline links when it finishes, which takes seconds (7 on a local
-stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
-carries on from the replay's last sync without a gap or a repeat.
+Building the workspace takes seconds (7 on a local stack). Stop any other
+`npm run jobs:tick -- --watch` before you run it. To build the workspace without starting a
+watcher, run `npm run demo:seed` with the same options. It prints the same links, sign-in link
+included; start `npm run jobs:tick -- --watch` yourself straight after it finishes.
 
 To show an alert firing on cue during the demo, instead of waiting for the simulation to produce
 one, make one incident happen now:
@@ -579,7 +590,7 @@ src/
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
-    demo/                      the demo workspace, its replayed history, incidents on cue (npm run demo:seed, demo:event), and in-app sample data
+    demo/                      the demo workspace, its replayed history, its one-time sign-in link, incidents on cue (npm run demo, demo:seed, demo:event), and in-app sample data
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
@@ -590,7 +601,7 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
