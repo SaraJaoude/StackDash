@@ -12,8 +12,9 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
  * their made-up data, and every screen labels it "Simulated": once per page while every connection
  * in view is simulated, and on each simulated item once a real connection joins them (#269).
  * Nothing leaves the machine. Sentry is here because its releases are the only events a 30 minute
- * backfill always holds: the others make up a small product's activity (#264), a few payments a
- * day, so their first sync may bring none.
+ * backfill holds by construction. Stripe's new customers come on about 2 in 5 slots, so its backfill
+ * almost always holds some, but only by chance; the others make up a small product's activity
+ * (#264), a few payments and orders a day, so their first sync may bring none.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
@@ -26,6 +27,9 @@ const VERCEL_CONNECTION = "Vercel (Example team)";
 const STRIPE_CONNECTION = "Stripe (Example Stripe account (test mode))";
 const POLAR_CONNECTION = "Polar (Example organization)";
 const RAILWAY_CONNECTION = "Railway (Example workspace)";
+// Three simulated projects: `authorizedAccountLabel` names the first two and counts the rest.
+const SENTRY_CONNECTION = "Sentry (web, api and 1 more)";
+const SIMULATED_CONNECTIONS = [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION, SENTRY_CONNECTION];
 const REAL_CONNECTION = "Vercel (real team)";
 const REAL_EVENT = "Real deployment ready";
 
@@ -109,7 +113,7 @@ ownerTest.describe("simulated providers", () => {
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");
       await expect(connections).toHaveCount(5);
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
+      for (const name of SIMULATED_CONNECTIONS) {
         const row = connections.filter({ has: page.getByRole("link", { name, exact: true }) });
         await expect(row.getByText("Simulated", { exact: true })).toBeVisible();
       }
@@ -134,8 +138,8 @@ ownerTest.describe("simulated providers", () => {
       const timelineScan = await new AxeBuilder({ page }).analyze();
       expect(timelineScan.violations).toEqual([]);
 
-      // A payment, an order, or a deployment is not guaranteed in the backfill, so the filtered page
-      // may be empty, and then nothing is in view to call simulated. The dashboard below always is.
+      // Nothing else is guaranteed in the backfill by construction, so a filtered page may be empty,
+      // and then nothing is in view to call simulated. The dashboard below always is.
       for (const [slug, name] of [["stripe", "Stripe"], ["polar", "Polar"], ["vercel", "Vercel"], ["railway", "Railway"]] as const) {
         await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
         await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
@@ -149,7 +153,7 @@ ownerTest.describe("simulated providers", () => {
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       const byProvider = page.getByRole("region", { name: "By provider" });
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
+      for (const name of SIMULATED_CONNECTIONS) {
         await expect(byProvider.getByRole("article", { name })).toBeVisible();
       }
       await expect(page.getByRole("region", { name: "Trends" }).getByRole("figure").first()).toBeVisible();
@@ -193,7 +197,7 @@ ownerTest.describe("simulated providers", () => {
       await expect(byProvider.getByRole("article", { name: REAL_CONNECTION })).toBeVisible();
       await expect(simulatedNotice(page)).toHaveCount(0);
       await expect(byProvider.getByRole("article", { name: REAL_CONNECTION }).getByText("Simulated", { exact: true })).toHaveCount(0);
-      for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
+      for (const name of SIMULATED_CONNECTIONS) {
         await expect(byProvider.getByRole("article", { name }).getByText("Simulated", { exact: true })).toBeVisible();
       }
       // Every total the simulated connections contribute to says so, not only their own cards.

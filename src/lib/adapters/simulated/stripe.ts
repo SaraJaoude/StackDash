@@ -20,21 +20,28 @@ import {
 
 /*
  * Simulated Stripe account of a small product selling in USD and EUR (#264): about three payments a
- * day, a few thousand dollars a month, the odd failure and refund, a few new customers and
- * subscriptions a day. Fees and revenue accrue hour by hour as balance transactions per currency.
- * Both go through the real adapter's `toActivityEvent` and `moneyMetrics`, so currencies stay apart
- * and amounts are integer minor units exactly as in a real sync.
+ * day, a few thousand dollars a month, the odd failure and refund, and a subscription started most
+ * days. Fees and revenue accrue hour by hour as balance transactions per currency. Both go through
+ * the real adapter's `toActivityEvent` and `moneyMetrics`, so currencies stay apart and amounts are
+ * integer minor units exactly as in a real sync.
+ *
+ * New customers are the exception, by choice (#264, decided on pull request #290): one lands about
+ * every 25 seconds, so `npm run jobs:tick -- --watch` shows a busy live feed while the money stays
+ * small. `customer.created` is the one event the real adapter maps that carries no amount ("New
+ * customer", no body), and it never feeds revenue, spend, or the headline's signups (see
+ * `eventTypes` in src/lib/adapters/stripe/index.ts). It is far more customers than a product with
+ * three payments a day would make; the live feed is what it is for.
  */
 
 type StripeType = (typeof timelineEvents)[number]["stripeType"];
 
-// Chance of each event type in one 10 second slot (8,640 a day). Payments match CURRENCIES below:
-// about 3 a day, the rest scaled to them.
+// Chance of each event type in one 10 second slot (8,640 a day). Payments match CURRENCIES below,
+// about 3 a day, and the money events are scaled to them; new customers come on about 2 in 5 slots.
 const EVENT_CHANCES: Readonly<Record<StripeType, readonly number[]>> = {
   "charge.succeeded": [0.00036],
   "charge.failed": [0.00003],
   "charge.refunded": [0.00001],
-  "customer.created": [0.0003],
+  "customer.created": [0.4],
   "customer.subscription.created": [0.00012],
   "customer.subscription.deleted": [0.00004],
 };
