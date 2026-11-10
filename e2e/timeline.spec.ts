@@ -490,3 +490,161 @@ ownerTest.describe("timeline scope filters", () => {
     }
   });
 });
+
+const SECOND_MS = 1000;
+// Noon in London (summer time) on Monday 2026-06-15.
+const BURST_MS = Date.UTC(2026, 5, 15, 11, 0);
+
+/**
+ * One Stripe account with, newest first: five payments 30 seconds apart, a refund, three more
+ * payments, then two payments one minute apart either side of London midnight. Eleven events in
+ * five rows: the two bursts, the refund that breaks them, and the midnight pair, one row a day.
+ */
+async function seedBursts(label: string): Promise<TestWorkspace> {
+  const workspace = await createTestWorkspace(label);
+  const admin = adminClient();
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "stripe",
+      status: "active",
+      display_name: "Stripe e2e connection",
+      poll_interval_seconds: 3600,
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_id: "acct_e2e",
+      display_name: "Acme e2e Stripe account",
+      kind: "account",
+    })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+
+  const event = (key: string, occurredMs: number, fields: Pick<EventInsert, "type_id" | "severity" | "title">): EventInsert => ({
+    workspace_id: workspace.id,
+    connection_id: connection.id,
+    external_account_id: account.id,
+    provider: "stripe",
+    occurred_at: new Date(occurredMs).toISOString(),
+    dedupe_key: `e2e-burst-${key}`,
+    ...fields,
+  });
+  const payment = (index: number, occurredMs: number) =>
+    event(`payment-${index}`, occurredMs, {
+      type_id: "stripe.payment.succeeded",
+      severity: "success",
+      title: `Payment of $${10 + index}.00 succeeded`,
+    });
+  const { error } = await admin.from("activity_events").insert([
+    ...[0, 1, 2, 3, 4].map((index) => payment(index, BURST_MS - index * 30 * SECOND_MS)),
+    event("refund", BURST_MS - 150 * SECOND_MS, { type_id: "stripe.charge.refunded", severity: "warning", title: "Charge refunded" }),
+    ...[5, 6, 7].map((index) => payment(index, BURST_MS - (180 + (index - 5) * 30) * SECOND_MS)),
+    // 23:00:30 UTC on June 14 is 00:00:30 on June 15 in London; 22:59:30 UTC is still June 14.
+    payment(8, Date.UTC(2026, 5, 14, 23, 0, 30)),
+    payment(9, Date.UTC(2026, 5, 14, 22, 59, 30)),
+  ]);
+  if (error) throw new Error(`Seeding events failed (code ${error.code}).`);
+  return workspace;
+}
+
+ownerTest.describe("timeline bursts and search", () => {
+  ownerTest("collapses a run of identical events into one row that opens to each event", async ({ page }) => {
+    const workspace = await seedBursts("Timeline bursts");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
+      const rows = eventItems(page);
+      await expect(rows).toHaveCount(5);
+
+      // The first burst: one row named by the payments' type, with the count, account, and latest time.
+      const burst = rows.nth(0);
+      await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
+      await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
+      await expect(burst).toContainText("Acme e2e Stripe account");
+      // The first time is the row's own; each event inside the closed disclosure has one too.
+      await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
+      // The refund in between breaks the run, so the three payments after it are a run of their own.
+      await expect(rows.nth(1).getByRole("heading", { name: "Charge refunded", exact: true })).toBeVisible();
+      await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
+      // One minute apart, but either side of London midnight: one row under each day.
+      const region = page.getByRole("region", { name: "Events", exact: true });
+      await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
+      await expect(rows.nth(3).getByRole("heading", { name: "Payment of $18.00 succeeded", exact: true })).toBeVisible();
+      const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
+      await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
+      await expect(dayBefore.getByRole("heading", { name: "Payment of $19.00 succeeded", exact: true })).toBeVisible();
+
+      // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
+      const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
+      await expect(members).toBeHidden();
+      await burst.locator("summary").focus();
+      await page.keyboard.press("Enter");
+      await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
+      await expect(members.getByRole("heading", { level: 4 })).toHaveText(
+        [10, 11, 12, 13, 14].map((amount) => `Payment of $${amount}.00 succeeded`),
+      );
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      await page.keyboard.press("Enter");
+      await expect(members).toBeHidden();
+      await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("searches event titles, narrowing the list and the badges together and across pages", async ({ page }) => {
+    const workspace = await seedTimeline("Timeline search");
+    try {
+      await seedGitHubProject(workspace);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+      await expect(status).toHaveText("Showing 50 events");
+
+      // Keyboard only: open the filters, type a search in any case, and submit with Enter.
+      await openFilters(page, "keyboard");
+      const search = page.getByRole("searchbox", { name: "Search event titles" });
+      await search.focus();
+      await page.keyboard.type("SYNTHETIC");
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]q=SYNTHETIC(&|$)/);
+      await expect(status).toHaveText("Showing 50 events with “SYNTHETIC” in the title");
+      await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
+      // The badges count the same matches across every page: the GitHub releases drop out.
+      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
+
+      // Paging keeps the search.
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(page).toHaveURL(/[?&]q=SYNTHETIC(&|$)/);
+      await expect(status).toHaveText("Showing 10 older events with “SYNTHETIC” in the title");
+      await expect(eventHeading(page, 59)).toBeVisible();
+      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
+      await openFilters(page);
+      await expect(search).toHaveValue("SYNTHETIC");
+
+      // A narrower search: "event 5" is in events 5 and 50 to 59.
+      await page.goto(`/w/${workspace.slug}/timeline?q=event+5`);
+      await expect(status).toHaveText("Showing 11 events with “event 5” in the title");
+      await expect(eventItems(page)).toHaveCount(11);
+      await expectProviderBadges(page, ["Show only Vercel: 11 events from 1 connection"]);
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      // The search is literal: a dot is a dot, not any character.
+      await page.goto(`/w/${workspace.slug}/timeline?q=event.5`);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expect(providerBadges(page)).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
