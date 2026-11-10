@@ -73,7 +73,8 @@ const PERMANENT_CODES: Record<string, true> = {
 
 // Healthy means syncing normally. needs_attention and failed are the two failure states; an
 // episode starts when a connection leaves `active` for one of them.
-const SYNCABLE_STATUSES: Partial<Record<ConnectionStatus, true>> = { active: true, failed: true };
+export const SYNCABLE_CONNECTION_STATUSES = ["active", "failed"] as const satisfies readonly ConnectionStatus[];
+const SYNCABLE_STATUSES: ReadonlySet<ConnectionStatus> = new Set(SYNCABLE_CONNECTION_STATUSES);
 
 function addMs(at: Date, ms: number): Date {
   return new Date(at.getTime() + ms);
@@ -87,7 +88,7 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
   const key: ConnectionKey = { workspaceId: job.workspace_id, connectionId: job.connection_id };
   const connection = await deps.store.getConnection(key);
   // Deleted, disconnected, or waiting for the user: nothing to do, and nothing went wrong.
-  if (connection === null || SYNCABLE_STATUSES[connection.status] !== true) {
+  if (connection === null || !SYNCABLE_STATUSES.has(connection.status)) {
     deps.log.info("sync.skipped", { jobId: job.id, connectionId: key.connectionId, status: connection?.status ?? "missing" });
     return { status: "succeeded" };
   }

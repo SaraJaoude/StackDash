@@ -9,7 +9,7 @@ import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { SimulatedIncident } from "@/lib/adapters/simulated/simulation";
 import { SIMULATED_VERCEL_CURRENCY, vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "@/lib/adapters/simulated/vercel";
 import { inScope } from "@/lib/alerts/evaluate";
-import { runSyncJob, type SyncDeps } from "@/lib/jobs/sync-connection";
+import { runSyncJob, SYNCABLE_CONNECTION_STATUSES, type SyncDeps } from "@/lib/jobs/sync-connection";
 import type { Database } from "@/lib/supabase/database.types";
 
 import { oneShotJob } from "./history";
@@ -92,7 +92,7 @@ export async function findDemoEventTarget(admin: Admin, workspace: DemoEventWork
     .eq("workspace_id", workspace.id)
     .eq("provider", "vercel")
     .contains("granted_scopes", [SIMULATED_SCOPE])
-    .in("status", ["active", "failed"])
+    .in("status", [...SYNCABLE_CONNECTION_STATUSES])
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
