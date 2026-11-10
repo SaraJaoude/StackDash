@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 
 import { createHeadingSlugger, listDocs, resolveDocLink, type DocPage } from "@/lib/docs";
 
+import { CopyCodeButton } from "./copy-code-button";
+
 // hast types come from react-markdown's own signature rather than a direct dependency on them.
 type HastElement = NonNullable<ExtraProps["node"]>;
 type HastNode = HastElement["children"][number];
@@ -26,6 +28,45 @@ function rehypeHeadingIds() {
         if (HEADING.test(node.tagName)) {
           const id = slug(textContent(node));
           if (id !== "") node.properties.id = id;
+        } else {
+          visit(node.children);
+        }
+      }
+    };
+    visit(tree.children);
+  };
+}
+
+const LANGUAGE_CLASS = /^language-(.+)$/;
+
+/** The fence's language (`bash` from `language-bash` on the block's `code`), or null. */
+function codeLanguage(pre: HastElement): string | null {
+  for (const child of pre.children) {
+    if (child.type !== "element" || child.tagName !== "code") continue;
+    const classes = child.properties.className;
+    if (!Array.isArray(classes)) return null;
+    for (const name of classes) {
+      const language = typeof name === "string" ? LANGUAGE_CLASS.exec(name)?.[1] : undefined;
+      if (language !== undefined) return language;
+    }
+  }
+  return null;
+}
+
+/**
+ * rehype plugin: names each code block by its order on the page and its fence language ("block 3",
+ * "bash, block 3"), so the copy buttons on one page have distinct accessible names.
+ */
+function rehypeCodeBlockNames() {
+  return (tree: { children: HastNode[] }) => {
+    let count = 0;
+    const visit = (nodes: readonly HastNode[]) => {
+      for (const node of nodes) {
+        if (node.type !== "element") continue;
+        if (node.tagName === "pre") {
+          count += 1;
+          const language = codeLanguage(node);
+          node.properties.dataBlockName = language ? `${language}, block ${count}` : `block ${count}`;
         } else {
           visit(node.children);
         }
@@ -108,15 +149,28 @@ function markdownComponents(doc: DocPage, docHrefs: ReadonlySet<string>): Compon
           <span className="sr-only">{checked ? "Done: " : "To do: "}</span>
         </>
       ) : null,
-    // Scrollable blocks take focus so keyboard users can scroll them.
-    pre: ({ children }) => (
-      <pre
-        tabIndex={0}
-        className="mt-5 overflow-x-auto rounded-lg border border-line bg-panel p-4 font-mono text-[13px] leading-6 text-foreground/90 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]"
-      >
-        {children}
-      </pre>
-    ),
+    // Scrollable blocks take focus so keyboard users can scroll them. The copy control sits in a bar
+    // above the block rather than over it, so it never hides the first line of a long command.
+    pre: ({ node, children }) => {
+      const blockName = node?.properties.dataBlockName;
+      return (
+        <div className="mt-5 rounded-lg border border-line bg-panel">
+          <div className="flex items-center justify-end gap-3 border-b border-line px-3 py-1.5">
+            {/* Markdown ends every code block with a newline; the copy leaves it out. */}
+            <CopyCodeButton
+              code={node ? textContent(node).replace(/\n$/, "") : ""}
+              blockName={typeof blockName === "string" ? blockName : "code block"}
+            />
+          </div>
+          <pre
+            tabIndex={0}
+            className="overflow-x-auto rounded-b-lg p-4 font-mono text-[13px] leading-6 text-foreground/90 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]"
+          >
+            {children}
+          </pre>
+        </div>
+      );
+    },
     code: ({ className, children }) => (
       <code className={className ? `${className} ${INLINE_CODE_CLASS}` : INLINE_CODE_CLASS}>{children}</code>
     ),
@@ -174,13 +228,16 @@ function markdownComponents(doc: DocPage, docHrefs: ReadonlySet<string>): Compon
   };
 }
 
-/** One doc's Markdown as server-rendered HTML: GitHub-flavored (tables, task lists), no client JS. */
+/**
+ * One doc's Markdown as server-rendered HTML: GitHub-flavored (tables, task lists). The only client
+ * code is the copy control on each code block.
+ */
 export function DocMarkdown({ doc }: { doc: DocPage }) {
   const docHrefs = new Set(listDocs().map((page) => page.href));
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHeadingIds]}
+      rehypePlugins={[rehypeHeadingIds, rehypeCodeBlockNames]}
       components={markdownComponents(doc, docHrefs)}
     >
       {doc.source}

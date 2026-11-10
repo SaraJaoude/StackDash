@@ -1,6 +1,6 @@
 # Public metrics
 
-Issues: #148, epic #147. The numbers a workspace can choose to make public, how each one is counted, and how the rest of DevMacro reads them. Badges, cards, public project pages, the weekly email, and the leaderboard all read published values through one engine, so every surface shows the same number with the same label.
+The numbers a workspace can choose to make public, how each one is counted, and how the rest of DevMacro reads them. Badges, cards, public project pages, the weekly email, and the leaderboard all read published values through one engine, so every surface shows the same number with the same label.
 
 ## Rules
 
@@ -35,7 +35,7 @@ A metric that cannot be computed honestly says why instead of showing a number:
 
 Partial data always understates, never overstates: an account added in the middle of a window adds only what it saw, and a missing start-of-window reading is replaced by the next day's (a shorter window), never an earlier one.
 
-A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it throws `AccountBoundError` rather than publish a smaller number (#220). What each surface shows then:
+A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it throws `AccountBoundError` rather than publish a smaller number. What each surface shows then:
 
 - The public route, badges, and cards answer `503` like any failed read, and the error is logged.
 - The public project page shows its error page ("This project page could not be loaded", with Try again and a reference id).
@@ -64,9 +64,9 @@ Owners and admins publish on a project's public metrics page (Projects, then Pub
 | `devmacro.metric_unpublished` | Unpublished GitHub stars | None |
 | `devmacro.metrics_unpublished_all` | Unpublished everything | 2 metrics are no longer public. |
 
-"Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics-148).
+"Unpublish everything" revokes every live publication of every project in the workspace in one action, after a confirmation that says how many values it covers and that it reaches every project, not only the one on screen. Deleting an account removes every publication its user made, and deleting a workspace or a project removes theirs. The schema, row level security, and functions are in [Database schema](schema.md#public-metrics).
 
-A project holds at most 100 live self-reported values, and the self-reported section of the public metrics page says so. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them (#220).
+A project holds at most 100 live self-reported values, and the self-reported section of the public metrics page says so. `publish_self_reported_metric` refuses the 101st (`limit_reached`), and the page says to unpublish one first. With one live row per engine metric, a project's live publications stay far below the 1,000 rows the Data API returns in one request, so the public read always gets all of them.
 
 ## Reading published values
 
@@ -115,7 +115,7 @@ An engine metric with no number has `"status": "unavailable"`, a `reason` from t
 
 ### Server API
 
-Server code that shows published values (badges and cards #149, project pages #150, the leaderboard) reads them through `src/lib/public-metrics/published.ts` and never queries `published_metrics` itself:
+Server code that shows published values (badges and cards, project pages, the leaderboard) reads them through `src/lib/public-metrics/published.ts` and never queries `published_metrics` itself:
 
 | Function | Returns |
 |---|---|
@@ -126,26 +126,26 @@ Server code that shows published values (badges and cards #149, project pages #1
 
 The first three read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `share.ts` builds badge and card URLs (`badgePath`, `cardPath`), alt text, and share text, and `badge.ts` renders the SVG. `definitions.ts`, `display.ts`, `share.ts`, and `badge.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
 
-Private surfaces compute values that need not be published. The [yearly card](#yearly-card) (#151) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, null)` (every included account of the workspace) and passes `from` on each request to count from there instead of the metric's own 7 or 30 days. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. `historyStart(store, metricId)` says where a change or count metric's stored history starts, so a caller can start its window there instead of reporting "Not enough history yet". Publications always use the metric's own window.
+Private surfaces compute values that need not be published. The [yearly card](#yearly-card) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, null)` (every included account of the workspace) and passes `from` on each request to count from there instead of the metric's own 7 or 30 days. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. `historyStart(store, metricId)` says where a change or count metric's stored history starts, so a caller can start its window there instead of reporting "Not enough history yet". Publications always use the metric's own window.
 
 ## Badges and cards
 
-Issue #149. Every published engine metric has a live badge and a card, keyed by project id like the public route (decision on issue #149):
+Every published engine metric has a live badge and a card, keyed by project id like the public route:
 
 | Route | What it serves |
 |---|---|
 | `GET /badge/<project id>/<metric id>.svg` | A two part SVG badge: the metric's label, then its value and provenance ("1,200+ verified", "1,204 simulated"). Its `<title>` says it all in words, with the last sync time. A value with no number says why ("Not enough history yet") |
-| `GET /card/<project id>/<metric id>.png` | A 1200 by 630 PNG for posts and link previews: the project's name while its [project page](#project-pages) is public (#255), then label, value, provenance, the trend over the last 30 days, and the last sync time. The name is one line that ends in an ellipsis when it does not fit. Rendered by Next.js `ImageResponse`, no external image service |
+| `GET /card/<project id>/<metric id>.png` | A 1200 by 630 PNG for posts and link previews: the project's name while its [project page](#project-pages) is public, then label, value, provenance, the trend over the last 30 days, and the last sync time. The name is one line that ends in an ellipsis when it does not fit. Rendered by Next.js `ImageResponse`, no external image service |
 
 Both follow the same rules:
 
 - Values come from the engine through `loadPublishedMetric` and `loadPublishedMetricCard`, so a badge shows exactly what the public route shows. A self-reported value has no badge or card. No spend, budget, alert, account, or repository data can appear, because the engine has no metric for them.
 - A project that does not exist, a metric that is not published or was unpublished, a malformed id, and a wrong extension all get the same neutral "Unpublished" badge or card with a `200`, so an embed never shows a broken image and never tells which projects exist.
 - Cached for 60 seconds like the public route, so a newly published value shows and an unpublished one disappears within a minute. Errors are `503` and rate limited requests `429`, both `no-store`.
-- A card's trend is 31 values (the 30 days before the value, and the value), each computed by the engine with the publication's rounding. `computeTrend` in `src/lib/public-metrics/trend.ts` reads the rows behind all of them once (the accounts, one snapshot or one event read covering every window, and for an event count the oldest stored event) and computes each day against them in memory, so a card costs the same few queries whatever its length. The event read is one request of 1,000 rows, newest first, because PostgREST returns no more than `max_rows` (1,000, `supabase/config.toml`) per request and cuts a longer read without an error. A full read counts as cut: a day whose window reaches past it shows no point rather than a smaller number, so a project with more than 1,000 events in a trend's 60 days (a 30 day count) or 37 days (a 7 day count) shows only its newest points. The snapshot read is paged instead (#209): the Supabase store reads a window's snapshots in pages of 1,000 rows, newest day first, up to 10,000 rows (`SNAPSHOT_READ_MAX_ROWS` in `engine.ts`), and logs `public_metrics.snapshots_truncated` when it stops there. A read stopped there may hold only some accounts of its oldest day, so a day whose window reaches that day shows no point.
+- A card's trend is 31 values (the 30 days before the value, and the value), each computed by the engine with the publication's rounding. `computeTrend` in `src/lib/public-metrics/trend.ts` reads the rows behind all of them once (the accounts, one snapshot or one event read covering every window, and for an event count the oldest stored event) and computes each day against them in memory, so a card costs the same few queries whatever its length. The event read is one request of 1,000 rows, newest first, because PostgREST returns no more than `max_rows` (1,000, `supabase/config.toml`) per request and cuts a longer read without an error. A full read counts as cut: a day whose window reaches past it shows no point rather than a smaller number, so a project with more than 1,000 events in a trend's 60 days (a 30 day count) or 37 days (a 7 day count) shows only its newest points. The snapshot read is paged instead: the Supabase store reads a window's snapshots in pages of 1,000 rows, newest day first, up to 10,000 rows (`SNAPSHOT_READ_MAX_ROWS` in `engine.ts`), and logs `public_metrics.snapshots_truncated` when it stops there. A read stopped there may hold only some accounts of its oldest day, so a day whose window reaches that day shows no point.
 - Safe to embed anywhere: no session is read and no cookie is set, `Cross-Origin-Resource-Policy: cross-origin` lets other sites load them as images, and the SVG is text only, every string escaped. Opened directly, a badge can load and run nothing: `next.config.ts` sends `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'; sandbox` for `/badge/*` in place of the static policy. It has to be set there, because Next applies the config's headers before a route handler runs and drops a handler header of the same name.
 
-The public metrics page (Projects, then Public metrics) has a Share button beside each published metric. Its dialog shows the badge and card, the badge Markdown for a README, the card URL, the card's alt text, the link for a post with "Copy link", and "Share to X" and "Share to LinkedIn", which open the network's prefilled post for the person to edit and send. Nothing is posted automatically. Where the links lead depends on the project page (#255), built by `metricShareLinks` in `share.ts`:
+The public metrics page (Projects, then Public metrics) has a Share button beside each published metric. Its dialog shows the badge and card, the badge Markdown for a README, the card URL, the card's alt text, the link for a post with "Copy link", and "Share to X" and "Share to LinkedIn", which open the network's prefilled post for the person to edit and send. Nothing is posted automatically. Where the links lead depends on the project page, built by `metricShareLinks` in `share.ts`:
 
 - Page on: the post, X, LinkedIn, and the badge link to the project page, and the card and its alt text name the project. The card route asks `public_project_page()` about the project's address (`loadPublicPageOfProject` in `src/lib/data/project-pages.ts`), so the card follows the same rule as the page itself.
 - Page off, or never turned on: the post, X, and LinkedIn link to the card, the badge links to the metric's formula, and nothing names the project, because the page is the only place the name is public. Nothing ever links to a page that answers 404.
@@ -166,13 +166,13 @@ Each time DevMacro serves a published metric's badge or card it counts one view 
 
 ## Yearly card
 
-Issue #151. `/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year's card.
+`/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year's card.
 
-- The current year's card is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review" (decision on issue #151). Past years link from the page; a year that has not started is a `404`.
+- The current year's card is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review". Past years link from the page; a year that has not started is a `404`.
 - Each figure counts from 1 January, or from where its stored history starts when that is later (`historyStart`), and then says "since" that day. A figure whose provider was connected only after the year reads "No data in 2025".
-- A figure whose provider has not synced for more than 48 hours (`STALE_AFTER_MS`) is counted up to the oldest last sync of that provider's accounts and says "counted up to" that day (#267), instead of "Not synced in the last 2 days" in place of the count. A count over the year is still true up to there; a public current value is not, so published values, badges, and cards keep the 48 hour rule.
+- A figure whose provider has not synced for more than 48 hours (`STALE_AFTER_MS`) is counted up to the oldest last sync of that provider's accounts and says "counted up to" that day, instead of "Not synced in the last 2 days" in place of the count. A count over the year is still true up to there; a public current value is not, so published values, badges, and cards keep the 48 hour rule.
 - The card is 1200 by 630 and every line on it is one line high: text that would not fit ends in an ellipsis instead of wrapping past its box. The page lists every figure in full under the card, and the alt text says them all.
-- Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not on the card (decision on issue #151). No money appears.
+- Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not on the card. No money appears.
 - Private: the page and its image, `/w/<workspace>/year/<year>/card.png`, answer only members (`Cache-Control: private, no-store`, the same `404` for anyone else). Share opens the same dialog as milestone cards, with Download card in place of a public URL, the alt text, and "Share to X" with prefilled text. The card is public only once a member posts it.
 - A card that rests on simulated data says "Simulated data, not verified".
 
@@ -180,7 +180,7 @@ History points are the engine's own values at each moment, computed by `computeM
 
 ## Project pages
 
-Issue #150. An owner or admin can turn on one public page per project, at `/@<workspace slug>/<page slug>`, on the project's public metrics page. Nothing is public by default. The schema and functions are in [Database schema](schema.md#project-pages-150).
+An owner or admin can turn on one public page per project, at `/@<workspace slug>/<page slug>`, on the project's public metrics page. Nothing is public by default. The schema and functions are in [Database schema](schema.md#project-pages).
 
 The page shows only what this engine publishes for the project:
 
@@ -199,7 +199,7 @@ Choosing metrics, rounding to 10, 100, or 1,000, and showing values 7 days late 
 | `devmacro.project_page_updated` | Updated the public project page | Project Acme web. Address /@k3j4h5g6f7/acme-web. Search engines may index it. |
 | `devmacro.project_page_disabled` | Turned off the public project page | Project Acme web. The page is no longer public. |
 
-An address answers only while its page is on and the project has at least one live publication, so "Unpublish everything" takes every page offline too. An unknown address, a page that is off, and a page with nothing published answer the same 404. The page renders per request and is not cached (the enforced nonce policy needs per request HTML, #125), so turning a page off answers 404 from the next request. A page asks search engines not to index it unless its owner allows indexing; `/sitemap.xml` lists the pages that are public and indexable, at most 1,000, and is read per request too. When `NEXT_PUBLIC_SITE_URL` is set, the page names its canonical address and uses the card of its first published engine metric (`/card/<project id>/<metric id>.png`, #149) as its preview image.
+An address answers only while its page is on and the project has at least one live publication, so "Unpublish everything" takes every page offline too. An unknown address, a page that is off, and a page with nothing published answer the same 404. The page renders per request and is not cached (the enforced nonce policy needs per request HTML), so turning a page off answers 404 from the next request. A page asks search engines not to index it unless its owner allows indexing; `/sitemap.xml` lists the pages that are public and indexable, at most 1,000, and is read per request too. When `NEXT_PUBLIC_SITE_URL` is set, the page names its canonical address and uses the card of its first published engine metric (`/card/<project id>/<metric id>.png`) as its preview image.
 
 `src/proxy.ts` rewrites `/@<workspace slug>/<page slug>` to the page route at `/p/<workspace slug>/<page slug>`, because a route folder starting with `@` is a parallel route slot, and answers every other path under `/@` or `/p` with the global 404, so a page has exactly one address. It reads the address with `parseProjectPagePath` (`src/lib/public-metrics/project-page.ts`), which applies the page's own slug rules, length limits included, so a path no page can have answers that 404 without a database read. For any other address it asks `public_project_page()` before rewriting and answers an address that is not public with that same 404: with Cache Components the page sends its shell with a `200` before its data loads, so a `notFound()` in the page could only stream a not-found page under a `200` ([Next.js, loading.js status codes](https://nextjs.org/docs/app/api-reference/file-conventions/loading#status-codes)). The page keeps its own check for a page turned off between the two reads. Each request for a well-formed address therefore costs one `public_project_page()` read in the proxy before the page's own reads.
 
@@ -229,19 +229,19 @@ The newest star count minus the star count at the end of the day 30 days ago, pe
 
 Deployments in 7 days. Verified, in deployments. Events: `vercel.deployment.succeeded`. Minimum history: 7 days.
 
-Vercel deployments that finished successfully in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment (#155).
+Vercel deployments that finished successfully in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
 
 ### `vercel-deployments-30d`
 
 Deployments in 30 days. Verified, in deployments. Events: `vercel.deployment.succeeded`. Minimum history: 30 days.
 
-Vercel deployments that finished successfully in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment (#155).
+Vercel deployments that finished successfully in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
 
 ### `vercel-deployment-streak`
 
 Successful deployments in a row. Verified, in deployments. Events: `vercel.deployment.succeeded` and `vercel.deployment.failed`. Minimum history: none.
 
-Vercel deployments that succeeded since the newest failed one, counted in deployments, not days. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment (#155).
+Vercel deployments that succeeded since the newest failed one, counted in deployments, not days. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
 
 ### `supabase-signups-7d`
 

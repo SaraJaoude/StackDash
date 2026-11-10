@@ -115,9 +115,10 @@ const STRIPE_CUSTOMER_CREATED = "stripe.customer.created";
 const STRIPE_CHARGE_SUCCEEDED = "stripe.charge.succeeded";
 
 // Until #155 stores the deployment environment, deployments of every environment count, and the
-// labels and formulas say so rather than claiming production.
+// labels and formulas say so rather than claiming production. The formula is published on the
+// formulas page word for word, so it carries no issue number.
 const ALL_ENVIRONMENTS =
-  "Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment (#155).";
+  "Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.";
 
 /** Keyed by id so the type checker proves every enum value has exactly one definition. */
 const DEFINITIONS = {

@@ -1,6 +1,6 @@
 # Deploy the hosted app
 
-Issues: #78 (deploy), #89 (hosted scheduling), #88 (provider apps). This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
+This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
 
 Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for your own values. No real value belongs in this file or in the repository.
 
@@ -128,11 +128,11 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
-| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails (#152), an address on a domain verified in the Resend account |
-| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend (#244), so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
+| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails, an address on a domain verified in the Resend account |
+| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
 | `DEVMACRO_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
-| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels (#153) reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
-| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes (#149). Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
+| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
@@ -187,7 +187,7 @@ To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cr
 
 To rotate `POSTHOG_OAUTH_PRIVATE_KEY`, generate a new key, set it, and deploy. It is a cutover: PostHog token calls can fail for up to a minute until PostHog fetches the new JWKS, and the affected syncs are retried. Details in [PostHog, Permission risks](../providers/posthog.md#permission-risks).
 
-## 7. Schedule syncs (#89)
+## 7. Schedule syncs
 
 After the production deployment exists and `CRON_SECRET` is set, register the `pg_cron` job in the production Supabase project (SQL editor). The SQL, the payload, how to change or remove the job, and how to read failed runs are in [Jobs, register the pg_cron job](jobs.md#register-the-pg_cron-job). Do not copy it here; keep one source.
 

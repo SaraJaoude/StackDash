@@ -8,9 +8,35 @@ import {
   groupDocs,
   isDocSlug,
   listDocs,
+  parseVerification,
   resolveDocLink,
   type DocLink,
+  type DocVerification,
 } from "@/lib/docs";
+
+describe("parseVerification", () => {
+  it.each<[string, string, DocVerification | null]>([
+    ["documentation only", "Provider id: `x`. Verification: documentation only. Docs checked 2026-11-05.", "documentation"],
+    ["a real account", "Provider id: `x`. Verification: tested with a real account.", "real-account"],
+    ["the sentence at the start of a line", "Verification: documentation only.", "documentation"],
+    ["no sentence", "Provider id: `x`. Docs checked 2026-11-05.", null],
+    ["an empty page", "", null],
+    ["an unknown phrase", "Verification: mostly.", null],
+    ["a prototype member as the phrase", "Verification: constructor.", null],
+    ["a phrase in another case", "Verification: Documentation only.", null],
+    ["a sentence only inside a code fence", "```\nVerification: documentation only.\n```", null],
+    ["a sentence only after the lead paragraph", "Provider id: `x`.\n\nVerification: tested with a real account.", null],
+    ["a sentence on the lead paragraph's second line", "Provider id: `x`.\nVerification: documentation only.", "documentation"],
+  ])("reads %s", (_case, source, expected) => {
+    expect(parseVerification(`# Title\n\n${source}\n`)).toBe(expected);
+  });
+
+  it("reads the lead paragraph, never a later sentence that disagrees", () => {
+    expect(
+      parseVerification("# Title\n\nVerification: documentation only.\n\nVerification: tested with a real account.\n"),
+    ).toBe("documentation");
+  });
+});
 
 describe("isDocSlug", () => {
   it.each([
@@ -133,14 +159,41 @@ describe("listDocs", () => {
   it("titles each page from its first heading and describes it in plain text", () => {
     const vercel = getDoc(["providers", "vercel"]);
     expect(vercel?.title).toBe("Vercel");
-    // The lead line only carries the provider id and issue numbers, so the description skips it.
-    expect(vercel?.description).toMatch(/^DevMacro connects to Vercel through a Vercel Integration/);
+    // The lead line only carries the provider id, verification, and date, so the description skips it.
+    expect(vercel?.description).toMatch(/^DevMacro reads your Vercel billing charges and deployments/);
 
     for (const doc of listDocs()) {
       expect(doc.title, doc.href).not.toBe("");
       expect(doc.description, doc.href).not.toBe("");
       expect(doc.description, doc.href).not.toMatch(/[`*]|\]\(/);
-      expect(doc.description, doc.href).not.toMatch(/^(Provider id|Issues|Docs checked)/);
+      expect(doc.description, doc.href).not.toMatch(/^(Provider id|Verification|Docs checked)/);
+    }
+  });
+
+  it("describes every provider by what DevMacro reads, never by a research verdict", () => {
+    const providers = listDocs().filter((doc) => doc.group === "providers");
+    expect(providers.length).toBeGreaterThan(0);
+    for (const doc of providers) {
+      expect(doc.description, doc.href).toMatch(/^DevMacro reads /);
+      expect(doc.description, doc.href).not.toMatch(/\b(go|no-go|not yet confirmed|nothing on this page)\b/i);
+    }
+  });
+
+  it("gives every provider page a verification status and no other page one", () => {
+    for (const doc of listDocs()) {
+      if (doc.group === "providers") expect(["documentation", "real-account"], doc.href).toContain(doc.verification);
+      else expect(doc.verification, doc.href).toBeNull();
+    }
+  });
+
+  // The docs are published on the website, where an issue number in a private repository means
+  // nothing to the reader. `#` followed by digits after a letter (`PKCS#1`) or inside a color
+  // (`#0080FF`) is not an issue reference.
+  it("publishes no issue references", () => {
+    const issueReference = /(?<![\w&])#\d+\b|github\.com\/eddiejaoude\/DevMacro\/(?:issues|pull)\//;
+    for (const doc of listDocs()) {
+      const found = doc.source.split("\n").filter((line) => issueReference.test(line));
+      expect(found, doc.href).toEqual([]);
     }
   });
 

@@ -1,8 +1,10 @@
 # GitLab
 
-Provider id: `gitlab`. Issues: #112 (adapter), #11 (research), #141 (registering real apps, deferred). Docs checked 2026-11-05.
+Provider id: `gitlab`. Verification: documentation only. Docs checked 2026-11-05.
 
-**Not yet confirmed with a real account.** Registering the OAuth application on GitLab.com is deferred to #141, so everything below comes from GitLab's official documentation and was checked on 2026-11-05. The adapter is tested against sample responses copied from that documentation, not recorded traffic. Every claim that a real account still has to confirm is in [Unverified](#unverified). Until then, try GitLab locally with the simulator (`DEVMACRO_SIMULATE_PROVIDERS=1`).
+DevMacro reads GitLab.com compute minutes, storage, and plan, plus pipelines, deployments, releases, and merged merge requests. It asks for the read-only `read_api` and `read_user` scopes.
+
+**Not yet confirmed with a real account.** Registering the OAuth application on GitLab.com is deferred, so everything below comes from GitLab's official documentation and was checked on 2026-11-05. The adapter is tested against sample responses copied from that documentation, not recorded traffic. Every claim that a real account still has to confirm is in [Unverified](#unverified). Until then, try GitLab locally with the simulator (`DEVMACRO_SIMULATE_PROVIDERS=1`).
 
 ## Go or no-go
 
@@ -104,7 +106,7 @@ Each sync reads the 10 most recently active, non-archived projects of the namesp
 
 `<since>` is the previous sync's start minus 10 minutes, or 7 days back on the first sync. Dedupe keys (`gitlab.pipeline:<project>:<pipeline>:<status>` and the like) make the overlap and re-reads idempotent. A `403` or `404` from one project endpoint (for example CI/CD turned off in that project) skips that endpoint for that project only. A full page is logged, because older items in the window were not read.
 
-The dashboard headline's deploys (#173) count `gitlab.deployment.succeeded` as a succeeded deploy and `gitlab.deployment.failed` as a failed one. Pipelines are CI runs that may deploy nothing, and releases and merges are not deployments, so none of them counts. GitLab reports no spend, so it declares no projected spend.
+The dashboard headline's deploys count `gitlab.deployment.succeeded` as a succeeded deploy and `gitlab.deployment.failed` as a failed one. Pipelines are CI runs that may deploy nothing, and releases and merges are not deployments, so none of them counts. GitLab reports no spend, so it declares no projected spend.
 
 ## Verified, estimated, unavailable
 
@@ -268,7 +270,7 @@ All from GitLab's API reference (checked 2026-11-05), trimmed, with synthetic na
 
 ## Unverified
 
-Confirm with a real GitLab.com account and a test group once the application is registered (#141):
+Confirm with a real GitLab.com account and a test group once the application is registered:
 
 - That the token response carries `scope`, and in which form (space separated is assumed). Without it, DevMacro records the requested scopes.
 - That the refresh request needs `redirect_uri` (the guide's example sends it; RFC 6749 does not require it) and that `invalid_grant` is the error for a spent or revoked refresh token.

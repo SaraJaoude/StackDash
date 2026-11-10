@@ -1,6 +1,8 @@
 # Vercel
 
-Provider id: `vercel`. Issues: #47 (adapter), #11 (research). Docs checked 2026-10-31.
+Provider id: `vercel`. Verification: documentation only. Docs checked 2026-10-31.
+
+DevMacro reads your Vercel billing charges and deployments for one team or Hobby account. It installs as a Vercel Integration with four scopes, all at Read level, and billing is available on Pro and Enterprise teams only.
 
 DevMacro connects to Vercel through a **Vercel Integration** (a "connectable account" integration, external installation flow). The integration gets a long-lived access token for one Vercel scope (a team or a Hobby account), limited to the API scopes chosen in the Integrations Console. DevMacro uses it to poll billing charges (FOCUS format) and deployments.
 
@@ -405,7 +407,7 @@ Rate limit error body (from the REST API errors page):
 }
 ```
 
-Fixtures for tests must be recorded from a real Pro test team and sanitized, as #47 requires; these documentation samples are not realistic enough to stand in for them.
+Fixtures for tests must be recorded from a real Pro test team and sanitized; these documentation samples are not realistic enough to stand in for them.
 
 ## Unverified
 
