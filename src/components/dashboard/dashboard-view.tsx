@@ -6,7 +6,7 @@ import { ScopeFilter } from "@/components/filters/scope-filter";
 import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
 import { markerCategoryLabel, type MarkerCategory, type TrendMarker } from "@/lib/dashboard/markers";
 import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
-import { trendWindowLabel, type ProviderTrends, type TrendGranularity } from "@/lib/dashboard/trends";
+import { trendWindowLabel, type ProviderTrends, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
 import { providerName } from "@/lib/providers";
 import { amountValues } from "@/lib/realtime/arrivals";
@@ -113,6 +113,11 @@ function CurrencyCard({
 /** One provider's trends with its disclosure, which is a link: open is URL state (#263). */
 export type ProviderTrendsView = ProviderTrends & Readonly<{ open: boolean; toggleHref: string }>;
 
+/** The charts a provider puts on the page: its default set, plus the rest once opened. */
+export function renderedSeries({ defaults, more, open }: ProviderTrendsView): readonly TrendSeries[] {
+  return open ? [...defaults, ...more] : defaults;
+}
+
 export type DashboardTrends = Readonly<{
   granularity: TrendGranularity;
   providers: readonly ProviderTrendsView[];
@@ -137,7 +142,7 @@ const TREND_PERIODS = [
 function TrendsSection({ trends }: { trends: DashboardTrends }) {
   const { markers } = trends;
   const anyShown = markers.toggles.some((toggle) => toggle.shown);
-  const rendered = trends.providers.flatMap(({ defaults, more, open }) => (open ? [...defaults, ...more] : defaults));
+  const rendered = trends.providers.flatMap(renderedSeries);
   const markersOf = (key: string) => (anyShown ? (markers.bySeries[key] ?? []) : null);
   return (
     <Section
@@ -181,7 +186,10 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
         </p>
       ) : (
         <>
-          <TrendLegend series={rendered} markers={rendered.flatMap((series) => markersOf(series.key) ?? [])} />
+          {/* Only when a chart is on the page, so the legend never describes charts that are not there. */}
+          {rendered.length === 0 ? null : (
+            <TrendLegend series={rendered} markers={rendered.flatMap((series) => markersOf(series.key) ?? [])} />
+          )}
           <ul className="mt-4 grid gap-8">
             {trends.providers.map((group) => (
               <ProviderTrendsGroup key={group.provider} group={group} markersOf={markersOf} />

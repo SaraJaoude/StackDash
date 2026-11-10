@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
-import { DashboardView } from "@/components/dashboard/dashboard-view";
+import { DashboardView, renderedSeries } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { GaugeIcon } from "@/components/icons";
 import {
@@ -207,8 +207,13 @@ async function DashboardContent({
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
   const groups = groupTrends(series, defaultSeriesKeys(trendData.snapshots, trendData.connections, declaredProjectedSpend, now));
+  const providers = groups.map((group) => ({
+    ...group,
+    open: expanded.includes(group.provider),
+    toggleHref: dashboardHref(dashboardPath, scope, { ...view, expanded: toggleExpanded(expanded, group.provider) }),
+  }));
   // Only the charts on the page get markers: a closed disclosure renders nothing.
-  const rendered = groups.flatMap(({ provider, defaults, more }) => (expanded.includes(provider) ? [...defaults, ...more] : defaults));
+  const rendered = providers.flatMap(renderedSeries);
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
   // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
@@ -245,11 +250,7 @@ async function DashboardContent({
         alerts={alerts}
         trends={{
           granularity: trend,
-          providers: groups.map((group) => ({
-            ...group,
-            open: expanded.includes(group.provider),
-            toggleHref: dashboardHref(dashboardPath, scope, { ...view, expanded: toggleExpanded(expanded, group.provider) }),
-          })),
+          providers,
           hrefs: {
             daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
             monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
