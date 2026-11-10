@@ -1,6 +1,12 @@
 import Link from "next/link";
 
-import { AlertSeverityLabel, AlertTime, EstimatedBadge } from "@/components/alerts/triggered-alerts";
+import {
+  AlertFullMessage,
+  AlertSeverityLabel,
+  AlertTime,
+  AlertValue,
+  EstimatedBadge,
+} from "@/components/alerts/triggered-alerts";
 import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import { RECENT_ANOMALY_DAYS, type RecentAnomalies } from "@/lib/data/anomalies";
 import type { UnacknowledgedSummary } from "@/lib/data/triggered-alerts";
@@ -10,10 +16,10 @@ import { workspacePath } from "@/lib/workspaces/paths";
 const TITLE_ID = "alerts-summary-title";
 
 /**
- * Unacknowledged alerts on the dashboard: how many, the newest three, and the way to the full
- * list, followed by the unusual spend and usage events anomaly detection wrote in the last week
- * (#169). One plain line with no panel when there is nothing to act on, so it never pushes the
- * numbers down. Zero is said in words, so "no alerts" never looks like "not loaded".
+ * Unacknowledged alerts on the dashboard: how many, the newest three by their short titles (#268),
+ * and the way to the full list, followed by the unusual spend and usage events anomaly detection
+ * wrote in the last week (#169). One plain line with no panel when there is nothing to act on, so it
+ * never pushes the numbers down. Zero is said in words, so "no alerts" never looks like "not loaded".
  */
 export function AlertsSummary({
   workspace,
@@ -63,14 +69,16 @@ export function AlertsSummary({
         <ul aria-label="Newest unacknowledged alerts" className="divide-y divide-line border-t border-line">
           {newest.map((alert) => (
             <li key={alert.id} className="px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
+              <p className="break-words text-sm font-medium leading-6">{alert.headline.title}</p>
+              <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
                 <AlertSeverityLabel severity={alert.severity} />
                 {alert.is_estimated ? <EstimatedBadge /> : null}
+                <AlertValue headline={alert.headline} />
                 <span className="text-xs text-muted">
                   Triggered <AlertTime iso={alert.triggered_at} />
                 </span>
               </div>
-              <p className="mt-1 break-words text-sm leading-6">{alert.message}</p>
+              <AlertFullMessage title={alert.headline.title} message={alert.message} />
             </li>
           ))}
         </ul>

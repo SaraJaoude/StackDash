@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { severityFor, type AlertSeverity } from "@/lib/alerts/evaluate";
+import { alertHeadline, type AlertHeadline } from "@/lib/alerts/headline";
 import { beforeCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -17,10 +18,16 @@ import { createClient } from "@/lib/supabase/server";
 
 type Row = Database["public"]["Tables"]["triggered_alerts"]["Row"];
 
-export type TriggeredAlert = Pick<
-  Row,
-  "id" | "triggered_at" | "threshold_label" | "is_estimated" | "message" | "acknowledged_at" | "acknowledged_by"
-> & { severity: AlertSeverity };
+type ListedColumns =
+  | "id"
+  | "triggered_at"
+  | "threshold_label"
+  | "is_estimated"
+  | "message"
+  | "acknowledged_at"
+  | "acknowledged_by";
+
+export type TriggeredAlert = Pick<Row, ListedColumns> & { severity: AlertSeverity; headline: AlertHeadline };
 
 export type UnacknowledgedSummary = { count: number; newest: TriggeredAlert[] };
 
@@ -33,17 +40,28 @@ export const SUMMARY_NEWEST_COUNT = 3;
  */
 export const ACKNOWLEDGE_ALL_LIMIT = 100;
 
-// The rule's threshold decides the severity, the same way the evaluator decides it.
+// The rule's threshold decides the severity, the same way the evaluator decides it; its kind and the
+// observed columns make the short title (src/lib/alerts/headline.ts).
 const COLUMNS =
-  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, alert_rules!triggered_alerts_rule_fkey(threshold_percent)" as const;
+  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, provider, observed_value, observed_amount_minor, currency, alert_rules!triggered_alerts_rule_fkey(threshold_percent, kind)" as const;
 
-type SelectedRow = Pick<
-  Row,
-  "id" | "triggered_at" | "threshold_label" | "is_estimated" | "message" | "acknowledged_at" | "acknowledged_by"
-> & { alert_rules: { threshold_percent: number | null } | null };
+type SelectedRow = Pick<Row, ListedColumns | "provider" | "observed_value" | "observed_amount_minor" | "currency"> & {
+  alert_rules: Pick<Database["public"]["Tables"]["alert_rules"]["Row"], "threshold_percent" | "kind"> | null;
+};
 
-function toAlert({ alert_rules: rule, ...row }: SelectedRow): TriggeredAlert {
-  return { ...row, severity: severityFor(rule?.threshold_percent ?? null) };
+function toAlert({
+  alert_rules: rule,
+  provider,
+  observed_value,
+  observed_amount_minor,
+  currency,
+  ...row
+}: SelectedRow): TriggeredAlert {
+  return {
+    ...row,
+    severity: severityFor(rule?.threshold_percent ?? null),
+    headline: alertHeadline({ kind: rule?.kind ?? null, provider, observed_value, observed_amount_minor, currency }),
+  };
 }
 
 /**

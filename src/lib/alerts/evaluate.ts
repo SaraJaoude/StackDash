@@ -215,7 +215,8 @@ function isEstimatedRow(row: SnapshotInput): boolean {
   return row.kind === "estimated_spend" || row.provenance_source === "derived";
 }
 
-function formatPercentNumber(percent: number): string {
+/** "94.3 percent": one decimal place at most, as every alert sentence and title writes it. */
+export function formatPercentNumber(percent: number): string {
   return `${PERCENT_FORMAT.format(percent)} percent`;
 }
 
