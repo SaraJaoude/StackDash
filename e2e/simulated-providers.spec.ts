@@ -7,11 +7,13 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type
 
 /*
  * Simulated providers (#131), end to end: the web server runs with DEVMACRO_SIMULATE_PROVIDERS=1
- * (playwright.config.ts), so Vercel, Stripe, Polar, and Railway connect from the catalog through the
- * dev consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs their made-up
- * data, and every screen labels it "Simulated": once per page while every connection in view is
- * simulated, and on each simulated item once a real connection joins them (#269). Nothing leaves
- * the machine.
+ * (playwright.config.ts), so Vercel, Stripe, Polar, Railway, and Sentry connect from the catalog
+ * through the dev consent screen without an OAuth app, a tick through POST /api/jobs/tick syncs
+ * their made-up data, and every screen labels it "Simulated": once per page while every connection
+ * in view is simulated, and on each simulated item once a real connection joins them (#269).
+ * Nothing leaves the machine. Sentry is here because its releases are the only events a 30 minute
+ * backfill always holds: the others make up a small product's activity (#264), a few payments a
+ * day, so their first sync may bring none.
  *
  * The tick is instance-wide: it also syncs the connections other specs seed, in their workspaces.
  * So this spec runs in the `instance-wide` Playwright project, after every `chromium` spec has
@@ -39,7 +41,13 @@ async function tickUntilSynced(page: Page, workspace: TestWorkspace): Promise<vo
       .eq("workspace_id", workspace.id)
       .limit(10);
     if (error) throw new Error(`Reading connections failed (code ${error.code}).`);
-    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual(["polar", "railway", "stripe", "vercel"]);
+    expect(data.filter((row) => row.last_synced_at !== null).map((row) => row.provider).sort()).toEqual([
+      "polar",
+      "railway",
+      "sentry",
+      "stripe",
+      "vercel",
+    ]);
   }).toPass({ timeout: 90_000 });
 }
 
@@ -96,10 +104,11 @@ ownerTest.describe("simulated providers", () => {
       await connectSimulated(page, workspace.slug, "Stripe");
       await connectSimulated(page, workspace.slug, "Polar");
       await connectSimulated(page, workspace.slug, "Railway");
+      await connectSimulated(page, workspace.slug, "Sentry");
 
       await page.goto(`/w/${workspace.slug}/connections`);
       const connections = page.getByRole("list", { name: "Connections" }).getByRole("listitem");
-      await expect(connections).toHaveCount(4);
+      await expect(connections).toHaveCount(5);
       for (const name of [VERCEL_CONNECTION, STRIPE_CONNECTION, POLAR_CONNECTION, RAILWAY_CONNECTION]) {
         const row = connections.filter({ has: page.getByRole("link", { name, exact: true }) });
         await expect(row.getByText("Simulated", { exact: true })).toBeVisible();
@@ -110,31 +119,24 @@ ownerTest.describe("simulated providers", () => {
       await tickUntilSynced(page, workspace);
 
       // Each provider is checked on its own filtered timeline (the shared scope filter's
-      // `provider` parameter), so Stripe's volume never pushes Vercel off the first page. Every
-      // connection in view is simulated, so the page says so once and no row repeats it (#269).
+      // `provider` parameter), so one provider's volume never pushes another off the first page.
+      // Every connection in view is simulated, so the page says so once and no row repeats it (#269).
       const events = page.getByRole("region", { name: "Events", exact: true }).getByRole("listitem");
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
 
-      // Stripe's 30 minute backfill always holds events (about one every two slots).
-      await page.goto(`/w/${workspace.slug}/timeline?provider=stripe`);
-      await expect(status).toHaveText(/^Showing \d+ events? for provider Stripe$/);
+      // Every Sentry project releases every 20 minutes, so the 30 minute backfill always holds one.
+      await page.goto(`/w/${workspace.slug}/timeline?provider=sentry`);
+      await expect(status).toHaveText(/^Showing \d+ events? for provider Sentry$/);
       await expect(events.first()).toBeVisible();
-      await expect(events.first().getByText("Stripe", { exact: true })).toBeVisible();
+      await expect(events.first().getByText("Sentry", { exact: true })).toBeVisible();
       await expectOneSimulatedNotice(page);
       await expect(events.getByText("Simulated", { exact: true })).toHaveCount(0);
       const timelineScan = await new AxeBuilder({ page }).analyze();
       expect(timelineScan.violations).toEqual([]);
 
-      // Polar's backfill holds paid orders (about one a minute).
-      await page.goto(`/w/${workspace.slug}/timeline?provider=polar`);
-      await expect(status).toHaveText(/^Showing \d+ events? for provider Polar$/);
-      await expect(events.first()).toBeVisible();
-      await expect(events.first().getByText("Polar", { exact: true })).toBeVisible();
-      await expectOneSimulatedNotice(page);
-
-      // A Vercel or Railway deployment is not guaranteed in the backfill, so the filtered page may
-      // be empty, and then nothing is in view to call simulated. The dashboard below always is.
-      for (const [slug, name] of [["vercel", "Vercel"], ["railway", "Railway"]] as const) {
+      // A payment, an order, or a deployment is not guaranteed in the backfill, so the filtered page
+      // may be empty, and then nothing is in view to call simulated. The dashboard below always is.
+      for (const [slug, name] of [["stripe", "Stripe"], ["polar", "Polar"], ["vercel", "Vercel"], ["railway", "Railway"]] as const) {
         await page.goto(`/w/${workspace.slug}/timeline?provider=${slug}`);
         await expect(status).toHaveText(new RegExp(`^Showing (no events|\\d+ events?) for provider ${name}$`));
         const rows = await events.count();
