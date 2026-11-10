@@ -74,17 +74,37 @@ test.describe("docs", () => {
     const copyButtons = main.getByRole("button", { name: "Copy code" });
     await expect(copyButtons).toHaveCount(await main.locator("pre").count());
 
+    // Visible text "Copy code" on every button; the accessible name says which block it copies.
     const copyButton = copyButtons.first();
+    await expect(copyButton).toHaveAccessibleName("Copy code: bash, block 1");
+    await expect(copyButtons.nth(1)).toHaveAccessibleName("Copy code: bash, block 2");
     const box = await copyButton.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(24);
     expect(box?.height).toBeGreaterThanOrEqual(24);
 
+    // Count each time the live region's text becomes the message, the way a screen reader hears it.
+    const status = main.getByRole("status").first();
+    await status.evaluate((element) => {
+      element.dataset.announcements = "0";
+      new MutationObserver(() => {
+        if (element.textContent === "Copied the code.") {
+          element.dataset.announcements = String(Number(element.dataset.announcements) + 1);
+        }
+      }).observe(element, { childList: true, characterData: true, subtree: true });
+    });
+
     await tabTo(page, copyButton);
     await page.keyboard.press("Enter");
 
-    await expect(main.getByRole("status").first()).toHaveText("Copied the code.");
+    await expect(status).toHaveText("Copied the code.");
+    await expect(status).toHaveAttribute("data-announcements", "1");
     const code = await main.locator("pre").first().innerText();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(code.replace(/\n$/, ""));
+
+    // Copying again while the message still shows announces it again.
+    await page.keyboard.press("Enter");
+    await expect(status).toHaveAttribute("data-announcements", "2");
+    await expect(status).toHaveText("Copied the code.");
   });
 
   test("a code block says so when the clipboard refuses the copy", async ({ page }) => {

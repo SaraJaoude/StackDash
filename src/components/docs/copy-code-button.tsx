@@ -2,20 +2,19 @@
 
 import { useEffect, useState } from "react";
 
-// Long enough to read, short enough that copying the same block again is announced again.
-const STATUS_CLEAR_MS = 4000;
+import { smallButtonClass } from "@/components/alerts/form-controls";
 
-// The look of `smallButtonClass` (alerts form controls), at least 32 by 32 pixels. Not imported from
-// there: that module would pull the alert form code into every docs page's client bundle.
-const BUTTON_CLASS =
-  "inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-3 py-1 text-sm font-medium text-foreground transition-colors hover:border-accent";
+// Long enough to read. Each copy clears the message first, so copying again restarts the wait.
+const STATUS_CLEAR_MS = 4000;
 
 /**
  * The copy control on a docs code block. The only client code on a docs page: the block itself
  * stays server-rendered and passes its text in. The result is shown beside the button and
  * announced through a polite live region that is always in the DOM, so a screen reader hears it.
+ * `blockName` tells the buttons on one page apart for a screen reader ("block 3", "bash, block 3")
+ * while the visible text stays "Copy code".
  */
-export function CopyCodeButton({ code }: { code: string }) {
+export function CopyCodeButton({ code, blockName }: { code: string; blockName: string }) {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
@@ -25,6 +24,9 @@ export function CopyCodeButton({ code }: { code: string }) {
   }, [status]);
 
   async function copy() {
+    // Empty the region before the result arrives, so a repeated "Copied the code." is a new
+    // insertion (announced again) and a changed status (its clear timer starts over).
+    setStatus("");
     try {
       await navigator.clipboard.writeText(code);
       setStatus("Copied the code.");
@@ -39,7 +41,8 @@ export function CopyCodeButton({ code }: { code: string }) {
       <span role="status" aria-live="polite" className="text-xs text-muted">
         {status}
       </span>
-      <button type="button" onClick={copy} className={BUTTON_CLASS}>
+      {/* The name starts with the visible text, so speech input users can say "Copy code". */}
+      <button type="button" onClick={copy} aria-label={`Copy code: ${blockName}`} className={smallButtonClass}>
         Copy code
       </button>
     </>
