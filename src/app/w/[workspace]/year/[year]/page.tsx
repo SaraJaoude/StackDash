@@ -14,6 +14,7 @@ import {
   latestCardYear,
   parseCardYear,
   yearCardAltText,
+  yearFigureNote,
   yearFigures,
   yearLabel,
   yearPeriod,
@@ -111,15 +112,18 @@ async function YearCardSection({ workspaceId, slug, year, now }: { workspaceId: 
         className="h-auto w-full max-w-3xl rounded-lg border border-line"
       />
       <dl className="grid gap-4 sm:grid-cols-2">
-        {yearFigures(summary).map((figure) => (
-          <div key={figure.label}>
-            <dt className="text-muted">{figure.label}</dt>
-            <dd className="mt-1 text-lg font-semibold">
-              {figure.value}
-              {figure.note === null ? null : <span className="ml-2 text-sm font-normal text-muted">{figure.note}</span>}
-            </dd>
-          </div>
-        ))}
+        {yearFigures(summary).map((figure) => {
+          const note = yearFigureNote(figure);
+          return (
+            <div key={figure.label}>
+              <dt className="text-muted">{figure.label}</dt>
+              <dd className="mt-1 text-lg font-semibold">
+                {figure.value}
+                {note === null ? null : <span className="ml-2 text-sm font-normal text-muted">{note}</span>}
+              </dd>
+            </div>
+          );
+        })}
       </dl>
       <p className="text-muted">{yearProvenance(summary)}. No spend, no account names, and no repository names.</p>
     </section>

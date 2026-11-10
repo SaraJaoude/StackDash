@@ -151,6 +151,21 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
   );
 }
 
+// The yearly card's grid, sized so two rows of figures always fit the 1200 by 630 card (#267):
+// every line is one line high and ends in an ellipsis rather than wrap past its box. The page lists
+// every figure in full beneath the card, and the alt text says them all.
+const FIGURE_GAP_PX = 16;
+const FIGURE_HEIGHT_PX = 152;
+const FIGURE_PADDING_PX = 20;
+const VALUE_LINE_PX = 58;
+/** A count fits at full size; a reason such as "Not connected" is words and drops to a size that fits. */
+const COUNT_CHARS_MAX = 12;
+
+/** One line of card text that ends in an ellipsis instead of wrapping. */
+function line(fontSize: number, color: string = COLORS.foreground) {
+  return { display: "flex", fontSize, lineHeight: 1.2, color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
+}
+
 /** The private yearly summary card (#151): a whole past year, or the current year to date. */
 export function YearCard({ summary }: { summary: YearSummary }) {
   const tag = isYearComplete(summary.year, summary.asOf) ? `${summary.year} in review` : "Year to date";
@@ -159,25 +174,27 @@ export function YearCard({ summary }: { summary: YearSummary }) {
       tag={<Tag text={tag} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
       footer={[yearPeriod(summary), yearProvenance(summary)]}
     >
-      <div style={{ display: "flex", fontSize: 56, letterSpacing: -1, marginBottom: 32 }}>{`Your stack in ${yearSummaryLabel(summary)}`}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+      <div style={{ ...line(52), letterSpacing: -1, marginBottom: 24 }}>{`Your stack in ${yearSummaryLabel(summary)}`}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: FIGURE_GAP_PX }}>
         {yearFigures(summary).map((stat) => (
           <div
             key={stat.label}
             style={{
               display: "flex",
               flexDirection: "column",
-              width: (TREND_WIDTH_PX - 24) / 2,
-              padding: "20px 28px",
+              width: (TREND_WIDTH_PX - FIGURE_GAP_PX) / 2,
+              height: FIGURE_HEIGHT_PX,
+              padding: `16px ${FIGURE_PADDING_PX}px`,
               borderRadius: 16,
               backgroundColor: COLORS.panel,
               border: `2px solid ${COLORS.line}`,
             }}
           >
-            <div style={{ display: "flex", fontSize: 52, letterSpacing: -1 }}>{stat.value}</div>
-            <div style={{ display: "flex", fontSize: 26, color: COLORS.muted }}>
-              {stat.note === null ? stat.label : `${stat.label}, ${stat.note}`}
+            <div style={{ display: "flex", alignItems: "center", height: VALUE_LINE_PX }}>
+              <div style={{ ...line(stat.value.length > COUNT_CHARS_MAX ? 28 : 52), letterSpacing: -1 }}>{stat.value}</div>
             </div>
+            <div style={line(22, COLORS.muted)}>{stat.since === null ? stat.label : `${stat.label}, since ${stat.since}`}</div>
+            {stat.countedUpTo === null ? null : <div style={line(22, COLORS.muted)}>{`counted up to ${stat.countedUpTo}`}</div>}
           </div>
         ))}
       </div>
