@@ -22,10 +22,12 @@ import { londonDayStart } from "@/lib/timeline/query";
 export const DEMO_HISTORY_DAYS = 90;
 
 /**
- * Why a demo command (`npm run demo:seed`, `npm run demo:event`) must not run here, or null when
- * it may. They write only with simulation on (the same check the app uses, which already refuses
- * a Vercel production deployment) and only to a Supabase stack on this computer, so they can
- * never touch a remote project.
+ * Why a demo command (`npm run demo`, `npm run demo:seed`, `npm run demo:event`) must not run
+ * here, or null when it may. They write only with simulation on (the same check the app uses,
+ * which already refuses a Vercel production deployment) and only to a Supabase stack on this
+ * computer, so they can never touch a remote project. The `/auth/confirm` route applies the same
+ * check before it accepts the demo account's one-time sign-in link, so the link works only where
+ * the commands that print it can run.
  */
 export function demoCommandRefusal(input: Readonly<{ simulationEnabled: boolean; supabaseUrl: string | undefined }>): string | null {
   if (!input.simulationEnabled) {
