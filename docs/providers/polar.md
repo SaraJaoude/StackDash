@@ -116,7 +116,7 @@ The first sync reads the last 30 days. Each later sync reads from one day before
 
 Event times are the order's `created_at`, the subscription's `started_at` or `canceled_at`, and the refund's `created_at`. Dedupe keys are `order:<id>`, `subscription_started:<id>`, `subscription_canceled:<id>`, and `refund:<id>`.
 
-Amounts on titles (#261) are integer minor units with the order's or refund's own ISO 4217 currency, formatted with that currency's number of minor digits, one event at a time and never added across events or currencies. An order shows `total_amount`, after discounts and tax, which is what the customer paid. A refund's `amount` is before tax and Polar refunds the matching tax alongside it ([Refunds](https://polar.sh/docs/features/refunds), "Amount"), so the title shows their sum. An order or refund without its amount, its tax part, or its currency gets the title alone.
+Amounts on titles are integer minor units with the order's or refund's own ISO 4217 currency, formatted with that currency's number of minor digits, one event at a time and never added across events or currencies. An order shows `total_amount`, after discounts and tax, which is what the customer paid. A refund's `amount` is before tax and Polar refunds the matching tax alongside it ([Refunds](https://polar.sh/docs/features/refunds), "Amount"), so the title shows their sum. An order or refund without its amount, its tax part, or its currency gets the title alone.
 
 Every event type here needs only a read scope; none was left out for needing a write scope.
 
