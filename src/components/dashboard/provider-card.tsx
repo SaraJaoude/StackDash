@@ -208,7 +208,7 @@ export function ProviderCard({
                   <dd>{summary.billingPeriod === null ? <Unavailable /> : formatPeriod(summary.billingPeriod)}</dd>
                 </div>
               ) : null}
-              {summary.resetsAt === null ? null : (
+              {!fields.resetsAt || summary.resetsAt === null ? null : (
                 <div className="flex gap-1">
                   <dt className="text-muted">Next reset:</dt>
                   <dd>
