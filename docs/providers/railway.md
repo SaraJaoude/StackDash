@@ -72,7 +72,7 @@ All requested scopes are read only. Railway scopes cap the access level: a `work
 | `offline_access` | Refresh tokens, so hourly syncs keep working after the one hour access token expires |
 | `workspace:viewer` | Viewer access to the workspaces the user picks: projects, deployments, usage, and billing where viewer access allows it |
 
-The original plan listed `openid offline_access workspace:viewer`. Adding `email profile` follows Railway's documented requirement for listing workspaces.
+Railway documents `email profile` as required for listing workspaces, so the request adds them to `openid offline_access workspace:viewer`.
 
 Not requested: `workspace:member` and `workspace:admin` (they can deploy, change variables, and delete services), `project:viewer` and `project:member` (they cover single projects, not workspace billing), `notifications`, and `ssh_keys`. Every event type below is readable with `workspace:viewer`, so none was left out for needing a write scope.
 
