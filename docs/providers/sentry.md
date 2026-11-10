@@ -1,8 +1,10 @@
 # Sentry
 
-Provider id: `sentry`. Issues: #117 (adapter), #11 (research), #141 (registering real apps). Docs checked 2026-11-05.
+Provider id: `sentry`. Verification: documentation only. Docs checked 2026-11-05.
 
-**Built without a real Sentry account.** No integration has been registered yet (#141), so every request and response on this page comes from Sentry's documentation, and the tests run on samples from it. Everything not yet confirmed against a real organization is listed under [Unverified](#unverified); treat the adapter as unverified until that list is worked through.
+DevMacro reads error counts per Sentry project, new and regressed issues, resolutions, and releases. It installs as a Sentry integration with three read-only scopes. Sentry does not report cost, so DevMacro shows none.
+
+**Built without a real Sentry account.** No integration has been registered yet, so every request and response on this page comes from Sentry's documentation, and the tests run on samples from it. Everything not yet confirmed against a real organization is listed under [Unverified](#unverified); treat the adapter as unverified until that list is worked through.
 
 ## Go or no-go
 
@@ -12,7 +14,7 @@ The hosted integration needs Sentry's publication review before organizations ot
 
 ## Connection
 
-A Sentry public integration on the integration platform, installed on one Sentry organization. The decision to use the integration rather than a Sentry OAuth application is recorded on #117.
+A Sentry public integration on the integration platform, installed on one Sentry organization.
 
 | Item | Value |
 |---|---|
@@ -132,7 +134,7 @@ The cursor remembers up to 100 unresolved issues per project (short id, whether 
 
 Titles carry the short id or the release version, never the issue title: "New issue WEB-1A", "Issue WEB-1A regressed", "Issue WEB-1A resolved", "Release web@1.2.0 created". Issue events link to the issue's `permalink` when it is an `https` address on `sentry.io`. The issue list does not say when a status changed, so regressed and resolved events carry the sync time; their dedupe key includes the sync window, so an issue that regresses again later gets a new event.
 
-None of these events counts in the dashboard headline's signups or deploys (#173): a release is a version Sentry was told about, not a deployment of it.
+None of these events counts in the dashboard headline's signups or deploys: a release is a version Sentry was told about, not a deployment of it.
 
 ## Verified, estimated, unavailable
 
@@ -143,7 +145,7 @@ None of these events counts in the dashboard headline's signups or deploys (#173
 | Releases and their creation time | Verified |
 | Regressions and resolutions | Verified status, estimated time: dated when the sync saw the change, up to one poll interval late |
 | Spend, plan, reserved volume, on-demand budget, quota remaining | Unavailable: no endpoint for integrations |
-| Transactions, replays, attachments, profiles, and other categories | Unavailable in this adapter (the same endpoint can count them; not requested by #117) |
+| Transactions, replays, attachments, profiles, and other categories | Unavailable in this adapter (the same endpoint can count them; DevMacro does not read them) |
 | Who is assigned, who released, issue titles and messages | Not collected on purpose |
 
 ## Rate limits
@@ -155,7 +157,7 @@ None of these events counts in the dashboard headline's signups or deploys (#173
 
 ## Webhooks (Post-MVP)
 
-Polling only for the MVP (#28). The integration platform can push `installation` (created, deleted), `issue` (created, resolved, assigned, archived, unresolved), `error`, and alert resources to one webhook URL, each signed with `Sentry-Hook-Signature`: an HMAC SHA-256 hex digest of the raw body keyed with the client secret, compared in constant time. `installation.deleted` would also tell DevMacro at once when a user uninstalls. There is no webhook for usage stats, so error volume stays polled.
+Polling only for the MVP. The integration platform can push `installation` (created, deleted), `issue` (created, resolved, assigned, archived, unresolved), `error`, and alert resources to one webhook URL, each signed with `Sentry-Hook-Signature`: an HMAC SHA-256 hex digest of the raw body keyed with the client secret, compared in constant time. `installation.deleted` would also tell DevMacro at once when a user uninstalls. There is no webhook for usage stats, so error volume stays polled.
 
 ## Permission risks
 
@@ -296,7 +298,7 @@ Redirect after install (from documentation, not recorded):
 
 ## Unverified
 
-Nothing on this page has been tried against a real Sentry organization. Confirm with a test organization and an unpublished integration before relying on the adapter (#141):
+Nothing on this page has been tried against a real Sentry organization. Confirm with a test organization and an unpublished integration before relying on the adapter:
 
 - The install, redirect, code exchange, and JWT bearer refresh end to end, including that `state` comes back unchanged from the external install URL and that the refresh response has the documented shape.
 - That `installationId` is always a UUID and `orgSlug` the organization's current slug, and that a spoofed `orgSlug` is refused (`403` or `404`) when the token lists that organization's projects.

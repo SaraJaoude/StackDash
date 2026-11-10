@@ -1,16 +1,18 @@
 # PostHog
 
-Provider id: `posthog`. Issues: #115 (adapter), #11 (research), #141 (registering apps on real platforms). Docs checked 2026-11-05.
+Provider id: `posthog`. Verification: documentation only. Docs checked 2026-11-05.
+
+DevMacro reads your PostHog organization's spend, billing limits, and product usage, plus daily signups. It asks for four read-only scopes: billing, organization, project, and query.
 
 ## Go or no-go
 
-**Go, built against the documentation only.** There is no PostHog account behind this adapter yet (#141), so every request and response shape below comes from PostHog's OAuth guide, its OpenAPI reference, and its frontend billing types, and every claim that needs a real account to confirm is listed under [Unverified](#unverified). The tests run against sample responses built from those sources, never against PostHog.
+**Go, built against the documentation only.** There is no PostHog account behind this adapter yet, so every request and response shape below comes from PostHog's OAuth guide, its OpenAPI reference, and its frontend billing types, and every claim that needs a real account to confirm is listed under [Unverified](#unverified). The tests run against sample responses built from those sources, never against PostHog.
 
-The biggest open question is #11's: whether PostHog grants `billing:read` to an app registered by client ID metadata document. If it does not, the connection still works and syncs signups; the connection page then lists `billing:read` as missing and no spend or limits appear.
+The biggest open question is whether PostHog grants `billing:read` to an app registered by client ID metadata document. If it does not, the connection still works and syncs signups; the connection page then lists `billing:read` as missing and no spend or limits appear.
 
 ## Connection
 
-OAuth 2.0 authorization code flow with PKCE (S256). PostHog has no app registration form for third parties: the app is a **client ID metadata document** (CIMD) that DevMacro serves itself, and the `client_id` is that document's URL. DevMacro authenticates to the token endpoint with `private_key_jwt`: a short-lived assertion signed with the deployment's private key, checked by PostHog against a JWKS that DevMacro also serves. Why not a public client: see the decision on #115.
+OAuth 2.0 authorization code flow with PKCE (S256). PostHog has no app registration form for third parties: the app is a **client ID metadata document** (CIMD) that DevMacro serves itself, and the `client_id` is that document's URL. DevMacro authenticates to the token endpoint with `private_key_jwt`: a short-lived assertion signed with the deployment's private key, checked by PostHog against a JWKS that DevMacro also serves.
 
 | Item | Value |
 |---|---|
@@ -81,23 +83,23 @@ PostHog lets the user narrow a grant to some organizations, and the token respon
 
 ### Billing overview: `GET /api/billing/?organization_id=<uuid>&include_forecasting=true`
 
-Scope `billing:read`. `organization_id` names the connected organization explicitly; without it PostHog uses the user's current project's organization. With token authentication PostHog also requires the user to have billing access in that organization, or it answers 403. The organization-level billing API (`/api/organizations/{id}/billing/...`) is in beta behind a feature flag and answers 403 without it, so it is not used (#115).
+Scope `billing:read`. `organization_id` names the connected organization explicitly; without it PostHog uses the user's current project's organization. With token authentication PostHog also requires the user to have billing access in that organization, or it answers 403. The organization-level billing API (`/api/organizations/{id}/billing/...`) is in beta behind a feature flag and answers 403 without it, so it is not used.
 
 Fields read, everything else is dropped at the parse boundary (including `account_owner`, which holds a name and email):
 
 | Field | Becomes |
 |---|---|
 | `current_total_amount_usd_after_discount`, else `current_total_amount_usd` | `posthog.spend.current`, verified spend |
-| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, anomaly detection, or the dashboard's own projections (#173, #223). Sent whenever PostHog returns it, with or without a current total, since nothing counts it either way |
+| `projected_total_amount_usd_after_discount`, else `projected_total_amount_usd` | `posthog.spend.projected`, estimated spend (PostHog's own projection), declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, anomaly detection, or the dashboard's own projections. Sent whenever PostHog returns it, with or without a current total, since nothing counts it either way |
 | `billing_period.current_period_start`, `current_period_end` | Timeframe and reset time of every billing metric |
 | `products[].current_usage`, `unit` | `posthog.<type>.usage` |
 | `products[].free_allocation` | `posthog.<type>.free` (included allowance) and `posthog.<type>.free_remaining` |
-| `products[].current_amount_usd` | `posthog.spend.current.<type>`, verified spend: a breakdown of `posthog.spend.current`, so the dashboard, alerts, daily summary, and headline count the organization total once and never add the products to it (#204) |
+| `products[].current_amount_usd` | `posthog.spend.current.<type>`, verified spend: a breakdown of `posthog.spend.current`, so the dashboard, alerts, daily summary, and headline count the organization total once and never add the products to it |
 | `products[].usage_limit`, `has_exceeded_limit` | Usage limit events (below) |
 
 Only products with a `usage_key` (metered) and a lowercase `type` produce metrics; inclusion-only products such as Platform and support have no usage. A product's free allocation of zero or null produces no allowance metric.
 
-Before #204 each product's spend was stored as `posthog.<type>.spend`, beside the total rather than below it, and the dashboard added the two together. Rows already stored under that name are read as breakdowns of `posthog.spend.current` (`dropSupersededBreakdowns` in `src/lib/dashboard/aggregate.ts`), so they never count beside the total either.
+Earlier versions stored each product's spend as `posthog.<type>.spend`, beside the total rather than below it, and the dashboard added the two together. Rows already stored under that name are read as breakdowns of `posthog.spend.current` (`dropSupersededBreakdowns` in `src/lib/dashboard/aggregate.ts`), so they never count beside the total either.
 
 ### Organizations: `GET /api/organizations/?limit=100`
 
@@ -129,7 +131,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 - Billing period: `current_period_start` and `current_period_end` are read as ISO 8601 timestamps with `Z`, an offset, or no zone, which is read as UTC. Anything else fails the sync as an unexpected shape.
 - Freshness: billing usage is not real time; PostHog's billing page and the API read the same billing service. Signups are counted once a UTC day has ended.
 - The first sync reports the last 7 complete UTC days of signups; later syncs report only days that ended since the last one, at most 7 back after a long pause.
-- The organization's signups for the latest whole UTC day are also a `usage` metric, `posthog.signups.daily`, over exactly that day. The adapter declares it as its daily signup total (`signupDailyTotals`), so the dashboard headline counts PostHog's signups by summing these daily readings (#173). Each sync stores only the latest day as a reading, so a day no sync reported in time (a pause of more than a day) has no reading, and the headline names PostHog unavailable for a window that includes that day; the timeline events still cover it.
+- The organization's signups for the latest whole UTC day are also a `usage` metric, `posthog.signups.daily`, over exactly that day. The adapter declares it as its daily signup total (`signupDailyTotals`), so the dashboard headline counts PostHog's signups by summing these daily readings. Each sync stores only the latest day as a reading, so a day no sync reported in time (a pause of more than a day) has no reading, and the headline names PostHog unavailable for a window that includes that day; the timeline events still cover it.
 
 ### Timeline events (by polling)
 
@@ -146,7 +148,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 | Value | Status |
 |---|---|
 | Spend so far in the billing period, total and per product | Verified (PostHog's billed figures; the period is provisional until invoiced) |
-| Projected spend for the period | Estimated (PostHog's projection). Stored, but never shown or counted as spend this billing period (#223) |
+| Projected spend for the period | Estimated (PostHog's projection). Stored, but never shown or counted as spend this billing period |
 | Usage, free allocation, and free allocation left per product | Verified |
 | Billing limit per product, as a timeline event | Verified when PostHog returns `usage_limit` |
 | Signups per project per day | Verified counts of person profiles created, with the caveat in Signups |
@@ -162,7 +164,7 @@ A "signup" is a person profile PostHog created that day. With PostHog's default 
 
 ## Webhooks
 
-None. PostHog offers no webhooks to OAuth apps (#115), so everything is polled.
+None. PostHog offers no webhooks to OAuth apps, so everything is polled.
 
 ## Permission risks
 
@@ -262,9 +264,9 @@ Signup query (API queries, Response structure):
 
 ## Unverified
 
-Confirm with a real PostHog account (#141) before relying on the adapter:
+Confirm with a real PostHog account before relying on the adapter:
 
-1. Whether PostHog grants `billing:read` to an app registered by metadata document (#11). If it drops the scope from the ceiling, billing shows as missing permission.
+1. Whether PostHog grants `billing:read` to an app registered by metadata document. If it drops the scope from the ceiling, billing shows as missing permission.
 2. That `private_key_jwt` works for a consent-flow CIMD app that is not a provisioning partner. The OAuth guide lists it as allowed; the signing details come from the provisioning guide, which also mentions a registration call that only provisioning apps are told to make.
 3. That the region-agnostic `oauth.posthog.com` accepts the assertion `aud` of `["https://us.posthog.com", "https://eu.posthog.com"]` and routes code exchange, refresh, and revoke to the right region.
 4. That the region check behaves as described: a token from one region answers 401 in the other.

@@ -1,12 +1,14 @@
 # Polar
 
-Provider id: `polar`. Issues: #114 (adapter), #11 (OAuth research), #131 (simulated providers), #141 (real accounts). Docs checked 2026-11-05 against Polar API version `2026-10`.
+Provider id: `polar`. Verification: documentation only. Docs checked 2026-11-05 against Polar API version `2026-10`.
 
-**Not yet confirmed with a real Polar account.** DevMacro has not registered a Polar OAuth client yet (#141). Everything below comes from Polar's documentation, and every claim that only a real account can confirm is listed under [Unverified](#unverified). The adapter's tests run against sample responses built from the API reference, and the simulated Polar provider (`DEVMACRO_SIMULATE_PROVIDERS=1`) shows the whole flow locally without an account.
+DevMacro reads your Polar revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. It asks for six read-only scopes and never writes to Polar.
+
+**Not yet confirmed with a real Polar account.** DevMacro has not registered a Polar OAuth client yet. Everything below comes from Polar's documentation, and every claim that only a real account can confirm is listed under [Unverified](#unverified). The adapter's tests run against sample responses built from the API reference, and the simulated Polar provider (`DEVMACRO_SIMULATE_PROVIDERS=1`) shows the whole flow locally without an account.
 
 ## Go or no-go
 
-**Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything #114 asks for: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so DevMacro shows Polar's numbers rather than recomputing them from orders.
+**Go for demos with the simulated provider. No-go for real connections until the Unverified list is checked with a real organization.** Polar has OAuth 2.0 with PKCE and read-only scopes for everything DevMacro reads: revenue, Polar fees, recurring revenue, orders, subscriptions, new customers, and refunds. All money comes from Polar's own analytics endpoint, so DevMacro shows Polar's numbers rather than recomputing them from orders.
 
 Push events would need `webhooks:write`, which is not read-only, so the timeline is polled.
 
@@ -45,7 +47,7 @@ The callback carries `code` and `state`, and `iss` when Polar sends it: the disc
 
 `POST /v1/oauth2/token` with `grant_type=refresh_token`, `refresh_token`, `client_id`, `client_secret`. The adapter stores the new refresh token when one is returned and keeps the current one otherwise.
 
-- Only `invalid_grant` (RFC 6749 section 5.2: a code or refresh token that is used, expired, or revoked), as a `400` or a `401`, is reported as `auth_revoked`, so the connection asks to be reconnected instead of retrying a token that can never work again. Polar's exact answer for a spent refresh token is Unverified #2.
+- Only `invalid_grant` (RFC 6749 section 5.2: a code or refresh token that is used, expired, or revoked), as a `400` or a `401`, is reported as `auth_revoked`, so the connection asks to be reconnected instead of retrying a token that can never work again. Polar's exact answer for a spent refresh token is Unverified item 2.
 - `invalid_client` (wrong client id or secret, as a `400` or a `401`), `invalid_request`, and `unsupported_grant_type` are this instance's OAuth client configuration, not the user's grant. They are reported as `invalid_response`: retried, and logged with the error reference, never a reconnect prompt. If every Polar connection fails this way, check `POLAR_CLIENT_ID` and `POLAR_CLIENT_SECRET`.
 
 ### Disconnect and revoke
@@ -89,7 +91,7 @@ One call per organization per sync: `start_date` the first of the current UTC mo
 | `annual_recurring_revenue` | `polar.arr.usd`, "Annual recurring revenue (USD)" | `recurring_revenue` | Latest day |
 | `active_subscriptions` | `polar.subscriptions.active` | `usage` (subscriptions) | Latest day |
 
-Revenue is revenue and fees are spend, like Stripe: revenue appears under "Revenue this billing period" and Polar fees under spending, never mixed. MRR and ARR are run rates, not money earned in a period, so they have their own kind, `recurring_revenue`, which the dashboard never adds into revenue or spend. They appear on the Polar card under "Recurring revenue", one figure each (summed over the connection's organizations, never MRR into ARR), and in trends. The decision and the options considered are on #114.
+Revenue is revenue and fees are spend, like Stripe: revenue appears under "Revenue this billing period" and Polar fees under spending, never mixed. MRR and ARR are run rates, not money earned in a period, so they have their own kind, `recurring_revenue`, which the dashboard never adds into revenue or spend. They appear on the Polar card under "Recurring revenue", one figure each (summed over the connection's organizations, never MRR into ARR), and in trends.
 
 Rounding: amounts are summed exactly and rounded once to cents, half to even (`src/lib/money.ts`). MRR can carry a fraction of a cent because yearly plans are divided by twelve.
 
@@ -118,7 +120,7 @@ Every event type here needs only a read scope; none was left out for needing a w
 
 ### Units, freshness, retention
 
-- Money: integer cents in USD. The metrics endpoint has no currency field. Polar settles in USD ("Polar's settlement currency (USD)" in the organization schema), and Polar's [multi-currency design document](https://handbook.polar.sh/engineering/design-documents/multi-currency) says metrics are computed in USD. Unverified #3.
+- Money: integer cents in USD. The metrics endpoint has no currency field. Polar settles in USD ("Polar's settlement currency (USD)" in the organization schema), and Polar's [multi-currency design document](https://handbook.polar.sh/engineering/design-documents/multi-currency) says metrics are computed in USD. Unverified item 3.
 - Counts: orders, subscriptions, and customers, as numbers with those units.
 - Periods: UTC days from the first of the month to now. Month totals are period metrics from the first of the month to the read time, so the dashboard counts them in the current billing period. MRR, ARR, and active subscriptions are point readings at the read time.
 - Freshness: not documented. DevMacro polls hourly.
@@ -185,7 +187,7 @@ Each deployment registers its own OAuth client, because the redirect URI and cli
 
 ## Sample responses
 
-All samples are from documentation, not recorded: shaped after the API reference for version `2026-10`, trimmed, with synthetic values. The test fixtures in `src/lib/adapters/polar/fixtures/` follow them. Replace them with recorded, sanitized responses once a real organization is connected (#141).
+All samples are from documentation, not recorded: shaped after the API reference for version `2026-10`, trimmed, with synthetic values. The test fixtures in `src/lib/adapters/polar/fixtures/` follow them. Replace them with recorded, sanitized responses once a real organization is connected.
 
 `POST /v1/oauth2/token` (from the [OAuth 2.0 Connect](https://polar.sh/docs/integrate/oauth2/connect) example):
 
@@ -304,7 +306,7 @@ All samples are from documentation, not recorded: shaped after the API reference
 
 ## Unverified
 
-Confirm with a real Polar organization before the adapter is used for real connections (#141). The code refers to these by number.
+Confirm with a real Polar organization before the adapter is used for real connections. The code refers to these by number.
 
 1. Whether the user can deselect individual scopes on the consent screen, and what `scope` then returns. The adapter compares the returned `scope` with the six it asked for.
 2. Whether refresh tokens rotate on every use, how long they last, and the exact error for a used, expired, or revoked refresh token (a `400 invalid_grant` is assumed from RFC 6749 section 5.2; `invalid_grant` is treated as revoked with `400` or `401`, and every other code is not).
