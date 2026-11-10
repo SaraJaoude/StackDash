@@ -184,13 +184,14 @@ function lastCompleteWindows(kind: HeadlineWindowKind, through: string): Headlin
  * view that have not synced since the window's last required day began (the test `eventsOf` applies),
  * so every day of it had been read, and never after yesterday. Null when the strip has a figure, or
  * when no connection in view is stale that way: a strip whose providers report none of its kinds,
- * or one connected too recently, keeps its own reasons and costs no second read.
+ * or one connected too recently, keeps its own reasons and costs no second read. A disconnected
+ * connection is never stale here, as in the dashboard's stale notice: no sync brings it up to date.
  */
 export function fallbackWindows(strip: HeadlineStrip, connections: readonly ConnectionInput[], now: Date): HeadlineWindows | null {
   if (hasFigure(strip)) return null;
   const requiredFrom = dayStart(windowSpecs(strip.windows).current.requiredEnd);
   const staleSyncs = connections.flatMap((connection) => {
-    if (connection.last_synced_at === null) return [];
+    if (connection.last_synced_at === null || connection.status === "revoked") return [];
     const syncedAt = Date.parse(connection.last_synced_at);
     return syncedAt < requiredFrom ? [syncedAt] : [];
   });

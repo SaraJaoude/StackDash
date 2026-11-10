@@ -795,6 +795,14 @@ describe("the last complete window when the window to date has no figure (#267)"
     expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
   });
 
+  it("takes no fallback for a disconnected connection, which no sync brings up to date (boundary: revoked)", () => {
+    const revoked = connection(vercel.id, "vercel", { status: "revoked", last_synced_at: "2026-10-20T09:00:00.000Z" });
+    expect(fallbackWindows(emptyStrip([revoked]), [revoked], NOW)).toBeNull();
+    // Beside a connection that is stale and can sync, the window follows that one alone.
+    const owners = [revoked, connection(supabase.id, "supabase", { last_synced_at: "2026-11-02T09:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start: "2026-10-26", end: "2026-11-01" });
+  });
+
   it("goes by the stale connections only, so a fresh one behind no figure does not keep the window too recent", () => {
     // GitHub reports nothing the strip counts and synced an hour ago; Vercel last synced on 2026-10-20.
     const owners = [github, connection(vercel.id, "vercel", { last_synced_at: "2026-10-20T09:00:00.000Z" })];
