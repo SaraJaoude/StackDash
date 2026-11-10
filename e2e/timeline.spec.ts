@@ -507,6 +507,7 @@ const BURST_MS = Date.UTC(2026, 5, 15, 11, 0);
  * One Stripe account with, newest first: five payments 30 seconds apart, a refund, three more
  * payments, then two payments one minute apart either side of London midnight. Eleven events in
  * five rows: the two bursts, the refund that breaks them, and the midnight pair, one row a day.
+ * Titles are the Stripe adapter's, each with its own amount (#261).
  */
 async function seedBursts(label: string): Promise<TestWorkspace> {
   const workspace = await createTestWorkspace(label);
@@ -529,13 +530,13 @@ async function seedBursts(label: string): Promise<TestWorkspace> {
   });
   const payment = (index: number, occurredMs: number) =>
     event(`payment-${index}`, occurredMs, {
-      type_id: "stripe.payment.succeeded",
+      type_id: "stripe.charge.succeeded",
       severity: "success",
-      title: `Payment of $${10 + index}.00 succeeded`,
+      title: `Payment succeeded: $${10 + index}.00`,
     });
   const { error } = await adminClient().from("activity_events").insert([
     ...[0, 1, 2, 3, 4].map((index) => payment(index, BURST_MS - index * 30 * SECOND_MS)),
-    event("refund", BURST_MS - 150 * SECOND_MS, { type_id: "stripe.charge.refunded", severity: "warning", title: "Charge refunded" }),
+    event("refund", BURST_MS - 150 * SECOND_MS, { type_id: "stripe.charge.refunded", severity: "info", title: "Payment refunded: $20.00" }),
     ...[5, 6, 7].map((index) => payment(index, BURST_MS - (180 + (index - 5) * 30) * SECOND_MS)),
     // 23:00:30 UTC on June 14 is 00:00:30 on June 15 in London; 22:59:30 UTC is still June 14.
     payment(8, Date.UTC(2026, 5, 14, 23, 0, 30)),
@@ -554,7 +555,9 @@ ownerTest.describe("timeline bursts and search", () => {
       const rows = eventItems(page);
       await expect(rows).toHaveCount(5);
 
-      // The first burst: one row named by the payments' type, with the count, account, and latest time.
+      // The first burst: one row named by the type Stripe's adapter declares, "Payment succeeded"
+      // rather than its id's "Charge succeeded", since the amounts differ, with the count, account,
+      // and latest time.
       const burst = rows.nth(0);
       await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
       await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
@@ -562,15 +565,15 @@ ownerTest.describe("timeline bursts and search", () => {
       // The first time is the row's own; each event inside the closed disclosure has one too.
       await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
       // The refund in between breaks the run, so the three payments after it are a run of their own.
-      await expect(rows.nth(1).getByRole("heading", { name: "Charge refunded", exact: true })).toBeVisible();
+      await expect(rows.nth(1).getByRole("heading", { name: "Payment refunded: $20.00", exact: true })).toBeVisible();
       await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
       // One minute apart, but either side of London midnight: one row under each day.
       const region = page.getByRole("region", { name: "Events", exact: true });
       await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
-      await expect(rows.nth(3).getByRole("heading", { name: "Payment of $18.00 succeeded", exact: true })).toBeVisible();
+      await expect(rows.nth(3).getByRole("heading", { name: "Payment succeeded: $18.00", exact: true })).toBeVisible();
       const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
       await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
-      await expect(dayBefore.getByRole("heading", { name: "Payment of $19.00 succeeded", exact: true })).toBeVisible();
+      await expect(dayBefore.getByRole("heading", { name: "Payment succeeded: $19.00", exact: true })).toBeVisible();
 
       // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
       const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
@@ -579,7 +582,7 @@ ownerTest.describe("timeline bursts and search", () => {
       await page.keyboard.press("Enter");
       await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
       await expect(members.getByRole("heading", { level: 4 })).toHaveText(
-        [10, 11, 12, 13, 14].map((amount) => `Payment of $${amount}.00 succeeded`),
+        [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
       );
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
