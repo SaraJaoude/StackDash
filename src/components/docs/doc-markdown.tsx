@@ -4,6 +4,8 @@ import remarkGfm from "remark-gfm";
 
 import { createHeadingSlugger, listDocs, resolveDocLink, type DocPage } from "@/lib/docs";
 
+import { CopyCodeButton } from "./copy-code-button";
+
 // hast types come from react-markdown's own signature rather than a direct dependency on them.
 type HastElement = NonNullable<ExtraProps["node"]>;
 type HastNode = HastElement["children"][number];
@@ -108,14 +110,21 @@ function markdownComponents(doc: DocPage, docHrefs: ReadonlySet<string>): Compon
           <span className="sr-only">{checked ? "Done: " : "To do: "}</span>
         </>
       ) : null,
-    // Scrollable blocks take focus so keyboard users can scroll them.
-    pre: ({ children }) => (
-      <pre
-        tabIndex={0}
-        className="mt-5 overflow-x-auto rounded-lg border border-line bg-panel p-4 font-mono text-[13px] leading-6 text-foreground/90 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]"
-      >
-        {children}
-      </pre>
+    // Scrollable blocks take focus so keyboard users can scroll them. The copy control sits in a bar
+    // above the block rather than over it, so it never hides the first line of a long command.
+    pre: ({ node, children }) => (
+      <div className="mt-5 rounded-lg border border-line bg-panel">
+        <div className="flex items-center justify-end gap-3 border-b border-line px-3 py-1.5">
+          {/* Markdown ends every code block with a newline; the copy leaves it out. */}
+          <CopyCodeButton code={node ? textContent(node).replace(/\n$/, "") : ""} />
+        </div>
+        <pre
+          tabIndex={0}
+          className="overflow-x-auto rounded-b-lg p-4 font-mono text-[13px] leading-6 text-foreground/90 [&>code]:bg-transparent [&>code]:p-0 [&>code]:text-[1em]"
+        >
+          {children}
+        </pre>
+      </div>
     ),
     code: ({ className, children }) => (
       <code className={className ? `${className} ${INLINE_CODE_CLASS}` : INLINE_CODE_CLASS}>{children}</code>
@@ -174,7 +183,10 @@ function markdownComponents(doc: DocPage, docHrefs: ReadonlySet<string>): Compon
   };
 }
 
-/** One doc's Markdown as server-rendered HTML: GitHub-flavored (tables, task lists), no client JS. */
+/**
+ * One doc's Markdown as server-rendered HTML: GitHub-flavored (tables, task lists). The only client
+ * code is the copy control on each code block.
+ */
 export function DocMarkdown({ doc }: { doc: DocPage }) {
   const docHrefs = new Set(listDocs().map((page) => page.href));
   return (
