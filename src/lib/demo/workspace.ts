@@ -8,19 +8,23 @@ import { simulatedCredentialMetadata } from "@/lib/adapters/simulated/marker";
 import type { ProviderId } from "@/lib/adapters/types";
 import { alertRuleInputSchema, budgetInputSchema } from "@/lib/alerts/rule-schema";
 import { completeConnection } from "@/lib/connections/connect";
+import { createJobDeps } from "@/lib/jobs/queue";
 import { PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
-import { demoAccountSeed } from "./history";
+import { demoAccountSeed, headlineWeekDays, historySteps, replayClock, replayHistory } from "./history";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
  * (the caller checks `demoCommandRefusal` first). A rerun deletes the workspaces the demo account
  * created, except its personal one, and builds a fresh one, so there is only ever one demo
  * workspace. Connections go through `completeConnection`, exactly as the OAuth callback makes
- * them; budgets and alert rules go through the alerts page's input schemas.
+ * them; budgets and alert rules go through the alerts page's input schemas. Sample data (#257) is
+ * the one in-app caller: it connects the simulated providers to a member's own empty workspace,
+ * behind the role check and `sampleDataRefusal` instead.
  */
 
 type Admin = SupabaseClient<Database>;
@@ -193,6 +197,51 @@ export async function connectSimulatedProviders(input: Readonly<{
     });
     connections.push({ id: connectionId, provider: adapter.id });
   }
+  return connections;
+}
+
+/** The timeline's search param, set to "added" right after sample data was added. */
+export const SAMPLE_DATA_ADDED_PARAM = "sample";
+
+/**
+ * Why sample data (#257) cannot be added to a workspace, or null when it can. Only with provider
+ * simulation on, the same switch that offers simulated providers in the catalog, and only to a
+ * workspace with no connections, so made-up data never sits beside real data.
+ */
+export function sampleDataRefusal(input: Readonly<{ simulationEnabled: boolean; connectionCount: number }>): string | null {
+  if (!input.simulationEnabled) return "Sample data is only available while provider simulation is on.";
+  if (input.connectionCount > 0) {
+    return "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+  }
+  return null;
+}
+
+/**
+ * Sample data for an empty workspace (#257): every simulated provider connected as the demo seed
+ * connects them, then the current week and the day before it replayed through the same jobs a
+ * tick runs, ending at the present (`headlineWeekDays`), so the timeline, the billing period cards,
+ * and the dashboard headline's week to date all have figures in one action. At most nine steps (a
+ * summer Sunday night, already Monday in London), against the seed's 90 days, so it fits in a
+ * request. Replayed alerts count as already sent, as the seed's do. The caller authorizes the user
+ * as an owner or admin of the workspace and checks `sampleDataRefusal` first.
+ */
+export async function addSampleData(input: Readonly<{ workspaceId: string; userId: string; now: Date }>): Promise<DemoConnection[]> {
+  const steps = historySteps(input.now, headlineWeekDays(input.now));
+  const [first] = steps;
+  if (first === undefined) throw new Error("The sample data history has no steps.");
+  const connections = await connectSimulatedProviders({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    seed: input.workspaceId,
+    now: first.at,
+  });
+  await replayHistory({
+    ...replayClock(createJobDeps(), first.at),
+    workspaceId: input.workspaceId,
+    connectionIds: connections.map((connection) => connection.id),
+    steps,
+  });
+  await markDemoAlertsSent(createAdminClient(), { workspaceId: input.workspaceId, at: input.now });
   return connections;
 }
 

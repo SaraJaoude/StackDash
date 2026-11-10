@@ -6,7 +6,9 @@ import {
   cardAltText,
   cardPath,
   metricIdFromFile,
+  metricShareLinks,
   shareText,
+  shareToLinkedInUrl,
   shareToXUrl,
   type ShareableMetric,
 } from "./share";
@@ -49,11 +51,11 @@ describe("metricIdFromFile", () => {
 });
 
 describe("share text", () => {
-  it("writes the badge Markdown as an image linking to the formula", () => {
+  it("writes the badge Markdown as an image linking to the given page", () => {
     expect(
       badgeMarkdown({
         badgeUrl: "https://devmacro.example.com/badge/p/github-stars.svg",
-        formulaUrl: "https://devmacro.example.com/docs/architecture/public-metrics#github-stars",
+        linkUrl: "https://devmacro.example.com/docs/architecture/public-metrics#github-stars",
         label: "GitHub stars",
       }),
     ).toBe(
@@ -62,24 +64,37 @@ describe("share text", () => {
   });
 
   it("keeps brackets out of the Markdown alt text (boundary: a label that would end it early)", () => {
-    expect(badgeMarkdown({ badgeUrl: "b", formulaUrl: "f", label: "Stars [beta]" })).toBe("[![Stars beta](b)](f)");
+    expect(badgeMarkdown({ badgeUrl: "b", linkUrl: "f", label: "Stars [beta]" })).toBe("[![Stars beta](b)](f)");
   });
 
   it("describes the card with its value, provenance, sync time, and trend", () => {
-    expect(cardAltText(stars)).toBe(
+    expect(cardAltText(stars, null)).toBe(
       "DevMacro card. GitHub stars: at least 1,200 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
     );
   });
 
+  it("names the project in the card's alt text when the card shows it", () => {
+    expect(cardAltText(stars, "Acme web")).toBe(
+      "DevMacro card for Acme web. GitHub stars: at least 1,200 stars. Verified by DevMacro, last synced 2026-11-05 12:00 GMT. With its trend over the last 30 days.",
+    );
+  });
+
   it("describes a card with no number without a trend or a sync time", () => {
-    expect(cardAltText({ ...stars, text: "Not connected", available: false, lastSyncedAt: null })).toBe(
+    expect(cardAltText({ ...stars, text: "Not connected", available: false, lastSyncedAt: null }, null)).toBe(
       "DevMacro card. GitHub stars: Not connected.",
     );
   });
 
   it("never calls simulated data verified in a post", () => {
-    expect(shareText({ ...stars, simulated: true })).toBe("GitHub stars: at least 1,200 stars. Simulated data, not verified.");
-    expect(shareText(stars)).toBe("GitHub stars: at least 1,200 stars. Verified by DevMacro.");
+    expect(shareText({ ...stars, simulated: true }, null)).toBe("GitHub stars: at least 1,200 stars. Simulated data, not verified.");
+    expect(shareText(stars, null)).toBe("GitHub stars: at least 1,200 stars. Verified by DevMacro.");
+  });
+
+  it("names the project in a post when given one, with or without a number", () => {
+    expect(shareText(stars, "Acme web")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by DevMacro.");
+    expect(shareText({ ...stars, text: "Not connected", available: false, lastSyncedAt: null }, "Acme web")).toBe(
+      "GitHub stars for Acme web on DevMacro.",
+    );
   });
 
   it("builds X's post intent with the text and link encoded, and no link when there is none", () => {
@@ -88,5 +103,49 @@ describe("share text", () => {
     expect(url.searchParams.get("text")).toBe("1,200 stars & more");
     expect(url.searchParams.get("url")).toBe("https://devmacro.example.com/card/p/github-stars.png");
     expect(new URL(shareToXUrl("text only")).searchParams.has("url")).toBe(false);
+  });
+
+  it("builds LinkedIn's share page with the link encoded", () => {
+    const url = new URL(shareToLinkedInUrl("https://devmacro.example.com/@k3j4h5g6f7/acme-web?a=1&b=2"));
+    expect(url.origin + url.pathname).toBe("https://www.linkedin.com/sharing/share-offsite/");
+    expect(url.searchParams.get("url")).toBe("https://devmacro.example.com/@k3j4h5g6f7/acme-web?a=1&b=2");
+  });
+});
+
+describe("metricShareLinks", () => {
+  const ORIGIN = "https://devmacro.example.com";
+  const PAGE_URL = `${ORIGIN}/@k3j4h5g6f7/acme-web`;
+  const CARD_URL = `${ORIGIN}/card/${PROJECT_ID}/github-stars.png`;
+  const links = (projectPage: { path: string; projectName: string } | null) =>
+    metricShareLinks({
+      origin: ORIGIN,
+      projectId: PROJECT_ID,
+      metricId: "github-stars",
+      formulaPath: "/docs/architecture/public-metrics#github-stars",
+      metric: stars,
+      projectPage,
+    });
+
+  it("points the post, X, LinkedIn, and the badge at the project page while it is public", () => {
+    const on = links({ path: "/@k3j4h5g6f7/acme-web", projectName: "Acme web" });
+    expect(on.link).toBe(PAGE_URL);
+    const x = new URL(on.xIntentUrl);
+    expect(x.searchParams.get("url")).toBe(PAGE_URL);
+    expect(x.searchParams.get("text")).toBe("GitHub stars for Acme web: at least 1,200 stars. Verified by DevMacro.");
+    expect(new URL(on.linkedInUrl).searchParams.get("url")).toBe(PAGE_URL);
+    expect(on.badgeMarkdown).toBe(`[![GitHub stars](${ORIGIN}/badge/${PROJECT_ID}/github-stars.svg)](${PAGE_URL})`);
+    expect(on.cardUrl).toBe(CARD_URL);
+  });
+
+  it("never links an unpublished page: with the page off, posts carry the card and the badge the formula (boundary)", () => {
+    const off = links(null);
+    expect(off.link).toBe(CARD_URL);
+    const x = new URL(off.xIntentUrl);
+    expect(x.searchParams.get("url")).toBe(CARD_URL);
+    expect(x.searchParams.get("text")).toBe("GitHub stars: at least 1,200 stars. Verified by DevMacro.");
+    expect(new URL(off.linkedInUrl).searchParams.get("url")).toBe(CARD_URL);
+    expect(off.badgeMarkdown).toBe(
+      `[![GitHub stars](${ORIGIN}/badge/${PROJECT_ID}/github-stars.svg)](${ORIGIN}/docs/architecture/public-metrics#github-stars)`,
+    );
   });
 });
