@@ -4,11 +4,13 @@ import { refresh } from "next/cache";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import type { ProviderId } from "@/lib/adapters/types";
 import { disconnectConnection, manualRevokeMessage, revokeAtProvider } from "@/lib/connections/revoke";
 import { CONNECTIONS_LIMIT } from "@/lib/data/dashboard";
+import { addSampleData, SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { enqueueSync, MANUAL_SYNC_COOLDOWN_SECONDS } from "@/lib/jobs/queue";
-import { logError } from "@/lib/log/logger";
+import { log, logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction, type WorkspaceAccess } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -37,6 +39,7 @@ const accountIncludedSchema = z
   .object({ workspace: z.string().min(1), accountId: Id, included: z.enum(["true", "false"]) })
   .strict();
 const connectionSchema = z.object({ workspace: z.string().min(1), connectionId: Id }).strict();
+const workspaceSchema = z.object({ workspace: z.string().min(1) }).strict();
 
 /** Expected failures become messages; anything else is logged and answered with a reference. */
 function failure(event: string, error: unknown, message: string): ConnectionActionResult {
@@ -340,4 +343,41 @@ export async function deleteConnection(
   const query = new URLSearchParams({ deleted: provider });
   if (manualStep !== null) query.set("revoke", "manual");
   redirect(`${connectionsPath}?${query.toString()}`);
+}
+
+/**
+ * "Explore with sample data" (#257): connects every simulated provider to an empty workspace and
+ * runs their first sync, then opens the timeline with the result. Owners and admins only, checked
+ * against the verified user, and refused when simulation is off or anything is already connected.
+ */
+export async function exploreWithSampleData(
+  _previous: ConnectionActionResult | null,
+  formData: FormData,
+): Promise<ConnectionActionResult> {
+  const parsed = workspaceSchema.safeParse({ workspace: formData.get("workspace") });
+  if (!parsed.success) return { ok: false, message: STALE_FORM_MESSAGE };
+
+  let timelinePath: string;
+  try {
+    const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
+    const supabase = await createClient();
+    const { count, error } = await supabase
+      .from("connections")
+      .select("id", { count: "exact", head: true })
+      .eq("workspace_id", access.workspace.id);
+    if (error) throw new Error("Connection count failed", { cause: error });
+    const refusal = sampleDataRefusal({ simulationEnabled: isProviderSimulationEnabled(), connectionCount: count ?? 0 });
+    if (refusal !== null) return { ok: false, message: refusal };
+
+    const connections = await addSampleData({ workspaceId: access.workspace.id, userId: access.user.id, now: new Date() });
+    log.info("connections.sample_data_added", { workspaceId: access.workspace.id, connections: connections.length });
+    timelinePath = workspacePath(access.workspace.slug, "timeline");
+  } catch (error) {
+    return failure(
+      "connections.sample_data_failed",
+      error,
+      "The sample data could not be added in full. Any simulated provider it connected is on the Connections page, where it keeps syncing or can be deleted.",
+    );
+  }
+  redirect(`${timelinePath}?${new URLSearchParams({ [SAMPLE_DATA_ADDED_PARAM]: "added" }).toString()}`);
 }
