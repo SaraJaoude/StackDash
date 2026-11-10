@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { simulatedAdapters } from "@/lib/adapters/simulated";
@@ -20,6 +22,7 @@ import {
   WATCH_DEFAULT_INTERVAL_SECONDS,
   type WatchDeps,
   type WatchTick,
+  watchUntilStopped,
 } from "./watch";
 
 const NOW = new Date("2026-11-04T21:30:00.000Z");
@@ -316,5 +319,46 @@ describe("abortableSleep", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("watchUntilStopped", () => {
+  function watchDeps(signals: EventEmitter, lines: string[]): Omit<WatchDeps, "signal"> {
+    let ticks = 0;
+    return {
+      tick: async () => {
+        ticks += 1;
+        // Ctrl+C arrives while the second tick is running: that tick still finishes and prints.
+        if (ticks === 2) signals.emit("SIGINT");
+        return { result: RESULT, eventsWritten: 4 };
+      },
+      simulationEnabled: () => true,
+      markSimulatedDue: async () => 1,
+      now: () => NOW,
+      sleep: async () => {},
+      print: (line) => lines.push(line),
+    };
+  }
+
+  it("stops after the tick in progress on Ctrl+C and lets go of the signals", async () => {
+    const signals = new EventEmitter();
+    const lines: string[] = [];
+    await watchUntilStopped(watchDeps(signals, lines), 10, signals);
+    expect(lines.filter((line) => line.startsWith(`${NOW.toISOString()} synced`))).toHaveLength(2);
+    expect(lines.at(-1)).toBe("Stopped.");
+    expect(signals.listenerCount("SIGINT")).toBe(0);
+    expect(signals.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("stops on SIGTERM too", async () => {
+    const signals = new EventEmitter();
+    const lines: string[] = [];
+    const deps = { ...watchDeps(signals, lines), tick: async () => {
+      signals.emit("SIGTERM");
+      return { result: RESULT, eventsWritten: 0 };
+    } };
+    await watchUntilStopped(deps, 10, signals);
+    expect(lines.at(-1)).toBe("Stopped.");
+    expect(signals.listenerCount("SIGINT")).toBe(0);
   });
 });

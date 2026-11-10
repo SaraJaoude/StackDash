@@ -16,10 +16,9 @@
  */
 import { existsSync } from "node:fs";
 
-import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { createJobDeps } from "@/lib/jobs/queue";
 import { runTick } from "@/lib/jobs/runner";
-import { abortableSleep, parseTickArgs, runWatch, runWatchTick } from "@/lib/jobs/watch";
+import { liveWatchDeps, parseTickArgs, watchUntilStopped } from "@/lib/jobs/watch";
 
 async function main(): Promise<void> {
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
@@ -35,23 +34,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  const deps = createJobDeps();
-  const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
-  await runWatch(
-    {
-      tick: () => runWatchTick(deps),
-      simulationEnabled: isProviderSimulationEnabled,
-      // Only connections the simulator made (by their granted scope), never a real connection,
-      // whatever its provider: the simulated adapters refuse real credentials.
-      markSimulatedDue: () => deps.store.markSimulatedSyncsDue(new Date()),
-      now: () => new Date(),
-      sleep: abortableSleep,
-      print: (line) => console.log(line),
-      signal: controller.signal,
-    },
+  await watchUntilStopped(
+    liveWatchDeps(createJobDeps(), (line) => console.log(line)),
     args.intervalSeconds,
   );
 }

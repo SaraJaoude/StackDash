@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { safeNextPath } from "@/lib/auth/redirect";
+import { safeNextPath, signInErrorUrl, type SignInErrorCode } from "@/lib/auth/redirect";
 import { log, logError } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
@@ -8,12 +8,8 @@ import { createClient } from "@/lib/supabase/server";
 // invite list. Supabase Auth passes the hook's message through as `error_description`.
 const NOT_INVITED_PATTERN = /not been invited/i;
 
-function signInWithError(request: NextRequest, error: string, next: string, referenceId?: string) {
-  const url = new URL("/sign-in", request.url);
-  url.searchParams.set("error", error);
-  if (referenceId !== undefined) url.searchParams.set("ref", referenceId);
-  url.searchParams.set("next", next);
-  return NextResponse.redirect(url, 303);
+function signInWithError(request: NextRequest, error: SignInErrorCode, next: string, referenceId?: string) {
+  return NextResponse.redirect(signInErrorUrl(request.url, error, next, referenceId), 303);
 }
 
 /**

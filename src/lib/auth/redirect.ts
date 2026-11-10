@@ -58,3 +58,20 @@ export function safeNextPath(input: unknown): string {
   const path = `${url.pathname}${url.search}${url.hash}`;
   return path.length > MAX_NEXT_PATH_LENGTH ? DEFAULT_NEXT_PATH : path;
 }
+
+/** Codes the auth routes put in `/sign-in?error=`. The sign-in page has a message for each. */
+export const SIGN_IN_ERROR_CODES = ["not_invited", "cancelled", "start_failed", "callback_failed", "link_invalid", "link_failed"] as const;
+
+export type SignInErrorCode = (typeof SIGN_IN_ERROR_CODES)[number];
+
+/**
+ * `/sign-in` on `base`'s origin showing `error`, with the log reference when there is one, and
+ * `next` for after sign-in. Pass `next` through `safeNextPath` first.
+ */
+export function signInErrorUrl(base: string | URL, error: SignInErrorCode, next: string, referenceId?: string): URL {
+  const url = new URL("/sign-in", base);
+  url.searchParams.set("error", error);
+  if (referenceId !== undefined) url.searchParams.set("ref", referenceId);
+  url.searchParams.set("next", next);
+  return url;
+}
