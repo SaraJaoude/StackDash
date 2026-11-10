@@ -77,11 +77,21 @@ function trigger(page: Page) {
 }
 
 /**
- * One result by its whole accessible name: the label, then the kind, as a screen reader reads it
- * ("Timeline, Page"). Exact, because a label such as "Timeline" is also part of other names.
+ * One result by its label, which is its accessible name, and its kind, which is its accessible
+ * description and the secondary text beside the label. Exact, because "Vercel" is the name of a
+ * provider dashboard and a provider timeline, and part of other names.
  */
 function option(page: Page, label: string, kind: string) {
-  return palette(page).getByRole("option", { name: `${label}, ${kind}`, exact: true });
+  return palette(page)
+    .getByRole("option", { name: label, exact: true })
+    .filter({ has: page.getByText(kind, { exact: true }) });
+}
+
+/** Every result of one kind, whatever its name. */
+function optionsOfKind(page: Page, kind: string) {
+  return palette(page)
+    .getByRole("option")
+    .filter({ has: page.getByText(kind, { exact: true }) });
 }
 
 /** The live region that counts the results, beside the one that reports an action's progress. */
@@ -178,6 +188,8 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(resultCount(page)).toHaveText("1 result");
       const failed = option(page, "Vercel: Deployment failed", "Event timeline");
       await expect(failed).toHaveAttribute("aria-selected", "true");
+      // The kind beside the label is the result's description, so a screen reader reads it too.
+      await expect(failed).toHaveAccessibleDescription("Event timeline");
       // The selected result is the combobox's active descendant, which is what a screen reader reads.
       await expect(combobox(page)).toHaveAttribute("aria-activedescendant", (await failed.getAttribute("id")) ?? "missing");
       await expectNoAxeViolations(page);
@@ -203,16 +215,19 @@ ownerTest.describe("command palette as the owner", () => {
       await combobox(page).fill("usage");
       const options = palette(page).getByRole("option");
       // The dashboard page, then the dashboard scopes: the provider, the projects (Checkout,
-      // Unassigned), then the account, each labeled by its name alone.
-      const names = [
-        "Dashboard, Page",
-        "Vercel, Provider dashboard",
-        "Checkout, Project dashboard",
-        "Unassigned, Project dashboard",
-        "Palette production, Account dashboard",
-      ];
-      await expect(options).toHaveCount(names.length);
-      for (const [index, name] of names.entries()) await expect(options.nth(index)).toHaveAccessibleName(name);
+      // Unassigned), then the account, each labeled by its name alone and described by its kind.
+      const expected = [
+        ["Dashboard", "Page"],
+        ["Vercel", "Provider dashboard"],
+        ["Checkout", "Project dashboard"],
+        ["Unassigned", "Project dashboard"],
+        ["Palette production", "Account dashboard"],
+      ] as const;
+      await expect(options).toHaveCount(expected.length);
+      for (const [index, [name, kind]] of expected.entries()) {
+        await expect(options.nth(index)).toHaveAccessibleName(name);
+        await expect(options.nth(index)).toHaveAccessibleDescription(kind);
+      }
       const first = options.nth(0);
       const project = options.nth(2);
       const last = options.nth(4);
@@ -594,7 +609,7 @@ viewerTest("a viewer is offered no action", async ({ page }) => {
     for (const query of ["connect", "sync", "api key"]) {
       await combobox(page).fill(query);
       await expect(resultCount(page)).toBeVisible();
-      await expect(palette(page).getByRole("option", { name: /, Action$/ })).toHaveCount(0);
+      await expect(optionsOfKind(page, "Action")).toHaveCount(0);
     }
     // The views are still there for a viewer.
     await combobox(page).fill("vercel");

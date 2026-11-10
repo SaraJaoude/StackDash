@@ -132,7 +132,10 @@ const SECONDARY_BUTTON =
  * results follow the ARIA combobox pattern with a listbox popup: focus stays in the input and
  * `aria-activedescendant` names the selected result, so a screen reader announces it.
  *
- * `commands` arrive from the server already built; filtering happens here, in memory.
+ * `commands` arrive from the server already built; filtering happens here, in memory. A result is
+ * named by its label and described by its kind ("Stripe", "Provider dashboard"). An action (#265)
+ * runs its existing Server Action with the palette left open, and its progress, result, or failure
+ * is announced in the palette, where focus already is.
  */
 export function CommandPalette({
   workspaceSlug,
@@ -410,6 +413,10 @@ export function CommandPalette({
                   key={command.id}
                   id={optionId(index)}
                   role="option"
+                  // The kind is the option's description: a screen reader reads "Stripe" and then
+                  // "Provider dashboard", the way the row shows them. A name built from both would
+                  // need a separator the row does not show, or read the visible text out of order.
+                  aria-describedby={`${optionId(index)}-kind`}
                   aria-selected={selected}
                   onClick={() => choose(command)}
                   onPointerEnter={onOptionPointerEnter}
@@ -419,10 +426,7 @@ export function CommandPalette({
                   }`}
                 >
                   <span className="min-w-0 flex-1 break-words">{command.label}</span>
-                  {/* The kind is part of the option's name, after a pause, so a screen reader tells
-                      "Stripe, Provider dashboard" from "Stripe, Provider timeline". */}
-                  <span className="shrink-0 text-xs text-muted">
-                    <span className="sr-only">, </span>
+                  <span id={`${optionId(index)}-kind`} aria-hidden="true" className="shrink-0 text-xs text-muted">
                     {command.kind}
                   </span>
                   {/* Shape as well as color marks the selection. */}
