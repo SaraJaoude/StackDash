@@ -59,11 +59,14 @@ import {
   type SnapshotInput,
 } from "@/lib/dashboard/aggregate";
 import { formatTrendValue, type TrendMeasure } from "@/lib/dashboard/trends";
-import type { TablesInsert } from "@/lib/supabase/database.types";
+import type { Database, TablesInsert } from "@/lib/supabase/database.types";
 import { currencyMinorDigits } from "@/lib/money";
 import { providerName } from "@/lib/providers";
 
 export const ANOMALY_TYPE_ID = "devmacro.anomaly_detected";
+
+/** The metric kinds detection reads: spend (verified and estimated) and usage, never levels or gauges. */
+export const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const satisfies readonly Database["public"]["Enums"]["metric_kind"][];
 
 /** Days before the checked day that make up its usual pattern. */
 export const ANOMALY_WINDOW_DAYS = 14;
@@ -377,12 +380,29 @@ export function findAnomalies(input: {
 
 // ── Copy ────────────────────────────────────────────────────────────────────────────────────────
 
+const RATIO_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+
+/** "4", "2.5", "1,234": one decimal below 10 times, whole numbers from 10 times up. */
+export function formatRatio(ratio: number): string {
+  return RATIO_FORMAT.format(ratio >= 10 ? Math.round(ratio) : Math.round(ratio * 10) / 10);
+}
+
 /** "4 times the usual daily spend", "2.5 times the usual daily usage", or "up from a usual $0.00 a day". */
 export function unusualWords(anomaly: Pick<Anomaly, "ratio" | "usual" | "measure">): string {
   const noun = anomaly.measure.type === "money" ? "spend" : "usage";
   if (anomaly.ratio === null) return `up from a usual ${formatTrendValue(anomaly.usual, anomaly.measure)} a day`;
-  const ratio = anomaly.ratio >= 10 ? Math.round(anomaly.ratio) : Math.round(anomaly.ratio * 10) / 10;
-  return `${ratio} times the usual daily ${noun}`;
+  return `${formatRatio(anomaly.ratio)} times the usual daily ${noun}`;
+}
+
+/** "went up by $412.00" for a running total's rise, "was $412.00" for a day's own amount. */
+export function amountWords(anomaly: Pick<Anomaly, "accrual" | "value" | "measure">): string {
+  const value = formatTrendValue(anomaly.value, anomaly.measure);
+  return anomaly.accrual === "period_to_date" ? `went up by ${value}` : `was ${value}`;
+}
+
+/** "the 14 days" when every day of the window had an amount, otherwise "9 of the 14 days". */
+export function usualDaysWords(historyDays: number): string {
+  return `${historyDays === ANOMALY_WINDOW_DAYS ? "the" : `${historyDays} of the`} ${ANOMALY_WINDOW_DAYS} days`;
 }
 
 export function anomalyEventKey(anomaly: Pick<Anomaly, "date" | "provider" | "metricKey" | "measure" | "source">): string {
@@ -393,9 +413,7 @@ export function anomalyEventKey(anomaly: Pick<Anomaly, "date" | "provider" | "me
 export function anomalyEvent(workspaceId: string, anomaly: Anomaly): TablesInsert<"activity_events"> {
   const provider = providerName(anomaly.provider);
   const noun = anomaly.measure.type === "money" ? "spend" : "usage";
-  const value = formatTrendValue(anomaly.value, anomaly.measure);
   const usual = formatTrendValue(anomaly.usual, anomaly.measure);
-  const amount = anomaly.accrual === "period_to_date" ? `went up by ${value}` : `was ${value}`;
   return {
     workspace_id: workspaceId,
     connection_id: anomaly.connectionId,
@@ -405,7 +423,7 @@ export function anomalyEvent(workspaceId: string, anomaly: Anomaly): TablesInser
     severity: "warning",
     title: `Unusual ${noun} on ${provider}: ${unusualWords(anomaly)}`,
     body: [
-      `${anomaly.label} (${anomaly.source}) ${amount} on ${anomaly.date}. The usual amount is ${usual} a day, the median of ${anomaly.historyDays === ANOMALY_WINDOW_DAYS ? "the" : `${anomaly.historyDays} of the`} ${ANOMALY_WINDOW_DAYS} days before.`,
+      `${anomaly.label} (${anomaly.source}) ${amountWords(anomaly)} on ${anomaly.date}. The usual amount is ${usual} a day, the median of ${usualDaysWords(anomaly.historyDays)} before.`,
       `What to do next: open ${provider} to see what drove it, check the timeline for deploys on ${anomaly.date}, or mute this metric on the Alerts page if it was expected.`,
     ].join("\n"),
     url: null,

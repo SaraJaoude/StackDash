@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { declaredProjectedSpend } from "@/lib/adapters/registry";
-import { ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
+import { ANOMALY_KINDS, ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
 import type { ProviderId } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -37,7 +37,6 @@ const MUTE_LIMIT = 200;
 // Recent snapshot rows scanned for spend and usage metric keys. Each sync writes one row per metric
 // per account per day, so this covers the current metrics of any MVP-sized workspace.
 const SNAPSHOT_SCAN_LIMIT = 1000;
-const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const satisfies readonly Database["public"]["Enums"]["metric_kind"][];
 
 // ── Reads ───────────────────────────────────────────────────────────────────────────────────────
 
