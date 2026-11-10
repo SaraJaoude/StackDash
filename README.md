@@ -277,6 +277,30 @@ It prints the dashboard and timeline links when it finishes, which takes seconds
 stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
 carries on from the replay's last sync without a gap or a repeat.
 
+To show an alert firing on cue during the demo, instead of waiting for the simulation to produce
+one, make one incident happen now:
+
+```bash
+npm run demo:event -- --type failed-deployment
+npm run demo:event -- --type budget-crossing
+```
+
+- `failed-deployment` adds a failed production deployment of `web` to the simulated Vercel team.
+- `budget-crossing` raises this month's simulated Vercel spend to the highest threshold of every
+  budget alert that covers Vercel (the seed's **Vercel monthly** budget alerts at 90 percent of
+  $600, so $540), which triggers those alerts. A budget alert triggers once per billing period:
+  if it already did this month (the replay crosses it in the third week), the command says so and
+  nothing new is sent. The next sync reads the usual spend again; the alert stays.
+- Either way the demo workspace's simulated Vercel connection syncs once through the real sync,
+  validation, and alert checks, so a timeline open in the browser shows the event without a
+  reload. A triggered alert is emailed and posted like any other by the next tick: keep
+  `npm run jobs:tick -- --watch` running, or run `npm run jobs:tick`. With the fake Resend API
+  from step 12 running, the email prints there, and a channel added on the alerts page gets the
+  post.
+- `--workspace <slug>` targets another workspace on your stack that has a simulated Vercel
+  connection, instead of the demo workspace. It writes nothing outside that one workspace, and it
+  refuses to run under the same conditions as the seed.
+
 ### 12. Send alert and digest emails locally (optional)
 
 Alert and digest emails go through Resend. Locally they go to a fake Resend API instead, which
@@ -546,7 +570,7 @@ src/
     data/                      data access per table
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
-    demo/                      the demo workspace and its replayed history (npm run demo:seed)
+    demo/                      the demo workspace, its replayed history, and incidents on cue (npm run demo:seed, demo:event)
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
@@ -557,7 +581,7 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts, fake-resend-api.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit

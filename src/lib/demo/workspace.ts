@@ -143,6 +143,25 @@ export async function resetDemoWorkspace(
   return { id: data.id, slug: data.slug, deleted: deleted.length };
 }
 
+/**
+ * The demo workspace the last `npm run demo:seed` built, or null when there is none: no demo
+ * account, an account with the demo email that the seed did not create, or no workspace yet.
+ */
+export async function findDemoWorkspace(admin: Admin): Promise<(DemoWorkspace & { name: string }) | null> {
+  const user = await findUserByEmail(admin, DEMO_USER_EMAIL);
+  if (user === null || !isDemoUser(user)) return null;
+  const { data, error } = await admin
+    .from("workspaces")
+    .select("id, slug, name")
+    .eq("created_by", user.id)
+    .eq("is_personal", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Reading the demo workspace failed (code ${error.code}).`);
+  return data;
+}
+
 export type DemoConnection = Readonly<{ id: string; provider: ProviderId }>;
 
 /**
