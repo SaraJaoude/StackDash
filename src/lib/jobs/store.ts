@@ -2,7 +2,7 @@ import "server-only";
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
-import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
+import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
 import { log } from "@/lib/log/logger";
@@ -69,7 +69,6 @@ export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly Anoma
 // Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
 // (readAllPages). The total bound is far above any MVP workspace.
 export const ANOMALY_ROW_LIMIT = 20_000;
-const ANOMALY_KINDS = ["verified_spend", "estimated_spend", "usage"] as const;
 // Mutes per workspace: one per metric a person chose to silence.
 const ANOMALY_MUTE_LIMIT = 1000;
 
