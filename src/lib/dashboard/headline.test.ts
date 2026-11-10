@@ -205,18 +205,7 @@ function postHogSpend(options: Readonly<{ perDay: number; from: string; to: stri
     });
     const account = { id: `${posthog.id}-account` };
     return billingMetrics(billing, account.id, new Date(`${date}T23:00:00.000Z`), "us").map((metric) => {
-      const row: SnapshotInput = {
-        value: null,
-        unit: null,
-        amount_minor: null,
-        currency: null,
-        period_start: null,
-        period_end: null,
-        point_at: null,
-        resets_at: null,
-        pricing_source: null,
-        ...toSnapshotRow(metric, { id: posthog.id, workspace_id: "w1" }, account),
-      };
+      const row: SnapshotInput = toSnapshotRow(metric, { id: posthog.id, workspace_id: "w1" }, account);
       const product = /^posthog\.spend\.current\.([a-z_]+)$/.exec(row.metric_key)?.[1];
       return product === undefined || date >= options.renamedOn ? row : { ...row, metric_key: `posthog.${product}.spend` };
     });

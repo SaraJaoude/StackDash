@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import type { ProviderId } from "@/lib/adapters/types";
+import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { providerName } from "@/lib/providers";
 
 import type { EventRow, JobStore, SnapshotRow, SyncAccount, SyncConnection } from "./store";
@@ -23,12 +24,15 @@ export function utcDate(at: Date): string {
   return at.toISOString().slice(0, 10);
 }
 
-/** Maps the metric union onto usage_snapshots columns. */
+/**
+ * Maps the metric union onto usage_snapshots columns. Every nullable column is set, null when the
+ * metric has no value for it, so the row is also what the stores read back (`SnapshotInput`).
+ */
 export function toSnapshotRow(
   metric: AdapterMetric,
   connection: Pick<SyncConnection, "id" | "workspace_id">,
   account: Pick<SyncAccount, "id">,
-): SnapshotRow {
+): SnapshotRow & SnapshotInput {
   const money =
     metric.kind === "verified_spend" ||
     metric.kind === "estimated_spend" ||
