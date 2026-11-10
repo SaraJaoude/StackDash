@@ -18,7 +18,16 @@ type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
 
 export type TimelineEvent = Pick<
   ActivityEventRow,
-  "id" | "type_id" | "severity" | "title" | "body" | "url" | "occurred_at" | "provider"
+  | "id"
+  | "type_id"
+  | "severity"
+  | "title"
+  | "body"
+  | "url"
+  | "occurred_at"
+  | "provider"
+  | "external_account_id"
+  | "connection_id"
 > & {
   accountName: string | null;
   connectionName: string | null;
@@ -108,7 +117,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   let query = supabase
     .from("activity_events")
     .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_accounts(display_name), connections(display_name, granted_scopes)",
+      "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)",
     )
     .eq("workspace_id", workspaceId);
 

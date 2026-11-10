@@ -1,10 +1,11 @@
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import { PlatformLogo } from "@/components/icons";
+import { ChevronDownIcon, PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName, providerPlatform } from "@/lib/providers";
 import { groupEventsByDay } from "@/lib/timeline/days";
-import { severityBadge, type EventSeverity } from "@/lib/timeline/query";
+import { eventTypeLabel, severityBadge, type EventSeverity } from "@/lib/timeline/query";
+import { groupEventRuns, type EventRun } from "@/lib/timeline/runs";
 
 import { ArrivalEventRow, ArrivalEvents, ArrivalNewLabel } from "./arrival-events";
 import { EventTime } from "./event-time";
@@ -28,9 +29,9 @@ const SEVERITY_FLASH: Record<EventSeverity, string> = {
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
  * list per day, labelled by that day's heading, so a screen reader can jump between days by
- * heading and still hear how many events each day holds. Every row prints "Simulated" when its
- * connection was made by the provider simulator. Events that arrive while the page is open are
- * marked (#171).
+ * heading and still hear how many rows each day holds. A burst of identical events is one row
+ * (#253). Every row prints "Simulated" when its connection was made by the provider simulator.
+ * Events that arrive while the page is open are marked (#171).
  */
 export function EventList({ events, now }: { events: readonly TimelineEvent[]; now: Date }) {
   return (
@@ -47,9 +48,15 @@ export function EventList({ events, now }: { events: readonly TimelineEvent[]; n
                 aria-labelledby={headingId}
                 className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-panel"
               >
-                {day.events.map((event) => (
-                  <EventItem key={event.id} event={event} now={now} />
-                ))}
+                {groupEventRuns(day.events).map((run) =>
+                  // Keyed by the run's oldest event: arrivals join a run at its newest end, so the
+                  // row they join keeps its key, stays mounted, and keeps its disclosure state.
+                  run.length === 1 ? (
+                    <EventItem key={run[0].id} event={run[0]} now={now} />
+                  ) : (
+                    <EventRunItem key={(run.at(-1) ?? run[0]).id} run={run} now={now} />
+                  ),
+                )}
               </ol>
             </section>
           );
@@ -65,7 +72,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
   const source = event.accountName ?? event.connectionName;
   return (
     <ArrivalEventRow
-      eventId={event.id}
+      eventIds={[event.id]}
       flash={SEVERITY_FLASH[event.severity]}
       className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[event.severity]}`}
     >
@@ -88,7 +95,7 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
               <span aria-hidden="true"> · </span>
               <span className="sr-only">, </span>
               <EventTime occurredAt={event.occurred_at} now={now} />
-              <ArrivalNewLabel eventId={event.id} />
+              <ArrivalNewLabel eventIds={[event.id]} />
             </p>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
@@ -111,6 +118,105 @@ function EventItem({ event, now }: { event: TimelineEvent; now: Date }) {
           </a>
         )}
       </article>
+    </ArrivalEventRow>
+  );
+}
+
+/**
+ * A run of identical events (#253) as one row: what happened, how many times, and when the latest
+ * was, with each event one disclosure away. The heading is the events' shared title, or their type
+ * when the titles differ, and the count sits beside it rather than in it, so the row is found by
+ * the same heading as a single event. The heading stays outside the summary, whose children are
+ * presentational, so heading navigation still reaches the row.
+ */
+function EventRunItem({ run, now }: { run: EventRun<TimelineEvent>; now: Date }) {
+  const [latest] = run;
+  const platform = providerPlatform(latest.provider);
+  const source = latest.accountName ?? latest.connectionName;
+  const eventIds = run.map((event) => event.id);
+  const title = run.every((event) => event.title === latest.title) ? latest.title : eventTypeLabel(latest.type_id);
+  const count = `${run.length} events`;
+  return (
+    <ArrivalEventRow
+      eventIds={eventIds}
+      flash={SEVERITY_FLASH[latest.severity]}
+      className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[latest.severity]}`}
+    >
+      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-foreground">
+        {platform === null ? null : <PlatformLogo platform={platform} className="size-4" />}
+      </span>
+      <article className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h3 className="break-words text-sm font-medium leading-5">{title}</h3>
+              <span className="whitespace-nowrap rounded-full border border-line-strong px-1.5 font-mono text-[11px] text-muted">
+                {count}
+              </span>
+            </div>
+            <p className="mt-0.5 break-words font-mono text-xs text-muted">
+              <span className="text-foreground">{providerName(latest.provider)}</span>
+              {source === null ? null : (
+                <>
+                  <span aria-hidden="true"> · </span>
+                  <span className="sr-only">, </span>
+                  <span>{source}</span>
+                </>
+              )}
+              <span aria-hidden="true"> · </span>
+              <span className="sr-only">, latest </span>
+              <EventTime occurredAt={latest.occurred_at} now={now} />
+              <ArrivalNewLabel eventIds={eventIds} />
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {latest.simulated ? <SimulatedBadge /> : null}
+            <SeverityBadge severity={severityBadge(latest.severity)} />
+          </div>
+        </div>
+        <details className="group mt-2">
+          <summary className="inline-flex min-h-6 list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
+            <span className="group-open:hidden">Show the {count}</span>
+            <span className="hidden group-open:inline">Hide the {count}</span>
+            <ChevronDownIcon className="size-4 shrink-0 transition-transform motion-reduce:transition-none group-open:rotate-180" />
+          </summary>
+          <ol aria-label={`${title}: ${count}`} className="mt-2 divide-y divide-line rounded-lg border border-line">
+            {run.map((event) => (
+              <EventRunMember key={event.id} event={event} now={now} />
+            ))}
+          </ol>
+        </details>
+      </article>
+    </ArrivalEventRow>
+  );
+}
+
+/**
+ * One event inside an expanded run: its own title, time, details, and link. The provider, account,
+ * severity, and simulated label are the run's, already on the row above, so they are not repeated.
+ */
+function EventRunMember({ event, now }: { event: TimelineEvent; now: Date }) {
+  return (
+    <ArrivalEventRow eventIds={[event.id]} flash={SEVERITY_FLASH[event.severity]} className="px-3 py-2">
+      <h4 className="break-words text-sm leading-5">{event.title}</h4>
+      <p className="mt-0.5 break-words">
+        <EventTime occurredAt={event.occurred_at} now={now} />
+        <ArrivalNewLabel eventIds={[event.id]} />
+      </p>
+      {event.body === null ? null : (
+        <p className="mt-1 whitespace-pre-line break-words text-sm leading-5 text-muted">{event.body}</p>
+      )}
+      {event.url === null || !event.url.startsWith("https://") ? null : (
+        <a
+          href={event.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-1 inline-flex min-h-6 items-center text-sm text-accent underline-offset-4 hover:underline"
+        >
+          View in {providerName(event.provider)}
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      )}
     </ArrivalEventRow>
   );
 }
