@@ -11,6 +11,7 @@ const INSTANCE_WIDE_SPECS = [
   "simulated-providers.spec.ts",
   "alert-email.spec.ts",
   "simulated-sentry.spec.ts",
+  "demo-event.spec.ts",
 ];
 
 // Pass this process's environment through (CI sets the Supabase variables here). Locally the dev

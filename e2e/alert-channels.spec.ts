@@ -1,42 +1,14 @@
-import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
-
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { startReceiver, stopReceiver } from "./fixtures/webhook-receiver";
 
 /*
  * Alert channels (#153), end to end: an owner adds a generic webhook channel, sends a test message
  * that reaches a receiver on this machine with a Standard Webhooks signature, and removes the
- * channel, which deletes its sealed URL. A plain http URL on 127.0.0.1 is a private address: the
- * dev server allows it, and CI's production build sets DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1.
+ * channel, which deletes its sealed URL (the receiver is e2e/fixtures/webhook-receiver.ts).
  * No tick runs here, so it stays in the `chromium` project.
  */
-
-type Received = { headers: IncomingHttpHeaders; body: string };
-
-async function startReceiver(): Promise<{ server: Server; url: string; received: Received[] }> {
-  const received: Received[] = [];
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      received.push({ headers: request.headers, body: Buffer.concat(chunks).toString("utf8") });
-      response.writeHead(204).end();
-    });
-  });
-  const listening = Promise.withResolvers<void>();
-  server.listen(0, "127.0.0.1", () => listening.resolve());
-  await listening.promise;
-  const address = server.address();
-  if (address === null || typeof address === "string") throw new Error("the receiver has no TCP address");
-  return { server, url: `http://127.0.0.1:${address.port}/devmacro`, received };
-}
-
-async function stopReceiver(server: Server): Promise<void> {
-  const closed = Promise.withResolvers<void>();
-  server.close(() => closed.resolve());
-  await closed.promise;
-}
 
 ownerTest.describe("alert channels as the owner", () => {
   ownerTest("adds a webhook, sends a test message to it, and removing it deletes the URL", async ({ page }) => {

@@ -26,7 +26,7 @@ import { z } from "zod";
 
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { connectOrigin } from "@/lib/connections/oauth-state";
-import { DEMO_HISTORY_DAYS, demoSeedRefusal, historySteps, replayHistory } from "@/lib/demo/history";
+import { DEMO_HISTORY_DAYS, demoCommandRefusal, historySteps, replayHistory } from "@/lib/demo/history";
 import {
   assignDemoProjects,
   connectSimulatedProviders,
@@ -80,7 +80,7 @@ async function main(): Promise<number> {
   }
 
   if (existsSync(".env.local")) process.loadEnvFile(".env.local");
-  const refusal = demoSeedRefusal({
+  const refusal = demoCommandRefusal({
     simulationEnabled: isProviderSimulationEnabled(),
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
   });

@@ -32,7 +32,8 @@ import {
  */
 
 const PROJECTS = ["web", "docs", "api"] as const;
-const CURRENCY = "USD";
+/** The currency of every simulated Vercel amount. */
+export const SIMULATED_VERCEL_CURRENCY = "USD";
 // A Pro seat, charged on the first of the month.
 const MONTHLY_PURCHASE_MINOR = 2000;
 // 20 percent VAT on usage and purchases, rounded down.
@@ -67,9 +68,13 @@ function usagePerHour(accountId: string): (hourStartMs: number) => number {
 }
 
 function metrics(accountId: string, at: Date): AdapterMetric[] {
+  return spendMetrics(accountId, at, accrued(utcMonthStart(at).getTime(), at.getTime(), usagePerHour(accountId)));
+}
+
+/** The spend metrics at `at` for month-to-date usage charges of `usage`. */
+function spendMetrics(accountId: string, at: Date, usage: number): AdapterMetric[] {
   const monthStart = utcMonthStart(at);
   const tomorrowStart = new Date(utcDayStart(at.getTime()) + DAY_MS);
-  const usage = accrued(monthStart.getTime(), at.getTime(), usagePerHour(accountId));
   const amounts: Record<(typeof spendCategories)[number]["category"], number> = {
     Usage: usage,
     Purchase: MONTHLY_PURCHASE_MINOR,
@@ -81,7 +86,7 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
     externalAccountId: accountId,
     retrievedAt: at,
     provenance: { source: "provider_api", endpoint: ENDPOINT },
-    currency: CURRENCY,
+    currency: SIMULATED_VERCEL_CURRENCY,
   } as const;
   const spend: AdapterMetric[] = spendCategories.map(({ category, metricKey, label }) => ({
     ...base,
@@ -96,6 +101,43 @@ function metrics(accountId: string, at: Date): AdapterMetric[] {
     amountMinor: amounts.Usage + amounts.Purchase + amounts.Tax,
   });
   return spend;
+}
+
+/**
+ * The spend metrics at `at` after a usage surge (`npm run demo:event`, #256): usage charges rise
+ * until the month-to-date total, with the monthly purchase and tax, is at least `totalMinor`.
+ * Never below the usual usage, so a total already past the target reads as usual.
+ */
+export function vercelSpendSurge(accountId: string, at: Date, totalMinor: number): AdapterMetric[] {
+  const usual = accrued(utcMonthStart(at).getTime(), at.getTime(), usagePerHour(accountId));
+  // The least usage plus purchase, b, with b + floor(b * TAX_PERCENT / 100) >= totalMinor: tax
+  // rounds down by less than a cent, so ceil(totalMinor * 100 / (100 + TAX_PERCENT)) is enough
+  // and one cent less is not.
+  const beforeTax = Math.ceil((totalMinor * 100) / (100 + TAX_PERCENT));
+  return spendMetrics(accountId, at, Math.max(usual, beforeTax - MONTHLY_PURCHASE_MINOR));
+}
+
+/**
+ * A production deployment of `web` that failed at `at` after a 90 second build, for
+ * `npm run demo:event` (#256). Its id comes from the clock, so each run is a new deployment.
+ */
+export function vercelFailedDeployment(accountId: string, at: Date): ActivityEvent {
+  const event = deploymentEvent(
+    {
+      uid: `dpl_simevent${at.getTime().toString(36)}`,
+      name: "web",
+      readyState: "ERROR",
+      target: "production",
+      created: at.getTime() - 90_000,
+      ready: at.getTime(),
+      errorCode: "BUILD_FAILED",
+      inspectorUrl: null,
+    },
+    accountId,
+  );
+  // deploymentEvent skips only deployments that have not finished, and ERROR is finished.
+  if (event === undefined) throw new Error("A failed Vercel deployment produced no event");
+  return event;
 }
 
 function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
