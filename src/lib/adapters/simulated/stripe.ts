@@ -73,14 +73,31 @@ const PRICE_MINOR = [1900, 4900] as const;
 // Long enough for the real adapter's month and last 30 days windows.
 const MONEY_LOOKBACK_MS = 31 * DAY_MS;
 
+/**
+ * A charge at one of PRICE_MINOR's prices, in USD twice as often as EUR like CURRENCIES, so the
+ * timeline prints amounts (#261) on the same scale as the revenue they add up to.
+ */
+function chargeFor(id: string, parts: readonly (string | number)[]): { id: string; amount: number; currency: string } {
+  return {
+    id: `ch_${id}`,
+    amount: chance(0.5, ...parts, "price") ? PRICE_MINOR[0] : PRICE_MINOR[1],
+    currency: chance(1 / 3, ...parts, "currency") ? "eur" : "usd",
+  };
+}
+
 function objectFor(type: StripeType, id: string, parts: readonly (string | number)[]): Record<string, unknown> {
   switch (type) {
     case "charge.succeeded":
-      return { id: `ch_${id}` };
+      return chargeFor(id, parts);
     case "charge.failed":
-      return { id: `ch_${id}`, failure_code: chance(0.5, ...parts, "code") ? "card_declined" : "insufficient_funds" };
-    case "charge.refunded":
-      return { id: `ch_${id}`, refunded: chance(0.7, ...parts, "full") };
+      return { ...chargeFor(id, parts), failure_code: chance(0.5, ...parts, "code") ? "card_declined" : "insufficient_funds" };
+    case "charge.refunded": {
+      const charge = chargeFor(id, parts);
+      const full = chance(0.7, ...parts, "full");
+      // A partial refund is a whole number of units, at least one and short of the price.
+      const refundedMinor = full ? charge.amount : 100 * between(1, charge.amount / 100 - 1, ...parts, "refunded");
+      return { ...charge, refunded: full, amount_refunded: refundedMinor };
+    }
     case "customer.created":
       return { id: `cus_${id}` };
     case "customer.subscription.created":
