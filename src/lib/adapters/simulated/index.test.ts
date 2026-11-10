@@ -1129,4 +1129,31 @@ describe("a small product's demo (#264)", () => {
     expect(stripe.length).toBeLessThanOrEqual(10 * deployments);
     expect(payments).toBeLessThanOrEqual(10 * deployments);
   });
+
+  it("names the branch each simulated GitLab environment deploys, never main for a review app", async () => {
+    const adapter = simulatedAdapters.gitlab;
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected a GitLab account");
+    // A week of chained half hour syncs: long enough for every environment to deploy.
+    const start = Date.parse("2026-11-02T00:00:00.000Z");
+    const events: ActivityEvent[] = [];
+    let cursor: string | undefined;
+    for (let step = 0; step <= 7 * 48; step += 1) {
+      const input = cursor === undefined ? { credential, externalAccountId: account.externalId } : { credential, externalAccountId: account.externalId, cursor };
+      const result = await adapter.sync(input, makeCtx(new Date(start + step * SIMULATED_BACKFILL_MS)));
+      events.push(...result.events);
+      cursor = result.cursor;
+    }
+    const refOf: Readonly<Record<string, string>> = { production: "main", staging: "main", "review/feature-checkout": "feature/checkout" };
+    const environments = new Set<string>();
+    for (const event of events.filter((item) => item.typeId.startsWith("gitlab.deployment."))) {
+      // As a reader sees it: "Deployment to <environment> succeeded in ...", "Deployment #<iid> of <ref>."
+      const environment = /^Deployment to (\S+) (?:succeeded|failed) in /.exec(event.title)?.[1] ?? "";
+      const ref = /^Deployment #\d+ of (\S+)\.$/.exec(event.body ?? "")?.[1];
+      expect(ref, event.title).toBe(refOf[environment]);
+      environments.add(environment);
+    }
+    expect([...environments].sort()).toEqual(Object.keys(refOf).sort());
+  });
 });
