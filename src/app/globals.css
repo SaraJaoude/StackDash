@@ -63,9 +63,10 @@ summary {
   border-radius: 2px;
 }
 
-/* A skip link (src/components/skip-link.tsx) focuses its target, #main or a trend chart's legend,
- * and marks it data-skip-focused until focus leaves. A skip target is a landmark or a block of
- * text, not a control, so it is not outlined like one; the next Tab lands on an outlined control. */
+/* A skip link (src/components/skip-link.tsx) focuses its target, #main or a trend chart's
+ * "Show the values as a table" disclosure, and marks it data-skip-focused until focus leaves. A
+ * skip target is a landmark or a block of content, not a control, so it is not outlined like one;
+ * the next Tab lands on an outlined control. */
 [data-skip-focused]:focus {
   outline: none;
 }
