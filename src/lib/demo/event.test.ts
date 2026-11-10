@@ -18,6 +18,7 @@ import {
   demoIncident,
   parseDemoEventArgs,
   runDemoEvent,
+  vercelCycleKey,
   type BudgetRow,
   type DemoEventDeps,
   type DemoEventTarget,
@@ -98,11 +99,13 @@ describe("budgetCrossingTarget", () => {
   const target: DemoEventTarget = { workspace: { id: WORKSPACE_ID, slug: "demo", name: "Demo workspace" }, connectionId, projectIds: [PROJECT_ID] };
 
   it("is the threshold's share of the budget that covers Vercel", () => {
-    expect(budgetCrossingTarget([rule()], [budget()], target)).toEqual({
+    const only = rule();
+    expect(budgetCrossingTarget([only], [budget()], target)).toEqual({
       totalMinor: 54_000,
       budgetName: "Vercel monthly",
       budgetMinor: 60_000,
       thresholdPercent: 90,
+      ruleIds: [only.id],
     });
   });
 
@@ -110,14 +113,17 @@ describe("budgetCrossingTarget", () => {
     expect(budgetCrossingTarget([rule({ threshold_percent: 87.5 })], [budget({ amount_minor: 333 })], target)?.totalMinor).toBe(292);
   });
 
-  it("takes the highest of several, so every budget alert on Vercel crosses", () => {
+  it("takes the highest of several, so every budget alert on Vercel crosses, and lists only the ones that cover it", () => {
     const capId = "b0d6e700-0000-4000-8000-000000000999";
+    const monthly = rule({ threshold_percent: 90 });
+    const cap = rule({ threshold_percent: 100, budget_id: capId });
+    const elsewhere = rule({ scope: "project", provider: null, project_id: OTHER_PROJECT_ID });
     const crossing = budgetCrossingTarget(
-      [rule({ threshold_percent: 90 }), rule({ threshold_percent: 100, budget_id: capId })],
+      [monthly, cap, elsewhere],
       [budget(), budget({ id: capId, name: "Vercel cap", amount_minor: 80_000, scope: "workspace", provider: null })],
       target,
     );
-    expect(crossing).toMatchObject({ totalMinor: 80_000, budgetName: "Vercel cap" });
+    expect(crossing).toMatchObject({ totalMinor: 80_000, budgetName: "Vercel cap", ruleIds: [monthly.id, cap.id] });
   });
 
   it.each([
@@ -146,6 +152,17 @@ describe("budgetCrossingTarget", () => {
   it("is null for a project budget when the account is in no project", () => {
     const noProject: DemoEventTarget = { ...target, projectIds: [null] };
     expect(budgetCrossingTarget([rule()], [budget({ scope: "project", provider: null, project_id: PROJECT_ID })], noProject)).toBeNull();
+  });
+});
+
+describe("vercelCycleKey", () => {
+  it.each([
+    ["mid month", "2026-11-10T14:00:03.000Z", "2026-11-01"],
+    ["at the first instant of a month", "2026-11-01T00:00:00.000Z", "2026-11-01"],
+    ["at the last instant of a month", "2026-10-31T23:59:59.999Z", "2026-10-01"],
+    ["just after UTC midnight on New Year's Day", "2027-01-01T00:30:00.000Z", "2027-01-01"],
+  ])("is the UTC month start %s", (_title, now, expected) => {
+    expect(vercelCycleKey(new Date(now))).toBe(expected);
   });
 });
 
@@ -345,7 +362,7 @@ describe("runDemoEvent: budget crossing", () => {
     const usual = vercelTotal(usualHarness.store);
 
     const { store, target, deps } = await setup();
-    const crossing = { totalMinor: 1, budgetName: "Tiny", budgetMinor: 1, thresholdPercent: 100 };
+    const crossing = { totalMinor: 1, budgetName: "Tiny", budgetMinor: 1, thresholdPercent: 100, ruleIds: [] };
     await runDemoEvent({ deps, target, incident: demoIncident({ type: "budget-crossing", crossing }) });
     expect(vercelTotal(store)).toBe(usual);
   });

@@ -7,10 +7,11 @@
  *
  * `failed-deployment` adds a failed production deployment to the simulated Vercel connection.
  * `budget-crossing` raises its month-to-date spend past every budget alert that covers Vercel, so
- * those alerts trigger unless they already did this billing period. The next sync reads the usual
- * spend again; the alert and its timeline event stay. Either way the connection syncs once through
- * the real sync and alert path, so an open timeline shows the event without a reload, and the next
- * tick (`npm run jobs:tick`, or the one `--watch` runs) emails and posts the alert.
+ * those alerts trigger; when every one of them already triggered this billing period it says so
+ * and writes nothing. The next sync reads the usual spend again; the alert and its timeline event
+ * stay. Either way the connection syncs once through the real sync and alert path, so an open
+ * timeline shows the event without a reload, and the next tick (`npm run jobs:tick`, or the one
+ * `--watch` runs) emails and posts the alert.
  *
  * Writes to the demo workspace that `npm run demo:seed` built, or to the workspace `--workspace`
  * names; nothing else. Refuses to run unless DEVMACRO_SIMULATE_PROVIDERS=1 and
@@ -33,6 +34,8 @@ import {
   loadBudgetAlerts,
   parseDemoEventArgs,
   runDemoEvent,
+  triggeredRuleIds,
+  vercelCycleKey,
   type DemoEventPlan,
   type DemoEventTarget,
 } from "@/lib/demo/event";
@@ -47,12 +50,32 @@ import { workspacePath } from "@/lib/workspaces/paths";
 const DEFAULT_ORIGIN = "http://localhost:3000";
 const SEND_HINT = "The next tick emails and posts it: keep `npm run jobs:tick -- --watch` running, or run `npm run jobs:tick` now.";
 
-async function plan(admin: SupabaseClient<Database>, target: DemoEventTarget, type: DemoEventPlan["type"]): Promise<DemoEventPlan | string> {
+/** Why the command stops before writing anything, and its exit code: 2 for a refusal, 0 when there is nothing to do. */
+type Stop = Readonly<{ stop: string; code: 0 | 2 }>;
+
+async function plan(
+  admin: SupabaseClient<Database>,
+  input: Readonly<{ target: DemoEventTarget; type: DemoEventPlan["type"]; demoWorkspace: boolean }>,
+): Promise<DemoEventPlan | Stop> {
+  const { target, type } = input;
   if (type === "failed-deployment") return { type };
   const { rules, budgets } = await loadBudgetAlerts(admin, target.workspace.id);
   const crossing = budgetCrossingTarget(rules, budgets, target);
   if (crossing === null) {
-    return `No budget alert in ${target.workspace.name} covers Vercel spend in ${SIMULATED_VERCEL_CURRENCY}. Add a budget and an alert on it on the alerts page, or run npm run demo:seed, which adds one.`;
+    // The seed deletes and rebuilds the demo workspace, and never touches a --workspace target.
+    const rebuild = input.demoWorkspace ? " Or rebuild the demo workspace with npm run demo:seed, which replaces it and its history and adds one." : "";
+    return {
+      stop: `No budget alert in ${target.workspace.name} covers Vercel spend in ${SIMULATED_VERCEL_CURRENCY}. Add a budget and an alert on it on the alerts page.${rebuild}`,
+      code: 2,
+    };
+  }
+  const cycleKey = vercelCycleKey(new Date());
+  const triggered = await triggeredRuleIds(admin, target.workspace.id, crossing.ruleIds, cycleKey);
+  if (crossing.ruleIds.every((ruleId) => triggered.has(ruleId))) {
+    return {
+      stop: `Nothing written: every budget alert covering Vercel in ${target.workspace.name} already triggered for the billing period starting ${cycleKey}. They trigger again when the next one starts.`,
+      code: 0,
+    };
   }
   return { type, crossing };
 }
@@ -101,10 +124,10 @@ async function main(): Promise<number> {
     console.error(lookup.message);
     return 2;
   }
-  const chosen = await plan(admin, lookup.target, args.type);
-  if (typeof chosen === "string") {
-    console.error(chosen);
-    return 2;
+  const chosen = await plan(admin, { target: lookup.target, type: args.type, demoWorkspace: args.workspaceSlug === null });
+  if ("stop" in chosen) {
+    (chosen.code === 0 ? console.log : console.error)(chosen.stop);
+    return chosen.code;
   }
 
   const outcome = await runDemoEvent({
@@ -132,7 +155,9 @@ async function main(): Promise<number> {
         console.log(`${outcome.triggered === 1 ? "1 alert" : `${outcome.triggered} alerts`} triggered, on the timeline: ${timeline}`);
         console.log(SEND_HINT);
       } else if (chosen.type === "budget-crossing") {
-        console.log("No new alert: the budget alerts covering Vercel already triggered this billing period. They trigger again when the next one starts.");
+        // Zero new rows is all the evaluator reports: a watcher's sync or a rule edited since the
+        // check above also ends here, so this says what is known rather than why.
+        console.log("No new alert was recorded. The alerts page shows whether the budget alert already triggered this billing period.");
       }
       return 0;
   }

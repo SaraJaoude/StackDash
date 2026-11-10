@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createSimulatedAdapter } from "@/lib/adapters/simulated";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
-import type { SimulatedIncident } from "@/lib/adapters/simulated/simulation";
+import { utcMonthStart, type SimulatedIncident } from "@/lib/adapters/simulated/simulation";
 import { SIMULATED_VERCEL_CURRENCY, vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "@/lib/adapters/simulated/vercel";
 import { inScope } from "@/lib/alerts/evaluate";
 import { runSyncJob, SYNCABLE_CONNECTION_STATUSES, type SyncDeps } from "@/lib/jobs/sync-connection";
@@ -117,7 +117,7 @@ export async function findDemoEventTarget(admin: Admin, workspace: DemoEventWork
   return { kind: "found", target: { workspace, connectionId: connection.id, projectIds: accounts.map((account) => account.project_id) } };
 }
 
-export type BudgetRule = Pick<Tables["alert_rules"]["Row"], "scope" | "provider" | "project_id" | "connection_id" | "budget_id" | "threshold_percent">;
+export type BudgetRule = Pick<Tables["alert_rules"]["Row"], "id" | "scope" | "provider" | "project_id" | "connection_id" | "budget_id" | "threshold_percent">;
 export type BudgetRow = Pick<Tables["budgets"]["Row"], "id" | "name" | "scope" | "provider" | "project_id" | "connection_id" | "amount_minor" | "currency">;
 
 export type BudgetCrossing = Readonly<{
@@ -126,6 +126,8 @@ export type BudgetCrossing = Readonly<{
   budgetName: string;
   budgetMinor: number;
   thresholdPercent: number;
+  /** Every budget alert the surge crosses: what `triggeredRuleIds` checks before the sync. */
+  ruleIds: readonly string[];
 }>;
 
 /**
@@ -138,18 +140,41 @@ export type BudgetCrossing = Readonly<{
 export function budgetCrossingTarget(rules: readonly BudgetRule[], budgets: readonly BudgetRow[], target: DemoEventTarget): BudgetCrossing | null {
   const budgetsById = new Map(budgets.map((budget) => [budget.id, budget]));
   const items = target.projectIds.map((projectId) => ({ provider: "vercel" as const, projectId, connectionId: target.connectionId }));
-  let highest: BudgetCrossing | null = null;
+  let highest: Omit<BudgetCrossing, "ruleIds"> | null = null;
+  const ruleIds: string[] = [];
   for (const rule of rules) {
     const budget = rule.budget_id === null ? undefined : budgetsById.get(rule.budget_id);
     const threshold = rule.threshold_percent;
     if (threshold === null || budget === undefined || budget.currency !== SIMULATED_VERCEL_CURRENCY || !(budget.amount_minor > 0)) continue;
     if (!items.some((item) => inScope(budget, item) && inScope(rule, item))) continue;
+    ruleIds.push(rule.id);
     const totalMinor = Math.ceil((threshold * budget.amount_minor) / 100);
     if (highest === null || totalMinor > highest.totalMinor) {
       highest = { totalMinor, budgetName: budget.name, budgetMinor: budget.amount_minor, thresholdPercent: threshold };
     }
   }
-  return highest;
+  return highest === null ? null : { ...highest, ruleIds };
+}
+
+/**
+ * The billing cycle a simulated Vercel reading belongs to, as `triggered_alerts.cycle_key` names
+ * it: the start date of the UTC month, which is the period start the evaluator keys a budget alert by.
+ */
+export function vercelCycleKey(now: Date): string {
+  return utcMonthStart(now).toISOString().slice(0, 10);
+}
+
+/** Which of these budget alerts already triggered in the cycle, so a crossing would send nothing new. */
+export async function triggeredRuleIds(admin: Admin, workspaceId: string, ruleIds: readonly string[], cycleKey: string): Promise<Set<string>> {
+  const { data, error } = await admin
+    .from("triggered_alerts")
+    .select("rule_id")
+    .eq("workspace_id", workspaceId)
+    .eq("cycle_key", cycleKey)
+    .in("rule_id", [...ruleIds])
+    .limit(RULES_LIMIT);
+  if (error) throw new Error(`Reading the triggered alerts failed (code ${error.code}).`);
+  return new Set(data.map((row) => row.rule_id));
 }
 
 /** The workspace's budget alerts and budgets, read for `budgetCrossingTarget`. */
@@ -157,7 +182,7 @@ export async function loadBudgetAlerts(admin: Admin, workspaceId: string): Promi
   const [rules, budgets] = await Promise.all([
     admin
       .from("alert_rules")
-      .select("scope, provider, project_id, connection_id, budget_id, threshold_percent")
+      .select("id, scope, provider, project_id, connection_id, budget_id, threshold_percent")
       .eq("workspace_id", workspaceId)
       .eq("kind", "budget_percent")
       .eq("paused", false)

@@ -287,10 +287,11 @@ npm run demo:event -- --type budget-crossing
 
 - `failed-deployment` adds a failed production deployment of `web` to the simulated Vercel team.
 - `budget-crossing` raises this month's simulated Vercel spend to the highest threshold of every
-  budget alert that covers Vercel (the seed's **Vercel monthly** budget alerts at 90 percent of
+  budget alert that covers Vercel (the seed's **Vercel monthly** budget alert at 90 percent of
   $600, so $540), which triggers those alerts. A budget alert triggers once per billing period:
-  if it already did this month (the replay crosses it in the third week), the command says so and
-  nothing new is sent. The next sync reads the usual spend again; the alert stays.
+  if every one of them already did this month (the replay crosses the seed's in the third week),
+  the command says so and writes nothing. The next sync reads the usual spend again; the alert
+  stays.
 - Either way the demo workspace's simulated Vercel connection syncs once through the real sync,
   validation, and alert checks, so a timeline open in the browser shows the event without a
   reload. A triggered alert is emailed and posted like any other by the next tick: keep

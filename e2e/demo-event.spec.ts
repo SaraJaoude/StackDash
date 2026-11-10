@@ -137,10 +137,12 @@ ownerTest.describe("demo event", () => {
       }).toPass({ timeout: 30_000 });
       expect(receiver.received.filter((post) => post.body.includes(BUDGET_ALERT))).toHaveLength(1);
 
-      // Already triggered this billing period: a second crossing says so and records nothing new.
+      // Already triggered this billing period: a second crossing says so before the sync and writes nothing.
+      const written = await countEvents(workspace);
       const again = await demoEvent("budget-crossing", workspace);
       expect(again.code).toBe(0);
-      expect(again.stdout).toContain("No new alert");
+      expect(again.stdout).toContain(`Nothing written: every budget alert covering Vercel in ${workspace.name} already triggered`);
+      expect(await countEvents(workspace)).toBe(written);
     } finally {
       await stopReceiver(receiver.server);
       await deleteTestWorkspace(workspace);
