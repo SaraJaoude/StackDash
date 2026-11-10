@@ -38,12 +38,12 @@ const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> =
   revoked: { label: "Revoked", className: "border-dashed border-line-strong text-muted" },
 };
 
-const BUTTON_PRIMARY =
+export const BUTTON_PRIMARY =
   "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
 const BUTTON_SECONDARY =
   "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-60";
 
-function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKeyActionFailure | undefined {
+export function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKeyActionFailure | undefined {
   return state !== null && !state.ok ? state : undefined;
 }
 
@@ -51,7 +51,7 @@ function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKe
  * Shown when a submit fails, and focused so keyboard and screen reader users land on what went
  * wrong. An unexpected error carries the reference id.
  */
-function ErrorSummary({ failure }: { failure: ApiKeyActionFailure | undefined }) {
+export function ErrorSummary({ failure }: { failure: ApiKeyActionFailure | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
   // Every submit returns a new result object, so a repeated failure moves focus again.
   useEffect(() => {
@@ -146,7 +146,8 @@ export function ApiKeysManager({
   );
 }
 
-function NewKeyPanel({
+/** The key a create just returned, shown once with a copy button; settings never shows it again. */
+export function NewKeyPanel({
   name,
   apiKey,
   onCopied,

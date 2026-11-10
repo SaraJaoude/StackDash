@@ -1,12 +1,39 @@
-import Link from "next/link";
+"use client";
 
+import Link from "next/link";
+import { useActionState, useState } from "react";
+
+import { API_KEY_SCOPES } from "@/lib/api/scopes";
 import { mcpClientSetups } from "@/lib/mcp/setup";
+
+import { createApiKey, type CreateApiKeyResult } from "./actions";
+import { BUTTON_PRIMARY, ErrorSummary, failureOf, NewKeyPanel } from "./api-keys";
+
+/** The name of every key made here, so the API keys list says what each one is for. */
+const ASSISTANT_KEY_NAME = "AI assistant";
 
 /**
  * The AI assistants section of settings (#163): this instance's MCP server URL and the snippet
- * that connects each client. A server component; the snippets are text to select and copy.
+ * that connects each client. Owners and admins create the assistant's key here in one step (#254),
+ * through the same createApiKey action as the API keys section, so the same role check and key
+ * limit apply. The new key is shown once, and filled into the snippets that hold a key.
  */
-export function AssistantSetup({ endpointUrl, canManageKeys }: { endpointUrl: string; canManageKeys: boolean }) {
+export function AssistantSetup({
+  workspaceSlug,
+  endpointUrl,
+  canManageKeys,
+  maxKeys,
+}: {
+  workspaceSlug: string;
+  endpointUrl: string;
+  canManageKeys: boolean;
+  maxKeys: number;
+}) {
+  const [status, setStatus] = useState("");
+  const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
+  // Set when the key is hidden, so focus goes back to the button that made it.
+  const [returnFocus, setReturnFocus] = useState(false);
+
   return (
     <section aria-labelledby="assistants-title" className="mt-6 rounded-xl border border-line bg-panel">
       <div className="border-b border-line px-6 py-4">
@@ -26,17 +53,61 @@ export function AssistantSetup({ endpointUrl, canManageKeys }: { endpointUrl: st
           <dt className="text-muted">Server URL</dt>
           <dd className="break-all font-mono sm:col-span-2">{endpointUrl}</dd>
         </dl>
+        {/* Always mounted so screen readers announce changes to it. */}
+        <div role="status" aria-live="polite" className="text-success">
+          {status === "" ? null : <p className="mt-4">{status}</p>}
+        </div>
         <ol className="mt-5 list-decimal space-y-2 pl-5">
           <li>
-            {canManageKeys
-              ? "Create an API key above for the assistant."
-              : "Ask an owner or admin of this workspace for an API key for the assistant."}{" "}
-            Give it every scope so the assistant can answer any question. Without usage and spend, it sees no amounts
-            anywhere, including in events and alerts.
+            {canManageKeys ? (
+              <>
+                Create a key for the assistant. It gets every scope, so the assistant can answer any question,
+                including about spend. It counts toward this workspace&apos;s {maxKeys} keys and is listed under API keys,
+                where you can revoke it.
+                {created === null ? (
+                  <CreateAssistantKeyForm
+                    workspaceSlug={workspaceSlug}
+                    focusOnMount={returnFocus}
+                    onCreated={(name, key) => {
+                      setCreated({ name, key });
+                      setStatus(`Created the key ${name}.`);
+                    }}
+                  />
+                ) : (
+                  <div className="mt-3">
+                    <NewKeyPanel
+                      name={created.name}
+                      apiKey={created.key}
+                      onCopied={(copied) =>
+                        setStatus(
+                          copied ? "Key copied." : "Copying did not work in this browser. Select the key and copy it yourself.",
+                        )
+                      }
+                      onDismiss={() => {
+                        setCreated(null);
+                        setReturnFocus(true);
+                        setStatus("The new key is hidden. It cannot be shown again.");
+                      }}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                Ask an owner or admin of this workspace for an API key for the assistant. Give it every scope so the
+                assistant can answer any question. Without usage and spend, it sees no amounts anywhere, including in
+                events and alerts.
+              </>
+            )}
           </li>
-          <li>Add the server to your assistant with one of the snippets below.</li>
+          <li>
+            Add the server to your assistant with one of the snippets below.
+            {created === null
+              ? null
+              : " The Claude Desktop and other clients snippets hold the new key. Claude Code and Cursor read it from DEVMACRO_API_KEY."}
+          </li>
         </ol>
-        {mcpClientSetups(endpointUrl).map((setup) => (
+        {mcpClientSetups(endpointUrl, created?.key ?? null).map((setup) => (
           <div key={setup.id} className="mt-6">
             <h3 id={`assistant-${setup.id}-title`} className="font-semibold">
               {setup.name}
@@ -56,5 +127,43 @@ export function AssistantSetup({ endpointUrl, canManageKeys }: { endpointUrl: st
         ))}
       </div>
     </section>
+  );
+}
+
+/**
+ * One button that submits a create with the assistant's name and every scope. The key goes to
+ * onCreated and stays out of the form state, as in the API keys section.
+ */
+function CreateAssistantKeyForm({
+  workspaceSlug,
+  focusOnMount,
+  onCreated,
+}: {
+  workspaceSlug: string;
+  focusOnMount: boolean;
+  onCreated: (name: string, key: string) => void;
+}) {
+  const [state, formAction, pending] = useActionState<CreateApiKeyResult | null, FormData>(
+    async (previous, formData) => {
+      const result = await createApiKey(previous, formData);
+      if (result.ok) onCreated(result.name, result.key);
+      return result.ok ? { ...result, key: "" } : result;
+    },
+    null,
+  );
+
+  return (
+    <form action={formAction} className="mt-3">
+      <input type="hidden" name="workspace" value={workspaceSlug} />
+      <input type="hidden" name="name" value={ASSISTANT_KEY_NAME} />
+      {API_KEY_SCOPES.map((scope) => (
+        <input key={scope} type="hidden" name="scope" value={scope} />
+      ))}
+      {/* Back from hiding the key, focus lands here rather than on the page. */}
+      <button type="submit" disabled={pending} autoFocus={focusOnMount} className={BUTTON_PRIMARY}>
+        {pending ? "Creating key" : "Create assistant key"}
+      </button>
+      <ErrorSummary failure={failureOf(state)} />
+    </form>
   );
 }
