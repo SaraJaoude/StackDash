@@ -6,6 +6,7 @@ import {
   assignAccountProject,
   deleteConnection,
   disconnect,
+  exploreWithSampleData,
   setAccountIncluded,
   syncNow,
   type ConnectionActionResult,
@@ -179,6 +180,20 @@ export function SyncNowForm({
           {cooldownNotice}
         </p>
       )}
+      <ActionStatus state={state} pending={pending} />
+    </form>
+  );
+}
+
+/** "Explore with sample data" in an empty workspace's timeline (#257); success opens the timeline. */
+export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
+  const [state, formAction, pending] = useConnectionAction(exploreWithSampleData);
+  return (
+    <form action={formAction} className="flex flex-col items-center gap-2">
+      <input type="hidden" name="workspace" value={workspaceSlug} />
+      <GuardedButton type="submit" unavailable={pending} className={SECONDARY}>
+        {pending ? "Adding sample data" : "Explore with sample data"}
+      </GuardedButton>
       <ActionStatus state={state} pending={pending} />
     </form>
   );

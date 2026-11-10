@@ -6,12 +6,16 @@ import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { SampleDataForm } from "@/components/connections/connection-controls";
+import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
@@ -38,7 +42,8 @@ export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">
 async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspace]/timeline">) {
   const { workspace: slug } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
-  const query = parseTimelineSearchParams(await searchParams);
+  const rawQuery = await searchParams;
+  const query = parseTimelineSearchParams(rawQuery);
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
@@ -54,15 +59,27 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   // The type sample covers the newest events, so it is empty only when there are none at all.
   if (typeIds.length === 0) {
     const canConnect = canPerform(role, "manage_connections");
+    // Offered to owners and admins of a workspace with nothing connected, while simulation is on.
+    const offerSampleData =
+      canConnect &&
+      sampleDataRefusal({
+        simulationEnabled: isProviderSimulationEnabled(),
+        connectionCount: workspaceScope.connections.length,
+      }) === null;
     return (
       <>
         <PageHeader title="Timeline" description={DESCRIPTION} />
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
           title="No activity yet"
-          description="Events appear here after you connect a provider and its first sync finishes."
+          description={
+            offerSampleData
+              ? "Events appear here after you connect a provider and its first sync finishes. To look around first, explore with sample data: made-up activity from simulated providers, labeled Simulated."
+              : "Events appear here after you connect a provider and its first sync finishes."
+          }
           action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
           deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
+          secondaryAction={offerSampleData ? <SampleDataForm workspaceSlug={workspace.slug} /> : undefined}
         />
       </>
     );
@@ -85,6 +102,21 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         description={DESCRIPTION}
         titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
       />
+      {rawQuery[SAMPLE_DATA_ADDED_PARAM] === "added" ? (
+        <FeedbackBanner tone="success" title="Sample data added">
+          <p>
+            Every simulated provider is connected to this workspace. Their data is made up, and everything it shows is
+            labeled Simulated. Delete the simulated connections on the{" "}
+            <Link
+              href={workspacePath(workspace.slug, "connections")}
+              className="font-medium text-foreground underline underline-offset-4"
+            >
+              Connections page
+            </Link>{" "}
+            when you are done.
+          </p>
+        </FeedbackBanner>
+      ) : null}
       <SeverityLinks action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
