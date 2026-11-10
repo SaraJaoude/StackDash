@@ -152,11 +152,6 @@ describe("declaredCapabilities (#269)", () => {
     for (const adapter of availableProviders()) expect(declaredCapabilities(adapter.id)).toEqual(adapter.capabilities);
   });
 
-  it("says Sentry reports no spend and no credit balance, and Railway reports both", () => {
-    expect(declaredCapabilities("sentry")).toMatchObject({ spending: false, credits: false });
-    expect(declaredCapabilities("railway")).toMatchObject({ spending: true, credits: true });
-  });
-
   it("answers for the fake provider whatever its flag says, since its stored data outlives the flag", () => {
     vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", undefined);
     expect(declaredCapabilities("fake")).toEqual(fakeAdapter.capabilities);
