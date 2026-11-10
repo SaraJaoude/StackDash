@@ -79,9 +79,10 @@ export function metricSentence(metric: ShareableMetric): string {
 }
 
 /** Alt text for the card image, for the share dialog and the public project page's preview. */
-export function cardAltText(metric: ShareableMetric): string {
+export function cardAltText(metric: ShareableMetric, projectName: string | null): string {
   const trend = metric.available ? ` With its trend over the last ${CARD_TREND_DAYS} days.` : "";
-  return `DevMacro card. ${metricSentence(metric)}${trend}`;
+  const card = projectName === null ? "DevMacro card." : `DevMacro card for ${projectName}.`;
+  return `${card} ${metricSentence(metric)}${trend}`;
 }
 
 /** Alt text for the badge image, also the badge's own `<title>`. */
@@ -89,17 +90,18 @@ export function badgeAltText(metric: ShareableMetric): string {
   return metricSentence(metric);
 }
 
-/** Markdown for a README: the badge, linking to how the metric is counted. */
-export function badgeMarkdown(input: Readonly<{ badgeUrl: string; formulaUrl: string; label: string }>): string {
+/** Markdown for a README: the badge, linking to the project page or to how the metric is counted. */
+export function badgeMarkdown(input: Readonly<{ badgeUrl: string; linkUrl: string; label: string }>): string {
   // Brackets would end the alt text early; the label comes from definitions.ts, but stay safe.
   const alt = input.label.replace(/[[\]]/g, "");
-  return `[![${alt}](${input.badgeUrl})](${input.formulaUrl})`;
+  return `[![${alt}](${input.badgeUrl})](${input.linkUrl})`;
 }
 
-/** The prefilled post for "Share to X": the value in words, then the link. */
-export function shareText(metric: ShareableMetric): string {
-  if (!metric.available) return `${metric.label} on DevMacro.`;
-  return `${metric.label}: ${metric.text}. ${provenanceSentence(metric)}.`;
+/** The prefilled post for "Share to X": the value in words, naming the project when its page is public. */
+export function shareText(metric: ShareableMetric, projectName: string | null): string {
+  const subject = projectName === null ? metric.label : `${metric.label} for ${projectName}`;
+  if (!metric.available) return `${subject} on DevMacro.`;
+  return `${subject}: ${metric.text}. ${provenanceSentence(metric)}.`;
 }
 
 /**
@@ -111,4 +113,55 @@ export function shareToXUrl(text: string, url?: string): string {
   intent.searchParams.set("text", text);
   if (url !== undefined) intent.searchParams.set("url", url);
   return intent.href;
+}
+
+/**
+ * LinkedIn's share page for `url`, the address its Share plugin opens
+ * (https://learn.microsoft.com/en-us/linkedin/consumer/integrations/self-serve/plugins/share-plugin).
+ * A plain link, so no LinkedIn script loads; the person writes and sends the post themselves.
+ */
+export function shareToLinkedInUrl(url: string): string {
+  const share = new URL("https://www.linkedin.com/sharing/share-offsite/");
+  share.searchParams.set("url", url);
+  return share.href;
+}
+
+/**
+ * The project's public page as share surfaces see it (#255). Present only while the page answers,
+ * so no link ever leads to a page that is off; the project name is public only through that page.
+ */
+export type ShareProjectPage = Readonly<{ path: string; projectName: string }>;
+
+export type MetricShareLinks = Readonly<{
+  badgeMarkdown: string;
+  cardUrl: string;
+  /** What a post links to: the project page while it is public, else the card itself. */
+  link: string;
+  xIntentUrl: string;
+  linkedInUrl: string;
+}>;
+
+/** Every absolute link the share dialog of a published metric offers, on the public `origin`. */
+export function metricShareLinks(
+  input: Readonly<{
+    origin: string;
+    projectId: string;
+    metricId: PublicMetricId;
+    formulaPath: string;
+    metric: ShareableMetric;
+    projectPage: ShareProjectPage | null;
+  }>,
+): MetricShareLinks {
+  const { origin, projectId, metricId, metric, projectPage } = input;
+  const badgeUrl = new URL(badgePath(projectId, metricId), origin).href;
+  const cardUrl = new URL(cardPath(projectId, metricId), origin).href;
+  const pageUrl = projectPage === null ? null : new URL(projectPage.path, origin).href;
+  const link = pageUrl ?? cardUrl;
+  return {
+    badgeMarkdown: badgeMarkdown({ badgeUrl, linkUrl: pageUrl ?? new URL(input.formulaPath, origin).href, label: metric.label }),
+    cardUrl,
+    link,
+    xIntentUrl: shareToXUrl(shareText(metric, projectPage?.projectName ?? null), link),
+    linkedInUrl: shareToLinkedInUrl(link),
+  };
 }

@@ -119,8 +119,12 @@ function Trend({ values }: { values: readonly (number | null)[] }) {
   );
 }
 
-/** The milestone card of one published metric: label, value, provenance, trend, last sync. */
-export function MetricCard({ card }: { card: PublishedMetricCard }) {
+/**
+ * The milestone card of one published metric: the project's name while its page is public (#255),
+ * then label, value, provenance, trend, last sync. `projectName` is null otherwise, since the page
+ * is the only place the name is public.
+ */
+export function MetricCard({ card, projectName }: { card: PublishedMetricCard; projectName: string | null }) {
   const { metric, trend } = card;
   const share = shareableMetric(metric);
   const tag = share.simulated ? (
@@ -134,6 +138,7 @@ export function MetricCard({ card }: { card: PublishedMetricCard }) {
   const synced = share.lastSyncedAt === null ? "Not synced recently" : `Last synced ${formatDateTime(share.lastSyncedAt)}`;
   return (
     <Frame tag={tag} footer={[window, synced]}>
+      {projectName === null ? null : <div style={{ ...line(44), letterSpacing: -1, marginBottom: 4 }}>{projectName}</div>}
       <div style={{ display: "flex", fontSize: 40, color: COLORS.muted }}>{metric.label}</div>
       <div style={{ display: "flex", fontSize: share.available ? 104 : 72, marginTop: 8, marginBottom: 24, letterSpacing: -2 }}>{share.text}</div>
       <Trend values={trend.map((point) => point.value)} />

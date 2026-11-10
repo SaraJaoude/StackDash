@@ -2,8 +2,9 @@ import "server-only";
 
 import { cache } from "react";
 
-import { isPageSlug } from "@/lib/public-metrics/project-page";
+import { isPageSlug, projectPagePath } from "@/lib/public-metrics/project-page";
 import { loadPublishedProjectMetrics, type PublishedProjectMetrics } from "@/lib/public-metrics/published";
+import type { ShareProjectPage } from "@/lib/public-metrics/share";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { isWorkspaceSlug } from "@/lib/workspaces/paths";
@@ -40,6 +41,29 @@ export const loadPublicProjectPage = cache(async (workspaceSlug: string, pageSlu
   if (published === null) return null;
   return { workspaceSlug, pageSlug, projectName: data.project_name, indexable: data.indexable, published };
 });
+
+/**
+ * The project's page while it is public, for its cards (#255): the page's address and the project
+ * name, or null when the project has no page or its page answers 404. Finds the address the page is
+ * on, then asks public_project_page() about that address, so "public" keeps its one definition.
+ */
+export async function loadPublicPageOfProject(projectId: string): Promise<ShareProjectPage | null> {
+  const admin = createAdminClient();
+  const { data: address, error: addressError } = await admin
+    .from("project_pages")
+    .select("slug, workspaces!inner(slug)")
+    .eq("project_id", projectId)
+    .eq("enabled", true)
+    .maybeSingle();
+  if (addressError) throw new Error("Failed to load the project page address", { cause: addressError });
+  if (address === null) return null;
+  const { data: page, error } = await admin
+    .rpc("public_project_page", { p_workspace_slug: address.workspaces.slug, p_page_slug: address.slug })
+    .maybeSingle();
+  if (error) throw new Error("Failed to load the project page", { cause: error });
+  if (page === null || page.project_id !== projectId) return null;
+  return { path: projectPagePath(address.workspaces.slug, address.slug), projectName: page.project_name };
+}
 
 /** The sitemap holds at most this many project pages; Supabase returns at most 1,000 rows per read. */
 export const SITEMAP_PAGES_LIMIT = 1000;
