@@ -6,14 +6,16 @@ import { ScopeFilter } from "@/components/filters/scope-filter";
 import { hasSimulatedSource, type CurrencyAmounts, type DashboardView as View } from "@/lib/dashboard/aggregate";
 import { markerCategoryLabel, type MarkerCategory, type TrendMarker } from "@/lib/dashboard/markers";
 import type { DashboardProjections, SpendProjection } from "@/lib/dashboard/projection";
-import { trendWindowLabel, type TrendGranularity, type TrendSeries } from "@/lib/dashboard/trends";
+import { trendWindowLabel, type ProviderTrends, type TrendGranularity } from "@/lib/dashboard/trends";
 import type { ScopeFilters, ScopeOptions } from "@/lib/filters/scope";
+import { providerName } from "@/lib/providers";
 import { amountValues } from "@/lib/realtime/arrivals";
 
 import { ArrivalCard } from "./arrival-values";
 import { CurrencyAmountsList } from "./currency-amounts";
+import { LinkPendingLabel } from "./link-pending";
 import { ProviderCard } from "./provider-card";
-import { TrendChart } from "./trend-chart";
+import { TrendChart, TrendLegend } from "./trend-chart";
 import { MarkerShape } from "./trend-markers";
 import { SpendProjectionNote } from "./value-meta";
 
@@ -108,16 +110,19 @@ function CurrencyCard({
   );
 }
 
+/** One provider's trends with its disclosure, which is a link: open is URL state (#263). */
+export type ProviderTrendsView = ProviderTrends & Readonly<{ open: boolean; toggleHref: string }>;
+
 export type DashboardTrends = Readonly<{
   granularity: TrendGranularity;
-  series: readonly TrendSeries[];
+  providers: readonly ProviderTrendsView[];
   /** Links to each trend period, keeping the current filter. */
   hrefs: Readonly<Record<TrendGranularity, string>>;
   /** Event markers (#168). */
   markers: Readonly<{
     /** Categories hidden through the URL, in category order. */
     hidden: readonly MarkerCategory[];
-    /** Each chart's markers by series key, oldest bucket first. */
+    /** Each rendered chart's markers by series key, oldest bucket first; closed series have none. */
     bySeries: Readonly<Record<string, readonly TrendMarker[]>>;
     /** One link per category that shows or hides it, keeping everything else. */
     toggles: readonly Readonly<{ category: MarkerCategory; shown: boolean; href: string }>[];
@@ -132,10 +137,12 @@ const TREND_PERIODS = [
 function TrendsSection({ trends }: { trends: DashboardTrends }) {
   const { markers } = trends;
   const anyShown = markers.toggles.some((toggle) => toggle.shown);
+  const rendered = trends.providers.flatMap(({ defaults, more, open }) => (open ? [...defaults, ...more] : defaults));
+  const markersOf = (key: string) => (anyShown ? (markers.bySeries[key] ?? []) : null);
   return (
     <Section
       title="Trends"
-      description="Each metric per UTC day or month, with missing data shown as unavailable, never as zero. Markers under each chart count deployments, payments, signups, star events, and triggered alerts in the same days or months."
+      description="Each provider's spend and revenue per UTC day or month, with missing data shown as unavailable, never as zero. Open a provider's other series, such as usage and breakdowns, below its charts. Markers under each chart count deployments, payments, signups, star events, and triggered alerts in the same days or months."
     >
       <nav aria-label="Trend period" className="flex flex-wrap gap-2">
         {TREND_PERIODS.map(({ granularity, label }) => {
@@ -168,21 +175,83 @@ function TrendsSection({ trends }: { trends: DashboardTrends }) {
           </Link>
         ))}
       </nav>
-      {trends.series.length === 0 ? (
+      {trends.providers.length === 0 ? (
         <p className="mt-4 text-sm text-muted">
           No history to chart for the {trendWindowLabel(trends.granularity)}. Trends appear after the first syncs.
         </p>
       ) : (
-        // One chart per row: markers on neighboring days need the width (see `TrendChart`).
-        <ul className="mt-4 grid gap-4">
-          {trends.series.map((series) => (
-            <li key={series.key} className="min-w-0">
-              <TrendChart series={series} markers={anyShown ? (markers.bySeries[series.key] ?? []) : null} />
-            </li>
-          ))}
-        </ul>
+        <>
+          <TrendLegend series={rendered} markers={rendered.flatMap((series) => markersOf(series.key) ?? [])} />
+          <ul className="mt-4 grid gap-8">
+            {trends.providers.map((group) => (
+              <ProviderTrendsGroup key={group.provider} group={group} markersOf={markersOf} />
+            ))}
+          </ul>
+        </>
       )}
     </Section>
+  );
+}
+
+/**
+ * One provider's default charts, then a disclosure for the rest, which are not rendered until it
+ * is opened (#263). The disclosure is a link that adds the provider to the URL, like the period
+ * and marker choices, so the closed charts cost nothing on load and a shared link reproduces the
+ * view; `aria-expanded` gives it the disclosure's state.
+ */
+function ProviderTrendsGroup({
+  group,
+  markersOf,
+}: {
+  group: ProviderTrendsView;
+  markersOf: (key: string) => readonly TrendMarker[] | null;
+}) {
+  const titleId = useId();
+  const moreId = useId();
+  const { provider, defaults, more, open, toggleHref } = group;
+  const name = providerName(provider);
+  const others = `${more.length}${defaults.length === 0 ? "" : " more"} ${name} series`;
+  return (
+    <li className="min-w-0">
+      <section aria-labelledby={titleId}>
+        <h3 id={titleId} className="font-semibold tracking-tight">
+          {name}
+        </h3>
+        {defaults.length === 0 ? (
+          <p className="mt-1 text-sm text-muted">No spend or revenue to chart for {name}.</p>
+        ) : (
+          // One chart per row: markers on neighboring days need the width (see `TrendChart`).
+          <ul className="mt-3 grid gap-4">
+            {defaults.map((series) => (
+              <li key={series.key} className="min-w-0">
+                <TrendChart series={series} markers={markersOf(series.key)} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {more.length === 0 ? null : (
+          <>
+            <Link
+              href={toggleHref}
+              aria-expanded={open}
+              aria-controls={open ? moreId : undefined}
+              className="mt-3 inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            >
+              <LinkPendingLabel idle={`${open ? "Hide" : "Show"} ${others}`} pending={`Loading ${others}`} />
+            </Link>
+            {open ? (
+              <ul id={moreId} className="mt-4 grid gap-4">
+                {more.map((series) => (
+                  <li key={series.key} className="min-w-0">
+                    <TrendChart series={series} markers={markersOf(series.key)} />
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        )}
+      </section>
+    </li>
   );
 }
 
@@ -274,8 +343,6 @@ export function DashboardView({
         )}
       </Section>
 
-      <TrendsSection trends={trends} />
-
       <Section title="By project" description="Spend by project, with accounts outside a project listed as unassigned.">
         {view.byProject.length === 0 ? (
           <p className="text-sm text-muted">No spend to group by project yet.</p>
@@ -287,6 +354,8 @@ export function DashboardView({
           </ul>
         )}
       </Section>
+
+      <TrendsSection trends={trends} />
     </>
   );
 }

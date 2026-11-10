@@ -13,12 +13,23 @@
  *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
  *   means no comparison; a previous value of zero gives a direction but no percent.
+ * - The default set (#263, option A2): per provider, the money behind the dashboard's spending and
+ *   revenue cards, by the rules those cards and the headline strip apply. Every other series opens
+ *   on demand, one disclosure per provider.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
-import { isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
+import {
+  dropSubWindows,
+  dropSupersededBreakdowns,
+  isCurrentPeriod,
+  isDeclaredProjection,
+  isEstimated,
+  type ProviderId,
+  type SnapshotInput,
+} from "./aggregate";
 
 export type TrendGranularity = "daily" | "monthly";
 
@@ -104,6 +115,10 @@ function measureOf(row: TrendRow): TrendMeasure | null {
   return null;
 }
 
+function seriesKey(provider: ProviderId, metricKey: string, measure: TrendMeasure): string {
+  return `${provider} ${metricKey} ${measure.type === "money" ? `money:${measure.currency}` : `quantity:${measure.unit}`}`;
+}
+
 function newer(a: TrendRow, b: TrendRow): boolean {
   return a.snapshot_date > b.snapshot_date || (a.snapshot_date === b.snapshot_date && Date.parse(a.retrieved_at) > Date.parse(b.retrieved_at));
 }
@@ -155,8 +170,7 @@ export function buildTrends(
     const measure = measureOf(row);
     if (connection === undefined || measure === null) continue;
     const { provider } = connection;
-    const measureKey = measure.type === "money" ? `money:${measure.currency}` : `quantity:${measure.unit}`;
-    const key = `${provider} ${row.metric_key} ${measureKey}`;
+    const key = seriesKey(provider, row.metric_key, measure);
     let builder = builders.get(key);
     if (builder === undefined) {
       builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), cells: new Map(), simulated: false };
@@ -214,6 +228,72 @@ export function buildTrends(
       a.label.localeCompare(b.label) ||
       measureName(a.measure).localeCompare(measureName(b.measure)),
   );
+}
+
+/** Money spent and money coming in: the kinds a default series is drawn from. */
+const DEFAULT_KINDS: ReadonlySet<TrendRow["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
+
+/**
+ * Keys of the series shown on first load, decided on #263 (option A2): per provider, the money
+ * series (verified spend, estimated spend, revenue) that are not a declared projection
+ * (`isDeclaredProjection`), that `dropSupersededBreakdowns` and `dropSubWindows` keep, and that
+ * count toward their billing period (`isCurrentPeriod`): the money behind the spending and revenue
+ * cards, read by the same rules as the cards and the headline strip, so the three never disagree.
+ * Breakdowns (GitHub's SKUs and days, DigitalOcean's SKU days), finished periods (an invoice),
+ * rolling windows (Stripe's last 30 days), usage, allowances, and projections are left for the
+ * provider's disclosure. A series is in the set when any of its rows is kept, so a total one
+ * account reports never hides another account's only figure. Keys match `buildTrends`.
+ */
+export function defaultSeriesKeys(
+  rows: readonly SnapshotInput[],
+  connections: readonly TrendConnection[],
+  projectedSpend: readonly string[],
+  now: Date,
+): Set<string> {
+  const byId = new Map(connections.map((connection) => [connection.id, connection]));
+  const money = rows.filter((row) => DEFAULT_KINDS.has(row.kind) && !isDeclaredProjection(row, projectedSpend));
+  const keys = new Set<string>();
+  for (const row of dropSubWindows(dropSupersededBreakdowns(money))) {
+    const connection = byId.get(row.connection_id);
+    const measure = measureOf(row);
+    if (connection === undefined || measure === null || !isCurrentPeriod(row, now)) continue;
+    keys.add(seriesKey(connection.provider, row.metric_key, measure));
+  }
+  return keys;
+}
+
+/** One provider's trends: the default set, and the rest behind its disclosure. */
+export type ProviderTrends = Readonly<{
+  provider: ProviderId;
+  defaults: readonly TrendSeries[];
+  more: readonly TrendSeries[];
+}>;
+
+/** `series` per provider, in the order `buildTrends` sorted them, split by `defaultKeys`. */
+export function groupTrends(series: readonly TrendSeries[], defaultKeys: ReadonlySet<string>): ProviderTrends[] {
+  const groups = new Map<ProviderId, { defaults: TrendSeries[]; more: TrendSeries[] }>();
+  for (const entry of series) {
+    let group = groups.get(entry.provider);
+    if (group === undefined) {
+      group = { defaults: [], more: [] };
+      groups.set(entry.provider, group);
+    }
+    (defaultKeys.has(entry.key) ? group.defaults : group.more).push(entry);
+  }
+  return [...groups].map(([provider, { defaults, more }]) => ({ provider, defaults, more }));
+}
+
+/** The repeated search param naming each provider whose disclosure is open. */
+export const EXPAND_TRENDS_PARAM = "expand";
+
+/** `expanded` without duplicates and sorted, so equal states have equal URLs. */
+export function canonicalExpanded(expanded: readonly ProviderId[]): ProviderId[] {
+  return [...new Set(expanded)].sort();
+}
+
+/** The open providers after toggling `provider`'s disclosure. */
+export function toggleExpanded(expanded: readonly ProviderId[], provider: ProviderId): ProviderId[] {
+  return canonicalExpanded(expanded.includes(provider) ? expanded.filter((entry) => entry !== provider) : [...expanded, provider]);
 }
 
 // Formatting. US English; days are UTC dates because snapshot days are UTC.

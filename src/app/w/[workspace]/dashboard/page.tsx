@@ -19,7 +19,7 @@ import {
   declaredSignupDailyTotals,
   revenueProviderIds,
 } from "@/lib/adapters/registry";
-import { aggregateDashboard } from "@/lib/dashboard/aggregate";
+import { aggregateDashboard, type ProviderId } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
   HEADLINE_WINDOW_KINDS,
@@ -39,7 +39,15 @@ import {
   type MarkerCategory,
 } from "@/lib/dashboard/markers";
 import { projectDashboard } from "@/lib/dashboard/projection";
-import { buildTrends, type TrendGranularity } from "@/lib/dashboard/trends";
+import {
+  buildTrends,
+  canonicalExpanded,
+  defaultSeriesKeys,
+  EXPAND_TRENDS_PARAM,
+  groupTrends,
+  toggleExpanded,
+  type TrendGranularity,
+} from "@/lib/dashboard/trends";
 import { getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
 import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
@@ -61,28 +69,33 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 export const metadata: Metadata = { title: "Dashboard" };
 
 // The page's one URL schema: the shared scope filter, the trend period, the hidden event marker
-// categories, and the headline window. Unknown or malformed values fall back to the defaults
-// rather than erroring, because the URL is user-editable; other keys are ignored.
+// categories, the providers whose other trend series are open, and the headline window. Unknown or
+// malformed values fall back to the defaults rather than erroring, because the URL is user-editable;
+// other keys are ignored.
 const searchParamsSchema = ScopeSearchParamsSchema.extend({
   trend: z.enum(["daily", "monthly"]).catch("daily"),
   [HIDE_MARKER_PARAM]: repeatedParam(isMarkerCategory, MARKER_CATEGORIES.length),
+  // A list of providers, read like the provider filter.
+  [EXPAND_TRENDS_PARAM]: ScopeSearchParamsSchema.shape.provider,
   window: z.enum(HEADLINE_WINDOW_KINDS).catch("week"),
 });
 
 type DashboardViewParams = Readonly<{
   trend: TrendGranularity;
   hidden: readonly MarkerCategory[];
+  expanded: readonly ProviderId[];
   window: HeadlineWindowKind;
 }>;
 
 /**
- * The page's own URL state. The defaults (the daily trend, every marker shown, this week) stay out
- * of the URL, so a demo link carries only what differs.
+ * The page's own URL state. The defaults (the daily trend, every marker shown, every provider's
+ * other trends closed, this week) stay out of the URL, so a demo link carries only what differs.
  */
-function viewParams({ trend, hidden, window }: DashboardViewParams): Record<string, string | readonly string[]> {
+function viewParams({ trend, hidden, expanded, window }: DashboardViewParams): Record<string, string | readonly string[]> {
   return {
     ...(trend === "daily" ? {} : { trend }),
     ...(hidden.length === 0 ? {} : { [HIDE_MARKER_PARAM]: hidden }),
+    ...(expanded.length === 0 ? {} : { [EXPAND_TRENDS_PARAM]: expanded }),
     ...(window === "week" ? {} : { window }),
   };
 }
@@ -116,6 +129,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
   const view: DashboardViewParams = {
     trend: parsed.trend,
     hidden: canonicalHidden(parsed[HIDE_MARKER_PARAM]),
+    expanded: canonicalExpanded(parsed[EXPAND_TRENDS_PARAM]),
     window: parsed.window,
   };
   // Read after the request data above, so the clock never runs during prerendering.
@@ -150,7 +164,7 @@ async function DashboardContent({
   view: DashboardViewParams;
 }) {
   const { workspace, role } = access;
-  const { trend, hidden } = view;
+  const { trend, hidden, expanded } = view;
   // Request data first: reading the clock before it would fail the prerender.
   await connection();
   const now = new Date();
@@ -192,6 +206,9 @@ async function DashboardContent({
   const timelinePath = workspacePath(workspace.slug, "timeline");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
   const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
+  const groups = groupTrends(series, defaultSeriesKeys(trendData.snapshots, trendData.connections, declaredProjectedSpend, now));
+  // Only the charts on the page get markers: a closed disclosure renders nothing.
+  const rendered = groups.flatMap(({ provider, defaults, more }) => (expanded.includes(provider) ? [...defaults, ...more] : defaults));
   const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
   // The page's URL is its scope: a new filter, trend period, marker choice, or headline window
@@ -228,7 +245,11 @@ async function DashboardContent({
         alerts={alerts}
         trends={{
           granularity: trend,
-          series,
+          providers: groups.map((group) => ({
+            ...group,
+            open: expanded.includes(group.provider),
+            toggleHref: dashboardHref(dashboardPath, scope, { ...view, expanded: toggleExpanded(expanded, group.provider) }),
+          })),
           hrefs: {
             daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
             monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
@@ -236,7 +257,7 @@ async function DashboardContent({
           markers: {
             hidden,
             bySeries: Object.fromEntries(
-              series.map((entry) => [
+              rendered.map((entry) => [
                 entry.key,
                 chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
               ]),
