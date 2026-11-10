@@ -114,8 +114,8 @@ const SIMULATED_CLIENT: OAuthClient = {
  * `optionalExtraKeys` are passed through only when set and never make the provider unavailable.
  */
 export function loadOAuthClient(adapter: ProviderAdapter): OAuthClient | null {
-  // Identity, not id: only the registry's own simulated adapters get the local client, and only
-  // while simulation is on, so a simulated adapter can never sync once the flag is gone.
+  // Identity, not id: only adapters the simulator built get the local client, and only while
+  // simulation is on, so a simulated adapter can never sync once the flag is gone.
   if (isSimulatedAdapter(adapter)) {
     return isProviderSimulationEnabled() ? SIMULATED_CLIENT : null;
   }

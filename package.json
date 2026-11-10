@@ -17,6 +17,7 @@
     "invite": "tsx --conditions=react-server scripts/invite.ts",
     "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",
     "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts",
+    "demo:event": "tsx --conditions=react-server scripts/demo-event.ts",
     "email:fake": "tsx scripts/fake-resend-api.ts"
   },
   "dependencies": {

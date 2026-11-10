@@ -15,7 +15,7 @@ import type { Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 import { groupEventsByDay, londonDate } from "@/lib/timeline/days";
 
-import { DEMO_HISTORY_DAYS, demoAccountSeed, demoSeedRefusal, historySteps, replayHistory } from "./history";
+import { DEMO_HISTORY_DAYS, demoAccountSeed, demoCommandRefusal, historySteps, replayHistory } from "./history";
 
 const WORKSPACE_ID = "16616616-6166-4166-8166-166166166166";
 // Mid afternoon, so subtracting whole days never crosses a London midnight on a clock change.
@@ -24,15 +24,15 @@ const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
 const client: OAuthClient = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
 const LONDON_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 
-describe("demoSeedRefusal", () => {
+describe("demoCommandRefusal", () => {
   const local = "http://127.0.0.1:56421";
 
   it("allows the local stack with simulation on", () => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl: local })).toBeNull();
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl: local })).toBeNull();
   });
 
   it("refuses with simulation off, even against the local stack", () => {
-    expect(demoSeedRefusal({ simulationEnabled: false, supabaseUrl: local })).toMatch(/simulation is off/);
+    expect(demoCommandRefusal({ simulationEnabled: false, supabaseUrl: local })).toMatch(/simulation is off/);
   });
 
   it.each([
@@ -40,7 +40,7 @@ describe("demoSeedRefusal", () => {
     ["empty", ""],
     ["whitespace", "  "],
   ])("refuses when the Supabase URL is %s", (_title, supabaseUrl) => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not set/);
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not set/);
   });
 
   it.each([
@@ -48,7 +48,7 @@ describe("demoSeedRefusal", () => {
     ["a private network address", "http://10.0.0.5:54321"],
     ["every interface", "http://0.0.0.0:54321"],
   ])("refuses %s", (_title, supabaseUrl) => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not a Supabase stack on this computer/);
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not a Supabase stack on this computer/);
   });
 });
 

@@ -17,7 +17,7 @@ import { demoAccountSeed } from "./history";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
- * (the caller checks `demoSeedRefusal` first). A rerun deletes the workspaces the demo account
+ * (the caller checks `demoCommandRefusal` first). A rerun deletes the workspaces the demo account
  * created, except its personal one, and builds a fresh one, so there is only ever one demo
  * workspace. Connections go through `completeConnection`, exactly as the OAuth callback makes
  * them; budgets and alert rules go through the alerts page's input schemas.
@@ -141,6 +141,25 @@ export async function resetDemoWorkspace(
     if (memberError) throw new Error(`Adding members to the demo workspace failed (code ${memberError.code}).`);
   }
   return { id: data.id, slug: data.slug, deleted: deleted.length };
+}
+
+/**
+ * The demo workspace the last `npm run demo:seed` built, or null when there is none: no demo
+ * account, an account with the demo email that the seed did not create, or no workspace yet.
+ */
+export async function findDemoWorkspace(admin: Admin): Promise<(DemoWorkspace & { name: string }) | null> {
+  const user = await findUserByEmail(admin, DEMO_USER_EMAIL);
+  if (user === null || !isDemoUser(user)) return null;
+  const { data, error } = await admin
+    .from("workspaces")
+    .select("id, slug, name")
+    .eq("created_by", user.id)
+    .eq("is_personal", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Reading the demo workspace failed (code ${error.code}).`);
+  return data;
 }
 
 export type DemoConnection = Readonly<{ id: string; provider: ProviderId }>;

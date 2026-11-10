@@ -82,6 +82,8 @@ The flag is read once, when the watcher starts, so restart a running watcher aft
 
 `npm run demo:seed` (#166, local stack only) builds a demo workspace by replaying 90 days through the same `runSyncJob` and `runDailySummaryJob` a tick runs, one step per London day (the last slot before London midnight) with the jobs' clock and the adapters' clock set to that day. It calls the jobs directly for its own connections instead of claiming from `sync_jobs`, because a claim would also pick up other workspaces' jobs and run them on the moved clock. Its last step is the present, so a watch started afterwards continues from the replay's cursors. See the README, step 11.
 
+`npm run demo:event -- --type failed-deployment|budget-crossing` (#256, local stack only, same refusal as the seed) makes one incident happen now in the demo workspace, or in the workspace `--workspace <slug>` names. It builds a simulated Vercel adapter that carries the incident (an extra failed deployment, or spend read past the highest budget alert threshold that covers Vercel) and runs one `runSyncJob` for that workspace's simulated Vercel connection, the same direct call the seed makes, so validation, ingest, Realtime, and alert evaluation are the real ones. It does not deliver: an alert it triggers keeps `dispatched_at` null, and the next tick's `alert_dispatch` sends it like any other. A watcher may sync the same connection at the same moment; the event's dedupe key keeps that harmless, and the watcher's next sync reads the usual spend again.
+
 To call the route itself (dev server running):
 
 ```bash

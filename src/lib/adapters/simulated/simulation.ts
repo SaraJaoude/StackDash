@@ -32,6 +32,17 @@ export type SimulatedProfile = Readonly<{
   eventsInSlot: (accountId: string, slot: number) => ActivityEvent[];
 }>;
 
+/**
+ * One thing made to happen on cue by `npm run demo:event` (#256), on top of what the profile makes
+ * up. Its events are added to the sync it is built into, whatever slots that sync covers, and
+ * its metrics, when given, are read instead of the profile's.
+ */
+export type SimulatedIncident = Readonly<{
+  /** Events at `at`, the sync's clock. */
+  events: (accountId: string, at: Date) => ActivityEvent[];
+  metrics?: SimulatedProfile["metrics"];
+}>;
+
 /** 32-bit FNV-1a over the parts, then the murmur3 finalizer so nearby inputs spread apart. */
 function hash32(parts: readonly (string | number)[]): number {
   let hash = 0x811c9dc5;

@@ -27,6 +27,7 @@ import { utcDate } from "@/lib/jobs/ingest";
 import { londonDayStart } from "@/lib/timeline/query";
 
 import {
+  createSimulatedAdapter,
   isProviderSimulationEnabled,
   isSimulatedAdapter,
   SIMULATED_BACKFILL_MS,
@@ -34,7 +35,8 @@ import {
   simulatedAdapters,
 } from "./index";
 import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
-import { DAY_MS, isLaunchDay, isWeekend } from "./simulation";
+import { DAY_MS, isLaunchDay, isWeekend, type SimulatedIncident } from "./simulation";
+import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -284,6 +286,104 @@ describe("simulated markers", () => {
       expect(isSimulatedAdapter(REAL[id])).toBe(false);
       expect(isSimulatedAdapter({ ...simulatedAdapters[id] })).toBe(false);
     }
+  });
+});
+
+describe("a simulated adapter with an incident (#256)", () => {
+  // Mid slot, with the cursor at the slot before: a usual sync here covers no new slot.
+  const now = new Date("2026-11-10T14:00:03.000Z");
+  const cursor = new Date(Math.floor(now.getTime() / SLOT_MS) * SLOT_MS - SLOT_MS).toISOString();
+
+  async function syncBoth(incident: SimulatedIncident): Promise<{ usual: SyncResult; withIncident: SyncResult; accountId: string }> {
+    const adapter = createSimulatedAdapter(vercelProfile, "vercel", incident);
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(now));
+    if (account === undefined) throw new Error("simulated Vercel has an account");
+    const input = { credential, externalAccountId: account.externalId, cursor };
+    return {
+      usual: await simulatedAdapters.vercel.sync(input, makeCtx(now)),
+      withIncident: await adapter.sync(input, makeCtx(now)),
+      accountId: account.externalId,
+    };
+  }
+
+  it("is simulated, so it gets the local client and syncs simulated credentials", () => {
+    expect(isSimulatedAdapter(createSimulatedAdapter(vercelProfile, "vercel", { events: () => [] }))).toBe(true);
+  });
+
+  it("adds the incident's events at the sync's clock, even to a sync that covers no new slot", async () => {
+    const { usual, withIncident, accountId } = await syncBoth({ events: (id, at) => [vercelFailedDeployment(id, at)] });
+    expect(usual.events).toEqual([]);
+    expect(withIncident.events).toEqual([vercelFailedDeployment(accountId, now)]);
+    expect(withIncident.metrics).toEqual(usual.metrics);
+    expect(withIncident.cursor).toBe(usual.cursor);
+  });
+
+  it("reads the incident's metrics instead of the profile's, at the slot's start", async () => {
+    const { usual, withIncident, accountId } = await syncBoth({ events: () => [], metrics: (id, at) => vercelSpendSurge(id, at, 100_000) });
+    const slotStart = new Date(Math.floor(now.getTime() / SLOT_MS) * SLOT_MS);
+    expect(withIncident.metrics).toEqual(vercelSpendSurge(accountId, slotStart, 100_000));
+    expect(withIncident.metrics).not.toEqual(usual.metrics);
+    expect(withIncident.events).toEqual(usual.events);
+  });
+});
+
+describe("vercelFailedDeployment", () => {
+  const at = new Date("2026-11-10T14:00:03.000Z");
+
+  it("is a failed production deployment of web at the instant, as the real adapter reports one", () => {
+    const event = vercelFailedDeployment("team_sim5eed0a11", at);
+    expect(event).toMatchObject({
+      typeId: "vercel.deployment.failed",
+      severity: "critical",
+      title: "Production deployment of web failed",
+      body: "Error code: BUILD_FAILED",
+      occurredAt: at,
+      externalAccountId: "team_sim5eed0a11",
+    });
+    expect(event.url).toBeUndefined();
+    expect(validateAdapterEvents(vercelAdapter.eventTypes, [event]).ok).toBe(true);
+  });
+
+  it("is the same deployment at the same instant and a new one a millisecond later", () => {
+    const first = vercelFailedDeployment("team_sim5eed0a11", at).dedupeKey;
+    expect(vercelFailedDeployment("team_sim5eed0a11", new Date(at.getTime())).dedupeKey).toBe(first);
+    expect(vercelFailedDeployment("team_sim5eed0a11", new Date(at.getTime() + 1)).dedupeKey).not.toBe(first);
+  });
+});
+
+describe("vercelSpendSurge", () => {
+  // Early in the month, when the usual total is a few hundred dollars.
+  const at = new Date("2026-11-10T14:00:00.000Z");
+  const accountId = "team_sim5eed0a11";
+  const amount = (metrics: readonly AdapterMetric[], key: string) => {
+    const metric = metrics.find((candidate) => candidate.metricKey === key);
+    return metric !== undefined && "amountMinor" in metric ? metric.amountMinor : undefined;
+  };
+  const usualTotal = amount(vercelProfile.metrics(accountId, at, makeCtx(at)), TOTAL_METRIC_KEY) ?? 0;
+
+  // Usage plus the $20 purchase, then 20 percent tax rounded down: the least usage that reaches the target.
+  it.each([
+    [60_000, 48_000, 60_000],
+    [60_001, 48_001, 60_001],
+    [60_005, 48_005, 60_006],
+    [60_006, 48_005, 60_006],
+  ])("reaches a total of %i with usage of %i (total %i), one cent less would fall short", (target, usage, total) => {
+    const metrics = vercelSpendSurge(accountId, at, target);
+    expect(amount(metrics, "vercel.spend.usage")).toBe(usage);
+    expect(amount(metrics, TOTAL_METRIC_KEY)).toBe(total);
+    const categories = spendCategories.map(({ metricKey }) => amount(metrics, metricKey) ?? 0);
+    expect(categories.reduce((sum, value) => sum + value, 0)).toBe(total);
+    expect(validateAdapterMetrics("vercel", metrics).ok).toBe(true);
+  });
+
+  it.each([
+    ["zero", 0],
+    ["below the purchase and its tax", 100],
+    ["one cent below the usual total", usualTotal - 1],
+    ["the usual total", usualTotal],
+  ])("reads as usual for a target of %s", (_title, target) => {
+    expect(vercelSpendSurge(accountId, at, target)).toEqual(vercelProfile.metrics(accountId, at, makeCtx(at)));
   });
 });
 
