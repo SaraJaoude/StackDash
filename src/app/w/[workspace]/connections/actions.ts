@@ -193,7 +193,9 @@ export async function syncNow(
   const connectionIds = [...new Set(parsed.data.connectionIds)];
 
   let queued: number;
+  let failed: number;
   let requested: number;
+  let referenceId: string | undefined;
   try {
     const access = await requireWorkspaceAction(parsed.data.workspace, "manage_connections");
     const connections = await findConnections(access, connectionIds);
@@ -208,11 +210,23 @@ export async function syncNow(
             : "These connections are disconnected. Reconnect them before syncing.",
       };
     }
-    const results = await Promise.all(
+    // Settled, not all: one connection's failed request must not hide that the others were queued.
+    const results = await Promise.allSettled(
       syncable.map((connection) => enqueueSync({ workspaceId: access.workspace.id, connectionId: connection.id, reason: "manual" })),
     );
-    queued = results.filter((result) => result.queued).length;
+    const rejected = results.flatMap((result) => (result.status === "rejected" ? [result.reason] : []));
+    queued = results.filter((result) => result.status === "fulfilled" && result.value.queued).length;
+    failed = rejected.length;
     requested = syncable.length;
+    if (failed > 0) {
+      referenceId = logError(
+        "connections.sync_now_failed",
+        new AggregateError(rejected, `${failed} of ${requested} manual syncs could not be queued`),
+      );
+    }
+    if (queued === 0 && failed > 0) {
+      return { ok: false, message: "The sync could not be queued. Try again in a moment.", ...(referenceId === undefined ? {} : { referenceId }) };
+    }
     if (queued === 0) {
       // Re-read after the attempt: the queue records the request time when it accepts one. The
       // newest request is the one to wait out.
@@ -235,13 +249,16 @@ export async function syncNow(
   }
   refresh();
   if (requested === 1) return { ok: true, message: "Sync queued. New numbers appear within a few minutes." };
-  return {
-    ok: true,
-    message:
-      queued === requested
-        ? `Sync queued for ${requested} connections. New numbers appear within a few minutes.`
-        : `Sync queued for ${queued} of ${requested} connections. The others already have a sync queued or requested in the last ${MANUAL_SYNC_COOLDOWN_SECONDS / 60} minutes. New numbers appear within a few minutes.`,
-  };
+  const waiting = requested - queued - failed;
+  const parts = [queued === requested ? `Sync queued for ${requested} connections.` : `Sync queued for ${queued} of ${requested} connections.`];
+  if (waiting > 0) {
+    parts.push(
+      `${waiting === 1 ? "One already has" : `${waiting} already have`} a sync queued or requested in the last ${MANUAL_SYNC_COOLDOWN_SECONDS / 60} minutes.`,
+    );
+  }
+  if (failed > 0) parts.push(`${failed === 1 ? "One" : failed} could not be queued. Try again in a moment, reference ${referenceId ?? "unknown"}.`);
+  parts.push("New numbers appear within a few minutes.");
+  return { ok: true, message: parts.join(" ") };
 }
 
 export async function disconnect(
