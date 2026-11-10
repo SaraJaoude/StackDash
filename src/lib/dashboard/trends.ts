@@ -21,15 +21,7 @@ import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
-import {
-  dropSubWindows,
-  dropSupersededBreakdowns,
-  isCurrentPeriod,
-  isDeclaredProjection,
-  isEstimated,
-  type ProviderId,
-  type SnapshotInput,
-} from "./aggregate";
+import { ACCUMULATING_KINDS, countedSnapshots, isCurrentPeriod, isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
 
 export type TrendGranularity = "daily" | "monthly";
 
@@ -230,19 +222,16 @@ export function buildTrends(
   );
 }
 
-/** Money spent and money coming in: the kinds a default series is drawn from. */
-const DEFAULT_KINDS: ReadonlySet<TrendRow["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
-
 /**
  * Keys of the series shown on first load, decided on #263 (option A2): per provider, the money
- * series (verified spend, estimated spend, revenue) that are not a declared projection
- * (`isDeclaredProjection`), that `dropSupersededBreakdowns` and `dropSubWindows` keep, and that
- * count toward their billing period (`isCurrentPeriod`): the money behind the spending and revenue
- * cards, read by the same rules as the cards and the headline strip, so the three never disagree.
- * Breakdowns (GitHub's SKUs and days, DigitalOcean's SKU days), finished periods (an invoice),
- * rolling windows (Stripe's last 30 days), usage, allowances, and projections are left for the
- * provider's disclosure. A series is in the set when any of its rows is kept, so a total one
- * account reports never hides another account's only figure. Keys match `buildTrends`.
+ * series (`ACCUMULATING_KINDS`: verified spend, estimated spend, revenue) behind the spending and
+ * revenue cards, read exactly as the cards read them: `countedSnapshots` (declared projections
+ * left out, the latest row per account and metric, breakdowns and sub-windows dropped), then
+ * `isCurrentPeriod`. So the trends, the cards, and the headline strip never disagree. Breakdowns
+ * (GitHub's SKUs and days, DigitalOcean's SKU days), finished periods (an invoice), rolling
+ * windows (Stripe's last 30 days), usage, allowances, and projections are left for the
+ * provider's disclosure. A breakdown is dropped only beside its total in the same account, so
+ * another account's only figure stays. Keys match `buildTrends`.
  */
 export function defaultSeriesKeys(
   rows: readonly SnapshotInput[],
@@ -251,9 +240,9 @@ export function defaultSeriesKeys(
   now: Date,
 ): Set<string> {
   const byId = new Map(connections.map((connection) => [connection.id, connection]));
-  const money = rows.filter((row) => DEFAULT_KINDS.has(row.kind) && !isDeclaredProjection(row, projectedSpend));
+  const money = rows.filter((row) => ACCUMULATING_KINDS.has(row.kind));
   const keys = new Set<string>();
-  for (const row of dropSubWindows(dropSupersededBreakdowns(money))) {
+  for (const row of countedSnapshots(money, projectedSpend)) {
     const connection = byId.get(row.connection_id);
     const measure = measureOf(row);
     if (connection === undefined || measure === null || !isCurrentPeriod(row, now)) continue;

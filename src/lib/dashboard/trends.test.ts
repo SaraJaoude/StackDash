@@ -321,6 +321,21 @@ describe("defaultSeriesKeys and groupTrends (#263, option A2)", () => {
     expect(split([invoice, rolling, balance])).toEqual([{ provider: "vercel", defaults: ["vercel.point"], more: ["vercel.invoice", "vercel.last_30_days"] }]);
   });
 
+  it.each([1, 2, 14])("picks the same default set from %i days of the same metrics", (days) => {
+    const rows = Array.from({ length: days }, (_, index) => {
+      const date = `2026-01-${String(15 - index).padStart(2, "0")}`;
+      const read = { snapshot_date: date, retrieved_at: `${date}T10:00:00.000Z` };
+      return [
+        row({ ...read, metric_key: "github.spend.actions", label: "a product" }),
+        row({ ...read, metric_key: "github.spend.actions.actions_linux", label: "b sku" }),
+        row({ ...read, metric_key: "github.daily_spend.actions", label: "c day", period_start: `${date}T00:00:00.000Z`, period_end: `${date}T23:59:59.000Z` }),
+      ];
+    }).flat();
+    expect(split(rows)).toEqual([
+      { provider: "vercel", defaults: ["github.spend.actions"], more: ["github.spend.actions.actions_linux", "github.daily_spend.actions"] },
+    ]);
+  });
+
   it("returns nothing for no rows, and ignores rows of unknown connections", () => {
     expect(defaultSeriesKeys([], twoProviders, PROJECTED, NOW).size).toBe(0);
     expect(groupTrends([], new Set())).toEqual([]);
