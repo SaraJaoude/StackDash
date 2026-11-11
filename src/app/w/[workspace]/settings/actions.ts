@@ -162,8 +162,10 @@ export async function removeWorkspaceHandle(
   const parsed = removeHandleSchema.safeParse({ workspace: formData.get("workspace") });
   if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
 
+  let workspaceSlug: string;
   try {
     const { workspace, user } = await requireWorkspaceAction(parsed.data.workspace, "set_workspace_handle");
+    workspaceSlug = workspace.slug;
     const { data, error } = await createAdminClient().rpc("remove_workspace_handle", {
       p_workspace_id: workspace.id,
       p_actor_id: user.id,
@@ -175,7 +177,7 @@ export async function removeWorkspaceHandle(
   }
 
   refresh();
-  return { ok: true, message: `Removed the handle. Public project pages open at /@${parsed.data.workspace}/ followed by the page address again.` };
+  return { ok: true, message: `Removed the handle. Public project pages open at /@${workspaceSlug}/ followed by the page address again.` };
 }
 
 export type ApiKeyActionFailure = {
