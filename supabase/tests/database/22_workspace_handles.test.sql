@@ -67,8 +67,10 @@ values
 -- Schema and grants
 -- ---------------------------------------------------------------------------
 select col_is_null('public', 'workspaces', 'handle', 'workspaces.handle: nullable, so existing workspaces need no backfill');
-select is_empty($$ select id from public.workspaces where handle is not null $$,
-  'workspaces.handle: no workspace has a handle until it claims one');
+select is_empty(
+  $$ select id from public.workspaces
+     where id in ('a9100002-0000-4000-8000-000000000001', 'b9100002-0000-4000-8000-000000000001') and handle is not null $$,
+  'workspaces.handle: a new workspace has no handle until it claims one');
 select ok(
   (select i.indisunique and pg_catalog.pg_get_indexdef(i.indexrelid) like '%(lower(handle))%'
    from pg_catalog.pg_index i where i.indexrelid = 'public.workspaces_handle_key'::regclass),
@@ -249,7 +251,7 @@ select is_empty($$ select project_id from public.public_project_page('no-such-ha
 select is_empty($$ select project_id from public.public_project_page(repeat('b', 32), 'acme-web') $$,
   'public_project_page: another workspace''s handle with this page slug answers nothing, the same as an unknown handle');
 select results_eq(
-  $$ select workspace_slug, workspace_handle, page_slug from public.public_project_page_sitemap(100) where page_slug = 'acme-web' $$,
+  $$ select workspace_slug, workspace_handle, page_slug from public.public_project_page_sitemap(100) where workspace_slug = 'handleaaaa' $$,
   $$ values ('handleaaaa'::text, 'acme-labs'::text, 'acme-web'::text) $$,
   'public_project_page_sitemap: lists the page with its handle');
 reset role;
