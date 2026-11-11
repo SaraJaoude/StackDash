@@ -224,6 +224,8 @@ ownerTest.describe("project pages as the owner", () => {
   });
 
   ownerTest("answers 429 past the public rate limit that badges and cards share, and renders under it", async ({ browser, baseURL }) => {
+    // Up to two spends of the limit and a page render or three: slower than most tests.
+    ownerTest.slow();
     if (baseURL === undefined) throw new Error("baseURL is not configured");
     const { workspace } = await createPublicPageWorkspace("Project page rate limit");
     // A client address of its own (documentation range), so no other test or person shares the
@@ -231,8 +233,17 @@ ownerTest.describe("project pages as the owner", () => {
     // src/lib/public-metrics/requests.ts), which Next.js keeps when the client sends it.
     const client = `2001:db8::${randomBytes(4).toString("hex").replace(/(.{4})(.{4})/, "$1:$2")}`;
     const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] }, extraHTTPHeaders: { "x-forwarded-for": client } });
-    // Generous bounds: the limit is 120 a minute, and a new minute starts a new count.
-    const maxRequests = 300;
+    // One spend sends at most the limit plus one: 120 a minute (PUBLIC_REQUESTS_PER_MINUTE, in a
+    // server-only module this spec cannot import), plus a margin of one.
+    const spendBound = 122;
+    /** Spends the address's count for this minute on badges, which a malformed project id answers without another read. */
+    async function spendOnBadges(): Promise<void> {
+      let status = 0;
+      for (let sent = 0; status !== 429 && sent < spendBound; sent += 1) {
+        status = (await context.request.get("/badge/not-a-project/github-stars.svg", { headers: { "x-forwarded-for": client } })).status();
+      }
+      expect(status).toBe(429);
+    }
     try {
       const address = `/@${workspace.slug}/acme-web`;
       const publicPage = await context.newPage();
@@ -240,17 +251,14 @@ ownerTest.describe("project pages as the owner", () => {
       expect(under?.status()).toBe(200);
       await expect(publicPage.getByRole("heading", { level: 1 })).toHaveText("Acme web");
 
-      // Spend the shared count on badges, which a malformed project id answers without another read.
-      let badgeStatus = 0;
-      for (let sent = 0; badgeStatus !== 429 && sent < maxRequests; sent += 1) {
-        badgeStatus = (await context.request.get("/badge/not-a-project/github-stars.svg", { headers: { "x-forwarded-for": client } })).status();
-      }
-      expect(badgeStatus).toBe(429);
-
-      // The page is refused from the same address. When a new minute began after the last badge,
-      // the page's own requests spend the new count until it is refused too.
+      // The page is refused from the same address. When a new minute began between the last badge
+      // and the page, that minute is spent on badges too, once: the next rollover is a minute away.
+      await spendOnBadges();
       let limited = await publicPage.goto(address);
-      for (let sent = 1; limited?.status() !== 429 && sent < maxRequests; sent += 1) limited = await publicPage.goto(address);
+      if (limited?.status() !== 429) {
+        await spendOnBadges();
+        limited = await publicPage.goto(address);
+      }
       expect(limited?.status()).toBe(429);
       const headers = limited?.headers() ?? {};
       expect(Number(headers["retry-after"])).toBeGreaterThanOrEqual(1);
@@ -262,6 +270,11 @@ ownerTest.describe("project pages as the owner", () => {
       await expect(publicPage.getByText(/Try again in \d+ seconds?, when the next minute starts\./)).toBeVisible();
       await expect(publicPage.getByRole("link", { name: "Go to the home page" })).toHaveAttribute("href", "/");
       await expectNoAxeViolations(publicPage);
+      // Keyboard only: the one control is reachable and leads home.
+      await publicPage.keyboard.press("Tab");
+      await expect(publicPage.getByRole("link", { name: "Go to the home page" })).toBeFocused();
+      await publicPage.keyboard.press("Enter");
+      await expect(publicPage).toHaveURL(`${baseURL}/`);
 
       // Any other address is still under its own limit and gets the page.
       expect((await readPublic(baseURL, address)).status).toBe(200);
