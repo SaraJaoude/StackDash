@@ -92,7 +92,18 @@ async function ConnectionContent({
       {query.connected === "1" ? (
         connection.status === "needs_attention" ? null : (
           <FeedbackBanner tone="success" title={`${providerName} connected`}>
-            <p>The first sync is queued. Numbers appear within a few minutes.</p>
+            <p>
+              The first sync is queued. Its events appear on the timeline as they arrive, and its numbers on the dashboard
+              within a few minutes.
+            </p>
+            <p className="mt-2">
+              <Link
+                href={workspacePath(workspace.slug, "timeline")}
+                className="font-medium text-foreground underline underline-offset-4"
+              >
+                Open the timeline
+              </Link>
+            </p>
           </FeedbackBanner>
         )
       ) : null}

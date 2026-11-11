@@ -89,6 +89,12 @@ projects:
 
 Stop the stack with `supabase stop`; your data is kept for the next `supabase start`.
 
+Sessions are verified inside the app, without a call to Auth per request: the CLI signs access
+tokens with its built-in ES256 key and publishes the public half at
+`http://127.0.0.1:55421/auth/v1/.well-known/jwks.json`, which `supabase.auth.getClaims()` checks
+them against. There is no key file to create and nothing to add to `.env.local`. A hosted project
+needs one dashboard step instead: [Deploy, JWT signing keys](docs/operations/deploy.md#jwt-signing-keys).
+
 ### 4. Create `.env.local`
 
 ```bash
