@@ -896,6 +896,14 @@ isOneToOne: false
                            },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
+                           },
+"year_review_event_counts":
+{ Args: { "p_account_ids": (string)[],"p_excluded_type_ids": (string)[],"p_from": string,"p_until": string,"p_workspace_id": string }; Returns: {
+              "bucket": string,"day": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
+"year_review_longest_run":
+{ Args: { "p_account_ids": (string)[],"p_failure_type_id": string,"p_from": string,"p_success_type_id": string,"p_until": string,"p_workspace_id": string }; Returns: number
                            }
           }
           Enums: {
