@@ -95,8 +95,10 @@ ownerTest.describe("sample data as the owner", () => {
       if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
 
       await page.goto(`/w/${workspace.slug}/timeline`);
-      const empty = page.getByRole("region", { name: "No activity yet" });
-      await expect(empty.getByRole("link", { name: "Connect a provider" })).toBeVisible();
+      // The first sync is on its way (#322), so the empty state no longer asks for a provider.
+      const empty = page.getByRole("region", { name: "Events are on their way" });
+      await expect(empty.getByRole("link", { name: "Check sync progress" })).toBeVisible();
+      await expect(empty.getByRole("link", { name: "Connect a provider" })).toHaveCount(0);
       await expect(empty.getByRole("button", { name: SAMPLE_BUTTON })).toHaveCount(0);
       await expect(empty.getByText(/sample data/)).toHaveCount(0);
     } finally {
