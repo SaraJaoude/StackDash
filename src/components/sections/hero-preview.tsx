@@ -45,7 +45,7 @@ const statTiles: readonly StatTile[] = [
   { term: "Deploys", value: 7, note: "On Vercel, 1 failed" },
   { term: "Signups", value: 14, note: "Supabase, since midnight" },
   { term: "New stars", value: 12, note: "GitHub, on acme/cli" },
-  { term: "Alerts sent", value: 2, note: "To Slack and email" },
+  { term: "Alerts sent", value: 3, note: "To Slack and email" },
 ];
 
 function formatCount(value: number, format: CountFormat): string {
