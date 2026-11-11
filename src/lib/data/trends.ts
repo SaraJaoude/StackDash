@@ -23,7 +23,7 @@ export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: Sn
  *   counts as expected in a daily bucket, as on the dashboard's cards. The monthly view still
  *   reads 13 months, so it keeps expecting that account and shows the current month as
  *   unavailable: the two views disagree about an account that stopped reporting 45 days to 13
- *   months ago (#263).
+ *   months ago, until #308 gives both views one rule.
  * - `"monthly"` adds one bounded read of the rows from `trendWindowStart(now)` up to, not
  *   including, `snapshotWindowStart(now)`, so the two reads never overlap and older rows simply
  *   follow the newer ones.
