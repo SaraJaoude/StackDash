@@ -15,7 +15,7 @@ const heroFeatures: readonly HeroFeature[] = [
   { icon: TimelineIcon, title: "One timeline", body: "Deploys, stars, signups, logins, payments, and errors in one feed." },
   { icon: BellIcon, title: "One alert, where you read it", body: "Email, Slack, Discord, or a webhook. Each threshold fires once per billing period." },
   { icon: EyeIcon, title: "Stats you can share", body: "Publish one metric at a time, each labeled with where it came from." },
-  { icon: GaugeIcon, title: "Spend where the provider allows it", body: "With allowances and reset dates, and the plan each provider needs." },
+  { icon: GaugeIcon, title: "Spend where the provider reports it", body: "With allowances and reset dates, and the plan each provider needs." },
 ];
 
 // The feature strip follows the preview's own entrance (see hero-preview.tsx).
@@ -52,7 +52,7 @@ export function Hero() {
             Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
             from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
             usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
-            source. Spend shows where the provider allows it.
+            source. Spend shows where the provider reports it.
           </p>
 
           <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4">
