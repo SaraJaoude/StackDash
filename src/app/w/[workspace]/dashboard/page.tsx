@@ -22,6 +22,7 @@ import {
   declaredProjectedSpend,
   declaredSignupDailyTotals,
   revenueProviderIds,
+  spendProviderIds,
 } from "@/lib/adapters/registry";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { aggregateDashboard, type ProviderId, withStaleNotice } from "@/lib/dashboard/aggregate";
@@ -264,6 +265,7 @@ async function DashboardContent({
     eventTypes,
     projectedSpend: declaredProjectedSpend,
     revenueProviders: revenueProviderIds,
+    spendProviders: spendProviderIds,
   };
   const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
   // Only when the window to date has no figure because a connection in view is stale: the last

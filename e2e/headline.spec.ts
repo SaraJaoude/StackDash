@@ -188,12 +188,13 @@ ownerTest.describe("dashboard headline strip", () => {
       await expect(figure("Revenue")).toContainText(`Up 25 percent from ${usd(4_000 * days)} on the same days last week`);
       await expect(figure("Spend")).toContainText(usd(1_000 * days));
       await expect(figure("Spend")).toContainText(`Up 100 percent from ${usd(500 * days)} on the same days last week`);
-      // PostHog, Supabase, and Stripe cannot report spend: named, never counted as zero.
-      await expect(figure("Spend")).toContainText("Unavailable from PostHog, Stripe, and Supabase, not counted.");
+      // PostHog and Stripe report spend but have none here: named, never counted as zero. Supabase
+      // never reports spend, so it is not named as failing to (#286).
+      await expect(figure("Spend")).toContainText("Unavailable from PostHog and Stripe, not counted.");
       await expect(figure("Revenue minus spend")).toContainText(usd(4_000 * days));
       await expect(figure("Revenue minus spend")).toContainText(`Up 14 percent from ${usd(3_500 * days)}`);
       // Stripe's revenue counts; only its spend, and the others', are left out.
-      await expect(figure("Revenue minus spend")).toContainText("Leaves out spend from PostHog, Stripe, and Supabase, unavailable for this window.");
+      await expect(figure("Revenue minus spend")).toContainText("Leaves out spend from PostHog and Stripe, unavailable for this window.");
       await expect(figure("Revenue minus spend")).not.toContainText("Leaves out revenue");
       // Twice the spend over twice the signups.
       await expect(figure("Cost per signup")).toContainText("No change from");
@@ -217,8 +218,8 @@ ownerTest.describe("dashboard headline strip", () => {
       await expect(tooltip).toBeVisible();
       await expect(tooltip).toContainText(
         wholeDays > 0
-          ? "Spend from Example provider, divided by signups from Example provider, PostHog, and Supabase. PostHog counts signups by whole UTC day, so today is not in its count yet. Leaves out spend from PostHog, Stripe, and Supabase, unavailable for this window."
-          : "Spend from Example provider, divided by signups from Example provider and Supabase. Leaves out spend from PostHog, Stripe, and Supabase, unavailable for this window. Leaves out signups from PostHog, unavailable for this window.",
+          ? "Spend from Example provider, divided by signups from Example provider, PostHog, and Supabase. PostHog counts signups by whole UTC day, so today is not in its count yet. Leaves out spend from PostHog and Stripe, unavailable for this window."
+          : "Spend from Example provider, divided by signups from Example provider and Supabase. Leaves out spend from PostHog and Stripe, unavailable for this window. Leaves out signups from PostHog, unavailable for this window.",
       );
       await expect(explain).toHaveAccessibleDescription(/^Spend from Example provider, divided by signups/);
       await page.keyboard.press("Escape");
