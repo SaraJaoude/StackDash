@@ -187,6 +187,9 @@ async function DashboardContent({
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
   // The trend rows and the markers' counts are not awaited here: Trends awaits them behind its
   // own Suspense boundary (#263). They start now, with the rest, so nothing waits on another read.
+  // The empty state below never awaits them, and a rejection can land before Trends awaits; Next's
+  // process-wide unhandledRejection handler logs either case and carries on, which is accepted
+  // here. Do not add a .catch or move these below the Promise.all, which would serialize the reads.
   const trendData = getTrendData(workspace.id, trend, now, scope);
   const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
   // The summary names every category's events by day; the charts' own read already is that when
