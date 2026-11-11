@@ -73,9 +73,10 @@ export const MetricsResponseSchema = z.object({ periods: z.array(MetricPeriodSch
 export type MetricsResponse = z.infer<typeof MetricsResponseSchema>;
 
 /**
- * `GET /v1/orders/`. No customer or billing fields. `total_amount` (after discounts and tax, what
- * the customer paid) and its `currency` are shown on the order's timeline title, one order at a
- * time and never summed: revenue still comes from `GET /v1/metrics/`.
+ * `GET /v1/orders/`. No customer or billing fields. `total_amount` (the order's value after
+ * discounts and tax; a customer's applied balance can make the amount charged differ) and its
+ * `currency` are shown on the order's timeline title, one order at a time and never summed:
+ * revenue still comes from `GET /v1/metrics/`.
  */
 export const OrderSchema = z.object({
   id: PolarIdSchema,

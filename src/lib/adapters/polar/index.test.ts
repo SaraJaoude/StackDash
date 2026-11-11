@@ -383,7 +383,7 @@ describe("polarAdapter.sync", () => {
       ],
       ["polar.order.paid", "Subscription renewed: $19.00", null, "order:0a1b2c3d-0000-4000-8000-000000000002"],
       ["polar.subscription.started", "Trial started", null, "subscription_started:5ab5ab50-0000-4000-8000-000000000005"],
-      // The total after tax, what the customer paid: $49.00 plus $9.80 tax.
+      // The order's value after discounts and tax: $49.00 plus $9.80 tax.
       ["polar.order.paid", "Order paid: $58.80", null, "order:0a1b2c3d-0000-4000-8000-000000000001"],
     ]);
     expect(result.events[0]?.occurredAt).toEqual(new Date("2026-11-03T07:45:00Z"));
