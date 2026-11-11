@@ -34,8 +34,14 @@ import { site } from "@/lib/site";
  * sent with a 200 before the data loads, so the proxy answers an unknown address, a page that is
  * off, and a page with nothing published with the same 404 before this page renders. The
  * notFound() calls here cover a page turned off between the proxy's read and this one: the
- * not-found page streams in with noindex. Nothing is cached: turning a page off answers 404 on the
- * very next request.
+ * not-found page streams in with noindex.
+ *
+ * Caching (#321): nothing is cached across requests. The HTML carries the per request nonce, which
+ * a shared cache would hand to every reader, and turning a page off must answer 404 on the very
+ * next request. Within a request, generateMetadata and the page share one loadPublicProjectPage
+ * read (React cache, in src/lib/data/project-pages.ts). What bounds the cost instead is the public
+ * rate limit the badges and cards share, which src/proxy.ts applies before this page renders,
+ * because only the proxy can still answer a 429.
  */
 export const instant = false;
 
