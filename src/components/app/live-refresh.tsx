@@ -2,11 +2,11 @@
 
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef, useTransition } from "react";
 
 import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
-import { createRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
+import { createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -39,11 +39,27 @@ let mountCount = 0;
  * behaves as it did before live updates: it shows new data on the next navigation or reload.
  * It tells the ArrivalProvider whether the channel is live and when each batch arrives, which the
  * live indicator in the header shows (#171).
+ *
+ * One refresh runs at a time (#309, src/lib/realtime/refresh-scheduler.ts). `router.refresh()`
+ * returns nothing, and its router action settles as soon as the request is spawned
+ * (node_modules/next/dist/client/components/app-router-state.js, `navigateToKnownRoute`), so the
+ * router itself never holds a second refresh back. What does wait is the render: the router sets
+ * its state in a transition (app-router-instance.js, `dispatchAction`) that joins the one started
+ * here, and the new tree suspends on the refreshed payload. So `isPending` turns false once that
+ * payload is on screen. A navigation during a refresh updates the same router state, and React
+ * entangles transition updates to one state (`entangleTransitionUpdate` in react-dom), so both
+ * commit together and the refresh still ends. e2e/realtime.spec.ts covers both cases.
  */
 export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   // `refresh` is the app router's own method, stable across renders, unlike the object around it.
   const { refresh } = useRouter();
   const arrivals = useArrivalControls();
+  const [refreshing, startRefresh] = useTransition();
+  const schedulerRef = useRef<RefreshScheduler | null>(null);
+
+  useEffect(() => {
+    if (!refreshing) schedulerRef.current?.settled();
+  }, [refreshing]);
 
   useEffect(() => {
     // The browser client is a singleton, so this channel shares the one socket of the page.
@@ -53,10 +69,11 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
     const scheduler = createRefreshScheduler({
       refresh: () => {
         arrivals?.arrived(lastCommitAt);
-        refresh();
+        startRefresh(() => refresh());
       },
       isHidden: () => document.visibilityState === "hidden",
     });
+    schedulerRef.current = scheduler;
     const onVisibilityChange = () => scheduler.visibilityChanged();
     document.addEventListener("visibilitychange", onVisibilityChange);
     const onChange = ({ commit_timestamp: committedAt }: { commit_timestamp: string }) => {
