@@ -1,4 +1,5 @@
 import type { LiveProviderId, ProviderId } from "@/lib/adapters/types";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants, type Database } from "@/lib/supabase/database.types";
 
 /*
@@ -93,10 +94,10 @@ export type PublicMetricDefinition = Readonly<{
   formula: string;
   provenance: MetricProvenance;
   /**
-   * The providers whose included accounts the value counts. Most metrics read one; the deployment
-   * counts read every provider that reports deployments (`DEPLOYMENT_OUTCOMES`).
+   * The providers whose included accounts the value counts, never empty (`definitions.test.ts`).
+   * Most metrics read one; the deployment counts read every provider in `DEPLOYMENT_OUTCOMES`.
    */
-  providers: readonly [LiveProviderId, ...LiveProviderId[]];
+  providers: readonly LiveProviderId[];
   source: MetricSource;
   /**
    * The counting window in days for change and count sources, which is also the minimum history
@@ -133,7 +134,7 @@ export const DEPLOYMENT_OUTCOMES = [
   { provider: "vercel", successTypeId: VERCEL_SUCCEEDED, failureTypeId: VERCEL_FAILED },
 ] as const satisfies readonly Readonly<{ provider: LiveProviderId; successTypeId: string; failureTypeId: string }>[];
 
-const DEPLOYMENT_PROVIDERS = ["digitalocean", "gitlab", "railway", "vercel"] as const satisfies readonly LiveProviderId[];
+const DEPLOYMENT_PROVIDERS = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.provider);
 const DEPLOYMENT_SUCCEEDED = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.successTypeId);
 
 // Until #155 stores the deployment environment, deployments of every environment count, and the
@@ -141,7 +142,10 @@ const DEPLOYMENT_SUCCEEDED = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.succes
 // formulas page word for word, so it carries no issue number.
 const ALL_ENVIRONMENTS =
   "Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.";
-const DEPLOYMENT_SOURCES = "DigitalOcean App Platform, GitLab, Railway, and Vercel";
+// The providers by the names every other surface uses (`PROVIDER_NAMES`), as the run slide does.
+const DEPLOYMENT_SOURCES = new Intl.ListFormat("en-US", { type: "conjunction" }).format(
+  DEPLOYMENT_PROVIDERS.map((provider) => PROVIDER_NAMES[provider]),
+);
 
 /** Keyed by id so the type checker proves every enum value has exactly one definition. */
 const DEFINITIONS = {

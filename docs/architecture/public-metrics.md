@@ -171,7 +171,7 @@ Each time DevMacro serves a published metric's badge or card it counts one view 
 | Slide | What it shows | Rule |
 |---|---|---|
 | Busiest day | The Europe/London calendar day with the most events on the timeline, and how many | Every event type counts except payments, failed payments, and refunds (`PAYMENT_EVENT_TYPE_IDS`), because a payment count hints at revenue. Events with no account, such as daily summaries, do not count. On a tie, the earliest of those days |
-| Longest run of successful deployments | The most deployments that succeeded one after another on one provider in the year, with no failed deployment of that provider between them, and the provider's name | Each deployment provider's own success and failure types (`DEPLOYMENT_OUTCOMES`: DigitalOcean App Platform, GitLab, Railway, and Vercel), the deployments "Deployments shipped" counts. A failure on one provider never breaks another's run. On a tie between providers, the first name from A to Z, and the slide names the others. A run that began the year before counts from 1 January. A failure at the same instant as a success is taken first, so a tie never lengthens a run |
+| Longest run of successful deployments | The most deployments that succeeded one after another on one provider in the year, with no failed deployment of that provider between them, and the provider's name | Each deployment provider's own success and failure types (`DEPLOYMENT_OUTCOMES`: DigitalOcean, GitLab, Railway, and Vercel), the deployments "Deployments shipped" counts. A failure on one provider never breaks another's run. On a tie between providers, the first name from A to Z, and the slide names at most two others and then how many more. A run that began the year before counts from 1 January. A failure at the same instant as a success is taken first, so a tie never lengthens a run |
 | Most active provider | The provider's product name, for example Vercel, and its event count | The same events as the busiest day. On a tie, the first name from A to Z, and the slide names the others |
 | Totals | Deployments shipped, stars gained, signups, and providers connected | Counted by the engine, as below |
 
@@ -243,7 +243,7 @@ The newest star count minus the star count at the end of the day 30 days ago, pe
 
 Deployments in 7 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 7 days.
 
-Deployments that finished successfully on the project's DigitalOcean App Platform, GitLab, Railway, and Vercel accounts in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
 
 The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 
@@ -251,7 +251,7 @@ The id keeps its `vercel-` prefix because published rows store it; until 2026-11
 
 Deployments in 30 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 30 days. The year in review's "Deployments shipped" total counts these events over the year.
 
-Deployments that finished successfully on the project's DigitalOcean App Platform, GitLab, Railway, and Vercel accounts in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
 
 The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 

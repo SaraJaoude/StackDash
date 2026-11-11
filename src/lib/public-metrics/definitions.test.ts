@@ -102,8 +102,14 @@ describe("public metric definitions", () => {
       expect(definition.source).toEqual({ type: "event_count", typeIds: DEPLOYMENT_OUTCOMES.map((outcome) => outcome.successTypeId) });
       expect(countsProvider(definition, "railway")).toBe(true);
       expect(countsProvider(definition, "github")).toBe(false);
+      // The formula names each provider as every other surface does, the run slide included.
+      expect(definition.formula).toContain("on the project's DigitalOcean, GitLab, Railway, and Vercel accounts");
     },
   );
+
+  it("names at least one provider for every metric (boundary: never empty)", () => {
+    for (const definition of PUBLIC_METRICS) expect(definition.providers.length, definition.id).toBeGreaterThan(0);
+  });
 
   it("has no id, label, or source for spend, budgets, alerts, or revenue", () => {
     for (const definition of PUBLIC_METRICS) {
