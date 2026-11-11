@@ -233,9 +233,10 @@ ownerTest.describe("project pages as the owner", () => {
     // src/lib/public-metrics/requests.ts), which Next.js keeps when the client sends it.
     const client = `2001:db8::${randomBytes(4).toString("hex").replace(/(.{4})(.{4})/, "$1:$2")}`;
     const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] }, extraHTTPHeaders: { "x-forwarded-for": client } });
-    // One spend sends at most the limit plus one: 120 a minute (PUBLIC_REQUESTS_PER_MINUTE, in a
-    // server-only module this spec cannot import), plus a margin of one.
-    const spendBound = 122;
+    // The limit is 120 a minute (PUBLIC_REQUESTS_PER_MINUTE, in a server-only module this spec cannot
+    // import). A spend that a new minute interrupts restarts the count, so one spend may need up to
+    // two minutes' worth plus one, and a margin of one.
+    const spendBound = 2 * 120 + 2;
     /** Spends the address's count for this minute on badges, which a malformed project id answers without another read. */
     async function spendOnBadges(): Promise<void> {
       let status = 0;
