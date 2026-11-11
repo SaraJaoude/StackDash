@@ -3,20 +3,21 @@
 import { useId, useState } from "react";
 
 import { smallButtonClass } from "@/components/alerts/form-controls";
+import { GuardedButton } from "@/components/guarded-button";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
-import { yearFigureNote, type YearSlide } from "@/lib/public-metrics/yearly";
+import type { YearSlide } from "@/lib/public-metrics/yearly";
 
 /*
  * The year in review's slides (#262): one figure at a time, with Previous slide and Next slide
  * buttons, a download link for the slide's image, and the share dialog of the yearly card (#151)
- * for that slide. The slides are rendered on the server and passed in whole, so moving between
- * them reads nothing.
+ * for that slide. The slides are rendered and worded on the server and passed in whole, so moving
+ * between them reads nothing and this component imports only types from the year in review.
  *
  * Keyboard: the buttons are real buttons in reading order. At the first and last slide the button
- * that cannot move stays focusable and says so with aria-disabled, so focus is never lost to the
- * page. Each move is announced politely as "Slide 2 of 4: Longest run of successful deployments";
- * the first render announces nothing. The slide's entrance animation is off under
- * prefers-reduced-motion (`.slide-enter` in globals.css).
+ * that cannot move stays focusable as a GuardedButton (aria-disabled, its click cancelled), so
+ * focus is never lost to the page. Each move is announced politely as "Slide 2 of 4: Longest run
+ * of successful deployments"; the first render announces nothing. The slide's entrance animation
+ * is off under prefers-reduced-motion (`.slide-enter` in globals.css).
  */
 
 export type YearSlideView = Readonly<{
@@ -41,7 +42,7 @@ const SHARE_NOTES = [
 
 export function YearSlides({ slides, yearName, width, height }: YearSlidesProps) {
   const [index, setIndex] = useState(0);
-  const [announcement, setAnnouncement] = useState("");
+  const [moved, setMoved] = useState(false);
   const titleId = useId();
   const current = slides[index];
   if (current === undefined) return null;
@@ -49,10 +50,8 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
   const total = slides.length;
 
   function moveTo(next: number) {
-    const target = slides[next];
-    if (target === undefined) return;
     setIndex(next);
-    setAnnouncement(`Slide ${next + 1} of ${total}: ${target.slide.title}`);
+    setMoved(true);
   }
 
   const atStart = index === 0;
@@ -75,18 +74,15 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
         </h3>
         {slide.id === "totals" ? (
           <dl className="mt-4 grid gap-4 sm:grid-cols-2">
-            {slide.figures.map((figure) => {
-              const note = yearFigureNote(figure);
-              return (
-                <div key={figure.label}>
-                  <dt className="text-muted">{figure.label}</dt>
-                  <dd className="mt-1 text-lg font-semibold">
-                    {figure.value}
-                    {note === null ? null : <span className="ml-2 text-sm font-normal text-muted">{note}</span>}
-                  </dd>
-                </div>
-              );
-            })}
+            {slide.figures.map((figure) => (
+              <div key={figure.label}>
+                <dt className="text-muted">{figure.label}</dt>
+                <dd className="mt-1 text-lg font-semibold">
+                  {figure.value}
+                  {figure.note === null ? null : <span className="ml-2 text-sm font-normal text-muted">{figure.note}</span>}
+                </dd>
+              </div>
+            ))}
           </dl>
         ) : (
           <>
@@ -97,13 +93,12 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        {/* moveTo ignores a move past either end, where the button is aria-disabled. */}
-        <button type="button" aria-disabled={atStart} onClick={() => moveTo(index - 1)} className={smallButtonClass}>
+        <GuardedButton type="button" unavailable={atStart} onClick={() => moveTo(index - 1)} className={smallButtonClass}>
           Previous slide
-        </button>
-        <button type="button" aria-disabled={atEnd} onClick={() => moveTo(index + 1)} className={smallButtonClass}>
+        </GuardedButton>
+        <GuardedButton type="button" unavailable={atEnd} onClick={() => moveTo(index + 1)} className={smallButtonClass}>
           Next slide
-        </button>
+        </GuardedButton>
         <a href={image.src} download={image.downloadName} className={smallButtonClass}>
           Download slide
           <span className="sr-only">: {slide.title}</span>
@@ -119,7 +114,7 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
         />
       </div>
       <p aria-live="polite" className="sr-only">
-        {announcement}
+        {moved ? `Slide ${index + 1} of ${total}: ${slide.title}` : ""}
       </p>
     </div>
   );

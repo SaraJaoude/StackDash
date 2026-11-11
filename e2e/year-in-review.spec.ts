@@ -84,7 +84,8 @@ ownerTest.describe("year in review", () => {
       await expect(previous).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(page.getByText("Slide 3 of 4: Most active provider")).toBeAttached();
-      await expect(previous).toHaveAttribute("aria-disabled", "false");
+      // GuardedButton drops the attribute while the button can act.
+      await expect(previous).not.toHaveAttribute("aria-disabled");
 
       // Back to the first slide; each slide downloads as a 1200 by 630 PNG of the same figure,
       // private to members. The totals keep the yearly card's address and file name.

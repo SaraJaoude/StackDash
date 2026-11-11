@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import { declaredEventTypes, revenueProviderIds } from "@/lib/adapters/registry";
-import { markerTypeIds } from "@/lib/dashboard/markers";
 
 import { STALE_AFTER_MS, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
@@ -30,6 +29,7 @@ import {
   yearSlideShareText,
   yearToDateNote,
   type YearReview,
+  type YearReviewStore,
   type YearSlide,
 } from "./yearly";
 
@@ -454,6 +454,20 @@ describe("the year in review's tie rules", () => {
   ])("mostActiveProvider: %s", (_title, providers, expected) => {
     expect(mostActiveProvider(providers)).toEqual(expected);
   });
+
+  it("names at most two tied providers, then how many more (boundary: a tie of six)", async () => {
+    const providers = ["vercel", "github", "gitlab", "posthog", "sentry", "digitalocean"] as const;
+    const store = new MemoryMetricStore(
+      providers.map((provider) => account(provider, "2025-12-01T00:00:00Z")),
+      [],
+      providers.map((provider) => at(`${provider}-acct`, `${provider}.thing.happened`, "2026-02-01T09:00:00Z")),
+    );
+    const [, , provider] = yearSlides(await computeYearReview(store, 2026, NOW));
+    expect(provider).toMatchObject({
+      value: "DigitalOcean",
+      detail: "1 event on your timeline, as many as GitHub, GitLab, and 3 more, not counting payments. On a tie the first by name is shown.",
+    });
+  });
 });
 
 describe("the year in review's privacy rules", () => {
@@ -465,7 +479,36 @@ describe("the year in review's privacy rules", () => {
       (eventType) => revenueProviderIds.some((provider) => eventType.id.startsWith(`${provider}.`)) && /payment|order|refund/i.test(eventType.label),
     );
     expect(moneyEvents.map((eventType) => eventType.id).filter((typeId) => !excluded.includes(typeId))).toEqual([]);
-    expect(markerTypeIds(["payments"]).filter((typeId) => !excluded.includes(typeId))).toEqual([]);
+  });
+
+  it.each([
+    ["totals", false, false],
+    ["busiest-day", true, false],
+    ["top-provider", true, false],
+    ["deployment-run", false, true],
+  ] as const)("reads only what the %s slide shows", async (slide, readsActivity, readsRun) => {
+    const memory = new MemoryMetricStore([account("vercel", "2025-12-01T00:00:00Z")], [], [at("vercel-acct", SUCCEEDED, "2026-02-01T09:00:00Z")]);
+    const reads: string[] = [];
+    const store: YearReviewStore = {
+      accounts: () => memory.accounts(),
+      snapshots: (query) => memory.snapshots(query),
+      earliestSnapshotDate: (query) => memory.earliestSnapshotDate(query),
+      countEvents: (query) => memory.countEvents(query),
+      earliestEvent: (query) => memory.earliestEvent(query),
+      recentEvents: (query) => memory.recentEvents(query),
+      eventActivity: (query) => {
+        reads.push("eventActivity");
+        return memory.eventActivity(query);
+      },
+      longestRun: (query) => {
+        reads.push("longestRun");
+        return memory.longestRun(query);
+      },
+    };
+    const review = await computeYearReview(store, 2026, NOW, [slide]);
+    expect(reads).toEqual([...(readsActivity ? ["eventActivity"] : []), ...(readsRun ? ["longestRun"] : [])]);
+    expect(yearSlides(review).find((candidate) => candidate.id === slide)).toBeDefined();
+    expect(review.summary.stats[0]).toMatchObject({ status: "available", value: 1 });
   });
 
   it("names a provider by its product name only, never an account", async () => {

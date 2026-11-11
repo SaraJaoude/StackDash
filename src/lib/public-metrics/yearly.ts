@@ -1,7 +1,9 @@
 import type { ProviderId } from "@/lib/adapters/types";
+import { markerTypeIds } from "@/lib/dashboard/markers";
 import { formatUtcDate } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { londonDate } from "@/lib/timeline/days";
+import { londonDate, londonDayLabel } from "@/lib/timeline/days";
+import { londonDayStart } from "@/lib/timeline/query";
 
 import { UNAVAILABLE_LABELS } from "./display";
 import { publicMetricDefinition, type PublicMetricId } from "./definitions";
@@ -258,17 +260,17 @@ export function yearShareText(summary: YearSummary): string {
 // ── The year in review (#262) ────────────────────────────────────────────────────
 
 /**
- * Event types the review never counts: payments, failed payments, and refunds, because a payment
- * count hints at revenue (decision on #262). `yearly.test.ts` proves every id is one an adapter
- * declares, and that every payment or refund event a revenue provider declares is listed here.
+ * Event types the review never counts, because a payment count hints at revenue (decision on
+ * #262): the payments the trend markers count (`markers.ts`, the one list of paid charges and
+ * orders), and the failed payments and refunds beside them. `yearly.test.ts` proves every failed
+ * payment or refund a revenue provider declares is listed here.
  */
-export const PAYMENT_EVENT_TYPE_IDS = [
-  "polar.order.paid",
+export const PAYMENT_EVENT_TYPE_IDS: readonly string[] = [
+  ...markerTypeIds(["payments"]),
   "polar.refund.succeeded",
   "stripe.charge.failed",
   "stripe.charge.refunded",
-  "stripe.charge.succeeded",
-] as const;
+];
 
 /** The run counts the deployments "Deployments shipped" counts: the streak metric's two types. */
 const RUN_METRIC_ID = "vercel-deployment-streak" satisfies PublicMetricId;
@@ -341,26 +343,37 @@ function runTypes(): Readonly<{ provider: ProviderId; successTypeId: string; fai
 }
 
 /**
- * The four slides' figures for `year` at `now`, from stored data only: events up to the end of the
- * year or `now`, of the workspace's included accounts. One accounts read; the rest run in parallel.
+ * The slides' figures for `year` at `now`, from stored data only: events up to the end of the year
+ * or `now`, of the workspace's included accounts. One accounts read; the rest run in parallel. The
+ * totals summary is always read, since every slide shows its period and provenance; the event
+ * counts and the run are read only for `slides` that show them (one slide image needs one), and a
+ * figure not read is left empty, so render only the slides asked for.
  */
-export async function computeYearReview(source: YearReviewStore, year: number, now: Date): Promise<YearReview> {
+export async function computeYearReview(
+  source: YearReviewStore,
+  year: number,
+  now: Date,
+  slides: readonly YearSlideId[] = YEAR_SLIDE_IDS,
+): Promise<YearReview> {
   const store = withSharedAccounts(source);
   const start = new Date(Date.UTC(year, 0, 1));
   const asOf = new Date(Math.min(now.getTime(), Date.UTC(year + 1, 0, 1)));
   const accounts = await store.accounts();
   const run = runTypes();
   const runAccountIds = accounts.filter((account) => account.provider === run.provider).map((account) => account.accountId);
+  const readsActivity = slides.includes("busiest-day") || slides.includes("top-provider");
 
   const [summary, activity, longest] = await Promise.all([
     computeYearSummary(store, year, now),
-    store.eventActivity({
-      accountIds: accounts.map((account) => account.accountId),
-      excludedTypeIds: PAYMENT_EVENT_TYPE_IDS,
-      from: start,
-      to: asOf,
-    }),
-    runAccountIds.length === 0
+    readsActivity
+      ? store.eventActivity({
+          accountIds: accounts.map((account) => account.accountId),
+          excludedTypeIds: PAYMENT_EVENT_TYPE_IDS,
+          from: start,
+          to: asOf,
+        })
+      : { days: [], providers: [] },
+    runAccountIds.length === 0 || !slides.includes("deployment-run")
       ? null
       : store.longestRun({ accountIds: runAccountIds, successTypeId: run.successTypeId, failureTypeId: run.failureTypeId, from: start, to: asOf }),
   ]);
@@ -385,13 +398,19 @@ export async function computeYearReview(source: YearReviewStore, year: number, n
 export const YEAR_SLIDE_IDS = ["busiest-day", "deployment-run", "top-provider", "totals"] as const;
 export type YearSlideId = (typeof YEAR_SLIDE_IDS)[number];
 
+/** A total as its slide shows it, with its note ("since 2026-08-07") worded on the server. */
+export type YearSlideFigure = YearFigure & Readonly<{ note: string | null }>;
+
 export type YearSlide =
   | Readonly<{ id: Exclude<YearSlideId, "totals">; title: string; value: string; detail: string }>
-  | Readonly<{ id: "totals"; title: string; figures: readonly YearFigure[] }>;
+  | Readonly<{ id: "totals"; title: string; figures: readonly YearSlideFigure[] }>;
 
-// The busiest day is a calendar date already, so its weekday is read in UTC, never shifted.
-const WEEKDAY = new Intl.DateTimeFormat("en-US", { weekday: "long", timeZone: "UTC" });
 const AND_LIST = new Intl.ListFormat("en-US", { type: "conjunction" });
+/**
+ * Providers a tie names besides the one shown; the rest read "and 3 more". Keeps the sentence to
+ * three lines on a slide image, whose detail wraps (card-image.tsx), however many providers tie.
+ */
+const TIED_NAMED_MAX = 2;
 
 function counted(value: number, one: string, many: string): string {
   return `${NUMBER_FORMAT.format(value)} ${value === 1 ? one : many}`;
@@ -409,7 +428,7 @@ export function yearSlides(review: YearReview): YearSlide[] {
       : {
           id: "busiest-day",
           title: "Busiest day",
-          value: `${WEEKDAY.format(new Date(`${day.day}T00:00:00Z`))}, ${day.day}`,
+          value: londonDayLabel(londonDayStart(day.day)),
           detail: `${counted(day.events, "event", "events")} on your timeline that day, not counting payments.`,
         };
 
@@ -437,10 +456,18 @@ export function yearSlides(review: YearReview): YearSlide[] {
           detail:
             top.tiedWith.length === 0
               ? `${counted(top.events, "event", "events")} on your timeline, more than any other provider, not counting payments.`
-              : `${counted(top.events, "event", "events")} on your timeline, as many as ${AND_LIST.format(top.tiedWith.map((id) => PROVIDER_NAMES[id]))}, not counting payments. On a tie the first by name is shown.`,
+              : `${counted(top.events, "event", "events")} on your timeline, as many as ${tiedNames(top.tiedWith)}, not counting payments. On a tie the first by name is shown.`,
         };
 
-  return [busiest, longest, provider, { id: "totals", title: "Totals", figures: yearFigures(review.summary) }];
+  const figures = yearFigures(review.summary).map((figure) => ({ ...figure, note: yearFigureNote(figure) }));
+  return [busiest, longest, provider, { id: "totals", title: "Totals", figures }];
+}
+
+/** "GitHub", "GitHub and Sentry", or "GitHub, Sentry, and 3 more". */
+function tiedNames(tiedWith: readonly ProviderId[]): string {
+  const named = tiedWith.slice(0, TIED_NAMED_MAX).map((id) => PROVIDER_NAMES[id]);
+  const more = tiedWith.length - named.length;
+  return AND_LIST.format(more === 0 ? named : [...named, `${more} more`]);
 }
 
 /** Alt text for a slide's image: the slide in words. The totals slide is the yearly card. */
