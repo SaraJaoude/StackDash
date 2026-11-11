@@ -5,6 +5,7 @@ import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
 import { findPublicProjectPage } from "@/lib/data/project-pages";
 import { publicEnv } from "@/lib/env";
 import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
+import { checkPublicRateLimit, rateLimitedHeaders, rateLimitedPageHtml, type RateLimitDecision } from "@/lib/public-metrics/requests";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -79,17 +80,29 @@ const UNKNOWN_DOC_PATH = "/docs/_";
 // released one, and another workspace's handle with this page slug get the same 404.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
+type ProjectPageRoute =
+  | { redirect: string }
+  | { rewrite: string }
+  | { limited: Extract<RateLimitDecision, { allowed: false }> };
+
 /**
  * Where a public address goes: the handle address for a slug address of a workspace with a handle,
- * the page route for the address the page answers at, or the 404 path. It asks
- * public_project_page(), the same rule the page reads, because with Cache Components the page
- * streams its shell with a 200 before its own notFound() can run, so only a check before the render
- * can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own check for
- * a page turned off between the two reads.
+ * the page route for the address the page answers at, the 404 path, or a refusal past the public
+ * rate limit. It asks public_project_page(), the same rule the page reads, because with Cache
+ * Components the page streams its shell with a 200 before its own notFound() can run, so only a
+ * check before the render can answer a real 404 (Next.js docs, loading.js, "Status codes"). The
+ * page keeps its own check for a page turned off between the two reads.
+ *
+ * The rate limit is the badge and card routes' (checkPublicRateLimit, one count per client IP
+ * across every public read, #321), decided here for the same reason: only the proxy can still
+ * answer a 429. It counts before the lookup, as those routes do, so a refused request reads
+ * nothing else, and only for a well-formed address, the only kind that reaches the database.
  */
-async function routeProjectPage(pathname: string): Promise<{ redirect: string } | { rewrite: string }> {
+async function routeProjectPage(pathname: string, headers: Headers): Promise<ProjectPageRoute> {
   const address = parseProjectPagePath(pathname);
   if (address === null) return { rewrite: UNKNOWN_PROJECT_PAGE };
+  const limit = await checkPublicRateLimit(headers, new Date());
+  if (!limit.allowed) return { limited: limit };
   const page = await findPublicProjectPage(address.workspaceAddress, address.pageSlug);
   if (page === null) return { rewrite: UNKNOWN_PROJECT_PAGE };
   if (page.workspace.handle !== null && page.workspace.handle !== address.workspaceAddress) {
@@ -129,11 +142,22 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/@") || pathname === "/p" || pathname.startsWith("/p/")) {
     // No session refresh: nothing on a public page depends on who is signed in. The nonce policy
     // still applies, because the page renders its scripts per request.
-    const route = await routeProjectPage(pathname);
+    const route = await routeProjectPage(pathname, request.headers);
     if ("redirect" in route) {
       const target = request.nextUrl.clone();
       target.pathname = route.redirect;
       return NextResponse.redirect(target, 307);
+    }
+    if ("limited" in route) {
+      return withNoncePolicy(
+        request,
+        publicEnv().NEXT_PUBLIC_SUPABASE_URL,
+        () =>
+          new NextResponse(rateLimitedPageHtml(route.limited), {
+            status: 429,
+            headers: { "Content-Type": "text/html; charset=utf-8", ...rateLimitedHeaders(route.limited) },
+          }),
+      );
     }
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(route.rewrite, request.url), init),

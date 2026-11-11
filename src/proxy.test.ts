@@ -1,0 +1,132 @@
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import type { PublicPageMatch } from "@/lib/data/project-pages";
+import type * as RequestsModule from "@/lib/public-metrics/requests";
+import type { RateLimitDecision } from "@/lib/public-metrics/requests";
+
+import { proxy } from "./proxy";
+
+// Public project page addresses (#150) through the proxy: the rate limit the badges and cards
+// share (#321), then the lookup that decides between the page, a redirect, and the 404.
+
+// vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
+const { checkPublicRateLimit, findPublicProjectPage } = vi.hoisted(() => ({
+  checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
+  findPublicProjectPage: vi.fn<(address: string, pageSlug: string) => Promise<PublicPageMatch | null>>(),
+}));
+
+vi.mock("@/lib/data/project-pages", () => ({ findPublicProjectPage }));
+vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
+  ...(await importOriginal<typeof RequestsModule>()),
+  checkPublicRateLimit,
+}));
+
+const ADDRESS = "/@acme-labs/acme-web";
+const PAGE: PublicPageMatch = {
+  projectId: "30000000-0000-4000-8000-000000000001",
+  projectName: "Acme web",
+  indexable: false,
+  workspace: { slug: "k3j4h5g6f7", handle: "acme-labs" },
+};
+
+function request(path: string): NextRequest {
+  return new NextRequest(`http://localhost${path}`, { headers: { "x-forwarded-for": "203.0.113.7" } });
+}
+
+/** The path the proxy rewrote the request to, or null when it did not rewrite. */
+function rewrittenTo(response: Response): string | null {
+  const target = response.headers.get("x-middleware-rewrite");
+  return target === null ? null : new URL(target).pathname;
+}
+
+beforeEach(() => {
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321");
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "sb_publishable_test");
+  checkPublicRateLimit.mockResolvedValue({ allowed: true });
+  findPublicProjectPage.mockResolvedValue(PAGE);
+});
+
+afterEach(() => {
+  vi.resetAllMocks();
+  vi.unstubAllEnvs();
+});
+
+describe("proxy for public project pages", () => {
+  it("counts the request against the public rate limit and, under it, renders the page", async () => {
+    const response = await proxy(request(ADDRESS));
+
+    expect(response.status).toBe(200);
+    expect(rewrittenTo(response)).toBe("/p/acme-labs/acme-web");
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+    const [headers] = checkPublicRateLimit.mock.calls[0] ?? [];
+    expect(headers?.get("x-forwarded-for")).toBe("203.0.113.7");
+    expect(findPublicProjectPage).toHaveBeenCalledExactlyOnceWith("acme-labs", "acme-web");
+  });
+
+  it("past the limit answers 429 with Retry-After, never cached, and reads nothing else", async () => {
+    checkPublicRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 42 });
+
+    const response = await proxy(request(ADDRESS));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBe("42");
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Content-Type")).toBe("text/html; charset=utf-8");
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/default-src 'self'/);
+    expect(rewrittenTo(response)).toBeNull();
+    const body = await response.text();
+    expect(body).toContain("Too many requests from this address</h1>");
+    expect(body).toContain("Try again in 42 seconds");
+    expect(findPublicProjectPage).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when the count cannot be taken: the request errors and the page is never read (boundary: counter down)", async () => {
+    checkPublicRateLimit.mockRejectedValue(new Error("Failed to count a public request"));
+
+    await expect(proxy(request(ADDRESS))).rejects.toThrow("Failed to count a public request");
+    expect(findPublicProjectPage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a slug address past the limit too, instead of redirecting it to the handle", async () => {
+    checkPublicRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 1 });
+
+    const response = await proxy(request("/@k3j4h5g6f7/acme-web"));
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Location")).toBeNull();
+    expect(findPublicProjectPage).not.toHaveBeenCalled();
+  });
+
+  // public_project_page() answers null alike for an unknown address, a page that is off, and a page
+  // with nothing published, so all three reach the same 404 route as a path that is no address.
+  it("answers an address that is not public, under the limit, with the same 404 route as any unknown path", async () => {
+    findPublicProjectPage.mockResolvedValue(null);
+
+    const response = await proxy(request("/@acme-labs/no-such-page"));
+
+    expect(rewrittenTo(response)).toBe("/p/_");
+    expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["a slug longer than any page can have", `/@acme-labs/${"a".repeat(41)}`],
+    ["the page route's own path", "/p/acme-labs/acme-web"],
+    ["a workspace with no page slug", "/@acme-labs"],
+  ])("answers %s with the 404 route without counting it or reading the database", async (_title, path) => {
+    const response = await proxy(request(path));
+
+    expect(rewrittenTo(response)).toBe("/p/_");
+    expect(checkPublicRateLimit).not.toHaveBeenCalled();
+    expect(findPublicProjectPage).not.toHaveBeenCalled();
+  });
+
+  it("answers a counted slug address of a workspace with a handle with a 307 to the handle address", async () => {
+    const response = await proxy(request("/@k3j4h5g6f7/acme-web?ref=readme"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("http://localhost/@acme-labs/acme-web?ref=readme");
+    expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+  });
+});

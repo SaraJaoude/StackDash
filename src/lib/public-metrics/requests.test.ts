@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { clientIpEnv, type ClientIpEnv } from "@/lib/env";
 
-import { clientIp, hashClientIp, PUBLIC_REQUESTS_PER_MINUTE, rateLimitDecision, secondsUntilNextMinute } from "./requests";
+import {
+  clientIp,
+  hashClientIp,
+  PUBLIC_REQUESTS_PER_MINUTE,
+  rateLimitDecision,
+  rateLimitedPageHtml,
+  secondsUntilNextMinute,
+} from "./requests";
 
 const KEY = Buffer.alloc(32, 7);
 
@@ -92,5 +99,28 @@ describe("secondsUntilNextMinute", () => {
     ["2026-11-05T12:00:59.999Z", 1],
   ])("at %s is %d", (at, expected) => {
     expect(secondsUntilNextMinute(new Date(at))).toBe(expected);
+  });
+});
+
+describe("rateLimitedPageHtml", () => {
+  it("says what happened, names the wait, and links home", () => {
+    const html = rateLimitedPageHtml({ retryAfterSeconds: 42 });
+    expect(html).toContain('<html lang="en">');
+    expect(html).toContain("<title>Too many requests · DevMacro</title>");
+    expect(html).toContain(">Too many requests from this address</h1>");
+    expect(html).toContain(`up to ${PUBLIC_REQUESTS_PER_MINUTE} requests a minute`);
+    expect(html).toContain("Try again in 42 seconds");
+    expect(html).toMatch(/<a href="\/"[^>]*>Go to the home page<\/a>/);
+  });
+
+  it.each([
+    [1, "Try again in 1 second,"],
+    [60, "Try again in 60 seconds,"],
+  ])("names a wait of %d (boundary: the first and last second of a minute)", (retryAfterSeconds, expected) => {
+    expect(rateLimitedPageHtml({ retryAfterSeconds })).toContain(expected);
+  });
+
+  it("carries no script or style element, which the page's nonce policy would block", () => {
+    expect(rateLimitedPageHtml({ retryAfterSeconds: 30 })).not.toMatch(/<script|<style/);
   });
 });

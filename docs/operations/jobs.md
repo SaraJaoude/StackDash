@@ -62,7 +62,7 @@ The daily retention job deletes, in batches of 1000 rows:
 - `usage_snapshots` with `snapshot_date` more than 13 months before today (UTC).
 - `activity_events` with `occurred_at` more than 13 months ago.
 - Finished `sync_jobs` (succeeded or failed) created more than 30 days ago. Queued and running jobs are never deleted.
-- `public_rate_limit_counters` older than one day: the per IP rate limit of the public badge, card, and JSON routes only needs the current minute.
+- `public_rate_limit_counters` older than one day: the per IP rate limit of the public badge, card, and JSON routes and public project pages only needs the current minute.
 - `published_metric_views` with `view_date` more than 13 months before today (UTC), like the history they count.
 - Digest delivery records (`notification_deliveries` without a triggered alert) more than 30 days old. Alert delivery records go with their alert.
 
