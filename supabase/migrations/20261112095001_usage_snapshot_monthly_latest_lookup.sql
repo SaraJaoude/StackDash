@@ -1,4 +1,4 @@
--- usage_snapshot_monthly_latest (20261112091000_usage_snapshot_monthly_latest.sql, #317) finds each
+-- usage_snapshot_monthly_latest (20261112095000_usage_snapshot_monthly_latest.sql, #317) finds each
 -- month's latest row without sorting whole rows. Same arguments, rules, privileges, and result.
 --
 -- distinct on sorted every row of the window with all its columns: over 39,480 rows (105 account

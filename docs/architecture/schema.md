@@ -38,6 +38,8 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261112090000_select_policies_membership_set.sql` | `current_user_workspace_ids`; every select policy compares `workspace_id` with it once per table reference in a statement (an InitPlan) instead of calling `has_workspace_role` per row |
 | `20261112092000_filter_picker_options.sql` | `timeline_type_ids`, `snapshot_metric_options`, `snapshot_currencies`, and `snapshot_series_day_rows` for the filter pickers, behind one membership check each, and the internal `usage_snapshot_series_heads` |
 | `20261112093000_headline_event_counts.sql` | `headline_event_counts`: the headline's signup and deploy counts per connection and type, summed from `activity_event_daily_counts` behind one membership check; drops `count_activity_events` |
+| `20261112095000_usage_snapshot_monthly_latest.sql` | `usage_snapshot_monthly_latest`: each account's latest snapshot per metric, currency or unit, and UTC month, for the dashboard's monthly trend |
+| `20261112095001_usage_snapshot_monthly_latest_lookup.sql` | `usage_snapshot_monthly_latest` finds each month's latest row with a hash aggregate and a unique key lookup instead of sorting whole rows |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 

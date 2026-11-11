@@ -1,4 +1,4 @@
--- Monthly trend rollup (20261112091000_usage_snapshot_monthly_latest.sql, #317):
+-- Monthly trend rollup (20261112095000_usage_snapshot_monthly_latest.sql, #317):
 -- usage_snapshot_monthly_latest returns each account's latest row per metric, currency or unit,
 -- and UTC month from p_since, whatever the number of daily rows behind it: just under, at, and over
 -- the 10,000 row cap the snapshot read used to stop at, every month is there and the newest row of
