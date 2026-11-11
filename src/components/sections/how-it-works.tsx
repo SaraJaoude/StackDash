@@ -17,7 +17,7 @@ const steps: readonly IconCardItem[] = [
   {
     icon: GaugeIcon,
     title: "Know",
-    body: "One timeline for activity and an alert on the channel you read when a threshold is crossed, once per billing period and not every hour. Allowances and spend show where each provider reports them.",
+    body: "One timeline for activity. When a threshold is crossed, one alert on the channel you read, once per billing period and not every hour. Allowances and spend show where each provider reports them.",
   },
 ];
 
