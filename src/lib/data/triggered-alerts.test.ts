@@ -32,6 +32,8 @@ vi.mock("@/lib/supabase/server", () => ({
       const filters: Array<(row: AlertRow) => boolean> = [];
       let patch: Partial<AlertRow> | null = null;
       let limit = Number.POSITIVE_INFINITY;
+      // What the code asked to sort by, in order. Without any, rows come back in insertion order.
+      const orderBy: Array<{ column: Column; ascending: boolean }> = [];
       const builder = {
         select: () => builder,
         update(values: Partial<AlertRow>) {
@@ -50,7 +52,10 @@ vi.mock("@/lib/supabase/server", () => ({
           filters.push((row) => values.includes(String(row[column])));
           return builder;
         },
-        order: () => builder,
+        order(column: Column, { ascending }: { ascending: boolean }) {
+          orderBy.push({ column, ascending });
+          return builder;
+        },
         limit(count: number) {
           limit = count;
           return builder;
@@ -63,7 +68,13 @@ vi.mock("@/lib/supabase/server", () => ({
           }
           const matched = db.rows
             .filter((row) => filters.every((keep) => keep(row)))
-            .sort((a, b) => b.triggered_at.localeCompare(a.triggered_at) || b.id.localeCompare(a.id))
+            .sort((a, b) => {
+              for (const { column, ascending } of orderBy) {
+                const compared = String(a[column] ?? "").localeCompare(String(b[column] ?? ""));
+                if (compared !== 0) return ascending ? compared : -compared;
+              }
+              return 0;
+            })
             .slice(0, limit);
           if (patch !== null) for (const row of matched) Object.assign(row, patch);
           return Promise.resolve({ data: matched.map(({ id }) => ({ id })), error: null }).then(resolve);
@@ -125,6 +136,13 @@ describe("acknowledgeAllTriggeredAlerts", () => {
     expect(acknowledgedIds(WORKSPACE)).toEqual(newest.sort());
     // The next call picks up the rest.
     expect(await acknowledgeAllTriggeredAlerts(WORKSPACE, USER)).toBe(50);
+  });
+
+  it(`breaks a tie in triggered time at the ${ACKNOWLEDGE_ALL_LIMIT} bound by the highest id, as the list does`, async () => {
+    // Every alert fired in the same instant, so only the id order decides which one waits.
+    db.rows = alerts(WORKSPACE, ACKNOWLEDGE_ALL_LIMIT + 1).map((row) => ({ ...row, triggered_at: "2026-11-01T00:00:00.000Z" }));
+    expect(await acknowledgeAllTriggeredAlerts(WORKSPACE, USER)).toBe(ACKNOWLEDGE_ALL_LIMIT);
+    expect(db.rows.filter((row) => row.acknowledged_at === null).map((row) => row.id)).toEqual(["a-0000"]);
   });
 
   it("never reads or writes another workspace's alerts", async () => {
