@@ -333,7 +333,7 @@ async function DashboardContent({
 
 /**
  * The Trends section, awaited behind its own Suspense boundary (#263) so the rest of the dashboard
- * shows without waiting for the trend read: the monthly view reads 13 months of snapshots.
+ * shows without waiting for the trend read: the monthly view groups 13 months of snapshots (#317).
  */
 async function DashboardTrendsContent({
   trendData,

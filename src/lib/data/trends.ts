@@ -7,30 +7,28 @@ import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
-import { getWorkspaceScope, loadDashboardSnapshots, loadSnapshots, snapshotWindowStart } from "./dashboard";
+import { getWorkspaceScope, loadDashboardSnapshots, loadMonthlySnapshots, snapshotWindowStart } from "./dashboard";
 import { resolveTimelineScope } from "./timeline";
 
 export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: SnapshotInput[] }>;
 
 /**
  * Snapshot history for the trend charts, narrowed to `scope` with the same rules as the dashboard,
- * newest first. The cards and the charts share one read per row (#263): the dashboard window's
- * rows come from `loadDashboardSnapshots`, the read `getDashboardData` already made with the same
- * `now`. The headline strip still reads its money and signup rows on its own (`getHeadlineSnapshots`
- * says why).
- * - `"daily"` uses only those rows (`SNAPSHOT_WINDOW_DAYS`, which holds the 30 day chart) and issues
- *   no query of its own. An account whose last row is older than that window therefore no longer
- *   counts as expected in a daily bucket, as on the dashboard's cards. The monthly view still
- *   reads 13 months, so it keeps expecting that account and shows the current month as
- *   unavailable: the two views disagree about an account that stopped reporting 45 days to 13
- *   months ago, until #308 gives both views one rule.
- * - `"monthly"` adds one bounded read of the rows from `trendWindowStart(now)` up to, not
- *   including, `snapshotWindowStart(now)`, so the two reads never overlap and older rows simply
- *   follow the newer ones.
- * Both reads are paged on the `(workspace_id, snapshot_date desc)` index and capped separately;
- * past a cap a read loses its oldest days, with a `dashboard.snapshots_truncated` warning. The
- * unique key `(external_account_id, metric_key, snapshot_date)` means each row is already the
- * latest value of its day. Call only after `requireWorkspace` has confirmed membership.
+ * newest first.
+ * - `"daily"` uses only the dashboard window's rows (`SNAPSHOT_WINDOW_DAYS`, which holds the 30 day
+ *   chart) from `loadDashboardSnapshots`, the read `getDashboardData` already made with the same
+ *   `now` (#263), and issues no query of its own. An account whose last row is older than that
+ *   window therefore no longer counts as expected in a daily bucket, as on the dashboard's cards.
+ *   The monthly view still reads 13 months, so it keeps expecting that account and shows the
+ *   current month as unavailable: the two views disagree about an account that stopped reporting
+ *   45 days to 13 months ago, until #308 gives both views one rule.
+ * - `"monthly"` reads `loadMonthlySnapshots` from `trendWindowStart(now)`: each account's latest
+ *   row per metric and UTC month, grouped in the database (#317). That is every row `buildTrends`
+ *   uses for a month (the latest per account, and the first month each account reported), so the
+ *   read grows with months instead of days and a long history keeps its oldest months.
+ * The headline strip still reads its money and signup rows on its own (`getHeadlineSnapshots`
+ * says why). The unique key `(external_account_id, metric_key, snapshot_date)` means each row is
+ * already the latest value of its day. Call only after `requireWorkspace` has confirmed membership.
  */
 export async function getTrendData(
   workspaceId: string,
@@ -38,15 +36,13 @@ export async function getTrendData(
   now: Date,
   scope: ScopeFilters,
 ): Promise<TrendData> {
-  const windowStart = snapshotWindowStart(now);
-  const [workspaceScope, recent, older] = await Promise.all([
+  const [workspaceScope, snapshots] = await Promise.all([
     getWorkspaceScope(workspaceId),
-    loadDashboardSnapshots(workspaceId, windowStart),
     granularity === "daily"
-      ? []
-      : loadSnapshots(workspaceId, trendWindowStart(now), "trends before the dashboard window", { beforeDate: windowStart }),
+      ? loadDashboardSnapshots(workspaceId, snapshotWindowStart(now))
+      : loadMonthlySnapshots(workspaceId, trendWindowStart(now)),
   ]);
-  const scoped = applyScope({ ...workspaceScope, snapshots: [...recent, ...older] }, scope);
+  const scoped = applyScope({ ...workspaceScope, snapshots }, scope);
   return { connections: scoped.connections, snapshots: scoped.snapshots };
 }
 
