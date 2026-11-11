@@ -787,6 +787,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"current_user_workspace_ids":
+{ Args: { "p_min_role": Database["public"]['Enums']["workspace_role"] }; Returns: string[]
+                           },
 "disable_project_page":
 { Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
