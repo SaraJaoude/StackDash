@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
+
 import { test } from "@playwright/test";
 
-import { expect, ownerTest, signOutTest } from "./fixtures/auth";
+import { editedSessionCookies, expect, ownerTest, signOutTest, STORAGE_STATE, type StoredSession } from "./fixtures/auth";
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -49,6 +51,60 @@ test.describe("signed out", () => {
     });
     expect(response.status()).toBe(403);
   });
+});
+
+/** The token with `claims` merged into its payload and its original signature kept. */
+function withClaims(token: string, claims: Record<string, unknown>): string {
+  const [header, payload, signature] = token.split(".");
+  if (header === undefined || payload === undefined || signature === undefined) throw new Error("not a JWT");
+  const decoded: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  if (typeof decoded !== "object" || decoded === null) throw new Error("not a JWT payload");
+  const edited = Buffer.from(JSON.stringify({ ...decoded, ...claims })).toString("base64url");
+  return `${header}.${edited}.${signature}`;
+}
+
+// Sessions are verified in the app against the stack's public signing key, without asking the
+// Auth server (#318), so the app itself must refuse a session it cannot vouch for. Each case edits
+// a copy of the owner's stored session and never touches the session itself. An edited token no
+// longer matches its signature, so the first two cases prove refusal, not which check fired: a
+// correctly signed expired token would need the stack's private key, which stays out of the repo.
+test.describe("a session the app cannot verify", () => {
+  const cases: [string, (session: StoredSession) => StoredSession][] = [
+    [
+      "a tampered access token whose exp claim is past",
+      (session) => ({
+        ...session,
+        access_token: withClaims(session.access_token, { exp: Math.floor(Date.now() / 1000) - 60 }),
+      }),
+    ],
+    [
+      "an access token claiming another user under the original signature",
+      (session) => ({ ...session, access_token: withClaims(session.access_token, { sub: randomUUID() }) }),
+    ],
+    [
+      // An unknown refresh token, so the refresh fails without rotating the owner's real one.
+      "an expired session whose refresh token Auth refuses",
+      (session) => ({
+        ...session,
+        expires_at: Math.floor(Date.now() / 1000) - 60,
+        refresh_token: "e2e-unknown-refresh-token",
+      }),
+    ],
+  ];
+
+  for (const [title, edit] of cases) {
+    test(`${title} redirects to sign-in`, async ({ browser }) => {
+      const cookies = await editedSessionCookies(STORAGE_STATE.owner, edit);
+      const context = await browser.newContext({ storageState: { cookies, origins: [] } });
+      try {
+        const page = await context.newPage();
+        await page.goto("/w/someworkspace/timeline");
+        await expect(page).toHaveURL(/\/sign-in\?next=%2Fw%2Fsomeworkspace%2Ftimeline$/);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 });
 
 ownerTest("a signed-in user visiting sign-in is sent into the app", async ({ page }) => {
