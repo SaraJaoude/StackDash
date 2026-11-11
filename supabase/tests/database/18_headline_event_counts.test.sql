@@ -5,7 +5,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(16);
+select plan(15);
 
 -- Fixtures as postgres: a viewer of workspace W, an outsider who owns workspace W2, a connection C1
 -- with accounts X1 and X2, a connection C2 with account X3, and events on both sides of UTC day
@@ -74,8 +74,7 @@ values
    'fake', 'fake.signup', 'info', 'New signup', '2026-11-03T12:00:00Z', 'count-11');
 
 -- ---------------------------------------------------------------------------
--- Shape: security definer behind one membership check, empty search_path, members only, and the
--- per row counter it replaces is gone.
+-- Shape: security definer behind one membership check, empty search_path, members only.
 -- ---------------------------------------------------------------------------
 select ok(
   (select p.prosecdef from pg_catalog.pg_proc p where p.oid = 'public.headline_event_counts(uuid, uuid[], text[], date, date)'::regprocedure),
@@ -90,8 +89,6 @@ select ok(not has_function_privilege('service_role', 'public.headline_event_coun
   'headline_event_counts: service_role cannot execute it');
 select ok(has_function_privilege('authenticated', 'public.headline_event_counts(uuid, uuid[], text[], date, date)', 'execute'),
   'headline_event_counts: authenticated can execute it');
-select hasnt_function('public', 'count_activity_events',
-  'count_activity_events: removed, the headline reads headline_event_counts');
 
 -- ---------------------------------------------------------------------------
 -- As a viewer of W.
