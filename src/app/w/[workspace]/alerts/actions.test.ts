@@ -29,7 +29,7 @@ vi.mock("@/lib/log/logger", () => ({ logError: () => "ref-268" }));
 
 const ACCESS: WorkspaceAccess = {
   user: { id: "26800000-0000-4000-8000-0000000000aa", email: "e2e-owner@example.com", profile: { name: null, avatarUrl: null } },
-  workspace: { id: "26800000-0000-4000-8000-000000000001", slug: "acme", name: "Acme" },
+  workspace: { id: "26800000-0000-4000-8000-000000000001", slug: "acme", name: "Acme", handle: null },
   role: "admin",
 };
 
