@@ -39,11 +39,13 @@ export async function getHeadlineSnapshots(
 /**
  * Signup and deploy counts per connection and event type for both headline windows, and each
  * connection's oldest reading, for the included accounts the scope leaves in view. One
- * `count_activity_events` call per window, each returning at most one row per connection and type,
- * and one single row snapshot read per connection with accounts in view, all run together. The
- * oldest reading is read on its own rather than from the trend history, whose newest first page
- * cap would otherwise move it forward in a busy workspace. Call only after `requireWorkspace` has
- * confirmed membership.
+ * `headline_event_counts` call per window, each summing the daily event rollup behind one
+ * membership check and returning at most one row per connection and type, and one single row
+ * snapshot read per connection with accounts in view, all run together. The rollup's days are UTC
+ * days, as the windows' are, so a window's count is the same as counting its events. The oldest
+ * reading is read on its own rather than from the trend history, whose newest first page cap would
+ * otherwise move it forward in a busy workspace. Call only after `requireWorkspace` has confirmed
+ * membership.
  */
 export async function getHeadlineEvents(
   workspaceId: string,
@@ -56,13 +58,12 @@ export async function getHeadlineEvents(
   const accountIds = accounts.map((account) => account.id);
   const supabase = await createClient();
   const count = async (range: DateRange): Promise<EventCount[]> => {
-    const { data, error } = await supabase.rpc("count_activity_events", {
+    const { data, error } = await supabase.rpc("headline_event_counts", {
       p_workspace_id: workspaceId,
       p_account_ids: accountIds,
       p_type_ids: [...eventTypes.signups, ...eventTypes.deploys],
-      p_from: `${range.start}T00:00:00.000Z`,
-      // Window dates are inclusive; the query's end is the next day's first instant, exclusive.
-      p_until: new Date(Date.parse(`${range.end}T00:00:00.000Z`) + DAY_MS).toISOString(),
+      p_start: range.start,
+      p_end: range.end,
     });
     if (error) throw new Error("Failed to count activity events", { cause: error });
     return data;
