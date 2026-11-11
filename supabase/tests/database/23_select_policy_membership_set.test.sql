@@ -1,4 +1,4 @@
--- Select policies read the caller's workspaces once per statement (#283).
+-- Select policies read the caller's workspaces once per table reference, not per row (#283).
 --
 -- Every select policy compares workspace_id with current_user_workspace_ids(min_role) instead of
 -- calling has_workspace_role per row. These tests pin that every caller still reads exactly what
@@ -260,7 +260,7 @@ select results_eq('select tbl, row_count from rls283.visible_counts()',
   $$ select tbl, row_count from rls283.expected where who = 'owner of A' order by tbl $$,
   'membership set reads: the owner of A reads every row of A and nothing of B');
 
--- The InitPlan: membership is read once per statement, never per row, on every table a member
+-- The InitPlan: membership is read once per table reference, never per row, on every table a member
 -- reads by workspace (every select policy for authenticated but profiles, which is keyed by user).
 select is_empty(
   $$
@@ -273,11 +273,13 @@ select is_empty(
   $$,
   'membership set plans: every select policy reads current_user_workspace_ids once, as an InitPlan');
 
-select is(
-  rls283.plan_of($$ select id from public.activity_events where workspace_id = '283000a0-0000-4000-8000-000000000000'
-                    and severity = 'critical' and title ~* 'payment' $$) ~ 'has_workspace_role',
-  false,
-  'membership set plans: a filtered timeline read calls no membership function per row');
+-- The filtered read: non-leakproof user quals (an enum comparison, a regex) beside the policy.
+select ok(
+  (select x.plan ~ 'InitPlan' and x.plan ~ 'Output: current_user_workspace_ids\(' and x.plan !~ 'SubPlan'
+   from (select rls283.plan_of($$ select id from public.activity_events
+                                  where workspace_id = '283000a0-0000-4000-8000-000000000000'
+                                    and severity = 'critical' and title ~* 'payment' $$) as plan) x),
+  'membership set plans: a filtered timeline read evaluates membership once, as an InitPlan');
 
 set local request.jwt.claims to '{"sub": "28300002-0000-4000-8000-000000000000", "role": "authenticated"}';
 select results_eq('select tbl, row_count from rls283.visible_counts()',

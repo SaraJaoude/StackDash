@@ -1,4 +1,4 @@
--- Select policies check membership once per statement, not once per row (#283).
+-- Select policies check membership once per table reference, not once per row (#283).
 --
 -- Every select policy called public.has_workspace_role(workspace_id, min_role) on each row.
 -- That function is security definer, so Postgres never inlines it, and a policy is evaluated
@@ -7,17 +7,22 @@
 --
 -- * current_user_workspace_ids(min_role) returns the caller's workspace ids at that role or
 --   above. The policies read it as `workspace_id = any (array(select ...))`: an uncorrelated
---   array subquery, so the planner runs it once per statement as an InitPlan and each row costs
---   one comparison against a short array.
+--   array subquery, so the planner runs it once per table reference in a statement as an
+--   InitPlan (a read that joins three workspace tables does three short lookups) and each row
+--   costs one comparison against a short array.
 -- * Semantics are unchanged: the same workspace_members rows at the same rank, for auth.uid()
---   only, read at query time, so a role change still applies on the next statement. No caller
---   (anon, or a token with no sub) gets no ids, and `x = any ('{}')` is false, as
---   has_workspace_role was. A null workspace_id matches nothing.
+--   only, read at query time, so a role change still applies on the next statement. A missing
+--   caller (anon, or a token with no sub) gets no ids: auth.uid() is null, so the user_id
+--   predicate matches nothing, and `x = any ('{}')` is false, as has_workspace_role was. A null
+--   workspace_id matches nothing.
 -- * Security definer for the same reason as has_workspace_role: workspace_members' own select
 --   policy calls it, so it must read the table without recursing into that policy. It only ever
 --   answers for the caller.
 -- * Only select policies change. Insert, update, and delete policies touch the rows one statement
 --   writes, not every row a read scans, and keep has_workspace_role.
+-- * activity_event_counts, timeline_connection_event_counts, and headline_event_counts cite the
+--   per row policy cost as a reason for being security definer. That cost is gone; they stay
+--   definer for their single membership check before any row is read.
 
 create function public.current_user_workspace_ids(p_min_role public.workspace_role)
   returns setof uuid
