@@ -22,7 +22,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   return [
     { url: new URL("/", origin).href },
     ...pages.map((page) => ({
-      url: new URL(projectPagePath(page.workspaceSlug, page.pageSlug), origin).href,
+      url: new URL(projectPagePath(page.workspace, page.pageSlug), origin).href,
       lastModified: page.updatedAt,
     })),
   ];

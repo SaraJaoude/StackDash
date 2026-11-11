@@ -286,7 +286,7 @@ export async function saveProjectPage(
     }
     if (data === "unchanged") return { ok: true, message: "The project page already has these settings." };
     refresh();
-    const path = projectPagePath(ws.slug, parsed.data.slug);
+    const path = projectPagePath(ws, parsed.data.slug);
     return {
       ok: true,
       message: data === "enabled" ? `The project page is on at ${path}.` : `Saved the project page settings. Its address is ${path}.`,

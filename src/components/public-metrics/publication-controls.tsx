@@ -383,6 +383,7 @@ export function SelfReportedForm({
  */
 export function ProjectPageForm({
   workspaceSlug,
+  workspaceAddress,
   projectId,
   initialSlug,
   initialIndexable,
@@ -390,6 +391,8 @@ export function ProjectPageForm({
   focusId,
 }: {
   workspaceSlug: string;
+  /** The first segment of the page's address: the workspace's handle when set, otherwise its slug. */
+  workspaceAddress: string;
   projectId: string;
   initialSlug: string;
   initialIndexable: boolean;
@@ -419,7 +422,7 @@ export function ProjectPageForm({
           Address
         </label>
         <p id={`${slugId}-hint`} className="mt-1 text-sm text-muted">
-          The page opens at <span className="font-mono">/@{workspaceSlug}/</span> followed by this. Lowercase letters,
+          The page opens at <span className="font-mono">/@{workspaceAddress}/</span> followed by this. Lowercase letters,
           numbers, and hyphens.
         </p>
         <input

@@ -381,7 +381,8 @@ export async function publishDemoProjectPage(
   });
   if (pageError) throw new Error(`Turning on the demo project page failed (code ${pageError.code}).`);
   if (saved !== "enabled") throw new Error(`Turning on the demo project page answered ${saved}.`);
-  return projectPagePath(input.workspaceSlug, DEMO_PAGE_SLUG);
+  // The seed builds a fresh workspace each run, and a fresh workspace has no handle.
+  return projectPagePath({ slug: input.workspaceSlug, handle: null }, DEMO_PAGE_SLUG);
 }
 
 /**

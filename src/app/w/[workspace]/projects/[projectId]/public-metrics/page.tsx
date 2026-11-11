@@ -32,7 +32,7 @@ import {
   ROUNDING_LABELS,
 } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
-import { projectPagePath, suggestPageSlug } from "@/lib/public-metrics/project-page";
+import { projectPagePath, suggestPageSlug, workspaceAddress } from "@/lib/public-metrics/project-page";
 import type { PublishedValue } from "@/lib/public-metrics/published";
 import {
   badgeAltText,
@@ -114,7 +114,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   const deniedReason = actionDeniedReason("publish_metrics");
   const publicDataPath = `/api/public/projects/${project.id}/metrics`;
   const anyPublished = metrics.some((metric) => metric.publication !== null) || selfReported.length > 0;
-  const pagePath = pageSettings === null ? null : projectPagePath(workspace.slug, pageSettings.slug);
+  const pagePath = pageSettings === null ? null : projectPagePath(workspace, pageSettings.slug);
   // Share links lead to the page only while it answers: it is on, and the metric being shared is
   // published, so the project has a live publication.
   const sharePage: ShareProjectPage | null = pageSettings?.enabled === true && pagePath !== null ? { path: pagePath, projectName: project.name } : null;
@@ -210,6 +210,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
             <div className="mt-4 space-y-4 border-t border-line pt-4">
               <ProjectPageForm
                 workspaceSlug={workspace.slug}
+                workspaceAddress={workspaceAddress(workspace)}
                 projectId={project.id}
                 initialSlug={pageSettings?.slug ?? suggestPageSlug(project.name)}
                 initialIndexable={pageSettings?.indexable ?? false}
