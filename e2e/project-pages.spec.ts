@@ -281,7 +281,7 @@ ownerTest.describe("workspace handles as the owner", () => {
       await page.goto(`/w/${workspace.slug}/settings`);
       const section = page.getByRole("region", { name: "Public handle" });
       await expect(section).toContainText(`No handle yet. Public project pages open at /@${workspace.slug}/ followed by the page address.`);
-      const field = section.getByLabel("Handle");
+      const field = section.getByRole("textbox", { name: "Handle" });
       const save = section.getByRole("button", { name: "Save handle" });
       await expect(field).toHaveAccessibleDescription(/3 to 32 characters: lowercase letters, numbers, and single hyphens between words\./);
 
@@ -318,15 +318,46 @@ ownerTest.describe("workspace handles as the owner", () => {
       await expect(pageSettings.getByRole("link", { name: `/@${handle}/acme-web` })).toHaveAttribute("href", `/@${handle}/acme-web`);
       await expect(pageSettings).toContainText(`The page opens at /@${handle}/ followed by this.`);
 
-      // Removing it: focus stays in the section and the workspace ID address is back.
+      // Changing it asks first. Escape keeps the handle and returns focus to Save handle.
+      const renamed = `acme-two-${workspace.slug}`;
       await page.goto(`/w/${workspace.slug}/settings`);
-      await section.getByRole("button", { name: "Remove handle" }).click();
+      await field.fill(renamed);
+      await field.press("Enter");
+      const change = page.getByRole("dialog", { name: `Change the handle to ${renamed}?` });
+      await expect(change).toBeVisible();
+      await expect(change).toHaveAccessibleDescription(
+        `Links that use /@${handle}/ stop working at once, and any workspace can claim ${handle}. Public project pages will open at /@${renamed}/ instead.`,
+      );
+      await expect(change.getByRole("button", { name: "Cancel" })).toBeFocused();
+      await expectNoAxeViolations(page);
+      await page.keyboard.press("Escape");
+      await expect(change).toBeHidden();
+      await expect(save).toBeFocused();
+      await expect(section).toContainText(`Public project pages open at /@${handle}/ followed by the page address.`);
+      await save.click();
+      await change.getByRole("button", { name: "Change handle" }).click();
+      await expect(page.getByRole("status").filter({ hasText: `Saved. Public project pages now open at /@${renamed}/ followed by the page address.` })).toBeVisible();
+      await expect(section).toContainText(`Public project pages open at /@${renamed}/ followed by the page address.`);
+
+      // Removing it asks too. Cancel returns focus to the button; after removing, focus stays in the
+      // section and the workspace ID address is back.
+      const removeButton = section.getByRole("button", { name: "Remove handle" });
+      await removeButton.click();
+      const remove = page.getByRole("dialog", { name: `Remove the handle ${renamed}?` });
+      await expect(remove).toHaveAccessibleDescription(
+        `Links that use /@${renamed}/ stop working at once, and any workspace can claim ${renamed}. Public project pages go back to the workspace ID address, /@${workspace.slug}/.`,
+      );
+      await remove.getByRole("button", { name: "Cancel" }).click();
+      await expect(remove).toBeHidden();
+      await expect(removeButton).toBeFocused();
+      await removeButton.click();
+      await remove.getByRole("button", { name: "Remove handle" }).click();
       await expect(
         page.getByRole("status").filter({ hasText: `Removed the handle. Public project pages open at /@${workspace.slug}/ followed by the page address again.` }),
       ).toBeVisible();
       await expect(field).toBeFocused();
       await expect(field).toHaveValue("");
-      await expect(section.getByRole("button", { name: "Remove handle" })).toHaveCount(0);
+      await expect(removeButton).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
       await deleteTestWorkspace(other);

@@ -1,22 +1,39 @@
 "use client";
 
-import { useActionState, useId, useRef, useState } from "react";
+import { startTransition, useActionState, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
-import { HANDLE_MAX, HANDLE_MIN, normalizeHandle } from "@/lib/workspaces/handles";
+import { HANDLE_MAX, HANDLE_MIN, handleSchema } from "@/lib/workspaces/handles";
 
 import { removeWorkspaceHandle, setWorkspaceHandle, type WorkspaceHandleResult } from "./actions";
+
+const SECONDARY =
+  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60";
+const DANGER =
+  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 /**
  * Claims, changes, or removes the workspace's handle, for owners and admins. Controlled, so a
  * refused handle stays in the field to be corrected; the rules are checked by the server, not by
- * `pattern` or `maxLength`, so the field error explains the rule. One status region for both
- * forms: the remove button unmounts once the handle is gone, and its message must outlive it.
+ * `pattern` or `maxLength`, so the field error explains the rule.
+ *
+ * Changing or removing a handle frees the old one at once for any workspace and breaks every link
+ * that uses it, so both ask first in a native modal `<dialog>`, as the app's other irreversible
+ * actions do. A first claim needs no confirmation, and neither does a value the rules refuse: it
+ * goes straight to the server, which explains the rule beside the field. One status region serves
+ * both forms, because the remove button unmounts once the handle is gone.
  */
 export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspaceSlug: string; currentHandle: string | null }) {
   const [handle, setHandle] = useState(currentHandle ?? "");
   const [last, setLast] = useState<WorkspaceHandleResult | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const saveRef = useRef<HTMLButtonElement>(null);
+  const removeRef = useRef<HTMLButtonElement>(null);
+  const changeDialogRef = useRef<HTMLDialogElement>(null);
+  const removeDialogRef = useRef<HTMLDialogElement>(null);
+  // Set by the change dialog's confirm button, so the submit it starts is not intercepted again.
+  const confirmedRef = useRef(false);
   const inputId = useId();
   const hintId = useId();
   const errorId = useId();
@@ -29,8 +46,8 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
       return result;
     }
     // Show the handle as stored: trimmed and lowercased.
-    const value = formData.get("handle");
-    if (typeof value === "string") setHandle(normalizeHandle(value));
+    const parsed = handleSchema.safeParse(formData.get("handle"));
+    if (parsed.success) setHandle(parsed.data);
     return result;
   }, null);
   const [, removeAction, removing] = useActionState<WorkspaceHandleResult | null, FormData>(async (previous, formData) => {
@@ -40,6 +57,8 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
       setHandle("");
       // The remove button is about to unmount; keep focus in the section.
       inputRef.current?.focus();
+    } else {
+      removeRef.current?.focus();
     }
     return result;
   }, null);
@@ -47,6 +66,9 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
   const pending = saving || removing;
   const failure = last !== null && !last.ok ? last : undefined;
   const fieldError = failure?.fieldErrors?.handle;
+  // The handle a save would store, when the rules accept it; null for a value the server refuses.
+  const parsed = handleSchema.safeParse(handle);
+  const nextHandle = parsed.success ? parsed.data : null;
 
   return (
     <div className="px-6 py-5">
@@ -56,7 +78,22 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
         <span className="font-mono break-all">/@{currentHandle ?? workspaceSlug}/</span> followed by the page address.
         {currentHandle === null ? null : " Addresses with the workspace ID lead there too."}
       </p>
-      <form action={saveAction} noValidate className="mt-4">
+      <form
+        ref={formRef}
+        action={saveAction}
+        noValidate
+        className="mt-4"
+        onSubmit={(event) => {
+          if (confirmedRef.current) {
+            confirmedRef.current = false;
+            return;
+          }
+          if (currentHandle !== null && nextHandle !== null && nextHandle !== currentHandle) {
+            event.preventDefault();
+            changeDialogRef.current?.showModal();
+          }
+        }}
+      >
         <input type="hidden" name="workspace" value={workspaceSlug} />
         <label htmlFor={inputId} className="block text-sm font-medium">
           Handle
@@ -90,6 +127,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             )}
           </div>
           <GuardedButton
+            ref={saveRef}
             type="submit"
             unavailable={pending}
             className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
@@ -99,16 +137,45 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
         </div>
       </form>
       {currentHandle === null ? null : (
-        <form action={removeAction} className="mt-3">
-          <input type="hidden" name="workspace" value={workspaceSlug} />
+        <>
           <GuardedButton
-            type="submit"
+            ref={removeRef}
+            type="button"
             unavailable={pending}
-            className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
+            onClick={() => removeDialogRef.current?.showModal()}
+            className={`mt-3 ${SECONDARY}`}
           >
             {removing ? "Removing" : "Remove handle"}
           </GuardedButton>
-        </form>
+          <ConfirmHandleDialog
+            dialogRef={changeDialogRef}
+            returnFocusRef={saveRef}
+            title={`Change the handle to ${nextHandle ?? ""}?`}
+            confirmLabel="Change handle"
+            onConfirm={() => {
+              confirmedRef.current = true;
+              formRef.current?.requestSubmit();
+            }}
+          >
+            <ReleaseWarning handle={currentHandle} />
+            Public project pages will open at <span className="font-mono break-all">/@{nextHandle}/</span> instead.
+          </ConfirmHandleDialog>
+          <ConfirmHandleDialog
+            dialogRef={removeDialogRef}
+            returnFocusRef={removeRef}
+            title={`Remove the handle ${currentHandle}?`}
+            confirmLabel="Remove handle"
+            onConfirm={() => {
+              const formData = new FormData();
+              formData.set("workspace", workspaceSlug);
+              startTransition(() => removeAction(formData));
+            }}
+          >
+            <ReleaseWarning handle={currentHandle} />
+            Public project pages go back to the workspace ID address,{" "}
+            <span className="font-mono break-all">/@{workspaceSlug}/</span>.
+          </ConfirmHandleDialog>
+        </>
       )}
 
       {/* Always mounted so screen readers announce changes to it. */}
@@ -128,5 +195,79 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
         )}
       </div>
     </div>
+  );
+}
+
+function ReleaseWarning({ handle }: { handle: string }) {
+  return (
+    <>
+      Links that use <span className="font-mono break-all">/@{handle}/</span> stop working at once, and any workspace can
+      claim {handle}.{" "}
+    </>
+  );
+}
+
+/**
+ * A native modal `<dialog>`: the browser traps focus and closes it on Escape. Cancel comes first
+ * and takes focus, so Enter right after opening never confirms. Confirming closes the dialog and
+ * hands the work to `onConfirm`, whose result the section's status region announces; cancelling
+ * returns focus to the button that opened it.
+ */
+function ConfirmHandleDialog({
+  dialogRef,
+  returnFocusRef,
+  title,
+  confirmLabel,
+  onConfirm,
+  children,
+}: {
+  dialogRef: RefObject<HTMLDialogElement | null>;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  title: string;
+  confirmLabel: string;
+  onConfirm: () => void;
+  children: ReactNode;
+}) {
+  const confirmingRef = useRef(false);
+  const titleId = useId();
+  const descriptionId = useId();
+  return (
+    <dialog
+      ref={dialogRef}
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      onClose={() => {
+        if (confirmingRef.current) {
+          confirmingRef.current = false;
+          onConfirm();
+        } else {
+          returnFocusRef.current?.focus();
+        }
+      }}
+      className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
+    >
+      <h2 id={titleId} className="break-words text-lg font-semibold tracking-tight">
+        {title}
+      </h2>
+      <p id={descriptionId} className="mt-3 text-sm leading-6 text-muted">
+        {children}
+      </p>
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        {/* First in the dialog, so showModal() focuses it and Enter right after opening never confirms. */}
+        <button type="button" onClick={() => dialogRef.current?.close()} className={SECONDARY}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            confirmingRef.current = true;
+            dialogRef.current?.close();
+          }}
+          className={DANGER}
+        >
+          {confirmLabel}
+        </button>
+      </div>
+    </dialog>
   );
 }
