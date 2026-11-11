@@ -176,6 +176,9 @@ export function CommandPalette({
   const pointerRef = useRef<PointerPosition | null>(null);
   // Counts opens, so a sync still running from an earlier open does not report into this one.
   const openCountRef = useRef(0);
+  // The open the running sync reports to: the one that started it, or a later one that asked for
+  // another sync while it ran and was told to wait for its result.
+  const syncOpenRef = useRef(0);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -243,16 +246,17 @@ export function CommandPalette({
     // An action runs with the palette open, so its result is announced where focus already is.
     if (action.kind === "sync") {
       // One at a time. A second request, including one from a reopened palette while the first is
-      // still on its way, gets an answer rather than nothing.
+      // still on its way, is told to wait, and this open now receives the running sync's result.
       if (running) {
+        syncOpenRef.current = openCountRef.current;
         setOutcome({ tone: "pending", message: "A sync is already being queued. Wait for its result, then try again." });
         return;
       }
       setOutcome({ tone: "pending", message: `Queueing a sync for ${action.name}.` });
-      const opened = openCountRef.current;
+      syncOpenRef.current = openCountRef.current;
       startRunning(async () => {
         const next = await syncConnection(workspaceSlug, action);
-        if (openCountRef.current === opened) setOutcome(next);
+        if (openCountRef.current === syncOpenRef.current) setOutcome(next);
       });
       return;
     }

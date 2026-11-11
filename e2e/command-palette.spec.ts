@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
@@ -535,6 +535,48 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(queued).toBeHidden();
       await expectNoAxeViolations(page);
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("gives a sync's result to the palette reopened while it ran", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette sync reopen");
+    try {
+      const timelinePath = `/w/${workspace.slug}/timeline`;
+      // Holds the sync's Server Action request (a POST with a Next-Action header) until released,
+      // so the palette can be closed and reopened while the sync is still on its way.
+      const held = Promise.withResolvers<Route>();
+      await page.route(
+        (url) => url.pathname === timelinePath,
+        async (route) => {
+          const request = route.request();
+          if (request.method() === "POST" && request.headers()["next-action"] !== undefined) held.resolve(route);
+          else await route.continue();
+        },
+      );
+      await page.goto(timelinePath);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("sync vercel");
+      await page.keyboard.press("Enter");
+      const pending = await held.promise;
+      await expect(palette(page).getByRole("status").filter({ hasText: "Queueing a sync for Vercel." })).toBeVisible();
+
+      await escapeAndWaitForClose(page, palette(page));
+      await trigger(page).click();
+      await expect(palette(page)).toBeVisible();
+      await combobox(page).fill("sync vercel");
+      await page.keyboard.press("Enter");
+      await expect(
+        palette(page).getByRole("status").filter({ hasText: "A sync is already being queued. Wait for its result, then try again." }),
+      ).toBeVisible();
+
+      // The result it was told to wait for arrives in this palette.
+      await pending.continue();
+      await expect(
+        palette(page).getByRole("status").filter({ hasText: "Sync queued. New numbers appear within a few minutes." }),
+      ).toBeVisible();
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       await deleteTestWorkspace(workspace);
     }
   });
