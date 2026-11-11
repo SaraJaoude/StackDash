@@ -297,14 +297,14 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(empty).toContainText("The first sync is queued or running.");
       await expect(page.getByRole("heading", { name: "No activity yet" })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Connect a provider" })).toHaveCount(0);
-      const progress = empty.getByRole("link", { name: "Check sync progress" });
-      await expect(progress).toHaveAttribute("href", `/w/${workspace.slug}/connections`);
+      const status = empty.getByRole("link", { name: "Check connection status" });
+      await expect(status).toHaveAttribute("href", `/w/${workspace.slug}/connections`);
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
-      await progress.focus();
-      await expect(progress).toBeFocused();
+      await status.focus();
+      await expect(status).toBeFocused();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
@@ -362,7 +362,7 @@ viewerTest.describe("timeline as a viewer", () => {
   });
 
   // Viewers cannot connect providers, but they can read the Connections page, so the control stays.
-  viewerTest("offers the sync progress link while the first sync runs, with no role reason", async ({ page }) => {
+  viewerTest("offers the connection status link while the first sync runs, with no role reason", async ({ page }) => {
     const workspace = await createTestWorkspace("Timeline first sync viewer");
     try {
       await seedAccount(workspace, {
@@ -374,7 +374,7 @@ viewerTest.describe("timeline as a viewer", () => {
       });
       await page.goto(`/w/${workspace.slug}/timeline`);
       const empty = page.getByRole("region", { name: "Events are on their way" });
-      await expect(empty.getByRole("link", { name: "Check sync progress" })).toHaveAttribute(
+      await expect(empty.getByRole("link", { name: "Check connection status" })).toHaveAttribute(
         "href",
         `/w/${workspace.slug}/connections`,
       );

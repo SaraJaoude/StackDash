@@ -73,8 +73,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
             <EmptyState
               icon={<TimelineIcon width={20} height={20} />}
               title="Events are on their way"
-              description="The first sync is queued or running. Its events appear here as they arrive, without a reload. While you wait, follow its progress on the Connections page."
-              action={{ href: connectionsPath, label: "Check sync progress" }}
+              description="The first sync is queued or running. Its events appear here as they arrive, without a reload. While you wait, see its status on the Connections page."
+              action={{ href: connectionsPath, label: "Check connection status" }}
             />
           ) : (
             <EmptyState

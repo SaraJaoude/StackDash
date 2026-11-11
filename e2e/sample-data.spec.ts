@@ -97,7 +97,7 @@ ownerTest.describe("sample data as the owner", () => {
       await page.goto(`/w/${workspace.slug}/timeline`);
       // The first sync is on its way (#322), so the empty state no longer asks for a provider.
       const empty = page.getByRole("region", { name: "Events are on their way" });
-      await expect(empty.getByRole("link", { name: "Check sync progress" })).toBeVisible();
+      await expect(empty.getByRole("link", { name: "Check connection status" })).toBeVisible();
       await expect(empty.getByRole("link", { name: "Connect a provider" })).toHaveCount(0);
       await expect(empty.getByRole("button", { name: SAMPLE_BUTTON })).toHaveCount(0);
       await expect(empty.getByText(/sample data/)).toHaveCount(0);
