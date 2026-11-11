@@ -46,7 +46,7 @@ interface TimelineEvent {
 // Illustrative events only, labeled as such in the UI.
 const timeline: readonly TimelineEvent[] = [
   { time: "09:12", severity: "Success", text: "Production deployment of acme-web is ready" },
-  { time: "09:00", severity: "Summary", text: "Daily summary for 2026-11-10: 4 providers, each figure marked verified or estimated" },
+  { time: "09:00", severity: "Summary", text: "Daily summary for yesterday: 4 providers, each figure marked verified or estimated" },
   { time: "08:42", severity: "Failed", text: "Vercel deployment failed for acme-web in production" },
   { time: "08:10", severity: "Alert", text: "Resend passed 75% of its monthly emails, sent to Slack and email" },
   { time: "07:55", severity: "Success", text: "Pull request #42 merged in acme/api" },
