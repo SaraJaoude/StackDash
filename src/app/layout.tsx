@@ -8,7 +8,8 @@ import "./globals.css";
 // self-hosters serve from their own. Unset means no absolute URLs in metadata.
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
-const title = `${site.name} · ${site.tagline}`;
+// The promise, not the brand tagline: a tab or a search result says what DevMacro does (#305).
+const title = `${site.name} · ${site.headline}`;
 
 export const metadata: Metadata = {
   metadataBase: siteUrl ? new URL(siteUrl) : null,

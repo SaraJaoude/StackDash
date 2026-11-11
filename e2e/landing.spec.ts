@@ -22,7 +22,9 @@ test.describe("landing page", () => {
   test("states the product and sends the primary action to the GitHub repository", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("The big picture of your developer stack.");
+    // The promise, not the brand tagline, in both the heading and the tab title (#305).
+    await expect(page).toHaveTitle("DevMacro · One timeline and one alert for your whole developer stack");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("One timeline and one alert for your whole developer stack.");
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
     const ctas = page.getByRole("link", { name: "Follow on GitHub" });

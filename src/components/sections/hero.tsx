@@ -45,14 +45,14 @@ export function Hero() {
             id="hero-title"
             className="rise mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl"
           >
-            {site.tagline}.
+            {site.headline}.
           </h1>
 
           <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted">
-            One timeline and one alert for your whole stack. {site.name} puts the deploys, stars, signups,
-            logins, payments, and errors from the services you build on into one feed, and sends an alert by
-            email, Slack, Discord, or webhook when usage or spend crosses a line you set. Publish the stats
-            you choose, each labeled with its source, and see spend where the provider allows it.
+            Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
+            from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
+            usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
+            source. Spend shows where the provider allows it.
           </p>
 
           <div className="rise-late mt-10 flex flex-wrap items-center justify-center gap-4">
