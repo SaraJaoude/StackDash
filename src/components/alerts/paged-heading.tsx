@@ -16,7 +16,9 @@ const SCROLL_MARGIN = "scroll-mt-32";
  * (#313): a screen reader says where the user is, and the next Tab enters the new list.
  *
  * `cursor` is the page the list shows. The page stays mounted across a pager navigation (only its
- * search params change), so the effect runs when the cursor changes, not on mount alone. A live
+ * search params change), so the effect runs when the cursor changes, not on mount alone. It also
+ * runs on mount, deliberately: a reload, a shared link, or a pager pressed before hydration (a
+ * full page load) arrives with the same fragment and lands focus on the same heading. A live
  * refresh keeps the cursor and never takes focus mid-task. `preventScroll` leaves the scroll to
  * Next.js and the browser, which already brought the heading into view.
  */
@@ -26,7 +28,7 @@ export function PagedHeading({ id, cursor, children }: { id: string; cursor: str
     if (window.location.hash === `#${id}`) ref.current?.focus({ preventScroll: true });
   }, [id, cursor]);
   return (
-    // tabIndex -1 also lets the delete and acknowledge flows move focus here.
+    // tabIndex -1 also lets the action flows move focus here (`after*FocusId` props).
     <h2 ref={ref} id={id} tabIndex={-1} className={`${SCROLL_MARGIN} text-sm font-semibold`}>
       {children}
     </h2>

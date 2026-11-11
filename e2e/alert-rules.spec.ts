@@ -231,8 +231,8 @@ ownerTest.describe("alert rules as the owner", () => {
       // Below the sticky header, not under it.
       const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
       await expect.poll(async () => (await heading.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
-      // The link that had focus is gone with the old list; focus lands on the heading, so the next
-      // Tab continues into the new list rather than from the top of the page.
+      // The link that had focus is gone with the old list. The heading takes focus, so a screen
+      // reader announces where the user landed (#313), and it is the last stop before the new list.
       await expect(heading).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(page.getByRole("list", { name: "Budgets" }).getByRole("button", { name: /^Edit budget/ }).first()).toBeFocused();
