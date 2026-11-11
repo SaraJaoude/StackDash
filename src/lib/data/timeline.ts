@@ -201,24 +201,22 @@ export async function listTimelineConnectionCounts(
   return data;
 }
 
-// PostgREST has no DISTINCT, so the type picker samples the newest events. Types older than the
-// sample are rare in practice and still filterable through the URL.
-const TYPE_SAMPLE_SIZE = 1000;
-const MAX_TYPE_OPTIONS = 50;
+// One row per distinct type id, and every type comes from an adapter's declared types or
+// DevMacro's own (about 60 today), so this bounds the read without cutting any type off.
+const TYPE_OPTION_LIMIT = 200;
 
 /**
- * Up to 50 distinct event type ids seen in the workspace's newest 1,000 events, sorted. Empty
- * exactly when the workspace has no activity at all.
+ * Every distinct event type id the workspace has events of, sorted. Read from the daily event
+ * count rollup (`timeline_type_ids`), so a type whose only event is years older than the rest is
+ * still offered, and a non-member gets none. Empty exactly when the workspace has no activity at all.
  */
 export const listTimelineTypeIds = cache(async (workspaceId: string): Promise<string[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("activity_events")
+    .rpc("timeline_type_ids", { p_workspace_id: workspaceId })
     .select("type_id")
-    .eq("workspace_id", workspaceId)
-    .order("occurred_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(TYPE_SAMPLE_SIZE);
+    .order("type_id", { ascending: true })
+    .limit(TYPE_OPTION_LIMIT);
   if (error) throw new Error("Failed to load timeline event types", { cause: error });
-  return [...new Set(data.map((row) => row.type_id))].sort().slice(0, MAX_TYPE_OPTIONS);
+  return data.map((row) => row.type_id);
 });

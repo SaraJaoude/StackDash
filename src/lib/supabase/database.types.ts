@@ -893,9 +893,29 @@ isOneToOne: false
 "set_workspace_handle":
 { Args: { "p_actor_id": string,"p_handle": string,"p_workspace_id": string }; Returns: string
                            },
+"snapshot_currencies":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "currency": string
+            }[]
+                           },
+"snapshot_metric_options":
+{ Args: { "p_kinds": (Database["public"]['Enums']["metric_kind"])[],"p_workspace_id": string }; Returns: {
+              "connection_ids": (string)[],"label": string,"metric_key": string
+            }[]
+                           },
+"snapshot_series_day_rows":
+{ Args: { "p_kinds": (Database["public"]['Enums']["metric_kind"])[],"p_workspace_id": string }; Returns: {
+              "amount_minor": number,"connection_id": string,"currency": string,"external_account_id": string,"id": string,"kind": Database["public"]['Enums']["metric_kind"],"label": string,"metric_key": string,"period_end": string,"period_start": string,"point_at": string,"pricing_source": string,"provenance_source": string,"provider": Database["public"]['Enums']["provider_id"],"resets_at": string,"retrieved_at": string,"snapshot_date": string,"unit": string,"value": number
+            }[]
+                           },
 "timeline_connection_event_counts":
 { Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_title_pattern"?: string,"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
               "connection_id": string,"display_name": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
+"timeline_type_ids":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "type_id": string
             }[]
                            },
 "unpublish_all_metrics":
@@ -904,6 +924,37 @@ isOneToOne: false
 "unpublish_metric":
 { Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string
                            },
+"usage_snapshot_series_heads":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "amount_minor": number | null,
+"connection_id": string,
+"created_at": string,
+"currency": string | null,
+"external_account_id": string,
+"id": string,
+"kind": Database["public"]['Enums']["metric_kind"],
+"label": string,
+"metric_key": string,
+"period_end": string | null,
+"period_start": string | null,
+"point_at": string | null,
+"pricing_source": string | null,
+"provenance_endpoint": string | null,
+"provenance_source": string,
+"resets_at": string | null,
+"retrieved_at": string,
+"snapshot_date": string,
+"unit": string | null,
+"updated_at": string,
+"value": number | null,
+"workspace_id": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "usage_snapshots"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
                            },

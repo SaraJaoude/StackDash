@@ -4,7 +4,7 @@ import { cache } from "react";
 
 import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { ANOMALY_KINDS, ANOMALY_TYPE_ID, checkedRows } from "@/lib/alerts/anomaly";
-import type { ProviderId } from "@/lib/dashboard/aggregate";
+import type { ProviderId, SnapshotInput } from "@/lib/dashboard/aggregate";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
@@ -34,9 +34,9 @@ export const RECENT_ANOMALY_COUNT = 3;
 
 // Mutes per workspace: one per metric a person chose to silence, a handful in practice.
 const MUTE_LIMIT = 200;
-// Recent snapshot rows scanned for spend and usage metric keys. Each sync writes one row per metric
-// per account per day, so this covers the current metrics of any MVP-sized workspace.
-const SNAPSHOT_SCAN_LIMIT = 1000;
+// Rows of each series' newest snapshot date (`snapshot_series_day_rows`): about one per series,
+// since most series report on the same day. A workspace past this many keeps its newest dates.
+const SERIES_DAY_ROWS_LIMIT = 1000;
 
 // ── Reads ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -59,36 +59,37 @@ export const getAnomalyControls = cache(async (workspaceId: string): Promise<Ano
 });
 
 /**
- * The metrics detection checks in recent snapshots, sorted by label: the rows `checkedRows` keeps,
- * so a breakdown beside its total (a GitHub SKU), a day inside a billing month
+ * The metrics detection checks, sorted by label: every spend and usage series the workspace's
+ * snapshots hold, judged on its newest snapshot date by the rows `checkedRows` keeps, so a
+ * breakdown beside its total (a GitHub SKU), a day inside a billing month
  * (`github.daily_spend.<product>`), or a provider's declared projection (#223) is not offered,
- * because muting it would silence nothing.
+ * because muting it would silence nothing. Read per series in the database, so a metric last
+ * reported long before the others is still offered, and a non-member gets none.
  */
 export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<AnomalyMetric[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("usage_snapshots")
+    .rpc("snapshot_series_day_rows", { p_workspace_id: workspaceId, p_kinds: [...ANOMALY_KINDS] })
     .select(
-      "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source, connections(provider)",
+      "id, provider, connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
     )
-    .eq("workspace_id", workspaceId)
-    .in("kind", [...ANOMALY_KINDS])
     .is("point_at", null)
     .order("snapshot_date", { ascending: false })
     .order("id", { ascending: true })
-    .limit(SNAPSHOT_SCAN_LIMIT);
+    .limit(SERIES_DAY_ROWS_LIMIT);
   if (error) throw new Error("Failed to list spend and usage metrics", { cause: error });
+  // The function's columns are typed not null; the snapshot columns behind them are nullable.
+  const rows: ReadonlyArray<SnapshotInput & Readonly<{ provider: ProviderId }>> = data;
   // The rules run per snapshot date, so a date the limit cut short could keep a row its total
-  // would have dropped: leave the oldest date out when the scan was full and holds more than one.
-  const oldest = data.at(-1)?.snapshot_date;
-  const full = data.length === SNAPSHOT_SCAN_LIMIT && data.some((row) => row.snapshot_date !== oldest);
-  const scanned = full ? data.filter((row) => row.snapshot_date !== oldest) : data;
+  // would have dropped: leave the oldest date out when the read was full and holds more than one.
+  const oldest = rows.at(-1)?.snapshot_date;
+  const full = rows.length === SERIES_DAY_ROWS_LIMIT && rows.some((row) => row.snapshot_date !== oldest);
+  const scanned = full ? rows.filter((row) => row.snapshot_date !== oldest) : rows;
   const byKey = new Map<string, AnomalyMetric>();
   for (const row of checkedRows(scanned, declaredProjectedSpend)) {
-    if (row.connections === null) continue;
-    const key = `${row.connections.provider} ${row.metric_key}`;
+    const key = `${row.provider} ${row.metric_key}`;
     // Newest first, so the first label seen is the current one.
-    if (!byKey.has(key)) byKey.set(key, { provider: row.connections.provider, metricKey: row.metric_key, label: row.label });
+    if (!byKey.has(key)) byKey.set(key, { provider: row.provider, metricKey: row.metric_key, label: row.label });
   }
   return [...byKey.values()].sort((a, b) => a.label.localeCompare(b.label, "en-US") || a.metricKey.localeCompare(b.metricKey));
 });
