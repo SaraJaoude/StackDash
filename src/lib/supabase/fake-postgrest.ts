@@ -7,16 +7,19 @@ import type { Database } from "@/lib/supabase/database.types";
  * on: it answers at most `max_rows` (1000, supabase/config.toml) rows per request, whatever
  * `limit` asks for, and says nothing about the rows it left out (#209). The client is the real
  * supabase-js client with `fetch` replaced, so a store's queries are the ones it sends in
- * production. It knows the filters `eq`, `neq`, `gte`, `lte`, `in`, `is.null`, and `not.is.null`,
- * `order` (asc or desc per column), `offset`, `limit`, and `select` by column name; any other
- * query fails as PostgREST would rather than answer wrongly.
+ * production. It knows the filters `eq`, `neq`, `gte`, `lt`, `lte`, `in`, `is.null`, and
+ * `not.is.null`, `order` (asc or desc per column), `offset`, `limit`, and `select` by column name;
+ * any other query fails as PostgREST would rather than answer wrongly. Each answered request is
+ * recorded with its filters, so a test can check what a read asked for, not only how many rows.
  */
 
 export const MAX_ROWS = 1000;
 
 export type Cell = string | number | boolean | null | readonly string[];
 export type Row = Readonly<Record<string, Cell>>;
-export type PageRequest = Readonly<{ table: string; offset: number; limit: number | null; returned: number }>;
+/** One filter as sent: the column and its PostgREST operator and operand, such as `["snapshot_date", "gte.2026-09-27"]`. */
+export type Filter = readonly [column: string, filter: string];
+export type PageRequest = Readonly<{ table: string; filters: readonly Filter[]; offset: number; limit: number | null; returned: number }>;
 
 /** The values of a PostgREST `in.(...)` list; postgrest-js quotes a value only when it must. */
 function inList(rest: string): Set<string> {
@@ -37,6 +40,8 @@ function predicate(filter: string): ((value: string | null) => boolean) | null {
       return (value) => value !== null && value !== operand;
     case "gte":
       return (value) => value !== null && value >= operand;
+    case "lt":
+      return (value) => value !== null && value < operand;
     case "lte":
       return (value) => value !== null && value <= operand;
     case "in": {
@@ -72,7 +77,8 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>) {
     const url = new URL(input instanceof Request ? input.url : String(input));
     const table = url.pathname.split("/").at(-1) ?? "";
     const source = tables[table];
-    const filters = [...url.searchParams].flatMap(([column, filter]) => (RESERVED[column] === true ? [] : [{ column, test: predicate(filter) }]));
+    const sent = [...url.searchParams].flatMap(([column, filter]): Filter[] => (RESERVED[column] === true ? [] : [[column, filter]]));
+    const filters = sent.map(([column, filter]) => ({ column, test: predicate(filter) }));
     // A query the fake cannot answer fails as PostgREST would, rather than answer wrongly.
     if (source === undefined || filters.some((filter) => filter.test === null)) {
       return new Response(JSON.stringify({ message: `The fake PostgREST cannot answer ${url.search} on ${table}` }), { status: 400 });
@@ -92,7 +98,7 @@ export function fakeSupabase(tables: Readonly<Record<string, readonly Row[]>>) {
     const page = rows.slice(offset, offset + Math.min(limit ?? MAX_ROWS, MAX_ROWS));
     const columns = (url.searchParams.get("select") ?? "*").split(",");
     const body = page.map((row) => (columns[0] === "*" ? row : Object.fromEntries(columns.map((column) => [column, row[column] ?? null]))));
-    requests.push({ table, offset, limit, returned: body.length });
+    requests.push({ table, filters: sent, offset, limit, returned: body.length });
     return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
   };
   const db = createClient<Database>("http://postgrest.test", "test-key", {
