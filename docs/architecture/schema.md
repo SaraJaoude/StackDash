@@ -35,6 +35,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261110090000_timeline_title_search.sql` | `timeline_connection_event_counts` gains `p_title_pattern`, so the title badges count only events whose title matches the timeline's search |
 | `20261111090000_workspace_handles.sql` | `workspaces.handle` with its format check and case-insensitive unique index, `set_workspace_handle` and `remove_workspace_handle`; `public_project_page` and `public_project_page_sitemap` gain the workspace's handle, and `public_project_page` finds a page by handle or slug |
 | `20261111120000_year_review_slides.sql` | `year_review_event_counts` and `year_review_longest_run` for the year in review's slides, and `activity_events_workspace_type_time_idx` |
+| `20261112090000_select_policies_membership_set.sql` | `current_user_workspace_ids`; every select policy compares `workspace_id` with it once per statement instead of calling `has_workspace_role` per row |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -129,7 +130,10 @@ References between two tenant rows are composite foreign keys on `(workspace_id,
 
 ## Roles and row level security
 
-Every table in `public` has RLS enabled. Policies call one helper, `public.has_workspace_role(workspace_id, min_role)`, which reads the caller's role from `workspace_members` at query time (never from JWT claims), so a role change applies on the next request. Ranks: viewer 1, admin 2, owner 3.
+Every table in `public` has RLS enabled. Policies read the caller's role from `workspace_members` at query time (never from JWT claims), so a role change applies on the next request. Ranks: viewer 1, admin 2, owner 3. Two helpers answer only for the caller:
+
+- Select policies check `workspace_id = any (array(select public.current_user_workspace_ids(min_role)))`: the caller's workspaces at that rank or above, read once per statement (an InitPlan in `explain`), so a filtered read over a large table costs one membership lookup, not one per row ([#283](https://github.com/eddiejaoude/DevMacro/issues/283)). A new select policy follows the same shape; a database test fails on any select policy that calls `has_workspace_role`.
+- Insert, update, and delete policies call `public.has_workspace_role(workspace_id, min_role)` on the rows they write.
 
 | Table | Read | Write through the Data API |
 |---|---|---|
@@ -153,7 +157,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 Defense in depth, following BackTalk's hardening:
 
 - Table privileges are revoked from `anon` and `authenticated`, then `authenticated` gets `select` plus only the columns the app writes. Identity, tenancy, provenance, and audit columns are never writable through the Data API. `created_by` and `updated_by` default to `auth.uid()`, and a trigger sets `updated_by` on every signed-in update.
-- Every function revokes `execute` from `public` and `anon`; `security definer` functions pin `search_path = ''`, and the authorization helper only ever answers for the caller.
+- Every function revokes `execute` from `public` and `anon`; `security definer` functions pin `search_path = ''`, and the authorization helpers only ever answer for the caller.
 - The database keeps at least one owner per workspace: a deferred constraint trigger on `workspace_members` rejects the commit otherwise. Deleting a user first deletes workspaces where they are the only member; a shared workspace where they are the only owner blocks the deletion until ownership moves.
 - `is_personal` is display only. Nothing authorizes on it.
 
