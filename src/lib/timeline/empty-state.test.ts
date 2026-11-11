@@ -9,6 +9,19 @@ describe("timelineEmptyKind", () => {
     expect(timelineEmptyKind([])).toBe("no_connections");
   });
 
+  it.each([
+    { case: "one disconnected before its first sync", connections: [{ status: "revoked", last_synced_at: null }] },
+    {
+      case: "two disconnected, one after it had synced",
+      connections: [
+        { status: "revoked", last_synced_at: SYNCED_AT },
+        { status: "revoked", last_synced_at: null },
+      ],
+    },
+  ] as const)("asks for a connection again when every connection is disconnected (boundary: $case)", ({ connections }) => {
+    expect(timelineEmptyKind(connections)).toBe("no_connections");
+  });
+
   it("says events are on their way while one active connection has not synced yet", () => {
     expect(timelineEmptyKind([{ status: "active", last_synced_at: null }])).toBe("first_sync");
   });
@@ -32,10 +45,19 @@ describe("timelineEmptyKind", () => {
     ).toBe("no_events");
   });
 
-  it.each(["pending", "needs_attention", "revoked", "failed"] as const)(
+  it.each(["pending", "needs_attention", "failed"] as const)(
     "does not promise events from a %s connection that has never synced",
     (status) => {
       expect(timelineEmptyKind([{ status, last_synced_at: null }])).toBe("no_events");
     },
   );
+
+  it("does not promise events when a disconnected connection sits beside a synced one", () => {
+    expect(
+      timelineEmptyKind([
+        { status: "revoked", last_synced_at: null },
+        { status: "active", last_synced_at: SYNCED_AT },
+      ]),
+    ).toBe("no_events");
+  });
 });
