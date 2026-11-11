@@ -11,7 +11,7 @@ A workspace holds everything. A connection is one OAuth grant to a provider, eac
 
 ## Workspace
 
-The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write through `has_workspace_role`, using the caller's role in `workspace_members`.
+The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write from the caller's role in `workspace_members`: reads through `current_user_workspace_ids`, writes through `has_workspace_role`.
 
 - Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, alert rules, and anomaly detection (on or off, and muted metrics), publish and unpublish metrics ([Public metrics](public-metrics.md)), acknowledge alerts, rename the workspace, and claim, change, or remove its public handle. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
 - Sign-up creates one personal workspace with the new user as its owner. `is_personal` only changes how the workspace is shown, never what anyone may do in it.

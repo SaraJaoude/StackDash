@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useId, useRef } from "react";
+import { useActionState, useId, useRef, useState } from "react";
 
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 
 import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
@@ -15,7 +16,8 @@ type Action = (previous: AlertActionResult | null, formData: FormData) => Promis
 /**
  * A delete button that asks first, in a modal `<dialog>`: focus moves into it, Escape closes it,
  * and focus returns to the button. After a delete the row is gone, so focus moves to
- * `afterDeleteFocusId` (the section heading) instead.
+ * `afterDeleteFocusId` (the section heading) instead. Like `DeleteProjectDialog`, the
+ * confirmation remounts on every open, so it starts without a previous attempt's error.
  */
 export function ConfirmDelete({
   label,
@@ -40,28 +42,20 @@ export function ConfirmDelete({
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const deletedRef = useRef(false);
+  // Bumped on every open so the confirmation starts fresh, without a previous attempt's error.
+  const [openCount, setOpenCount] = useState(0);
   const titleId = useId();
   const descriptionId = useId();
-  const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
-    async (previous, formData) => {
-      const result = await action(previous, formData);
-      if (result.ok) {
-        deletedRef.current = true;
-        dialogRef.current?.close();
-        document.getElementById(afterDeleteFocusId)?.focus();
-      }
-      return result;
-    },
-    null,
-  );
-  const failure = failureOf(state);
 
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => dialogRef.current?.showModal()}
+        onClick={() => {
+          setOpenCount((count) => count + 1);
+          dialogRef.current?.showModal();
+        }}
         className={`${smallButtonClass} text-danger`}
       >
         {label}
@@ -82,33 +76,65 @@ export function ConfirmDelete({
         <p id={descriptionId} className="mt-2 text-sm leading-6 text-muted">
           {description}
         </p>
-        <form action={formAction} className="mt-6">
-          {Object.entries(fields).map(([name, value]) => (
-            <input key={name} type="hidden" name={name} value={value} />
-          ))}
-          <div role="status" aria-live="polite" className="text-sm">
-            {failure === null ? null : (
-              <p className="mb-4 text-danger">
-                {failure.message}
-                {failure.referenceId === undefined ? null : (
-                  <>
-                    {" "}
-                    Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-                  </>
-                )}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap justify-end gap-3">
-            <button type="button" onClick={() => dialogRef.current?.close()} className={secondaryButtonClass}>
-              Cancel
-            </button>
-            <GuardedButton type="submit" unavailable={pending} className={dangerButtonClass}>
-              {pending ? "Deleting" : confirmLabel}
-            </GuardedButton>
-          </div>
-        </form>
+        {/* Mounted on first open only, so its autofocus never fires on page load. */}
+        {openCount === 0 ? null : (
+          <ConfirmDeleteForm
+            key={openCount}
+            confirmLabel={confirmLabel}
+            action={action}
+            fields={fields}
+            onCancel={() => dialogRef.current?.close()}
+            onDeleted={() => {
+              deletedRef.current = true;
+              dialogRef.current?.close();
+              document.getElementById(afterDeleteFocusId)?.focus();
+            }}
+          />
+        )}
       </dialog>
+    </>
+  );
+}
+
+function ConfirmDeleteForm({
+  confirmLabel,
+  action,
+  fields,
+  onCancel,
+  onDeleted,
+}: {
+  confirmLabel: string;
+  action: Action;
+  fields: Record<string, string>;
+  onCancel: () => void;
+  onDeleted: () => void;
+}) {
+  const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
+    async (previous, formData) => {
+      const result = await action(previous, formData);
+      if (result.ok) onDeleted();
+      return result;
+    },
+    null,
+  );
+
+  return (
+    <>
+      <DialogError failure={failureOf(state)} />
+      <form action={formAction} className="mt-6">
+        {Object.entries(fields).map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={value} />
+        ))}
+        <div className="flex flex-wrap justify-end gap-3">
+          {/* Cancel first and focused, so Enter right after opening never deletes. */}
+          <button type="button" autoFocus onClick={onCancel} className={secondaryButtonClass}>
+            Cancel
+          </button>
+          <GuardedButton type="submit" unavailable={pending} className={dangerButtonClass}>
+            {pending ? "Deleting" : confirmLabel}
+          </GuardedButton>
+        </div>
+      </form>
     </>
   );
 }
