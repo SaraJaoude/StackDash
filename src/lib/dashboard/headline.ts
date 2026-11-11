@@ -513,6 +513,11 @@ export type HeadlineInput = Readonly<{
    * sources even before their first revenue reading, so one that cannot report it is named.
    */
   revenueProviders: readonly string[];
+  /**
+   * Providers whose adapters declare spend (`capabilities.spending`): one with no spend for the
+   * window is named as unavailable, and one that never reports spend is left out (#286).
+   */
+  spendProviders: readonly string[];
   /** The window to date (`headlineWindows`), or the last complete one (`fallbackWindows`). */
   windows: HeadlineWindows;
 }>;
@@ -622,8 +627,11 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     (connection) => input.revenueProviders.includes(connection.provider) || seriesOf(connection, "revenue").length > 0,
   );
   const revenue = assemble(revenueCandidates, moneyOf("revenue"), specs);
-  // Every connection can cost money, so one that cannot report spend is named rather than skipped.
-  const spend = assemble(connections, moneyOf("spend"), specs);
+  // Only a provider that reports spend can fail to: one that never does is left out, not named.
+  const spendCandidates = connections.filter(
+    (connection) => input.spendProviders.includes(connection.provider) || seriesOf(connection, "spend").length > 0,
+  );
+  const spend = assemble(spendCandidates, moneyOf("spend"), specs);
 
   // Events.
   const countsFor = (window: WindowSpec) => (window === specs.current ? input.events.current : input.events.previous);
