@@ -37,7 +37,8 @@ export async function GET(_request: Request, ctx: RouteContext<"/w/[workspace]/y
     if (user === null) return notFound();
     const membership = await getWorkspaceMembership(user.id, slug);
     if (membership === null) return notFound();
-    const review = await loadYearReview(membership.workspace.id, year, now);
+    // Only this slide's reads: the totals image never runs the year's event counts.
+    const review = await loadYearReview(membership.workspace.id, year, now, [slideId]);
     const slide = yearSlides(review).find((candidate) => candidate.id === slideId);
     if (slide === undefined) throw new Error(`The year in review has no slide ${slideId}`);
     const card = slide.id === "totals" ? <YearCard summary={review.summary} /> : <YearSlideCard summary={review.summary} slide={slide} />;
