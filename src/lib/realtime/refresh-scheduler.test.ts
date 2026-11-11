@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vite
 import {
   createRefreshScheduler,
   REFRESH_DEBOUNCE_MS,
+  REFRESH_MAX_IN_FLIGHT_MS,
   REFRESH_MAX_WAIT_MS,
   type RefreshScheduler,
 } from "./refresh-scheduler";
@@ -150,7 +151,7 @@ describe("createRefreshScheduler single flight", () => {
     const { refresh, scheduler } = setup();
     startRefresh(scheduler, refresh);
     scheduler.notify();
-    vi.runAllTimers();
+    vi.advanceTimersByTime(REFRESH_MAX_WAIT_MS);
     expect(refresh).toHaveBeenCalledTimes(1);
 
     scheduler.settled();
@@ -161,17 +162,64 @@ describe("createRefreshScheduler single flight", () => {
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
-  it.each([2, 5, 50])("starts one trailing refresh for %i flushes during one running refresh", (flushes) => {
+  // The most flushes, one debounce apart, that fit inside one refresh's in-flight limit.
+  const flushesWithinLimit = Math.floor((REFRESH_MAX_IN_FLIGHT_MS - REFRESH_DEBOUNCE_MS) / REFRESH_DEBOUNCE_MS);
+
+  it.each([2, 5, flushesWithinLimit])("starts one trailing refresh for %i flushes during one running refresh", (flushes) => {
     const { refresh, scheduler } = setup();
     startRefresh(scheduler, refresh);
     for (let flush = 0; flush < flushes; flush += 1) {
       scheduler.notify();
-      vi.advanceTimersByTime(REFRESH_MAX_WAIT_MS);
+      vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
     }
     expect(refresh).toHaveBeenCalledTimes(1);
 
     scheduler.settled();
     scheduler.settled();
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts the queued refresh at the in-flight limit, not one millisecond before, when the running one never settles", () => {
+    const { refresh, scheduler } = setup();
+    startRefresh(scheduler, refresh);
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    // The running refresh started one debounce ago.
+    vi.advanceTimersByTime(REFRESH_MAX_IN_FLIGHT_MS - REFRESH_DEBOUNCE_MS - 1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(1);
+    expect(refresh).toHaveBeenCalledTimes(2);
+
+    // The refresh the limit started gets a limit of its own.
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    vi.advanceTimersByTime(REFRESH_MAX_IN_FLIGHT_MS - REFRESH_DEBOUNCE_MS - 1);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(1);
+    expect(refresh).toHaveBeenCalledTimes(3);
+  });
+
+  it("frees the scheduler at the in-flight limit with nothing queued, so the next change refreshes", () => {
+    const { refresh, scheduler } = setup();
+    startRefresh(scheduler, refresh);
+    vi.advanceTimersByTime(REFRESH_MAX_IN_FLIGHT_MS);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(refresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops the in-flight limit when the refresh settles before it", () => {
+    const { refresh, scheduler } = setup();
+    startRefresh(scheduler, refresh);
+    scheduler.settled();
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
+    expect(refresh).toHaveBeenCalledTimes(2);
+    // The first refresh's limit would end now; the second is still running, so a change queues.
+    vi.advanceTimersByTime(REFRESH_MAX_IN_FLIGHT_MS - 2 * REFRESH_DEBOUNCE_MS);
+    scheduler.notify();
+    vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
     expect(refresh).toHaveBeenCalledTimes(2);
   });
 
