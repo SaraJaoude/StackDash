@@ -84,11 +84,25 @@ let requests: readonly PageRequest[] = [];
 const MONTHLY_FUNCTION = "usage_snapshot_monthly_latest";
 
 /**
- * The workspace's connection and account, and `usageSnapshots`, behind the fake PostgREST. The
- * database groups `usage_snapshot_monthly_latest` to one row per account, metric, and month
- * (supabase/tests/database/24_usage_snapshot_monthly_latest.test.sql checks how); this stand-in
- * returns `monthlyRows` of the workspace dated `p_since` or later, which is all the data layer
- * depends on.
+ * What `usage_snapshot_monthly_latest` returns for `rows`: those of `workspaceId` dated `since` or
+ * later, newest per account, metric, UTC month, currency, and unit. The database test
+ * (supabase/tests/database/24_usage_snapshot_monthly_latest.test.sql) checks the function itself.
+ */
+function monthlyLatest(rows: readonly Row[], workspaceId: unknown, since: unknown): Row[] {
+  const latest = new Map<string, Row>();
+  for (const row of rows) {
+    const date = String(row.snapshot_date);
+    if (row.workspace_id !== workspaceId || typeof since !== "string" || date < since) continue;
+    const key = [row.external_account_id, row.metric_key, date.slice(0, 7), row.currency, row.unit].join(" ");
+    const current = latest.get(key);
+    if (current === undefined || date > String(current.snapshot_date)) latest.set(key, row);
+  }
+  return [...latest.values()];
+}
+
+/**
+ * The workspace's connection and account, and `usageSnapshots`, behind the fake PostgREST.
+ * `usage_snapshot_monthly_latest` answers from `monthlyRows` as the database would.
  */
 function seed(usageSnapshots: readonly Row[], monthlyRows: readonly Row[] = usageSnapshots) {
   const fake = fakeSupabase(
@@ -98,12 +112,7 @@ function seed(usageSnapshots: readonly Row[], monthlyRows: readonly Row[] = usag
       projects: [],
       usage_snapshots: usageSnapshots,
     },
-    {
-      [MONTHLY_FUNCTION]: ({ p_workspace_id, p_since }) =>
-        monthlyRows.filter(
-          (row) => row.workspace_id === p_workspace_id && typeof p_since === "string" && String(row.snapshot_date) >= p_since,
-        ),
-    },
+    { [MONTHLY_FUNCTION]: ({ p_workspace_id, p_since }) => monthlyLatest(monthlyRows, p_workspace_id, p_since) },
   );
   state.db = fake.db;
   requests = fake.requests;
@@ -158,8 +167,9 @@ describe("getTrendData", () => {
     // The cards still read their 45 days; the trend reads only the rollup, once.
     expect(snapshotDateFilters()).toEqual([[`gte.${WINDOW_START}`]]);
     expect(monthlyCalls()).toEqual([{ p_workspace_id: WORKSPACE, p_since: TREND_START }]);
-    // Newest first; the trend window's first day is in, the day before it is not.
-    expect(dates(trends.snapshots)).toEqual(["2026-11-11", WINDOW_START, "2026-09-26", "2026-01-15", TREND_START]);
+    // One row per month, newest first: 2026-09-26 shares September with the newer window start, and
+    // the day before the trend window is not read.
+    expect(dates(trends.snapshots)).toEqual(["2026-11-11", WINDOW_START, "2026-01-15", TREND_START]);
     expect(dates(dashboard.snapshots)).toEqual(["2026-11-11", WINDOW_START]);
   });
 
@@ -174,9 +184,12 @@ describe("getTrendData", () => {
 });
 
 describe("getTrendData monthly rollup paging (#317)", () => {
-  /** `count` distinct rollup rows, every one in the trend window. */
+  /** `count` rollup rows of one month in the trend window: one metric each, so each is its own row. */
   function rollupRows(count: number): Row[] {
-    return Array.from({ length: count }, (_, index) => ({ ...snapshot("2026-10-31"), id: `row-${String(index).padStart(5, "0")}` }));
+    return Array.from({ length: count }, (_, index) => {
+      const suffix = String(index).padStart(5, "0");
+      return { ...snapshot("2026-10-31"), id: `row-${suffix}`, metric_key: `github.metric_${suffix}.count` };
+    });
   }
 
   let warn: MockInstance<typeof log.warn>;
