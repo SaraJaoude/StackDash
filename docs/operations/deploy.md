@@ -89,6 +89,18 @@ This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-fu
 
 **Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). Supabase's built-in sender is rate limited and only meant for testing. The SMTP password stays in Supabase.
 
+### JWT signing keys
+
+The app verifies every session with `supabase.auth.getClaims()`, in `src/proxy.ts` and in `src/lib/auth/session.ts`. When Auth signs access tokens with an asymmetric key, `getClaims()` checks them against the project's public keys, which supabase-js fetches from `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` and keeps in memory for 10 minutes, so a page request makes no Auth call. With the legacy JWT secret (HS256) it cannot check the signature itself and calls the Auth server instead: twice per signed-in app page, once in the proxy and once on render (measured on the local stack). The local stack already signs with an ES256 key; a hosted project that still shows **Migrate JWT secret** does not.
+
+On the **JWT signing keys** page (`https://supabase.com/dashboard/project/<project-ref>/settings/jwt`), following Supabase's [JWT signing keys guide](https://supabase.com/docs/guides/auth/signing-keys#getting-started):
+
+1. Select **Migrate JWT secret**. The legacy secret becomes the current key and Supabase creates an ECC (P-256) key on standby. Nothing changes for signed-in users yet.
+2. Select **Rotate keys**. Auth signs new access tokens with the ECC key. Tokens signed with the legacy secret stay valid until they expire, so nobody is signed out.
+3. Leave the legacy secret under **Previously used**. Revoking it is not needed for this. Revoking it also disables the legacy `anon` and `service_role` keys, so only revoke it once `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_...`), and no sooner than 1 hour 15 minutes after rotating, so every token it signed has expired.
+
+Supabase throttles key changes to about one every 5 minutes. Nothing changes in the app or in Vercel: no variable holds a signing key or the JWT secret. The private key never leaves Supabase.
+
 ## 4. Invite testers
 
 The invite list lives in `public.access_invites`, which only the service role can write. Run the invite script with the **production** variables in the environment. It reads `.env.local` when that file exists, so run it from a directory where `.env.local` does not point at production by accident, or export the variables in a shell that has no `.env.local` to pick up:
@@ -226,6 +238,7 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **A sync runs.** Connect one provider in a test workspace (needs that provider's app from [OAuth apps](oauth-apps.md)), then select **Sync now** or wait for the schedule. The connection shows a recent "last synced" time and `public.sync_jobs` has a `succeeded` row for it.
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
+- [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
 
 ## What stays Eddie's
 
@@ -234,4 +247,5 @@ Run every check against the production URL and write down the deployment URL you
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.
+- Migrating and rotating the JWT signing keys of the production (and staging) Supabase projects ([JWT signing keys](#jwt-signing-keys)).
 - Turning on GitHub secret scanning and push protection for the repository. In **Settings, Code security** (called **Advanced Security** in newer GitHub layouts), enable **Secret scanning** and **Push protection**. For a private repository this needs GitHub Secret Protection, a paid part of GitHub Advanced Security; both are free once the repository is public. Until they are on, the gitleaks scan in CI is the only automated secret check, and it only runs after a push. Confirm with `gh api repos/eddiejaoude/DevMacro --jq '.security_and_analysis'`: `secret_scanning` and `secret_scanning_push_protection` must both show `"status": "enabled"`.

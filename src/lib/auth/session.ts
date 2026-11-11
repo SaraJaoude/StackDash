@@ -16,8 +16,11 @@ export type SessionUser = { id: string; email: string | null; profile: AccountPr
  * The signed-in user for this request, or null.
  *
  * Uses `getClaims()`, which verifies the access token signature (and refreshes it when close to
- * expiry), never `getSession()`, which trusts whatever the cookie says. Cached per request so a
- * page, its layout, and its data loaders share one verification.
+ * expiry), never `getSession()`, which trusts whatever the cookie says. With an asymmetric signing
+ * key (the local stack's default, and the hosted setup in docs/operations/deploy.md) it verifies
+ * against the project's public keys, which supabase-js caches in memory for 10 minutes, with no
+ * Auth server call; with the legacy HS256 secret it asks the Auth server every time (#318). Cached
+ * per request so a page, its layout, and its data loaders share one verification.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   // The session is per request and the auth client reads the clock (token expiry) while it sets
