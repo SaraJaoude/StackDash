@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 
 import { severityFor, type AlertSeverity } from "@/lib/alerts/evaluate";
+import { alertHeadline, type AlertHeadline } from "@/lib/alerts/headline";
 import { beforeCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -17,27 +18,50 @@ import { createClient } from "@/lib/supabase/server";
 
 type Row = Database["public"]["Tables"]["triggered_alerts"]["Row"];
 
-export type TriggeredAlert = Pick<
-  Row,
-  "id" | "triggered_at" | "threshold_label" | "is_estimated" | "message" | "acknowledged_at" | "acknowledged_by"
-> & { severity: AlertSeverity };
+type ListedColumns =
+  | "id"
+  | "triggered_at"
+  | "threshold_label"
+  | "is_estimated"
+  | "message"
+  | "acknowledged_at"
+  | "acknowledged_by";
+
+export type TriggeredAlert = Pick<Row, ListedColumns> & { severity: AlertSeverity; headline: AlertHeadline };
 
 export type UnacknowledgedSummary = { count: number; newest: TriggeredAlert[] };
 
 export const TRIGGERED_ALERTS_PAGE_SIZE = 50;
 export const SUMMARY_NEWEST_COUNT = 3;
+/**
+ * The most alerts one "Acknowledge all" acknowledges. The ids travel in the update's URL
+ * (`id=in.(…)`), so 100 keeps it near 4 KB; PostgREST's own `limit` on an update is not usable here
+ * (with an `order` it fails with 42703 on the local stack, checked 2026-11-10).
+ */
+export const ACKNOWLEDGE_ALL_LIMIT = 100;
 
-// The rule's threshold decides the severity, the same way the evaluator decides it.
+// The rule's threshold decides the severity, the same way the evaluator decides it; its kind and the
+// observed columns make the short title (src/lib/alerts/headline.ts).
 const COLUMNS =
-  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, alert_rules!triggered_alerts_rule_fkey(threshold_percent)" as const;
+  "id, triggered_at, threshold_label, is_estimated, message, acknowledged_at, acknowledged_by, provider, observed_value, observed_amount_minor, currency, alert_rules!triggered_alerts_rule_fkey(threshold_percent, kind)" as const;
 
-type SelectedRow = Pick<
-  Row,
-  "id" | "triggered_at" | "threshold_label" | "is_estimated" | "message" | "acknowledged_at" | "acknowledged_by"
-> & { alert_rules: { threshold_percent: number | null } | null };
+type SelectedRow = Pick<Row, ListedColumns | "provider" | "observed_value" | "observed_amount_minor" | "currency"> & {
+  alert_rules: Pick<Database["public"]["Tables"]["alert_rules"]["Row"], "threshold_percent" | "kind"> | null;
+};
 
-function toAlert({ alert_rules: rule, ...row }: SelectedRow): TriggeredAlert {
-  return { ...row, severity: severityFor(rule?.threshold_percent ?? null) };
+function toAlert({
+  alert_rules: rule,
+  provider,
+  observed_value,
+  observed_amount_minor,
+  currency,
+  ...row
+}: SelectedRow): TriggeredAlert {
+  return {
+    ...row,
+    severity: severityFor(rule?.threshold_percent ?? null),
+    headline: alertHeadline({ kind: rule?.kind ?? null, provider, observed_value, observed_amount_minor, currency }),
+  };
 }
 
 /**
@@ -76,15 +100,23 @@ export const hasTriggeredAlerts = cache(async (workspaceId: string): Promise<boo
   return data.length > 0;
 });
 
+/** How many alerts nobody has acknowledged yet. */
+export const countUnacknowledgedAlerts = cache(async (workspaceId: string): Promise<number> => {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from("triggered_alerts")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspaceId)
+    .is("acknowledged_at", null);
+  if (error) throw new Error("Failed to count unacknowledged alerts", { cause: error });
+  return count ?? 0;
+});
+
 /** How many alerts nobody has acknowledged yet, and the newest few of them, for the dashboard. */
 export const getUnacknowledgedSummary = cache(async (workspaceId: string): Promise<UnacknowledgedSummary> => {
   const supabase = await createClient();
-  const [counted, newest] = await Promise.all([
-    supabase
-      .from("triggered_alerts")
-      .select("id", { count: "exact", head: true })
-      .eq("workspace_id", workspaceId)
-      .is("acknowledged_at", null),
+  const [count, newest] = await Promise.all([
+    countUnacknowledgedAlerts(workspaceId),
     supabase
       .from("triggered_alerts")
       .select(COLUMNS)
@@ -94,9 +126,8 @@ export const getUnacknowledgedSummary = cache(async (workspaceId: string): Promi
       .order("id", { ascending: false })
       .limit(SUMMARY_NEWEST_COUNT),
   ]);
-  if (counted.error) throw new Error("Failed to count unacknowledged alerts", { cause: counted.error });
   if (newest.error) throw new Error("Failed to list unacknowledged alerts", { cause: newest.error });
-  return { count: counted.count ?? newest.data.length, newest: newest.data.map(toAlert) };
+  return { count, newest: newest.data.map(toAlert) };
 });
 
 /**
@@ -124,4 +155,36 @@ export async function acknowledgeTriggeredAlert(workspaceId: string, id: string,
     .maybeSingle();
   if (readError) throw new Error("Failed to read alert", { cause: readError });
   return existing !== null;
+}
+
+/**
+ * Marks this workspace's unacknowledged alerts acknowledged by `userId`, now: the newest
+ * `ACKNOWLEDGE_ALL_LIMIT` of them, so one call is bounded however many have piled up. Returns how
+ * many this call acknowledged. An alert someone else acknowledged in between keeps their
+ * acknowledgement and is not counted, and another workspace's alerts are never read or written.
+ */
+export async function acknowledgeAllTriggeredAlerts(workspaceId: string, userId: string): Promise<number> {
+  const supabase = await createClient();
+  const { data: pending, error: readError } = await supabase
+    .from("triggered_alerts")
+    .select("id")
+    .eq("workspace_id", workspaceId)
+    .is("acknowledged_at", null)
+    .order("triggered_at", { ascending: false })
+    .order("id", { ascending: false })
+    .limit(ACKNOWLEDGE_ALL_LIMIT);
+  if (readError) throw new Error("Failed to list unacknowledged alerts", { cause: readError });
+  if (pending.length === 0) return 0;
+  const { data, error } = await supabase
+    .from("triggered_alerts")
+    .update({ acknowledged_at: new Date().toISOString(), acknowledged_by: userId })
+    .eq("workspace_id", workspaceId)
+    .in(
+      "id",
+      pending.map((row) => row.id),
+    )
+    .is("acknowledged_at", null)
+    .select("id");
+  if (error) throw new Error("Failed to acknowledge alerts", { cause: error });
+  return data.length;
 }

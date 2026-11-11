@@ -1129,6 +1129,23 @@ describe("a small product's demo (#264)", () => {
     }
   });
 
+  it.each([
+    { id: "stripe", paid: "stripe.charge.succeeded", money: ["stripe.charge.succeeded", "stripe.charge.failed", "stripe.charge.refunded"] },
+    { id: "polar", paid: "polar.order.paid", money: ["polar.order.paid", "polar.refund.succeeded"] },
+  ] as const)("prints the amount and currency on every simulated $id payment and refund (#261)", async ({ id, paid, money }) => {
+    const adapter = simulatedAdapters[id];
+    // The chain's first sync backfills, so this covers weeks of payments, failures, and refunds.
+    const syncs = await syncChain(adapter, await connect(adapter), DAY_CHAIN);
+    const events = syncs.flatMap(({ result }) => result.events).filter((event) => money.some((typeId) => typeId === event.typeId));
+    expect(events.filter((event) => event.typeId === paid).length).toBeGreaterThan(0);
+    for (const event of events) {
+      // One amount in one currency, "$49.00" or "€19.00", and for a partial refund "of" the price "so far".
+      expect(event.title, event.typeId).toMatch(/: [$€]\d+\.\d{2}( of [$€]\d+\.\d{2} so far)?$/);
+      // A failed payment's reason is a sentence, never Stripe's code.
+      if (event.body !== undefined) expect(event.body, event.typeId).not.toMatch(/_/);
+    }
+  });
+
   it("names the branch each simulated GitLab environment deploys, never main for a review app", async () => {
     const adapter = simulatedAdapters.gitlab;
     const credential = await connect(adapter);

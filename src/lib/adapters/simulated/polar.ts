@@ -9,7 +9,7 @@ import {
   subscriptionCanceledEvent,
   subscriptionStartedEvent,
 } from "@/lib/adapters/polar";
-import type { MetricPeriod, Subscription } from "@/lib/adapters/polar/schemas";
+import type { MetricPeriod, Order, Subscription } from "@/lib/adapters/polar/schemas";
 import type { AdapterContext } from "@/lib/adapters/types";
 
 import {
@@ -51,8 +51,11 @@ const BILLING_REASONS = ["subscription_cycle", "subscription_cycle", "subscripti
 const CANCELLATION_REASONS = ["too_expensive", "unused", "missing_features", "switched_service", "other"] as const;
 const REFUND_REASONS = ["customer_request", "duplicate", "satisfaction_guarantee", "other"] as const;
 
-// The monthly plan, in cents. MRR moves by one plan for each subscription gained or lost.
+// The monthly plan, in cents. MRR moves by one plan for each subscription gained or lost. A paid
+// order is a plan payment, or a one-time product at ONE_TIME_CENTS, so the timeline prints amounts
+// (#261) in line with the revenue below; a refund returns one plan.
 const PLAN_CENTS = 1900;
+const ONE_TIME_CENTS = 4900;
 
 function pick<T>(values: readonly T[], ...parts: readonly (string | number)[]): T {
   const value = values[Math.floor(unit(...parts) * values.length)];
@@ -72,6 +75,18 @@ function subscription(id: string, overrides: Partial<Subscription>): Subscriptio
   };
 }
 
+function paidOrder(id: string, at: Date, parts: readonly (string | number)[]): Order {
+  const billingReason = pick(BILLING_REASONS, ...parts, "reason");
+  return {
+    id,
+    created_at: at,
+    status: "paid",
+    billing_reason: billingReason,
+    total_amount: billingReason === "purchase" ? ONE_TIME_CENTS : PLAN_CENTS,
+    currency: "USD",
+  };
+}
+
 function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
   const events: ActivityEvent[] = [];
   for (const stream of ["order", "started", "canceled", "refund"] as const) {
@@ -82,7 +97,7 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
       const at = instantInSlot(slot, ...parts, "at");
       const event =
         stream === "order"
-          ? orderEvent({ id, created_at: at, status: "paid", billing_reason: pick(BILLING_REASONS, ...parts, "reason") }, accountId)
+          ? orderEvent(paidOrder(id, at, parts), accountId)
           : stream === "started"
             ? subscriptionStartedEvent(subscription(id, { started_at: at }), accountId)
             : stream === "canceled"
@@ -95,7 +110,15 @@ function eventsInSlot(accountId: string, slot: number): ActivityEvent[] {
                   accountId,
                 )
               : refundEvent(
-                  { id, created_at: at, status: "succeeded", reason: pick(REFUND_REASONS, ...parts, "reason") },
+                  {
+                    id,
+                    created_at: at,
+                    status: "succeeded",
+                    reason: pick(REFUND_REASONS, ...parts, "reason"),
+                    amount: PLAN_CENTS,
+                    tax_amount: 0,
+                    currency: "USD",
+                  },
                   accountId,
                 );
       if (event !== undefined) events.push(event);

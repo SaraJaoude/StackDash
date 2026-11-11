@@ -109,12 +109,14 @@ The first sync reads the last 30 days. Each later sync reads from one day before
 
 | Event type | Source | Rule | Title |
 |---|---|---|---|
-| `polar.order.paid` | `GET /v1/orders/?created_after=` | Status `paid`, `refunded`, or `partially_refunded`. Draft, pending, and void orders are skipped | By `billing_reason`: "Order paid", "Order paid for a new subscription", "Subscription renewed", "Order paid for a subscription change" |
+| `polar.order.paid` | `GET /v1/orders/?created_after=` | Status `paid`, `refunded`, or `partially_refunded`. Draft, pending, and void orders are skipped | By `billing_reason`: "Order paid", "Order paid for a new subscription", "Subscription renewed", "Order paid for a subscription change", each followed by the order's `total_amount` in its `currency`: "Subscription renewed: $19.00" |
 | `polar.subscription.started` | `GET /v1/subscriptions/?started_after=` | `started_at` set | "Subscription started", or "Trial started" while trialing |
 | `polar.subscription.canceled` | `GET /v1/subscriptions/?canceled_at_after=` | `canceled_at` set | "Subscription canceled". Body: the customer's reason from Polar's enum, and "Access continues until the paid period ends." when `cancel_at_period_end` |
-| `polar.refund.succeeded` | `GET /v1/refunds/?succeeded=true&sorting=-created_at` | Status `succeeded`, filtered by Polar so pending and failed refunds do not use the page cap. No date filter exists, so the list stops at the first refund before the window | "Order refunded". Body: Polar's reason enum in words |
+| `polar.refund.succeeded` | `GET /v1/refunds/?succeeded=true&sorting=-created_at` | Status `succeeded`, filtered by Polar so pending and failed refunds do not use the page cap. No date filter exists, so the list stops at the first refund before the window | "Order refunded", followed by `amount` plus `tax_amount` in its `currency`: "Order refunded: $9.00". Body: Polar's reason enum in words |
 
 Event times are the order's `created_at`, the subscription's `started_at` or `canceled_at`, and the refund's `created_at`. Dedupe keys are `order:<id>`, `subscription_started:<id>`, `subscription_canceled:<id>`, and `refund:<id>`.
+
+Amounts on titles are integer minor units with the order's or refund's own ISO 4217 currency, formatted with that currency's number of minor digits, one event at a time and never added across events or currencies. An order shows `total_amount`, the order's value after discounts and tax; a customer's applied balance (`applied_balance_amount`) can make the amount charged differ, and is not shown. A refund's `amount` is before tax and Polar refunds the matching tax alongside it ([Refunds](https://polar.sh/docs/features/refunds), "Amount"), so the title shows their sum. An order or refund without its amount, its tax part, or its currency gets the title alone.
 
 Every event type here needs only a read scope; none was left out for needing a write scope.
 
@@ -133,7 +135,7 @@ Every event type here needs only a read scope; none was left out for needing a w
 | Revenue this month, MRR, ARR, orders, new, canceled, and active subscriptions | Verified (Polar's own analytics) |
 | Polar fees this month | Verified: revenue minus net revenue, both from Polar. Not inferred from a price list |
 | New customers this month | Verified count of customers Polar lists as created this month |
-| Paid orders, new and canceled subscriptions, refunds | Verified events with Polar ids and times |
+| Paid orders, new and canceled subscriptions, refunds | Verified events with Polar ids and times, and each order's and refund's amount in its own currency |
 | Revenue in the currency the customer paid | Unavailable: analytics are in USD only. Orders carry their own currency but are not summed by DevMacro |
 | Payout fees (Stripe's fees on Polar payouts) | Unavailable: not part of net revenue |
 | Dispute fees | Unavailable: deducted from the balance, not reported per order |
@@ -154,7 +156,7 @@ Polling only. Polar's webhook endpoints need `webhooks:write` to create, which i
 Disclose these on the connect screen before redirecting:
 
 - **`customers:read`** returns every customer's email, name, billing address, and tax id. DevMacro parses only `id` and `created_at` and drops the rest at the parse boundary, but the token can read all of it.
-- **`orders:read` and `subscriptions:read`** responses embed the customer and their billing details, and subscriptions carry the customer's free text cancellation comment. DevMacro keeps only ids, statuses, times, and Polar's enum reason codes.
+- **`orders:read` and `subscriptions:read`** responses embed the customer and their billing details, and subscriptions carry the customer's free text cancellation comment. DevMacro keeps only ids, statuses, times, Polar's enum reason codes, and each order's and refund's amount and currency.
 - The token is **user-scoped**: unless the user limits it on the consent screen, it reaches every organization the user belongs to now or joins later.
 - The access token lasts 10 days and the refresh token longer. Both are encrypted at rest and revoked on disconnect.
 
@@ -247,6 +249,8 @@ All samples are from documentation, not recorded: shaped after the API reference
       "billing_reason": "purchase",
       "currency": "usd",
       "net_amount": 4900,
+      "tax_amount": 980,
+      "total_amount": 5880,
       "platform_fee_amount": 295,
       "customer": { "id": "c0ffee00-0000-4000-8000-000000000001", "email": "jane.doe@example.com", "name": "Jane Doe" }
     }
@@ -285,6 +289,7 @@ All samples are from documentation, not recorded: shaped after the API reference
       "status": "succeeded",
       "reason": "customer_request",
       "amount": 900,
+      "tax_amount": 0,
       "currency": "usd",
       "order_id": "0a1b2c3d-0000-4000-8000-000000000004"
     }

@@ -2,7 +2,7 @@
 
 import { startTransition, useEffect, useId, useRef, type FormEvent, type ReactNode } from "react";
 
-import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import type { AlertActionFailure, AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { LockIcon } from "@/components/icons";
 import { CUSTOM_CHOICE, type AlertScope } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
@@ -41,7 +41,7 @@ export const smallButtonClass =
   "inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-3 py-1 text-sm font-medium text-foreground transition-colors hover:border-accent aria-disabled:opacity-60";
 
 /** The failure part of an action result, or null. */
-export function failureOf(state: AlertActionResult | null): Extract<AlertActionResult, { ok: false }> | null {
+export function failureOf(state: { ok: true } | AlertActionFailure | null): AlertActionFailure | null {
   return state !== null && !state.ok ? state : null;
 }
 
