@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
+
+import { REFRESH_DEBOUNCE_MS } from "../src/lib/realtime/refresh-scheduler";
 
 import {
   createSyntheticUser,
@@ -16,7 +18,15 @@ import {
 } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { expectSubscribed, FrameSchema, LIVE_TIMEOUT_MS, SubscribedSchema, watchLiveChannel } from "./fixtures/realtime";
+import {
+  expectSubscribed,
+  FrameSchema,
+  isRenderRequest,
+  LIVE_TIMEOUT_MS,
+  type LiveChannel,
+  SubscribedSchema,
+  watchLiveChannel,
+} from "./fixtures/realtime";
 
 // Live updates (#129): a row written after the page loaded appears without a reload. Every test
 // seeds its own workspaces, and the rows go in with the service role, the way a sync writes them.
@@ -179,6 +189,36 @@ async function subscribeOutsideApp(user: SyntheticUser, workspaceIds: readonly s
   };
 }
 
+/**
+ * Holds the next render request for `path` (a refresh, or a navigation to it) until the test
+ * answers it, and lets every other request through. Call before the page opens. The function it
+ * returns resolves with the held request.
+ */
+async function holdNextRender(page: Page, path: string): Promise<() => Promise<Route>> {
+  const held = Promise.withResolvers<Route>();
+  let holding = true;
+  await page.route(
+    (url) => url.pathname === path,
+    async (route) => {
+      if (holding && isRenderRequest(route.request(), path)) {
+        holding = false;
+        held.resolve(route);
+      } else {
+        await route.fallback();
+      }
+    },
+  );
+  return () => held.promise;
+}
+
+/** Whether the channel has delivered the activity event with this title. */
+function deliveredEvent(live: LiveChannel, title: string): boolean {
+  return z
+    .array(LiveChangeSchema)
+    .parse(live.changes())
+    .some(({ table, record }) => table === "activity_events" && record.title === title);
+}
+
 ownerTest.describe("live updates", () => {
   ownerTest("shows a new timeline event without a reload and leaves the channel with the workspace", async ({ page }) => {
     const workspace = await createTestWorkspace("Live timeline");
@@ -220,6 +260,86 @@ ownerTest.describe("live updates", () => {
 
       await expect(usd).toContainText("$43.21", { timeout: LIVE_TIMEOUT_MS });
     } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // One refresh runs at a time (#309): a change that arrives while one runs waits for it, then
+  // gets one refresh of its own.
+  ownerTest("shows an event that arrives while the previous refresh is still running", async ({ page }) => {
+    const workspace = await createTestWorkspace("Live single flight");
+    try {
+      const seeded = await seedConnection(workspace);
+      const path = `/w/${workspace.slug}/timeline`;
+      const heldRender = await holdNextRender(page, path);
+      // The page's timers run on Playwright's clock, so the test can end the second change's
+      // debounce while the first refresh is still held.
+      await page.clock.install();
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(path);
+      await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
+      await expectSubscribed(live);
+
+      const firstTitle = `First live event ${randomUUID().slice(0, 8)}`;
+      await insertEvent(seeded, firstTitle);
+      const running = await heldRender();
+      // The server renders the first refresh now, before the second event exists.
+      const firstRender = await running.fetch();
+      await firstRender.body();
+
+      const secondTitle = `Second live event ${randomUUID().slice(0, 8)}`;
+      await insertEvent(seeded, secondTitle);
+      await expect.poll(() => deliveredEvent(live, secondTitle), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
+      // A round trip through the page, so it has handled the change, then its debounce ends while
+      // the first refresh is still running.
+      await page.evaluate(() => undefined);
+      await page.clock.runFor(REFRESH_DEBOUNCE_MS);
+
+      await running.fulfill({ response: firstRender });
+      await expect(page.getByRole("heading", { name: firstTitle, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+      await expect(page.getByRole("heading", { name: secondTitle, exact: true })).toBeVisible({
+        timeout: LIVE_TIMEOUT_MS,
+      });
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // A navigation while a refresh is still on its way joins it: Next.js builds the navigation on the
+  // refreshing router state, and React renders both in one transition. The refresh must still be
+  // seen to end, or every later change would queue behind it for the rest of the visit.
+  ownerTest("keeps refreshing after a navigation during a running refresh", async ({ page }) => {
+    const workspace = await createTestWorkspace("Live refresh navigation");
+    try {
+      const seeded = await seedConnection(workspace);
+      const timelinePath = `/w/${workspace.slug}/timeline`;
+      const dashboardPath = `/w/${workspace.slug}/dashboard`;
+      const heldRender = await holdNextRender(page, timelinePath);
+      const live = watchLiveChannel(page, workspace.id);
+      await page.goto(timelinePath);
+      await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
+      await expectSubscribed(live);
+
+      await insertEvent(seeded, `Event before navigating ${randomUUID().slice(0, 8)}`);
+      const running = await heldRender();
+      const navigating = page.waitForRequest((request) => isRenderRequest(request, dashboardPath));
+      await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" }).click();
+      await navigating;
+      // The navigation is on its way. It reuses the layout the refresh is still fetching, so it can
+      // only land once the refresh does.
+      await running.continue();
+      await expect(page).toHaveURL(dashboardPath);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Dashboard");
+
+      const usd = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", {
+        name: "Spend in USD",
+      });
+      await expect(usd).toHaveCount(0);
+      await insertMoneySnapshot(seeded, 4_321);
+      await expect(usd).toContainText("$43.21", { timeout: LIVE_TIMEOUT_MS });
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
       await deleteTestWorkspace(workspace);
     }
   });
