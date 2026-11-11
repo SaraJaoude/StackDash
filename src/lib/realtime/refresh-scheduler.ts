@@ -44,8 +44,12 @@ export type RefreshScheduler = {
    */
   visibilityChanged: () => void;
   /**
-   * The refresh last started has finished; starts the one queued behind it, if any. A refresh not
-   * settled within `REFRESH_MAX_IN_FLIGHT_MS` is treated as settled.
+   * No refresh this scheduler started is still running: call it when every one has landed, the
+   * way `useTransition`'s `isPending` turns false only once all of them have. It starts the refresh
+   * queued behind them, if any. A refresh not settled within `REFRESH_MAX_IN_FLIGHT_MS` is treated
+   * as settled, and may start a successor; a late `settled()` for the expired one is safe only
+   * under this contract, because it cannot arrive before the successor has landed too. A caller
+   * that reported each refresh separately would end the successor early and drop its limit.
    */
   settled: () => void;
   /** Cancels any pending, queued, or deferred refresh. Every later call does nothing. */

@@ -216,7 +216,8 @@ describe("createRefreshScheduler single flight", () => {
     scheduler.notify();
     vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
     expect(refresh).toHaveBeenCalledTimes(2);
-    // The first refresh's limit would end now; the second is still running, so a change queues.
+    // Had settling not cleared it, the first refresh's limit would fire during the next advance,
+    // before the flush; the second refresh is still running, so the change queues.
     vi.advanceTimersByTime(REFRESH_MAX_IN_FLIGHT_MS - 2 * REFRESH_DEBOUNCE_MS);
     scheduler.notify();
     vi.advanceTimersByTime(REFRESH_DEBOUNCE_MS);
