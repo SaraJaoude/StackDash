@@ -256,15 +256,16 @@ ownerTest.describe("dashboard trends", () => {
       await expect(table.getByRole("row", { name: new RegExp(`^${seeded.yesterday}`) })).toContainText("No events");
 
       // Hiding a category is URL state: the marker and its table entry go, the toggle flips. The
-      // page stays where it was rather than jumping to the top (#312).
+      // page stays where the toggles are rather than jumping to the top (#312). Reduced motion turns
+      // off the page's smooth scrolling, so any scroll the navigation makes has finished by the time
+      // the flipped toggle shows. The toggles are the check, not the exact offset: the open values
+      // table below them closes on navigation, so the page gets shorter.
+      await page.emulateMedia({ reducedMotion: "reduce" });
       await toggles.evaluate((element) => element.scrollIntoView({ block: "center" }));
-      const scrolled = await page.evaluate(() => window.scrollY);
-      expect(scrolled).toBeGreaterThan(0);
+      expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
       await toggles.getByRole("link", { name: "Hide deployments" }).click();
       await expect(page).toHaveURL(/[?&]hide_marker=deployments(&|$)/);
-      await expect(toggles.getByRole("link", { name: "Show deployments" })).toBeVisible();
-      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrolled);
-      await expect(toggles).toBeInViewport();
+      await expect(toggles.getByRole("link", { name: "Show deployments" })).toBeInViewport();
       await expect(spend.getByRole("link", { name: `14 deployments on ${twoDaysAgo}` })).toHaveCount(0);
       await expect(spend.getByRole("link", { name: `1 signup on ${today}` })).toBeVisible();
       await expect(trends.getByRole("link", { name: "Monthly, last 13 months" })).toHaveAttribute(
