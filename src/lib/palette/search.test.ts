@@ -12,22 +12,23 @@ import {
   pointerMoved,
   searchCommands,
   type PaletteCommand,
+  type PaletteKind,
   type PaletteKey,
   type PaletteShortcut,
   type ShortcutKeyEvent,
 } from "./search";
 
-function command(id: string, label: string, keywords = ""): PaletteCommand {
-  return { id, label, keywords, action: { kind: "navigate", href: `/${id}` } };
+function command(id: string, label: string, keywords = "", kind: PaletteKind = "Page"): PaletteCommand {
+  return { id, label, kind, keywords, action: { kind: "navigate", href: `/${id}` } };
 }
 
 const COMMANDS: readonly PaletteCommand[] = [
-  command("timeline", "Go to timeline", "events activity deploys"),
-  command("dashboard", "Go to dashboard", "spend usage"),
-  command("dashboard-vercel", "Show dashboard for provider Vercel", "vercel spend usage"),
-  command("timeline-vercel-failed", "Show timeline for Vercel: Deployment failed", "vercel deployment failed events"),
-  command("project-cafe", "Show dashboard for project Café"),
-  command("connect-resend", "Connect Resend", "resend add provider"),
+  command("timeline", "Timeline", "events activity deploys"),
+  command("dashboard", "Dashboard", "spend usage"),
+  command("dashboard-vercel", "Vercel", "vercel spend usage", "Provider dashboard"),
+  command("timeline-vercel-failed", "Vercel: Deployment failed", "vercel deployment failed events", "Event timeline"),
+  command("project-cafe", "Café", "", "Project dashboard"),
+  command("connect-resend", "Connect Resend", "resend add provider", "Action"),
 ];
 
 const ids = (commands: readonly PaletteCommand[]) => commands.map((item) => item.id);
@@ -49,6 +50,16 @@ describe("searchCommands", () => {
   it("matches every word in any order, in the label or the keywords", () => {
     expect(ids(searchCommands(COMMANDS, "failed vercel").results)).toEqual(["timeline-vercel-failed"]);
     expect(ids(searchCommands(COMMANDS, "deploys").results)).toEqual(["timeline"]);
+  });
+
+  it("matches the kind too, so a short label is still found by what it is", () => {
+    expect(ids(searchCommands(COMMANDS, "vercel dashboard").results)).toEqual(["dashboard-vercel"]);
+    expect(ids(searchCommands(COMMANDS, "project").results)).toEqual(["project-cafe"]);
+  });
+
+  it("ranks by the label, never the kind: a label starting with the query beats a kind that does", () => {
+    const commands = [command("kind-only", "Vercel", "", "Provider dashboard"), command("label", "Provider settings")];
+    expect(ids(searchCommands(commands, "provider").results)).toEqual(["label", "kind-only"]);
   });
 
   it("finds nothing when one word matches nothing", () => {
