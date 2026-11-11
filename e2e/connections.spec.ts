@@ -126,7 +126,12 @@ ownerTest.describe("connecting a provider as the owner", () => {
 
       const connectionId = await connectThroughUi(page, workspace.slug);
       await expect(page.getByRole("heading", { level: 1 })).toContainText(PROVIDER_NAME);
-      await expect(page.getByRole("status").filter({ hasText: `${PROVIDER_NAME} connected` })).toBeVisible();
+      const connected = page.getByRole("status").filter({ hasText: `${PROVIDER_NAME} connected` });
+      await expect(connected).toBeVisible();
+      // The banner names the next step (#322): the timeline, where the first sync's events arrive.
+      const openTimeline = connected.getByRole("link", { name: "Open the timeline" });
+      await expect(openTimeline).toHaveAttribute("href", `/w/${workspace.slug}/timeline`);
+      await expectNoAxeViolations(page);
       await expect(page.getByText("Status: Active").first()).toBeVisible();
       const accounts = page.getByRole("list", { name: "Accounts" });
       await expect(accounts.getByRole("listitem")).toHaveCount(2);
@@ -142,6 +147,13 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .maybeSingle();
       expect(credential?.connection_id).toBe(connectionId);
       expect(await page.content()).not.toContain("fake-at-");
+
+      // Keyboard only: the banner's link opens the timeline, which says the first sync is coming.
+      await openTimeline.focus();
+      await expect(openTimeline).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await expect(page.getByRole("region", { name: "Events are on their way" })).toBeVisible();
 
       // The list shows it with its status in words.
       await page.goto(`/w/${workspace.slug}/connections`);

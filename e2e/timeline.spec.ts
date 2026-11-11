@@ -317,6 +317,72 @@ ownerTest.describe("timeline as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  // #322: a connection whose first sync has not run yet. The timeline says events are coming
+  // instead of asking for a provider that is already connected.
+  ownerTest("says events are on their way while the first sync runs, from the keyboard", async ({ page }) => {
+    const workspace = await createTestWorkspace("Timeline first sync");
+    try {
+      await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel first sync",
+        externalId: "team_first_sync",
+        accountName: "First sync team",
+        kind: "team",
+      });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const empty = page.getByRole("region", { name: "Events are on their way" });
+      await expect(empty).toContainText("The first sync is queued or running.");
+      await expect(page.getByRole("heading", { name: "No activity yet" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Connect a provider" })).toHaveCount(0);
+      const status = empty.getByRole("link", { name: "Check connection status" });
+      await expect(status).toHaveAttribute("href", `/w/${workspace.slug}/connections`);
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+
+      await status.focus();
+      await expect(status).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Connections");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("says nothing has been reported once every connection has synced", async ({ page }) => {
+    const workspace = await createTestWorkspace("Timeline synced quiet");
+    try {
+      const { connectionId } = await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel synced",
+        externalId: "team_synced",
+        accountName: "Synced team",
+        kind: "team",
+      });
+      const { error } = await adminClient()
+        .from("connections")
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq("id", connectionId);
+      if (error) throw new Error(`Marking the connection synced failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const empty = page.getByRole("region", { name: "No activity yet" });
+      await expect(empty).toContainText("Your connected providers have not reported any events yet.");
+      await expect(empty.getByRole("link", { name: "Check connections" })).toHaveAttribute(
+        "href",
+        `/w/${workspace.slug}/connections`,
+      );
+      await expect(page.getByRole("link", { name: "Connect a provider" })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Events are on their way" })).toHaveCount(0);
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 });
 
 viewerTest.describe("timeline as a viewer", () => {
@@ -328,6 +394,29 @@ viewerTest.describe("timeline as a viewer", () => {
       await expect(eventHeading(page, 0)).toBeVisible();
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(eventHeading(page, 59)).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // Viewers cannot connect providers, but they can read the Connections page, so the control stays.
+  viewerTest("offers the connection status link while the first sync runs, with no role reason", async ({ page }) => {
+    const workspace = await createTestWorkspace("Timeline first sync viewer");
+    try {
+      await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel first sync",
+        externalId: "team_first_sync_viewer",
+        accountName: "First sync team",
+        kind: "team",
+      });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const empty = page.getByRole("region", { name: "Events are on their way" });
+      await expect(empty.getByRole("link", { name: "Check connection status" })).toHaveAttribute(
+        "href",
+        `/w/${workspace.slug}/connections`,
+      );
+      await expect(empty.getByText("Only owners and admins can connect providers.")).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }
