@@ -3,6 +3,7 @@ import type { Locator, Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
 
 // Each test creates its own workspace and seeds only inside it, so tests run in any order.
 
@@ -190,6 +191,27 @@ ownerTest.describe("managing projects as the owner", () => {
         .eq("workspace_id", workspace.id);
       if (budgetError) throw new Error(`Counting budgets failed (code ${budgetError.code}).`);
       expect(count).toBe(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Projects delete failure");
+    try {
+      const projectId = await seedProject(workspace, "Billing");
+      await page.goto(`/w/${workspace.slug}/projects`);
+      await expectFailureInDialog(page, {
+        trigger: page.getByRole("button", { name: "Delete Billing" }),
+        dialog: page.getByRole("dialog", { name: "Delete Billing?" }),
+        confirmName: "Delete project",
+        // Deleted behind the open dialog, so the action finds nothing to delete.
+        breakIt: async () => {
+          const { error } = await adminClient().from("projects").delete().eq("id", projectId);
+          if (error) throw new Error(`Deleting the project failed (code ${error.code}).`);
+        },
+        message: "This project no longer exists. Reload the page to see the current list.",
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }
