@@ -8,7 +8,7 @@ import {
 import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics } from "@/lib/adapters/metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
-import { stripeAdapter } from "./index";
+import { stripeAdapter, toActivityEvent } from "./index";
 // Fixtures are from documentation, not recorded: shaped after the sample responses and object
 // fields on docs/providers/stripe.md, trimmed, with synthetic ids, amounts, and personal data.
 import balanceTransactionsFixture from "./fixtures/balance-transactions.json";
@@ -284,14 +284,14 @@ describe("stripeAdapter.sync", () => {
     });
 
     expect(result.events.map((event) => [event.typeId, event.title, event.dedupeKey])).toEqual([
-      ["stripe.charge.refunded", "Payment partially refunded", "evt_fixture_charge_refunded"],
-      ["stripe.charge.failed", "Payment failed", "evt_fixture_charge_failed"],
-      ["stripe.charge.succeeded", "Payment succeeded", "evt_fixture_charge_succeeded"],
+      ["stripe.charge.refunded", "Payment partially refunded: $5.00 of $20.00 so far", "evt_fixture_charge_refunded"],
+      ["stripe.charge.failed", "Payment failed: $15.00", "evt_fixture_charge_failed"],
+      ["stripe.charge.succeeded", "Payment succeeded: $20.00", "evt_fixture_charge_succeeded"],
       ["stripe.customer.created", "New customer", "evt_fixture_customer_created"],
       ["stripe.customer.subscription.created", "Subscription created", "evt_fixture_subscription_created"],
       ["stripe.customer.subscription.deleted", "Subscription ended", "evt_fixture_subscription_deleted"],
     ]);
-    expect(result.events[1]?.body).toBe("Failure code: card_declined");
+    expect(result.events[1]?.body).toBe("The card issuer declined the payment.");
     expect(result.events[0]?.occurredAt).toEqual(new Date(1794308400 * 1000));
     expect(result.cursor).toBe("1794308400");
     expect(result.partialErrors).toBeUndefined();
@@ -515,6 +515,18 @@ describe("stripeAdapter.sync", () => {
         }),
       },
     },
+    {
+      name: "charge currency that is not a three-letter code",
+      routes: {
+        "/v1/balance_transactions": emptyList,
+        "/v1/events": ok({
+          has_more: false,
+          data: [
+            { id: "evt_x", type: "charge.succeeded", created: nowSeconds, data: { object: { id: "ch_x", amount: 100, currency: "dollars" } } },
+          ],
+        }),
+      },
+    },
   ])("throws invalid_response on a schema mismatch: $name", async ({ routes }) => {
     const { fetch } = fakeFetch(routes);
     const { ctx } = context(fetch);
@@ -522,6 +534,88 @@ describe("stripeAdapter.sync", () => {
     await expect(
       stripeAdapter.sync({ credential: credential(), externalAccountId: accountId }, ctx),
     ).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+});
+
+describe("stripe payment events on the timeline (#261)", () => {
+  const charge = (type: string, object: Record<string, unknown>) =>
+    toActivityEvent({ id: "evt_x", type, created: nowSeconds, data: { object: { id: "ch_x", ...object } } }, accountId);
+
+  it.each([
+    { name: "a two-decimal currency", object: { amount: 4900, currency: "usd" }, title: "Payment succeeded: $49.00" },
+    { name: "a zero-decimal currency (JPY)", object: { amount: 1900, currency: "jpy" }, title: "Payment succeeded: ¥1,900" },
+    { name: "a three-decimal currency (KWD)", object: { amount: 1500, currency: "kwd" }, title: "Payment succeeded: KWD\u00a01.500" },
+    { name: "a zero amount", object: { amount: 0, currency: "eur" }, title: "Payment succeeded: €0.00" },
+    { name: "a missing amount", object: { currency: "usd" }, title: "Payment succeeded" },
+    { name: "a missing currency", object: { amount: 4900 }, title: "Payment succeeded" },
+  ])("titles a payment with $name", ({ object, title }) => {
+    expect(charge("charge.succeeded", object)?.title).toBe(title);
+  });
+
+  it("keeps each payment in its own currency, never summed", () => {
+    const titles = [
+      charge("charge.succeeded", { amount: 4900, currency: "usd" }),
+      charge("charge.succeeded", { amount: 1900, currency: "eur" }),
+    ].map((event) => event?.title);
+    expect(titles).toEqual(["Payment succeeded: $49.00", "Payment succeeded: €19.00"]);
+  });
+
+  it.each([
+    { name: "a known code", code: "insufficient_funds", body: "The customer's account did not have enough funds." },
+    {
+      name: "an unknown code",
+      code: "some_future_code",
+      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+    },
+    {
+      name: "a code named like an Object.prototype member",
+      code: "constructor",
+      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+    },
+    {
+      name: "free text where the code belongs",
+      code: "Card of Jane Doe was declined",
+      body: "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.",
+    },
+  ])("explains a failed payment with $name in a plain sentence, never the code", ({ code, body }) => {
+    const event = charge("charge.failed", { amount: 1500, currency: "gbp", failure_code: code });
+    expect(event).toMatchObject({ title: "Payment failed: £15.00", severity: "warning", body });
+    expect(event?.body).not.toContain(code);
+  });
+
+  it("adds no body to a failed payment Stripe gave no code for", () => {
+    expect(charge("charge.failed", { amount: 1500, currency: "usd", failure_code: null })?.body).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: "a full refund",
+      object: { amount: 4900, amount_refunded: 4900, currency: "eur", refunded: true },
+      title: "Payment refunded: €49.00",
+    },
+    { name: "a full refund without amount_refunded", object: { amount: 4900, currency: "eur", refunded: true }, title: "Payment refunded: €49.00" },
+    {
+      name: "a partial refund",
+      object: { amount: 4900, amount_refunded: 900, currency: "usd", refunded: false },
+      title: "Payment partially refunded: $9.00 of $49.00 so far",
+    },
+    {
+      name: "a partial refund in a zero-decimal currency",
+      object: { amount: 5000, amount_refunded: 1200, currency: "jpy", refunded: false },
+      title: "Payment partially refunded: ¥1,200 of ¥5,000 so far",
+    },
+    {
+      name: "a partial refund without amount_refunded, never the charge amount as the refund",
+      object: { amount: 4900, currency: "usd", refunded: false },
+      title: "Payment partially refunded",
+    },
+    {
+      name: "a partial refund without the charge amount",
+      object: { amount_refunded: 900, currency: "usd", refunded: false },
+      title: "Payment partially refunded: $9.00",
+    },
+  ])("titles $name", ({ object, title }) => {
+    expect(charge("charge.refunded", object)?.title).toBe(title);
   });
 });
 

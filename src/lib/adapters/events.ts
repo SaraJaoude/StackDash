@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatMoney } from "@/lib/format";
 import {
   AdapterScopedKeySchema,
   issuesFromZod,
@@ -80,4 +81,14 @@ export function validateAdapterEvents(
   });
 
   return issues.length === 0 ? { ok: true, items } : { ok: false, issues };
+}
+
+/**
+ * An event title with the money the event moved (#261): "Payment succeeded: $49.00". The amount is
+ * integer minor units in `currency` (ISO 4217), formatted with that currency's own minor digits,
+ * so 1900 JPY is "¥1,900". One amount per title, never a sum. Without the amount or its currency
+ * the title stands alone: no placeholder, no zero.
+ */
+export function titleWithAmount(title: string, amountMinor: number | undefined, currency: string | undefined): string {
+  return amountMinor === undefined || currency === undefined ? title : `${title}: ${formatMoney(amountMinor, currency)}`;
 }

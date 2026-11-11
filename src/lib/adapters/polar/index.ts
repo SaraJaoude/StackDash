@@ -6,7 +6,7 @@ import {
   fetchJson,
   readOAuthErrorCode,
 } from "@/lib/adapters/errors";
-import type { ActivityEvent, EventSeverity, EventType } from "@/lib/adapters/events";
+import { titleWithAmount, type ActivityEvent, type EventSeverity, type EventType } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import {
   Secret,
@@ -561,7 +561,7 @@ export function orderEvent(order: Order, externalAccountId: string): ActivityEve
       typeId: "polar.order.paid",
       occurredAt: order.created_at,
       severity: "success",
-      title: ORDER_TITLES[order.billing_reason] ?? "Order paid",
+      title: titleWithAmount(ORDER_TITLES[order.billing_reason] ?? "Order paid", order.total_amount, order.currency),
       dedupeKey: `order:${order.id}`,
     },
     externalAccountId,
@@ -606,12 +606,15 @@ export function subscriptionCanceledEvent(subscription: Subscription, externalAc
 export function refundEvent(refund: Refund, externalAccountId: string): ActivityEvent | undefined {
   if (refund.status !== "succeeded") return undefined;
   const reason = REFUND_REASONS[refund.reason];
+  // What the customer got back: the refund before tax plus the tax Polar refunded with it, both in
+  // the refund's one currency. Without either part the total is unknown, so no amount is shown.
+  const refundedMinor = refund.amount === undefined || refund.tax_amount === undefined ? undefined : refund.amount + refund.tax_amount;
   return toEvent(
     {
       typeId: "polar.refund.succeeded",
       occurredAt: refund.created_at,
       severity: "info",
-      title: "Order refunded",
+      title: titleWithAmount("Order refunded", refundedMinor, refund.currency),
       ...(reason === undefined ? {} : { body: `Reason: ${reason}` }),
       dedupeKey: `refund:${refund.id}`,
     },
@@ -746,7 +749,7 @@ export const polarAdapter: ProviderAdapter = {
     "Revenue before fees and Polar fees in USD, this month",
     "Monthly and annual recurring revenue in USD",
     "Orders, new and canceled subscriptions, active subscriptions, and new customers, as counts",
-    "Paid order, subscription, and refund events with Polar ids, dates, and Polar's reason codes",
+    "Paid order, subscription, and refund events with Polar ids, dates, each order's and refund's amount and currency, and Polar's reason codes",
     "Never customer names, emails, addresses, tax ids, or payment details",
   ],
   eventTypes,

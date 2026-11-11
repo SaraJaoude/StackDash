@@ -8,7 +8,7 @@ import {
 import { validateAdapterEvents } from "@/lib/adapters/events";
 import { validateAdapterMetrics, type AdapterMetric } from "@/lib/adapters/metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "@/lib/adapters/types";
-import { polarAdapter } from "./index";
+import { orderEvent, polarAdapter, refundEvent } from "./index";
 // Fixtures are from documentation, not recorded: shaped after the response schemas and examples in
 // Polar's API reference, version 2026-10, checked 2026-11-05, trimmed, with synthetic ids, amounts,
 // and personal data (docs/providers/polar.md, Sample responses). The personal data is there to
@@ -372,18 +372,19 @@ describe("polarAdapter.sync", () => {
 
     expect(result.events.map((event) => [event.typeId, event.title, event.body ?? null, event.dedupeKey])).toEqual([
       ["polar.subscription.canceled", "Subscription canceled", null, "subscription_canceled:5ab5ab50-0000-4000-8000-000000000006"],
-      ["polar.order.paid", "Order paid for a new subscription", null, "order:0a1b2c3d-0000-4000-8000-000000000004"],
+      ["polar.order.paid", "Order paid for a new subscription: $19.00", null, "order:0a1b2c3d-0000-4000-8000-000000000004"],
       ["polar.subscription.started", "Subscription started", null, "subscription_started:5ab5ab50-0000-4000-8000-000000000004"],
-      ["polar.refund.succeeded", "Order refunded", "Reason: customer request", "refund:7ef07ef0-0000-4000-8000-000000000001"],
+      ["polar.refund.succeeded", "Order refunded: $9.00", "Reason: customer request", "refund:7ef07ef0-0000-4000-8000-000000000001"],
       [
         "polar.subscription.canceled",
         "Subscription canceled",
         "Reason: too expensive. Access continues until the paid period ends.",
         "subscription_canceled:5ab5ab50-0000-4000-8000-000000000002",
       ],
-      ["polar.order.paid", "Subscription renewed", null, "order:0a1b2c3d-0000-4000-8000-000000000002"],
+      ["polar.order.paid", "Subscription renewed: $19.00", null, "order:0a1b2c3d-0000-4000-8000-000000000002"],
       ["polar.subscription.started", "Trial started", null, "subscription_started:5ab5ab50-0000-4000-8000-000000000005"],
-      ["polar.order.paid", "Order paid", null, "order:0a1b2c3d-0000-4000-8000-000000000001"],
+      // The order's value after discounts and tax: $49.00 plus $9.80 tax.
+      ["polar.order.paid", "Order paid: $58.80", null, "order:0a1b2c3d-0000-4000-8000-000000000001"],
     ]);
     expect(result.events[0]?.occurredAt).toEqual(new Date("2026-11-03T07:45:00Z"));
     expect(result.cursor).toBe(now.toISOString());
@@ -621,6 +622,36 @@ describe("polarAdapter.sync", () => {
     { name: "a list without pagination", routes: { ...syncRoutes, "/v1/refunds/": ok({ items: [] }) } },
   ])("throws invalid_response on a schema mismatch: $name", async ({ routes }) => {
     await expect(sync(routes).result).rejects.toBeInstanceOf(InvalidResponseError);
+  });
+});
+
+describe("polar payment events on the timeline (#261)", () => {
+  const created_at = new Date("2026-11-10T09:30:00Z");
+
+  it.each([
+    { name: "a two-decimal currency", money: { total_amount: 1900, currency: "USD" }, title: "Subscription renewed: $19.00" },
+    { name: "a zero-decimal currency (JPY)", money: { total_amount: 3000, currency: "JPY" }, title: "Subscription renewed: ¥3,000" },
+    { name: "a missing amount", money: { currency: "USD" }, title: "Subscription renewed" },
+    { name: "a missing currency", money: { total_amount: 1900 }, title: "Subscription renewed" },
+  ])("titles a paid order with $name", ({ money, title }) => {
+    const event = orderEvent({ id: "o", created_at, status: "paid", billing_reason: "subscription_cycle", ...money }, orgId);
+    expect(event?.title).toBe(title);
+  });
+
+  it.each([
+    { name: "before tax plus the tax refunded with it", money: { amount: 4900, tax_amount: 980, currency: "EUR" }, title: "Order refunded: €58.80" },
+    { name: "in a zero-decimal currency (JPY)", money: { amount: 1500, tax_amount: 150, currency: "JPY" }, title: "Order refunded: ¥1,650" },
+    { name: "with no amount when the tax part is missing", money: { amount: 4900, currency: "USD" }, title: "Order refunded" },
+    { name: "with no amount when the amount is missing", money: { tax_amount: 980, currency: "USD" }, title: "Order refunded" },
+  ])("titles a refund $name", ({ money, title }) => {
+    const event = refundEvent({ id: "r", created_at, status: "succeeded", reason: "duplicate", ...money }, orgId);
+    expect(event?.title).toBe(title);
+  });
+
+  it("reads the amount and an uppercase currency from Polar's lowercase code at the parse boundary", async () => {
+    const order = { ...ordersFixture.items[0], currency: "jpy", total_amount: 3000 };
+    const result = await sync({ ...syncRoutes, "/v1/orders/": ok({ ...ordersFixture, items: [order] }) }).result;
+    expect(result.events.find((event) => event.typeId === "polar.order.paid")?.title).toBe("Order paid: ¥3,000");
   });
 });
 

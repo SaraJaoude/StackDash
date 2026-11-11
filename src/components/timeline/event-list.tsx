@@ -1,6 +1,7 @@
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ChevronDownIcon, PlatformLogo } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
+import { declaredEventTypes } from "@/lib/adapters/registry";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName, providerPlatform } from "@/lib/providers";
 import { groupEventsByDay } from "@/lib/timeline/days";
@@ -25,6 +26,11 @@ const SEVERITY_FLASH: Record<EventSeverity, string> = {
   warning: "var(--warning)",
   critical: "var(--danger)",
 };
+
+// The adapters' own names for their event types, "Payment succeeded" for `stripe.charge.succeeded`,
+// so a run of payments with different amounts (#261) is named the way each payment is. A Map: the
+// key is a stored type id. A type no adapter declares any more falls back to `eventTypeLabel`.
+const DECLARED_LABELS: ReadonlyMap<string, string> = new Map(declaredEventTypes.map((type) => [type.id, type.label]));
 
 /**
  * One page of events, newest first, under a heading per London day. The events region holds one
@@ -125,8 +131,9 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
 
 /**
  * A run of identical events (#253) as one row: what happened, how many times, and when the latest
- * was, with each event one disclosure away. The heading is the events' shared title, or their type
- * when the titles differ, and the count sits beside it rather than in it, so the row is found by
+ * was, with each event one disclosure away. The heading is the events' shared title, or the name
+ * their adapter declares for their type when the titles differ (payments of different amounts),
+ * and the count sits beside it rather than in it, so the row is found by
  * the same heading as a single event. The heading stays outside the summary, whose children are
  * presentational, so heading navigation still reaches the row.
  */
@@ -135,7 +142,9 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
   const platform = providerPlatform(latest.provider);
   const source = latest.accountName ?? latest.connectionName;
   const eventIds = run.map((event) => event.id);
-  const title = run.every((event) => event.title === latest.title) ? latest.title : eventTypeLabel(latest.type_id);
+  const title = run.every((event) => event.title === latest.title)
+    ? latest.title
+    : (DECLARED_LABELS.get(latest.type_id) ?? eventTypeLabel(latest.type_id));
   const count = `${run.length} events`;
   return (
     <ArrivalEventRow
