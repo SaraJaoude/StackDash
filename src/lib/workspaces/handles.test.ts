@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -67,12 +68,36 @@ describe("isHandleFormat", () => {
   });
 });
 
+/**
+ * The URL segments directly under an app directory. A route group "(x)" adds no segment, so its
+ * children are top-level segments too; dynamic segments "[x]", slots "@x", and private folders "_x"
+ * add none that a handle could collide with.
+ */
+function topLevelSegments(dir: string): string[] {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    if (!entry.isDirectory() || /^[[@_]/.test(entry.name)) return [];
+    if (entry.name.startsWith("(")) return topLevelSegments(path.join(dir, entry.name));
+    return [entry.name];
+  });
+}
+
+describe("topLevelSegments", () => {
+  it("lists the segments inside route groups, and none for dynamic, slot, or private folders (boundary)", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "devmacro-app-"));
+    try {
+      for (const folder of ["docs", "(marketing)/pricing", "(marketing)/(nested)/blog", "[id]", "@modal", "_lib"]) {
+        fs.mkdirSync(path.join(root, folder), { recursive: true });
+      }
+      fs.writeFileSync(path.join(root, "page.tsx"), "");
+      expect(topLevelSegments(root).sort()).toEqual(["blog", "docs", "pricing"]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("RESERVED_HANDLES", () => {
-  // Route groups "(x)", dynamic segments "[x]", slots "@x", and private folders "_x" add no segment.
-  const segments = fs
-    .readdirSync(path.join(process.cwd(), "src/app"), { withFileTypes: true })
-    .filter((entry) => entry.isDirectory() && !/^[([@_]/.test(entry.name))
-    .map((entry) => entry.name);
+  const segments = topLevelSegments(path.join(process.cwd(), "src/app"));
 
   it("finds the app's top-level route segments, so the check below is not vacuous", () => {
     expect(segments).toEqual(expect.arrayContaining(["api", "docs", "p", "w"]));
