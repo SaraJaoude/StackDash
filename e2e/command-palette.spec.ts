@@ -64,6 +64,31 @@ async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
   return workspace;
 }
 
+/** `count` unacknowledged alerts from one 100 percent allowance rule, one per billing period. */
+async function seedTriggeredAlerts(workspace: TestWorkspace, count: number): Promise<void> {
+  const admin = adminClient();
+  const { data: rule, error: ruleError } = await admin
+    .from("alert_rules")
+    .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 100 })
+    .select("id")
+    .single();
+  if (ruleError) throw new Error(`Seeding a rule failed (code ${ruleError.code}).`);
+  const { error } = await admin.from("triggered_alerts").insert(
+    Array.from({ length: count }, (_, index) => ({
+      workspace_id: workspace.id,
+      rule_id: rule.id,
+      cycle_key: `2026-${String(index + 1).padStart(2, "0")}-01`,
+      triggered_at: `2026-${String(index + 1).padStart(2, "0")}-28T09:30:00Z`,
+      observed_value: 104,
+      provider: "fake" as const,
+      threshold_label: "100 percent",
+      is_estimated: true,
+      message: "Example provider build minutes is at 104 percent of the allowance.",
+    })),
+  );
+  if (error) throw new Error(`Seeding triggered alerts failed (code ${error.code}).`);
+}
+
 function palette(page: Page) {
   return page.getByRole("dialog", { name: "Command palette" });
 }
@@ -539,6 +564,36 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
+  ownerTest("acknowledges every alert and announces how many", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette acknowledge");
+    try {
+      await seedTriggeredAlerts(workspace, 2);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("acknowledge");
+      await expect(option(page, "Acknowledge all alerts", "Action")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+
+      // The alerts list's own wording, announced politely, with focus still in the field.
+      const done = palette(page).getByRole("status").filter({ hasText: "2 alerts acknowledged. They stay in the alert history." });
+      await expect(done).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expectNoAxeViolations(page);
+      const { data, error } = await adminClient()
+        .from("triggered_alerts")
+        .select("acknowledged_by")
+        .eq("workspace_id", workspace.id);
+      if (error) throw new Error(`Reading the alerts failed (code ${error.code}).`);
+      expect(data.map((row) => row.acknowledged_by)).toEqual([workspace.ownerId, workspace.ownerId]);
+
+      // Run again, it says nothing was left rather than claiming more.
+      await page.keyboard.press("Enter");
+      await expect(palette(page).getByRole("status").filter({ hasText: "No alerts were left to acknowledge." })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("gives a sync's result to the palette reopened while it ran", async ({ page }) => {
     const workspace = await seedPaletteWorkspace("Palette sync reopen");
     try {
@@ -648,7 +703,7 @@ viewerTest("a viewer is offered no action", async ({ page }) => {
     await combobox(page).fill("connect");
     await expect(option(page, "Connections", "Page")).toBeVisible();
     // By kind: the viewer also belongs to other specs' workspaces, some named "Connect ...".
-    for (const query of ["connect", "sync", "api key"]) {
+    for (const query of ["connect", "sync", "api key", "acknowledge"]) {
       await combobox(page).fill(query);
       await expect(resultCount(page)).toBeVisible();
       await expect(optionsOfKind(page, "Action")).toHaveCount(0);

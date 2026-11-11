@@ -169,9 +169,10 @@ function scopeCommands(sources: PaletteSources, scope: PaletteScope) {
 }
 
 /**
- * Every command, in display order for a blank query: pages, actions (syncs, Create API key, then
- * providers to connect, so one kind sits together), other workspaces, dashboard scopes (providers,
- * projects, accounts), timeline views (providers, then event types), and the shortcut list.
+ * Every command, in display order for a blank query: pages, actions (Acknowledge all alerts, syncs,
+ * Create API key, then providers to connect, so one kind sits together), other workspaces,
+ * dashboard scopes (providers, projects, accounts), timeline views (providers, then event types),
+ * and the shortcut list.
  */
 export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] {
   const { workspaceSlug, role } = sources;
@@ -202,7 +203,19 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
   const { dashboards, timelines, syncs } =
     sources.scope === null ? { dashboards: [], timelines: [], syncs: [] } : scopeCommands(sources, sources.scope);
 
-  const actions: PaletteCommand[] = [...syncs];
+  const actions: PaletteCommand[] = [];
+  if (canPerform(role, "acknowledge_alert")) {
+    // Always listed: how many alerts wait is not read for the shell, and the result says when
+    // none were left.
+    actions.push({
+      id: "action:acknowledge-all",
+      label: "Acknowledge all alerts",
+      kind: "Action",
+      keywords: "triggered dismiss clear",
+      action: { kind: "acknowledge_all" },
+    });
+  }
+  actions.push(...syncs);
   if (canPerform(role, "manage_api_keys")) {
     // Creating a key needs a name and scopes and shows the key once, so it opens the settings form.
     actions.push({

@@ -10,6 +10,7 @@ import { CommandPalette } from "./command-palette";
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 // Nor does it run an action; the real module needs a request and a database.
 vi.mock("@/app/w/[workspace]/connections/actions", () => ({ syncNow: vi.fn() }));
+vi.mock("@/app/w/[workspace]/alerts/actions", () => ({ acknowledgeAllAlerts: vi.fn() }));
 
 const COMMANDS: readonly PaletteCommand[] = [
   { id: "page:timeline", label: "Timeline", kind: "Page", keywords: "", action: { kind: "navigate", href: "/w/acme/timeline" } },

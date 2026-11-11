@@ -15,7 +15,9 @@ import {
   type ReactNode,
 } from "react";
 
+import { acknowledgeAllAlerts } from "@/app/w/[workspace]/alerts/actions";
 import { syncNow } from "@/app/w/[workspace]/connections/actions";
+import { acknowledgedAllMessage } from "@/components/alerts/labels";
 import { SearchIcon } from "@/components/icons";
 import {
   isApplePlatform,
@@ -82,33 +84,61 @@ function resultStatus(search: PaletteSearch, query: string): string {
  */
 type ActionOutcome = Readonly<{ tone: "pending" | "success" | "error"; message: string; referenceId?: string }>;
 
+/** The palette results that run a Server Action rather than open a page. */
+type ServerAction = Extract<PaletteAction, { kind: "sync" | "acknowledge_all" }>;
+
 /**
- * Queues a sync through the connection page's own Server Action, which authorizes the caller and
- * words every result, so the palette adds only the case where the request never got an answer.
+ * What an action says while it runs, to a second request made before it ends, and when its
+ * request never got an answer.
  */
-async function syncConnection(
-  workspaceSlug: string,
-  action: Extract<PaletteAction, { kind: "sync" }>,
-): Promise<ActionOutcome> {
+function wordsFor(action: ServerAction): Readonly<{ running: string; busy: string; lost: string }> {
+  return action.kind === "sync"
+    ? {
+        running: `Queueing a sync for ${action.name}.`,
+        busy: "A sync is already being queued. Wait for its result, then try again.",
+        lost: `The sync for ${action.name} could not be requested`,
+      }
+    : {
+        running: "Acknowledging all alerts.",
+        busy: "Alerts are already being acknowledged. Wait for the result, then try again.",
+        lost: "The alerts could not be acknowledged",
+      };
+}
+
+/**
+ * Runs an action through the existing Server Action for it (the connection page's sync, the alerts
+ * list's acknowledge all), which authorizes the caller and words every result, so the palette adds
+ * only the case where the request never got an answer.
+ */
+async function runServerAction(workspaceSlug: string, action: ServerAction): Promise<ActionOutcome> {
   const formData = new FormData();
   formData.set("workspace", workspaceSlug);
-  formData.append("connectionId", action.connectionId);
+  let failure: Readonly<{ message: string; referenceId?: string | undefined }>;
   try {
-    const result = await syncNow(null, formData);
-    if (result.ok) return { tone: "success", message: result.message ?? `Sync queued for ${action.name}.` };
-    return {
-      tone: "error",
-      message: result.message,
-      ...(result.referenceId === undefined ? {} : { referenceId: result.referenceId }),
-    };
+    if (action.kind === "sync") {
+      formData.append("connectionId", action.connectionId);
+      const result = await syncNow(null, formData);
+      if (result.ok) return { tone: "success", message: result.message ?? `Sync queued for ${action.name}.` };
+      failure = result;
+    } else {
+      const result = await acknowledgeAllAlerts(null, formData);
+      // The palette is not the alerts list, so there is no "Show acknowledged alerts" to point to.
+      if (result.ok) return { tone: "success", message: acknowledgedAllMessage(result, true) };
+      failure = result;
+    }
   } catch {
     // A rejected Server Action means the request or its response was lost on the way; the server
     // logs its own failures, so all the palette can add is the next step.
     return {
       tone: "error",
-      message: `The sync for ${action.name} could not be requested because DevMacro did not answer. Check that you are online, then try again.`,
+      message: `${wordsFor(action).lost} because DevMacro did not answer. Check that you are online, then try again.`,
     };
   }
+  return {
+    tone: "error",
+    message: failure.message,
+    ...(failure.referenceId === undefined ? {} : { referenceId: failure.referenceId }),
+  };
 }
 
 const KBD = "rounded border border-line-strong bg-panel-raised px-1.5 font-mono text-[11px] leading-5 text-foreground";
@@ -174,11 +204,13 @@ export function CommandPalette({
   // Where the pointer last was over the results, so a row scrolling under a resting pointer does
   // not take the selection from the arrow keys.
   const pointerRef = useRef<PointerPosition | null>(null);
-  // Counts opens, so a sync still running from an earlier open does not report into this one.
+  // Counts opens, so an action still running from an earlier open does not report into this one.
   const openCountRef = useRef(0);
-  // The open the running sync reports to: the one that started it, or a later one that asked for
-  // another sync while it ran and was told to wait for its result.
-  const syncOpenRef = useRef(0);
+  // The open the running action reports to: the one that started it, or a later one that asked for
+  // another action while it ran and was told to wait for its result.
+  const actionOpenRef = useRef(0);
+  // What a request made while an action runs is told: the running action's own words.
+  const busyRef = useRef("");
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -244,19 +276,21 @@ export function CommandPalette({
   function choose(command: PaletteCommand): void {
     const { action } = command;
     // An action runs with the palette open, so its result is announced where focus already is.
-    if (action.kind === "sync") {
+    if (action.kind === "sync" || action.kind === "acknowledge_all") {
       // One at a time. A second request, including one from a reopened palette while the first is
-      // still on its way, is told to wait, and this open now receives the running sync's result.
+      // still on its way, is told to wait, and this open now receives the running action's result.
       if (running) {
-        syncOpenRef.current = openCountRef.current;
-        setOutcome({ tone: "pending", message: "A sync is already being queued. Wait for its result, then try again." });
+        actionOpenRef.current = openCountRef.current;
+        setOutcome({ tone: "pending", message: busyRef.current });
         return;
       }
-      setOutcome({ tone: "pending", message: `Queueing a sync for ${action.name}.` });
-      syncOpenRef.current = openCountRef.current;
+      const words = wordsFor(action);
+      busyRef.current = words.busy;
+      setOutcome({ tone: "pending", message: words.running });
+      actionOpenRef.current = openCountRef.current;
       startRunning(async () => {
-        const next = await syncConnection(workspaceSlug, action);
-        if (openCountRef.current === syncOpenRef.current) setOutcome(next);
+        const next = await runServerAction(workspaceSlug, action);
+        if (openCountRef.current === actionOpenRef.current) setOutcome(next);
       });
       return;
     }

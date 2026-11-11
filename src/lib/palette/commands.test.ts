@@ -132,6 +132,10 @@ describe("buildPaletteCommands", () => {
     expect(labels).toEqual(["Production (Stripe (Example Stripe account (test mode)))", "Production (Vercel team)"]);
   });
 
+  it("acknowledges every alert through the acknowledge all action", () => {
+    expect(find(commands, "Action", "Acknowledge all alerts")?.action).toEqual({ kind: "acknowledge_all" });
+  });
+
   it("syncs each connection now through the sync action, named by its provider", () => {
     const syncs = commands.filter((command) => command.action.kind === "sync");
     expect(syncs.map((command) => [command.label, command.kind, command.action])).toEqual([
@@ -180,7 +184,9 @@ describe("buildPaletteCommands", () => {
   ])("lists actions to %s only when the role can run them (%s)", (role, allowed) => {
     const forRole = buildPaletteCommands({ ...SOURCES, role });
     const actions = forRole.filter((command) => command.kind === "Action").map((command) => command.label);
-    expect(actions).toEqual(allowed ? ["Sync Vercel now", "Sync Stripe now", "Create API key", "Connect Resend"] : []);
+    expect(actions).toEqual(
+      allowed ? ["Acknowledge all alerts", "Sync Vercel now", "Sync Stripe now", "Create API key", "Connect Resend"] : [],
+    );
     // Pages, views, and other workspaces are for every member.
     expect(forRole.filter((command) => command.kind !== "Action")).toEqual(commands.filter((command) => command.kind !== "Action"));
   });
@@ -213,6 +219,7 @@ describe("buildPaletteCommands", () => {
       "page:settings",
       "page:year",
       "page:account",
+      "action:acknowledge-all",
       "action:create-api-key",
       "connect:resend",
       `workspace:${OTHER_SLUG}`,

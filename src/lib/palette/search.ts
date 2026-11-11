@@ -13,7 +13,8 @@
 export type PaletteAction =
   | Readonly<{ kind: "navigate"; href: string }>
   | Readonly<{ kind: "shortcuts" }>
-  | Readonly<{ kind: "sync"; connectionId: string; name: string }>;
+  | Readonly<{ kind: "sync"; connectionId: string; name: string }>
+  | Readonly<{ kind: "acknowledge_all" }>;
 
 /**
  * The kind of result, shown beside its label and read with it, so the label itself can stay short:
