@@ -86,7 +86,7 @@ const MONTHLY_FUNCTION = "usage_snapshot_monthly_latest";
 /**
  * The workspace's connection and account, and `usageSnapshots`, behind the fake PostgREST. The
  * database groups `usage_snapshot_monthly_latest` to one row per account, metric, and month
- * (supabase/tests/database/23_usage_snapshot_monthly_latest.test.sql checks how); this stand-in
+ * (supabase/tests/database/24_usage_snapshot_monthly_latest.test.sql checks how); this stand-in
  * returns `monthlyRows` of the workspace dated `p_since` or later, which is all the data layer
  * depends on.
  */
