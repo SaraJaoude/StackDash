@@ -23,8 +23,9 @@ import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
 
 /*
- * A public project page (#150), answered at /@<workspace slug>/<page slug> (src/proxy.ts rewrites
- * that address here and refuses this path when it is asked for directly). It shows only what the
+ * A public project page (#150), answered at /@<handle or workspace slug>/<page slug> (src/proxy.ts
+ * rewrites that address here, sends a slug address to the handle address while the workspace has a
+ * handle (#258), and refuses this path when it is asked for directly). It shows only what the
  * metric engine publishes for the project: the published values, their history, the milestones
  * those values reveal, and the providers behind them as icons. No account names, no amounts.
  *
@@ -62,7 +63,7 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
     .slice(0, DESCRIPTION_METRICS)
     .map((metric) => `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`);
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
-  const path = projectPagePath(page.workspaceSlug, page.pageSlug);
+  const path = projectPagePath(page.workspace, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
   // The preview image is the badges and cards (#149) card of the first published engine metric.
   const images =

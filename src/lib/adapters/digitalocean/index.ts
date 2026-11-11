@@ -3,7 +3,7 @@ import { formatMoney } from "@/lib/format";
 import { addDecimals, InvalidDecimalError, toMinorUnits, type Decimal } from "@/lib/money";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError, readOAuthErrorCode } from "../errors";
-import type { ActivityEvent, EventSeverity, EventType } from "../events";
+import { titleWithAmount, type ActivityEvent, type EventSeverity, type EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
 import {
   Secret,
@@ -476,7 +476,7 @@ export function invoiceEvent(
     typeId: "digitalocean.invoice.issued",
     occurredAt: nextMonthStart(periodStart(invoice.invoice_period)),
     severity: "info",
-    title: `Invoice for ${invoice.invoice_period} issued: ${formatMoney(minorUnits(invoice.amount, endpoint), CURRENCY)}`,
+    title: titleWithAmount(`Invoice for ${invoice.invoice_period} issued`, minorUnits(invoice.amount, endpoint), CURRENCY),
     externalAccountId,
     dedupeKey: `invoice:${invoice.invoice_uuid}`,
   };

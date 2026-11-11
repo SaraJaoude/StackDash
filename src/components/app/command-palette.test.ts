@@ -8,14 +8,17 @@ import { CommandPalette } from "./command-palette";
 
 // The palette only pushes when a result is chosen, which a server render never reaches.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+// Nor does it run an action; the real module needs a request and a database.
+vi.mock("@/app/w/[workspace]/connections/actions", () => ({ syncNow: vi.fn() }));
+vi.mock("@/app/w/[workspace]/alerts/actions", () => ({ acknowledgeAllAlerts: vi.fn() }));
 
 const COMMANDS: readonly PaletteCommand[] = [
-  { id: "page:timeline", label: "Go to timeline", keywords: "", action: { kind: "navigate", href: "/w/acme/timeline" } },
+  { id: "page:timeline", label: "Timeline", kind: "Page", keywords: "", action: { kind: "navigate", href: "/w/acme/timeline" } },
 ];
 
 /** The server-rendered markup, and the opening tag of the palette's dialog (the first `<dialog>`). */
 function render(notice: string | null): Readonly<{ markup: string; dialog: string }> {
-  const markup = renderToStaticMarkup(createElement(CommandPalette, { commands: COMMANDS, notice }));
+  const markup = renderToStaticMarkup(createElement(CommandPalette, { workspaceSlug: "acme", commands: COMMANDS, notice }));
   const dialog = /<dialog\b[^>]*>/.exec(markup)?.[0];
   if (dialog === undefined) throw new Error("The palette rendered no dialog.");
   return { markup, dialog };

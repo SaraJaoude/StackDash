@@ -40,3 +40,11 @@ export function workspaceHome(slug: string): string {
 export function yearInReviewPath(slug: string, year: number): string {
   return `/w/${slug}/year/${year}`;
 }
+
+/** The id of the settings page's key name field, which the create API key link targets (#265). */
+export const CREATE_API_KEY_FIELD_ID = "create-api-key";
+
+/** Settings, scrolled to the create API key form; the form focuses its name field when it opens here. */
+export function createApiKeyPath(slug: string): string {
+  return `${workspacePath(slug, "settings")}#${CREATE_API_KEY_FIELD_ID}`;
+}

@@ -1,4 +1,4 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
@@ -64,6 +64,31 @@ async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
   return workspace;
 }
 
+/** `count` unacknowledged alerts from one 100 percent allowance rule, one per billing period. */
+async function seedTriggeredAlerts(workspace: TestWorkspace, count: number): Promise<void> {
+  const admin = adminClient();
+  const { data: rule, error: ruleError } = await admin
+    .from("alert_rules")
+    .insert({ workspace_id: workspace.id, kind: "allowance_percent", scope: "workspace", threshold_percent: 100 })
+    .select("id")
+    .single();
+  if (ruleError) throw new Error(`Seeding a rule failed (code ${ruleError.code}).`);
+  const { error } = await admin.from("triggered_alerts").insert(
+    Array.from({ length: count }, (_, index) => ({
+      workspace_id: workspace.id,
+      rule_id: rule.id,
+      cycle_key: `2026-${String(index + 1).padStart(2, "0")}-01`,
+      triggered_at: `2026-${String(index + 1).padStart(2, "0")}-28T09:30:00Z`,
+      observed_value: 104,
+      provider: "fake" as const,
+      threshold_label: "100 percent",
+      is_estimated: true,
+      message: "Example provider build minutes is at 104 percent of the allowance.",
+    })),
+  );
+  if (error) throw new Error(`Seeding triggered alerts failed (code ${error.code}).`);
+}
+
 function palette(page: Page) {
   return page.getByRole("dialog", { name: "Command palette" });
 }
@@ -74,6 +99,31 @@ function combobox(page: Page) {
 
 function trigger(page: Page) {
   return page.getByRole("button", { name: "Jump to" });
+}
+
+/**
+ * One result by its label, which is its accessible name, and its kind, which is its accessible
+ * description and the secondary text beside the label. Exact, because "Vercel" is the name of a
+ * provider dashboard and a provider timeline, and part of other names.
+ */
+function option(page: Page, label: string, kind: string) {
+  return palette(page)
+    .getByRole("option", { name: label, exact: true })
+    .filter({ has: page.getByText(kind, { exact: true }) });
+}
+
+/** Every result of one kind, whatever its name. */
+function optionsOfKind(page: Page, kind: string) {
+  return palette(page)
+    .getByRole("option")
+    .filter({ has: page.getByText(kind, { exact: true }) });
+}
+
+/** The live region that counts the results, beside the one that reports an action's progress. */
+function resultCount(page: Page) {
+  return palette(page)
+    .getByRole("status")
+    .filter({ hasText: /results?\b|No commands match/ });
 }
 
 /**
@@ -154,15 +204,17 @@ ownerTest.describe("command palette as the owner", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       await openWith(palette(page), () => trigger(page).click());
       await expect(combobox(page)).toBeFocused();
-      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toBeVisible();
+      await expect(option(page, "Timeline", "Page")).toBeVisible();
       await expectNoAxeViolations(page);
 
       await combobox(page).fill("failed vercel");
       const options = palette(page).getByRole("option");
       await expect(options).toHaveCount(1);
-      await expect(palette(page).getByRole("status")).toHaveText("1 result");
-      const failed = palette(page).getByRole("option", { name: "Show timeline for Vercel: Deployment failed" });
+      await expect(resultCount(page)).toHaveText("1 result");
+      const failed = option(page, "Vercel: Deployment failed", "Event timeline");
       await expect(failed).toHaveAttribute("aria-selected", "true");
+      // The kind beside the label is the result's description, so a screen reader reads it too.
+      await expect(failed).toHaveAccessibleDescription("Event timeline");
       // The selected result is the combobox's active descendant, which is what a screen reader reads.
       await expect(combobox(page)).toHaveAttribute("aria-activedescendant", (await failed.getAttribute("id")) ?? "missing");
       await expectNoAxeViolations(page);
@@ -183,27 +235,35 @@ ownerTest.describe("command palette as the owner", () => {
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openWith(palette(page), () => trigger(page).click());
-      await combobox(page).fill("show dashboard for");
+      // "usage" is a keyword of the dashboard results only. A name would match too, and the e2e
+      // owner belongs to every spec's workspace ("Dashboard trends ..."), so the query avoids names.
+      await combobox(page).fill("usage");
       const options = palette(page).getByRole("option");
-      // Provider, then the projects (Checkout, Unassigned), then the account.
-      const names = [
-        "Show dashboard for provider Vercel",
-        "Show dashboard for project Checkout",
-        "Show dashboard for project Unassigned",
-        "Show dashboard for account Palette production (Vercel palette team)",
-      ];
-      await expect(options).toHaveCount(names.length);
-      for (const [index, name] of names.entries()) await expect(options.nth(index)).toHaveAccessibleName(name);
-      const provider = options.nth(0);
-      const project = options.nth(1);
-      const account = options.nth(3);
-      await expect(provider).toHaveAttribute("aria-selected", "true");
+      // The dashboard page, then the dashboard scopes: the provider, the projects (Checkout,
+      // Unassigned), then the account, each labeled by its name alone and described by its kind.
+      const expected = [
+        ["Dashboard", "Page"],
+        ["Vercel", "Provider dashboard"],
+        ["Checkout", "Project dashboard"],
+        ["Unassigned", "Project dashboard"],
+        ["Palette production", "Account dashboard"],
+      ] as const;
+      await expect(options).toHaveCount(expected.length);
+      for (const [index, [name, kind]] of expected.entries()) {
+        await expect(options.nth(index)).toHaveAccessibleName(name);
+        await expect(options.nth(index)).toHaveAccessibleDescription(kind);
+      }
+      const first = options.nth(0);
+      const project = options.nth(2);
+      const last = options.nth(4);
+      await expect(first).toHaveAttribute("aria-selected", "true");
       // Before the first result the selection wraps to the last, and back.
       await page.keyboard.press("ArrowUp");
-      await expect(account).toHaveAttribute("aria-selected", "true");
-      await expect(provider).toHaveAttribute("aria-selected", "false");
+      await expect(last).toHaveAttribute("aria-selected", "true");
+      await expect(first).toHaveAttribute("aria-selected", "false");
       await page.keyboard.press("ArrowDown");
-      await expect(provider).toHaveAttribute("aria-selected", "true");
+      await expect(first).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("ArrowDown");
       await page.keyboard.press("ArrowDown");
       await expect(project).toHaveAttribute("aria-selected", "true");
       await expect(combobox(page)).toHaveAttribute("aria-activedescendant", (await project.getAttribute("id")) ?? "missing");
@@ -222,8 +282,8 @@ ownerTest.describe("command palette as the owner", () => {
     try {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       await openWith(palette(page), () => trigger(page).click());
-      await combobox(page).fill("go to");
-      const timeline = palette(page).getByRole("option", { name: "Go to timeline" });
+      await expect(combobox(page)).toHaveValue("");
+      const timeline = option(page, "Timeline", "Page");
       await expect(timeline).toHaveAttribute("aria-selected", "true");
 
       // While an IME composes, the browser marks its keys with isComposing: Enter commits the
@@ -238,10 +298,7 @@ ownerTest.describe("command palette as the owner", () => {
       // Once the composition ends, the same keys move and choose again.
       await page.keyboard.press("ArrowDown");
       await page.keyboard.press("ArrowDown");
-      await expect(palette(page).getByRole("option", { name: "Go to connections" })).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
+      await expect(option(page, "Connections", "Page")).toHaveAttribute("aria-selected", "true");
       await page.keyboard.press("Enter");
       await expect(palette(page)).toBeHidden();
       await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
@@ -320,7 +377,7 @@ ownerTest.describe("command palette as the owner", () => {
 
       await combobox(page).fill("nothing matches this");
       await expect(palette(page).getByRole("option")).toHaveCount(0);
-      await expect(palette(page).getByRole("status")).toContainText('No commands match "nothing matches this"');
+      await expect(resultCount(page)).toContainText('No commands match "nothing matches this"');
       await expect(combobox(page)).toHaveAttribute("aria-expanded", "false");
 
       await page.keyboard.press("Escape");
@@ -333,7 +390,7 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(palette(page)).toBeVisible();
       await expect(combobox(page)).toBeFocused();
       await expect(combobox(page)).toHaveValue("");
-      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+      await expect(option(page, "Timeline", "Page")).toHaveAttribute("aria-selected", "true");
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -355,7 +412,7 @@ ownerTest.describe("command palette as the owner", () => {
       await expect(palette(page)).toBeVisible();
       await expect(combobox(page)).toBeFocused();
       await expect(combobox(page)).toHaveValue("");
-      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+      await expect(option(page, "Timeline", "Page")).toHaveAttribute("aria-selected", "true");
       await expect(combobox(page)).toHaveAttribute("aria-expanded", "true");
 
       await escapeAndWaitForClose(page, palette(page));
@@ -388,7 +445,7 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
-  // Same race after choosing "Show keyboard shortcuts": that request belonged to the earlier close,
+  // Same race after choosing "Keyboard shortcuts": that request belonged to the earlier close,
   // so the reopened palette's own close must restore focus rather than open the list.
   ownerTest("drops a shortcut list request when the shortcut beats its close event", async ({ page }) => {
     const workspace = await createTestWorkspace("Palette fast choose");
@@ -398,17 +455,14 @@ ownerTest.describe("command palette as the owner", () => {
       await navLink.focus();
       await openWith(palette(page), () => pressPaletteShortcut(page));
       await combobox(page).fill("shortcuts");
-      await expect(palette(page).getByRole("option", { name: "Show keyboard shortcuts" })).toHaveAttribute(
-        "aria-selected",
-        "true",
-      );
+      await expect(option(page, "Keyboard shortcuts", "Help")).toHaveAttribute("aria-selected", "true");
 
       const apple = await applePlatform(page);
       await closeThenPress(palette(page), { key: "k", metaKey: apple, ctrlKey: !apple }, { key: "Enter" });
       const shortcuts = page.getByRole("dialog", { name: "Keyboard shortcuts" });
       await expect(palette(page)).toBeVisible();
       await expect(shortcuts).toBeHidden();
-      await expect(palette(page).getByRole("option", { name: "Go to timeline" })).toHaveAttribute("aria-selected", "true");
+      await expect(option(page, "Timeline", "Page")).toHaveAttribute("aria-selected", "true");
 
       await escapeAndWaitForClose(page, palette(page));
       await expect(palette(page)).toBeHidden();
@@ -477,22 +531,186 @@ ownerTest.describe("command palette as the owner", () => {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openWith(palette(page), () => trigger(page).click());
       await combobox(page).fill("connect");
-      await palette(page).getByRole("option", { name: "Connect Vercel" }).click();
+      await option(page, "Connect Vercel", "Action").click();
       await expect(page).toHaveURL(`/w/${workspace.slug}/connections/new/vercel`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("syncs a connection now and reports the result where focus is", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette sync");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("sync vercel");
+      await expect(option(page, "Sync Vercel now", "Action")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+
+      // An action keeps the palette open, with focus in the field, and announces its result politely.
+      const queued = palette(page).getByRole("status").filter({ hasText: "Sync queued. New numbers appear within a few minutes." });
+      await expect(queued).toBeVisible();
+      await expect(palette(page)).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expectNoAxeViolations(page);
+
+      // The server refuses a second sync inside the cooldown; the palette says why and what next, at once.
+      await page.keyboard.press("Enter");
+      await expect(palette(page).getByRole("alert")).toContainText(/^A sync was requested recently\. Try again in \d+ minutes?\.$/);
+      await expect(queued).toBeHidden();
+      await expectNoAxeViolations(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("acknowledges every alert and announces how many", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette acknowledge");
+    try {
+      await seedTriggeredAlerts(workspace, 2);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("acknowledge");
+      await expect(option(page, "Acknowledge all alerts", "Action")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+
+      // The alerts list's own wording, announced politely, with focus still in the field.
+      const done = palette(page).getByRole("status").filter({ hasText: "2 alerts acknowledged. They stay in the alert history." });
+      await expect(done).toBeVisible();
+      await expect(combobox(page)).toBeFocused();
+      await expectNoAxeViolations(page);
+      const { data, error } = await adminClient()
+        .from("triggered_alerts")
+        .select("acknowledged_by")
+        .eq("workspace_id", workspace.id);
+      if (error) throw new Error(`Reading the alerts failed (code ${error.code}).`);
+      expect(data.map((row) => row.acknowledged_by)).toEqual([workspace.ownerId, workspace.ownerId]);
+
+      // Run again, it says nothing was left rather than claiming more.
+      await page.keyboard.press("Enter");
+      await expect(palette(page).getByRole("status").filter({ hasText: "No alerts were left to acknowledge." })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("gives a sync's result to the palette reopened while it ran", async ({ page }) => {
+    const workspace = await seedPaletteWorkspace("Palette sync reopen");
+    try {
+      const timelinePath = `/w/${workspace.slug}/timeline`;
+      // Holds the sync's Server Action request (a POST with a Next-Action header) until released,
+      // so the palette can be closed and reopened while the sync is still on its way.
+      const held = Promise.withResolvers<Route>();
+      await page.route(
+        (url) => url.pathname === timelinePath,
+        async (route) => {
+          const request = route.request();
+          if (request.method() === "POST" && request.headers()["next-action"] !== undefined) held.resolve(route);
+          else await route.continue();
+        },
+      );
+      await page.goto(timelinePath);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("sync vercel");
+      await page.keyboard.press("Enter");
+      const pending = await held.promise;
+      await expect(palette(page).getByRole("status").filter({ hasText: "Queueing a sync for Vercel." })).toBeVisible();
+
+      await escapeAndWaitForClose(page, palette(page));
+      await trigger(page).click();
+      await expect(palette(page)).toBeVisible();
+      await combobox(page).fill("sync vercel");
+      await page.keyboard.press("Enter");
+      await expect(
+        palette(page).getByRole("status").filter({ hasText: "A sync is already being queued. Wait for its result, then try again." }),
+      ).toBeVisible();
+
+      // The result it was told to wait for arrives in this palette.
+      await pending.continue();
+      await expect(
+        palette(page).getByRole("status").filter({ hasText: "Sync queued. New numbers appear within a few minutes." }),
+      ).toBeVisible();
+    } finally {
+      await page.unrouteAll({ behavior: "ignoreErrors" });
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("opens the create API key form with its name field focused", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette API key");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("api key");
+      await expect(option(page, "Create API key", "Action")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/settings#create-api-key`);
+      const keyName = page.getByRole("textbox", { name: "Key name" });
+      await expect(keyName).toBeFocused();
+
+      // Chosen again on settings itself, nothing new mounts, and focus still lands in the field.
+      await trigger(page).click();
+      await expect(palette(page)).toBeVisible();
+      await combobox(page).fill("api key");
+      await page.keyboard.press("Enter");
+      await expect(palette(page)).toBeHidden();
+      await expect(keyName).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("switches to another workspace, never the current one", async ({ page }) => {
+    const [workspace, other] = await Promise.all([
+      createTestWorkspace("Palette switch"),
+      createTestWorkspace("Palette switch target"),
+    ]);
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill(workspace.name);
+      await expect(resultCount(page)).toContainText("No commands match");
+      await combobox(page).fill(other.name);
+      await expect(option(page, other.name, "Workspace")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${other.slug}/timeline`);
+    } finally {
+      await Promise.all([deleteTestWorkspace(workspace), deleteTestWorkspace(other)]);
+    }
+  });
+
+  ownerTest("opens the year in review", async ({ page }) => {
+    const workspace = await createTestWorkspace("Palette year");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openWith(palette(page), () => trigger(page).click());
+      await combobox(page).fill("yearly card");
+      await expect(option(page, "Year in review", "Page")).toHaveAttribute("aria-selected", "true");
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/year/\\d{4}$`));
+      await expect(page.getByRole("heading", { level: 1, name: /^Your stack in / })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
   });
 });
 
-viewerTest("a viewer is not offered to connect a provider", async ({ page }) => {
-  const workspace = await createTestWorkspace("Palette viewer");
+viewerTest("a viewer is offered no action", async ({ page }) => {
+  const workspace = await seedPaletteWorkspace("Palette viewer");
   try {
     await page.goto(`/w/${workspace.slug}/timeline`);
     await openWith(palette(page), () => trigger(page).click());
     await combobox(page).fill("connect");
-    await expect(palette(page).getByRole("option", { name: "Go to connections" })).toBeVisible();
-    await expect(palette(page).getByRole("option", { name: /^Connect / })).toHaveCount(0);
+    await expect(option(page, "Connections", "Page")).toBeVisible();
+    // By kind: the viewer also belongs to other specs' workspaces, some named "Connect ...".
+    for (const query of ["connect", "sync", "api key", "acknowledge"]) {
+      await combobox(page).fill(query);
+      await expect(resultCount(page)).toBeVisible();
+      await expect(optionsOfKind(page, "Action")).toHaveCount(0);
+    }
+    // The views are still there for a viewer.
+    await combobox(page).fill("vercel");
+    await expect(option(page, "Vercel", "Provider dashboard")).toBeVisible();
   } finally {
     await deleteTestWorkspace(workspace);
   }

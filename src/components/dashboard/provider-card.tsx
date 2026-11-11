@@ -19,6 +19,7 @@ import {
   creditValues,
   recurringKey,
   recurringValues,
+  usageBarClass,
 } from "@/lib/realtime/arrivals";
 
 import { ArrivalBar, ArrivalCard, ArrivalNumber } from "./arrival-values";
@@ -102,7 +103,7 @@ function AllowanceCard({ allowance, quota, now }: { allowance: Allowance; quota:
               <ArrivalBar
                 valueKey={allowanceKey(allowance, "percent")}
                 percent={percent}
-                className={percent >= 100 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-accent"}
+                className={usageBarClass(percent)}
               />
             </div>
           )}

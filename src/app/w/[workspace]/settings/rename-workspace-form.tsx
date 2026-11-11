@@ -31,7 +31,7 @@ export function RenameWorkspaceForm({ workspaceSlug, currentName }: { workspaceS
         Workspace name
       </label>
       <p id={hintId} className="mt-1 text-sm text-muted">
-        Up to 80 characters. The workspace ID and its links stay the same.
+        Up to 80 characters. Renaming keeps the workspace ID, the handle, and every link the same.
       </p>
       <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-start">
         <div className="min-w-0 flex-1">
