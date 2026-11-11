@@ -5,7 +5,7 @@ import type { Page, Route } from "@playwright/test";
 import { REALTIME_SUBSCRIBE_STATES } from "@supabase/supabase-js";
 import { z } from "zod";
 
-import { REFRESH_DEBOUNCE_MS } from "../src/lib/realtime/refresh-scheduler";
+import { REFRESH_DEBOUNCE_MS, REFRESH_MAX_IN_FLIGHT_MS } from "../src/lib/realtime/refresh-scheduler";
 
 import {
   createSyntheticUser,
@@ -278,7 +278,8 @@ ownerTest.describe("live updates", () => {
       const path = `/w/${workspace.slug}/timeline`;
       const heldRender = await holdNextRender(page, path);
       // The page's timers run on Playwright's clock, so the test can end the second change's
-      // debounce while the first refresh is still held.
+      // debounce while the first refresh is still held. The clock keeps running in real time
+      // otherwise, so the first refresh's REFRESH_MAX_IN_FLIGHT_MS limit runs too, checked below.
       await page.clock.install();
       const live = watchLiveChannel(page, workspace.id);
       await page.goto(path);
@@ -286,6 +287,8 @@ ownerTest.describe("live updates", () => {
       await expectSubscribed(live);
 
       const firstTitle = `First live event ${randomUUID().slice(0, 8)}`;
+      // The page's time before the first refresh can start: its in-flight limit starts later.
+      const beforeFirstRefresh = await page.evaluate(() => Date.now());
       await insertEvent(seeded, firstTitle);
       const running = await heldRender.route();
       // The server renders the first refresh now, before the second event exists.
@@ -300,6 +303,13 @@ ownerTest.describe("live updates", () => {
       await page.evaluate(() => undefined);
       await page.clock.runFor(REFRESH_DEBOUNCE_MS);
       await page.evaluate(() => undefined);
+      // A run this slow would hit the first refresh's in-flight limit, which starts the second
+      // refresh on purpose; that is not the single flight breaking.
+      const heldForMs = (await page.evaluate(() => Date.now())) - beforeFirstRefresh;
+      expect(
+        heldForMs,
+        "the first refresh was held past REFRESH_MAX_IN_FLIGHT_MS, so the scheduler stopped waiting for it",
+      ).toBeLessThan(REFRESH_MAX_IN_FLIGHT_MS);
       // The second change waits for the first refresh instead of rendering beside it.
       expect(heldRender.renders()).toBe(1);
 
