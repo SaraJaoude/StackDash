@@ -1,4 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
+import type { Page } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -13,6 +14,14 @@ import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, 
 const HOUR_MS = 3_600_000;
 
 type SnapshotInsert = Database["public"]["Tables"]["usage_snapshots"]["Insert"];
+
+/**
+ * Trends streams in behind its own Suspense boundary after the rest of the dashboard (#263), so a
+ * whole-page axe scan waits for it; otherwise it could scan the loading skeleton, not the charts.
+ */
+async function waitForTrends(page: Page): Promise<void> {
+  await expect(page.getByRole("region", { name: "Trends" })).toBeVisible();
+}
 
 /**
  * One fake connection polled hourly, two accounts (Production in project Checkout, Staging
@@ -202,6 +211,7 @@ ownerTest.describe("dashboard as the owner", () => {
       await expect(checkout).not.toContainText("€67.89");
       await expect(byProject.getByRole("region", { name: "Unassigned" })).toContainText("€67.89");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -406,6 +416,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page);
       await expect(checkout).toBeChecked();
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
@@ -444,6 +455,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page, "keyboard");
       await expectFormBelowWrappedStatus(page);
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -531,6 +543,7 @@ ownerTest.describe("dashboard GitHub spend", () => {
       await expect(card).toContainText("$51.75");
       await expect(card).toContainText(new RegExp(`Billing period:\\s*${monthStart} to ${monthEnd}`));
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -645,6 +658,7 @@ ownerTest.describe("dashboard what changed", () => {
       const totalsBox = await page.getByRole("region", { name: "Spending this billing period" }).boundingBox();
       expect(summaryBox?.y ?? Infinity).toBeLessThan(totalsBox?.y ?? 0);
 
+      await waitForTrends(page);
       await expectNoAxeViolations(page);
 
       // Keyboard only: the filter bar's toggle, then each sentence's link in reading order.

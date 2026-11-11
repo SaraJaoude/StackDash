@@ -153,7 +153,8 @@ const TREND_PERIODS = [
   { granularity: "monthly", label: "Monthly" },
 ] as const satisfies readonly { granularity: TrendGranularity; label: string }[];
 
-function TrendsSection({ trends, markSimulated }: { trends: DashboardTrends; markSimulated: boolean }) {
+/** The Trends section, which the page streams in behind its own Suspense boundary (#263). */
+export function TrendsSection({ trends, markSimulated }: { trends: DashboardTrends; markSimulated: boolean }) {
   const { markers } = trends;
   const anyShown = markers.toggles.some((toggle) => toggle.shown);
   const rendered = trends.providers.flatMap(renderedSeries);
@@ -212,6 +213,33 @@ function TrendsSection({ trends, markSimulated }: { trends: DashboardTrends; mar
         </>
       )}
     </Section>
+  );
+}
+
+/**
+ * Stands in for the Trends section while its snapshot read streams in (#263), shaped like the
+ * section's first screen (heading, description, period and marker links, the first chart) so the
+ * page does not jump when the charts arrive.
+ */
+export function TrendsSkeleton() {
+  return (
+    <div role="status" aria-live="polite" className="mt-6 min-w-0">
+      <span className="sr-only">Loading the trend charts</span>
+      <div aria-hidden="true">
+        <div className="h-7 w-24 rounded bg-panel-raised motion-safe:animate-pulse" />
+        <div className="mt-1 h-18 max-w-2xl rounded bg-panel-raised motion-safe:animate-pulse" />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <div className="h-10 w-44 rounded-md border border-line bg-panel motion-safe:animate-pulse" />
+          <div className="h-10 w-48 rounded-md border border-line bg-panel motion-safe:animate-pulse" />
+        </div>
+        <div className="mt-3 h-10 max-w-3xl rounded-md border border-line bg-panel motion-safe:animate-pulse" />
+        <div className="mt-4 rounded-xl border border-line bg-panel p-5">
+          <div className="h-6 w-64 max-w-full rounded bg-panel-raised motion-safe:animate-pulse" />
+          <div className="mt-2 h-5 w-48 max-w-full rounded bg-panel-raised motion-safe:animate-pulse" />
+          <div className="mt-4 aspect-32/9 rounded bg-panel-raised motion-safe:animate-pulse" />
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -312,7 +340,8 @@ export function DashboardView({
   headline: ReactNode;
   /** The unacknowledged alerts row, placed after the totals so the numbers lead the page. */
   alerts: ReactNode;
-  trends: DashboardTrends;
+  /** The Trends section, last; the page streams it in behind its own Suspense boundary (#263). */
+  trends: ReactNode;
   /** What each provider's adapter declares it reports, so its card leaves out the rest (#269). */
   declared: (provider: ProviderId) => DeclaredFields;
   /** False when the page says "Simulated" once for every card, total, and chart (#269). */
@@ -398,7 +427,7 @@ export function DashboardView({
         )}
       </Section>
 
-      <TrendsSection trends={trends} markSimulated={markSimulated} />
+      {trends}
     </>
   );
 }
