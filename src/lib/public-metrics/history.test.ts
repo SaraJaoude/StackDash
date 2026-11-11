@@ -232,6 +232,16 @@ describe("firstEventMilestones", () => {
     ]);
   });
 
+  it("dates the first deployment on any deployment provider the published count reads (boundary: Railway only)", async () => {
+    const railway = { accountId: "railway-1", provider: "railway" as const, connectionCreatedAt: new Date("2026-01-01T00:00:00Z"), lastSyncedAt: AS_OF, simulated: false };
+    const store = new MemoryMetricStore([railway], [], [{ accountId: "railway-1", typeId: "railway.deployment.deployed", occurredAt: new Date(AS_OF.getTime() - 5 * DAY_MS) }]);
+    expect(await firstEventMilestones(store, [{ metricId: "vercel-deployments-30d", asOf: AS_OF, roundingStep: 1 }])).toEqual([
+      { id: "first-deployment", title: "First deployment recorded", at: new Date(AS_OF.getTime() - 5 * DAY_MS) },
+    ]);
+    // The streak still counts Vercel only, so it reveals nothing here.
+    expect(await firstEventMilestones(store, [{ metricId: "vercel-deployment-streak", asOf: AS_OF, roundingStep: 1 }])).toEqual([]);
+  });
+
   it("shows nothing for an event after a delayed publication's moment (boundary)", async () => {
     const recent = new MemoryMetricStore(ACCOUNTS, [], [deployment(24 * 3)]);
     expect(

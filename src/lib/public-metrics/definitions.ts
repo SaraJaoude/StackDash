@@ -1,4 +1,5 @@
-import type { LiveProviderId } from "@/lib/adapters/types";
+import type { LiveProviderId, ProviderId } from "@/lib/adapters/types";
+import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants, type Database } from "@/lib/supabase/database.types";
 
 /*
@@ -92,7 +93,11 @@ export type PublicMetricDefinition = Readonly<{
   /** How the value is computed, in words, for the formulas page and the share surfaces. */
   formula: string;
   provenance: MetricProvenance;
-  provider: LiveProviderId;
+  /**
+   * The providers whose included accounts the value counts, never empty (`definitions.test.ts`).
+   * Most metrics read one; the deployment counts read every provider in `DEPLOYMENT_OUTCOMES`.
+   */
+  providers: readonly LiveProviderId[];
   source: MetricSource;
   /**
    * The counting window in days for change and count sources, which is also the minimum history
@@ -114,11 +119,33 @@ const RESEND_MONTHLY_LIMIT = "resend.emails.monthly.limit";
 const STRIPE_CUSTOMER_CREATED = "stripe.customer.created";
 const STRIPE_CHARGE_SUCCEEDED = "stripe.charge.succeeded";
 
+/**
+ * Every provider that reports a deployment's outcome, with the event types its adapter declares as
+ * `deploy_succeeded` and `deploy_failed` (`definitions.test.ts` proves the match), in provider name
+ * order. A Railway deployment that crashed or was removed later is not an outcome (`markers.ts`),
+ * and a GitLab pipeline may deploy nothing, so neither is here. "Deployments shipped" and the
+ * deployment counts read every success here (decision on #262); the year in review's longest run
+ * reads one pair per provider.
+ */
+export const DEPLOYMENT_OUTCOMES = [
+  { provider: "digitalocean", successTypeId: "digitalocean.deployment.succeeded", failureTypeId: "digitalocean.deployment.failed" },
+  { provider: "gitlab", successTypeId: "gitlab.deployment.succeeded", failureTypeId: "gitlab.deployment.failed" },
+  { provider: "railway", successTypeId: "railway.deployment.deployed", failureTypeId: "railway.deployment.failed" },
+  { provider: "vercel", successTypeId: VERCEL_SUCCEEDED, failureTypeId: VERCEL_FAILED },
+] as const satisfies readonly Readonly<{ provider: LiveProviderId; successTypeId: string; failureTypeId: string }>[];
+
+const DEPLOYMENT_PROVIDERS = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.provider);
+const DEPLOYMENT_SUCCEEDED = DEPLOYMENT_OUTCOMES.map((outcome) => outcome.successTypeId);
+
 // Until #155 stores the deployment environment, deployments of every environment count, and the
 // labels and formulas say so rather than claiming production. The formula is published on the
 // formulas page word for word, so it carries no issue number.
 const ALL_ENVIRONMENTS =
   "Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.";
+// The providers by the names every other surface uses (`PROVIDER_NAMES`), as the run slide does.
+const DEPLOYMENT_SOURCES = new Intl.ListFormat("en-US", { type: "conjunction" }).format(
+  DEPLOYMENT_PROVIDERS.map((provider) => PROVIDER_NAMES[provider]),
+);
 
 /** Keyed by id so the type checker proves every enum value has exactly one definition. */
 const DEFINITIONS = {
@@ -129,7 +156,7 @@ const DEFINITIONS = {
     formula:
       "Stars across the repositories the project's GitHub accounts can see, from the newest hourly star count. Repository names are never shown.",
     provenance: "verified",
-    provider: "github",
+    providers: ["github"],
     source: { type: "snapshot_total", metricKey: STARS_TOTAL },
     windowDays: 0,
   },
@@ -140,7 +167,7 @@ const DEFINITIONS = {
     formula:
       "The newest star count minus the star count at the end of the day 7 days ago, per GitHub account, added up. Unstars count against it, and it never goes below zero.",
     provenance: "verified",
-    provider: "github",
+    providers: ["github"],
     source: { type: "snapshot_change", metricKey: STARS_TOTAL },
     windowDays: 7,
   },
@@ -151,7 +178,7 @@ const DEFINITIONS = {
     formula:
       "The newest star count minus the star count at the end of the day 30 days ago, per GitHub account, added up. Unstars count against it, and it never goes below zero.",
     provenance: "verified",
-    provider: "github",
+    providers: ["github"],
     source: { type: "snapshot_change", metricKey: STARS_TOTAL },
     windowDays: 30,
   },
@@ -159,20 +186,20 @@ const DEFINITIONS = {
     id: "vercel-deployments-7d",
     label: "Deployments in 7 days",
     unit: "deployments",
-    formula: `Vercel deployments that finished successfully in the last 7 days, one per deployment. ${ALL_ENVIRONMENTS}`,
+    formula: `Deployments that finished successfully on the project's ${DEPLOYMENT_SOURCES} accounts in the last 7 days, one per deployment. ${ALL_ENVIRONMENTS}`,
     provenance: "verified",
-    provider: "vercel",
-    source: { type: "event_count", typeIds: [VERCEL_SUCCEEDED] },
+    providers: DEPLOYMENT_PROVIDERS,
+    source: { type: "event_count", typeIds: DEPLOYMENT_SUCCEEDED },
     windowDays: 7,
   },
   "vercel-deployments-30d": {
     id: "vercel-deployments-30d",
     label: "Deployments in 30 days",
     unit: "deployments",
-    formula: `Vercel deployments that finished successfully in the last 30 days, one per deployment. ${ALL_ENVIRONMENTS}`,
+    formula: `Deployments that finished successfully on the project's ${DEPLOYMENT_SOURCES} accounts in the last 30 days, one per deployment. ${ALL_ENVIRONMENTS}`,
     provenance: "verified",
-    provider: "vercel",
-    source: { type: "event_count", typeIds: [VERCEL_SUCCEEDED] },
+    providers: DEPLOYMENT_PROVIDERS,
+    source: { type: "event_count", typeIds: DEPLOYMENT_SUCCEEDED },
     windowDays: 30,
   },
   "vercel-deployment-streak": {
@@ -181,7 +208,7 @@ const DEFINITIONS = {
     unit: "deployments",
     formula: `Vercel deployments that succeeded since the newest failed one, counted in deployments, not days. ${ALL_ENVIRONMENTS}`,
     provenance: "verified",
-    provider: "vercel",
+    providers: ["vercel"],
     source: { type: "event_streak", successTypeId: VERCEL_SUCCEEDED, failureTypeId: VERCEL_FAILED },
     windowDays: 0,
   },
@@ -191,7 +218,7 @@ const DEFINITIONS = {
     unit: "signups",
     formula: "New users in the project's Supabase projects in the last 7 days, from Supabase's auth logs, one per signup.",
     provenance: "verified",
-    provider: "supabase",
+    providers: ["supabase"],
     source: { type: "event_count", typeIds: [SUPABASE_SIGNUP] },
     windowDays: 7,
   },
@@ -201,7 +228,7 @@ const DEFINITIONS = {
     unit: "signups",
     formula: "New users in the project's Supabase projects in the last 30 days, from Supabase's auth logs, one per signup.",
     provenance: "verified",
-    provider: "supabase",
+    providers: ["supabase"],
     source: { type: "event_count", typeIds: [SUPABASE_SIGNUP] },
     windowDays: 30,
   },
@@ -212,7 +239,7 @@ const DEFINITIONS = {
     formula:
       "Emails counted against the Resend monthly quota in the current quota month, as Resend reports it (sent and received), added up across the project's Resend teams.",
     provenance: "verified",
-    provider: "resend",
+    providers: ["resend"],
     source: { type: "snapshot_total", metricKey: RESEND_MONTHLY_USED },
     windowDays: 0,
   },
@@ -223,7 +250,7 @@ const DEFINITIONS = {
     formula:
       "Emails counted against the Resend monthly quota divided by the monthly quota, in the current quota month, rounded down to a whole percent. Teams with no quota limit are left out.",
     provenance: "verified",
-    provider: "resend",
+    providers: ["resend"],
     source: { type: "snapshot_percent", numeratorKey: RESEND_MONTHLY_USED, denominatorKey: RESEND_MONTHLY_LIMIT },
     windowDays: 0,
   },
@@ -234,7 +261,7 @@ const DEFINITIONS = {
     formula:
       "GitHub Actions minutes used this billing month, as GitHub's billing usage report states them. Only accounts on GitHub's enhanced billing platform report it.",
     provenance: "verified",
-    provider: "github",
+    providers: ["github"],
     source: { type: "snapshot_total", metricKey: ACTIONS_MINUTES },
     windowDays: 0,
   },
@@ -244,7 +271,7 @@ const DEFINITIONS = {
     unit: "customers",
     formula: "Customers created on the project's Stripe accounts in the last 30 days, as a count. Never an amount.",
     provenance: "verified",
-    provider: "stripe",
+    providers: ["stripe"],
     source: { type: "event_count", typeIds: [STRIPE_CUSTOMER_CREATED] },
     windowDays: 30,
   },
@@ -254,7 +281,7 @@ const DEFINITIONS = {
     unit: "payments",
     formula: "Payments that succeeded on the project's Stripe accounts in the last 30 days, as a count. Never an amount.",
     provenance: "verified",
-    provider: "stripe",
+    providers: ["stripe"],
     source: { type: "event_count", typeIds: [STRIPE_CHARGE_SUCCEEDED] },
     windowDays: 30,
   },
@@ -265,6 +292,12 @@ export const PUBLIC_METRICS: readonly PublicMetricDefinition[] = PUBLIC_METRIC_I
 
 export function publicMetricDefinition(id: PublicMetricId): PublicMetricDefinition {
   return DEFINITIONS[id];
+}
+
+/** True when the metric counts the accounts of `provider`. */
+export function countsProvider(definition: PublicMetricDefinition, provider: ProviderId): boolean {
+  const providers: readonly ProviderId[] = definition.providers;
+  return providers.includes(provider);
 }
 
 export function isPublicMetricId(value: string): value is PublicMetricId {

@@ -9,7 +9,7 @@ import type { ProviderId } from "@/lib/adapters/types";
 import { alertRuleInputSchema, budgetInputSchema } from "@/lib/alerts/rule-schema";
 import { completeConnection } from "@/lib/connections/connect";
 import { createJobDeps } from "@/lib/jobs/queue";
-import { PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
+import { countsProvider, PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -329,7 +329,7 @@ const DEMO_PAGE_SLUG = "storefront";
 
 /** Every metric the providers connected to a project can count, in definition order. */
 export function demoPublicMetricIds(providers: readonly ProviderId[]): PublicMetricId[] {
-  return PUBLIC_METRICS.filter((definition) => providers.includes(definition.provider)).map((definition) => definition.id);
+  return PUBLIC_METRICS.filter((definition) => providers.some((provider) => countsProvider(definition, provider))).map((definition) => definition.id);
 }
 
 /**

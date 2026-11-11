@@ -7,10 +7,10 @@ import { formatDateTime } from "@/lib/format";
 
 import type { PublishedMetricCard } from "./published";
 import { CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
-import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSummary } from "./yearly";
+import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSlide, type YearSummary } from "./yearly";
 
 /*
- * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card), rendered with Next.js'
+ * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card, #262 year in review slides), rendered with Next.js'
  * `ImageResponse` (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/
  * image-response.md): JSX laid out by Satori with flexbox only, no external image service, and the
  * renderer's bundled font, so no font file ships with the route. Colors are the site's tokens
@@ -203,6 +203,33 @@ export function YearCard({ summary }: { summary: YearSummary }) {
           </div>
         ))}
       </div>
+    </Frame>
+  );
+}
+
+/**
+ * Value sizes by length, so a value stays on one line: a count at full size, a weekday and date or
+ * "72 in a row on Vercel" smaller, and the longest run value, "1,234 in a row on DigitalOcean",
+ * smaller still, so the provider's name is never cut off.
+ */
+function slideValueSize(value: string): number {
+  if (value.length <= 12) return 104;
+  return value.length <= 24 ? 72 : 56;
+}
+
+/** One slide of the year in review (#262) other than the totals, whose image is `YearCard`. */
+export function YearSlideCard({ summary, slide }: { summary: YearSummary; slide: Exclude<YearSlide, { id: "totals" }> }) {
+  const tag = isYearComplete(summary.year, summary.asOf) ? `${summary.year} in review` : "Year to date";
+  return (
+    <Frame
+      tag={<Tag text={tag} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
+      footer={[yearPeriod(summary), yearProvenance(summary)]}
+    >
+      <div style={line(40, COLORS.muted)}>{`${slide.title}, ${yearSummaryLabel(summary)}`}</div>
+      <div style={{ ...line(slideValueSize(slide.value)), letterSpacing: -2, marginTop: 8, marginBottom: 24 }}>
+        {slide.value}
+      </div>
+      <div style={{ display: "flex", fontSize: 30, lineHeight: 1.3, color: COLORS.muted }}>{slide.detail}</div>
     </Frame>
   );
 }

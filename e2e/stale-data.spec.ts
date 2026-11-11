@@ -5,12 +5,13 @@ import { STALE_AFTER_MS } from "../src/lib/public-metrics/engine";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { pngSize } from "./fixtures/share";
 import { seedStaleWorkspace } from "./fixtures/stale";
 
 // Stale data (#267): every connection of a workspace last synced three days ago. The dashboard says
 // so once, with "Sync now", instead of on every value; the headline strip shows the last complete
-// week instead of six unavailable figures; and the yearly card counts up to the last sync. Each test
-// seeds its own workspace with synthetic data.
+// week instead of six unavailable figures; and the year in review's totals count up to the last
+// sync. Each test seeds its own workspace with synthetic data.
 
 const usd = (amountMinor: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amountMinor / 100);
 
@@ -73,20 +74,29 @@ ownerTest.describe("stale data as the owner", () => {
     }
   });
 
-  ownerTest("counts the yearly card up to the last sync, with nothing cut off", async ({ page }) => {
+  ownerTest("counts the year in review's totals up to the last sync, with nothing cut off", async ({ page }) => {
     const workspace = await createTestWorkspace("Stale year card");
     try {
       const { syncedAt } = await seedStaleWorkspace(workspace);
-      // The sync's own year, so the run does not depend on the date; its card is counted up to the
-      // sync whenever that was more than 48 hours before the card's end.
+      // The sync's own year, so the run does not depend on the date; its totals are counted up to
+      // the sync whenever that was more than 48 hours before the year's end.
       const year = syncedAt.getUTCFullYear();
       const cardEnd = Math.min(Date.now(), Date.UTC(year + 1, 0, 1));
       const countedUpTo = cardEnd - syncedAt.getTime() > STALE_AFTER_MS ? `counted up to ${syncedAt.toISOString().slice(0, 10)}` : null;
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.goto(`/w/${workspace.slug}/year/${year}`);
 
-      await expect(page.getByRole("term")).toHaveText(["Deployments shipped", "Stars gained", "Signups", "Providers connected"]);
-      const figures = page.getByRole("definition");
+      // Keyboard only: the year links, then Previous slide and Next slide, which walks to the totals.
+      await page.getByRole("navigation", { name: "Years" }).getByRole("link").first().focus();
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "Previous slide" })).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("button", { name: "Next slide" })).toBeFocused();
+      for (let move = 0; move < 3; move += 1) await page.keyboard.press("Enter");
+
+      const totals = page.getByRole("group", { name: "Totals" });
+      await expect(totals.getByRole("term")).toHaveText(["Deployments shipped", "Stars gained", "Signups", "Providers connected"]);
+      const figures = totals.getByRole("definition");
       for (const index of [0, 1, 2]) {
         await expect(figures.nth(index)).toHaveText(/^[0-9,]+/);
         if (countedUpTo !== null) await expect(figures.nth(index)).toContainText(countedUpTo);
@@ -95,14 +105,7 @@ ownerTest.describe("stale data as the owner", () => {
 
       const card = await page.request.get(`/w/${workspace.slug}/year/${year}/card.png`);
       expect(card.status()).toBe(200);
-      const body = await card.body();
-      // The PNG header's width and height.
-      expect([body.readUInt32BE(16), body.readUInt32BE(20)]).toEqual([1200, 630]);
-
-      // Keyboard only: the year links, then Share, which opens its dialog.
-      await page.getByRole("navigation", { name: "Years" }).getByRole("link").first().focus();
-      await page.keyboard.press("Tab");
-      await expect(page.getByRole("button", { name: /^Share your \d{4}/ })).toBeFocused();
+      expect(pngSize(await card.body())).toEqual({ width: 1200, height: 630 });
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {

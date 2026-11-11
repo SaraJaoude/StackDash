@@ -1,6 +1,6 @@
 import type { ProviderId } from "@/lib/adapters/types";
 
-import { publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { countsProvider, publicMetricDefinition, type PublicMetricId } from "./definitions";
 
 /*
  * Computes public metrics from stored data (#148). Pure apart from the injected store, so every
@@ -116,7 +116,16 @@ export type MetricValue =
  */
 export type MetricRequest = Readonly<{ metricId: PublicMetricId; asOf: Date; from?: Date }>;
 
-export type ComputedMetric = Readonly<{ metricId: PublicMetricId; asOf: Date; result: MetricValue }>;
+export type ComputedMetric = Readonly<{
+  metricId: PublicMetricId;
+  asOf: Date;
+  result: MetricValue;
+  /**
+   * The metric's providers the project has an included account of, in the definition's order: the
+   * providers a value rests on, or that are connected but have no value yet. Empty when not connected.
+   */
+  providers: readonly ProviderId[];
+}>;
 
 const unavailable = (reason: UnavailableReason): MetricValue => ({ status: "unavailable", reason });
 
@@ -344,8 +353,9 @@ async function computeOne(store: PublicMetricStore, request: MetricRequest, all:
     if (definition.windowDays === 0) throw new RangeError(`${request.metricId} has no window, so it takes no from`);
     if (request.from.getTime() >= asOf.getTime()) throw new RangeError(`from must be before asOf for ${request.metricId}`);
   }
-  const accounts = all.filter((account) => account.provider === definition.provider);
-  const done = (result: MetricValue): ComputedMetric => ({ metricId: request.metricId, asOf, result });
+  const accounts = all.filter((account) => countsProvider(definition, account.provider));
+  const providers = definition.providers.filter((provider) => accounts.some((account) => account.provider === provider));
+  const done = (result: MetricValue): ComputedMetric => ({ metricId: request.metricId, asOf, result, providers });
   if (accounts.length === 0) return done(unavailable("not_connected"));
 
   const from = request.from ?? new Date(asOf.getTime() - definition.windowDays * DAY_MS);
@@ -388,7 +398,7 @@ export async function computePublicMetrics(
  */
 export async function historyStart(store: PublicMetricStore, metricId: PublicMetricId): Promise<Date | null> {
   const definition = publicMetricDefinition(metricId);
-  const accounts = (await store.accounts()).filter((account) => account.provider === definition.provider);
+  const accounts = (await store.accounts()).filter((account) => countsProvider(definition, account.provider));
   if (accounts.length === 0) return null;
   const { source } = definition;
   switch (source.type) {

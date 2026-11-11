@@ -1,7 +1,12 @@
+import type { ProviderId } from "@/lib/adapters/types";
+import { markerTypeIds } from "@/lib/dashboard/markers";
 import { formatUtcDate } from "@/lib/format";
+import { PROVIDER_NAMES } from "@/lib/providers";
+import { londonDate, londonDayLabel } from "@/lib/timeline/days";
+import { londonDayStart } from "@/lib/timeline/query";
 
 import { UNAVAILABLE_LABELS } from "./display";
-import { publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { countsProvider, DEPLOYMENT_OUTCOMES, publicMetricDefinition, type PublicMetricId } from "./definitions";
 import { computePublicMetrics, historyStart, STALE_AFTER_MS, type PublicMetricStore, type SourceAccount } from "./engine";
 
 /*
@@ -22,6 +27,13 @@ import { computePublicMetrics, historyStart, STALE_AFTER_MS, type PublicMetricSt
  * A figure whose provider has not synced within the engine's `STALE_AFTER_MS` is counted up to its
  * oldest last sync instead, and says "counted up to" that day (#267): a count over the year is
  * still true up to there, where a public current value is not.
+ *
+ * The year in review (#262) turns the card into four slides, each downloadable as an image: the
+ * busiest day, the longest run of successful deployments, the most active provider, and the totals
+ * above. The figures safe to show were decided before coding:
+ * https://github.com/eddiejaoude/DevMacro/issues/262#issuecomment-6790096177. No spend, no revenue,
+ * no account names, no repository names: a provider is named by its product name only, and the
+ * event counts leave out payments, because a payment count hints at revenue.
  *
  * Pure apart from the injected store, so it is unit tested against the in-memory store.
  */
@@ -50,10 +62,10 @@ export function yearLabel(year: number, now: Date): string {
   return isYearComplete(year, now) ? String(year) : `${year} so far`;
 }
 
-/** The note under a year to date card: when the card starts to cover the whole year, as an ISO date. */
+/** The note under the year to date: when the slides start to cover the whole year, as an ISO date. */
 export function yearToDateNote(year: number): string {
   const end = formatUtcDate(new Date(Date.UTC(year + 1, 0, 1)));
-  return `${year} is not over yet. This card counts up to today and covers the whole year from ${end}.`;
+  return `${year} is not over yet. These slides count up to today and cover the whole year from ${end}.`;
 }
 
 /** The newest year with a card at `now`: this year to date (last year only at midnight on 1 January). */
@@ -95,8 +107,8 @@ export type YearSummary = Readonly<{
   simulated: boolean;
 }>;
 
-/** Reads the accounts once for every metric below instead of once per call into the engine. */
-function withSharedAccounts(store: PublicMetricStore): PublicMetricStore {
+/** Reads the accounts once for every figure of the review instead of once per call into the engine. */
+function withSharedAccounts(store: YearReviewStore): YearReviewStore {
   const accounts = store.accounts();
   return {
     accounts: () => accounts,
@@ -105,6 +117,8 @@ function withSharedAccounts(store: PublicMetricStore): PublicMetricStore {
     countEvents: (query) => store.countEvents(query),
     earliestEvent: (query) => store.earliestEvent(query),
     recentEvents: (query) => store.recentEvents(query),
+    eventActivity: (query) => store.eventActivity(query),
+    longestRun: (query) => store.longestRun(query),
   };
 }
 
@@ -120,8 +134,11 @@ function staleSyncedUpTo(accounts: readonly SourceAccount[], asOf: Date): Date |
   return asOf.getTime() - oldest > STALE_AFTER_MS ? new Date(oldest) : null;
 }
 
-export async function computeYearSummary(source: PublicMetricStore, year: number, now: Date): Promise<YearSummary> {
-  const store = withSharedAccounts(source);
+/**
+ * The totals of the year. Reads `store.accounts()` once per metric, so a store that reads the
+ * database shares one read (`computeYearReview` does).
+ */
+export async function computeYearSummary(store: PublicMetricStore, year: number, now: Date): Promise<YearSummary> {
   const start = new Date(Date.UTC(year, 0, 1));
   const end = new Date(Date.UTC(year + 1, 0, 1));
   const asOf = new Date(Math.min(now.getTime(), end.getTime()));
@@ -134,9 +151,9 @@ export async function computeYearSummary(source: PublicMetricStore, year: number
   const windows = YEARLY_METRICS.map((metric, index) => {
     const historyFrom = starts[index] ?? null;
     const from = historyFrom !== null && historyFrom.getTime() > start.getTime() ? historyFrom : start;
-    const { provider } = publicMetricDefinition(metric.metricId);
+    const definition = publicMetricDefinition(metric.metricId);
     const countedUpTo = staleSyncedUpTo(
-      accounts.filter((account) => account.provider === provider),
+      accounts.filter((account) => countsProvider(definition, account.provider)),
       asOf,
     );
     const metricAsOf = countedUpTo ?? asOf;
@@ -238,4 +255,298 @@ export function yearShareText(summary: YearSummary): string {
   });
   const figures = counted.length === 0 ? "" : `: ${counted.join(", ")}`;
   return `My stack in ${yearSummaryLabel(summary)} on DevMacro${figures}.${summary.simulated ? " Simulated data." : ""}`;
+}
+
+// ── The year in review (#262) ────────────────────────────────────────────────────
+
+/**
+ * Event types the review never counts, because a payment count hints at revenue (decision on
+ * #262): the payments the trend markers count (`markers.ts`, the one list of paid charges and
+ * orders), and the failed payments and refunds beside them. `yearly.test.ts` proves every failed
+ * payment or refund a revenue provider declares is listed here.
+ */
+export const PAYMENT_EVENT_TYPE_IDS: readonly string[] = [
+  ...markerTypeIds(["payments"]),
+  "polar.refund.succeeded",
+  "stripe.charge.failed",
+  "stripe.charge.refunded",
+];
+
+/** "DigitalOcean, GitLab, Railway, or Vercel": the deployment providers a run slide names. */
+const DEPLOY_OR_LIST = new Intl.ListFormat("en-US", { type: "disjunction" });
+
+export type DayCount = Readonly<{ /** Europe/London calendar day, `YYYY-MM-DD`. */ day: string; events: number }>;
+export type ProviderCount = Readonly<{ provider: ProviderId; events: number }>;
+
+/** Events of a window counted per Europe/London calendar day (days with none left out) and per provider. */
+export type EventActivity = Readonly<{ days: readonly DayCount[]; providers: readonly ProviderCount[] }>;
+
+/** The reads the year in review adds to the engine's, scoped to the accounts passed in like those. */
+export interface YearReviewStore extends PublicMetricStore {
+  /** Events not of `excludedTypeIds` with `from <= occurred_at < to`, per London day and per provider. */
+  eventActivity(
+    query: Readonly<{ accountIds: readonly string[]; excludedTypeIds: readonly string[]; from: Date; to: Date }>,
+  ): Promise<EventActivity>;
+  /**
+   * The most `successTypeId` events in a row with `from <= occurred_at < to`, in occurred_at order,
+   * with no `failureTypeId` event between them. A failure that shares its instant with a success is
+   * taken first, so a tie never lengthens a run. 0 with no success.
+   */
+  longestRun(
+    query: Readonly<{ accountIds: readonly string[]; successTypeId: string; failureTypeId: string; from: Date; to: Date }>,
+  ): Promise<number>;
+}
+
+/**
+ * The longest run of successful deployments: not connected when the workspace has no account of a
+ * deployment provider, otherwise the connected deployment providers and the longest of their runs
+ * (null when none succeeded). Each provider's run is its own: a failure on one never breaks another.
+ */
+export type YearRun =
+  | Readonly<{ status: "not_connected" }>
+  | Readonly<{ status: "available"; connected: readonly ProviderId[]; longest: TopProvider | null }>;
+
+/** The provider with the most events, and the providers with as many, by name. */
+export type TopProvider = Readonly<{ provider: ProviderId; events: number; tiedWith: readonly ProviderId[] }>;
+
+export type YearReview = Readonly<{
+  /** The slides these figures were read for; `yearSlides` returns only these. */
+  slides: readonly YearSlideId[];
+  summary: YearSummary;
+  busiestDay: DayCount | null;
+  longestRun: YearRun;
+  topProvider: TopProvider | null;
+  /**
+   * The first Europe/London day of the year with anything stored, when that is after 1 January: the
+   * workspace's first connection or its first event counted in the year, whichever is earlier (a
+   * provider sends some history on connecting). Null when it is 1 January, or nothing is stored.
+   */
+  dataFrom: string | null;
+}>;
+
+/** The day with the most events. On a tie, the earliest of those days: the first day the year reached that count. */
+export function busiestDay(days: readonly DayCount[]): DayCount | null {
+  let busiest: DayCount | null = null;
+  for (const day of days) {
+    if (day.events <= 0) continue;
+    if (busiest === null || day.events > busiest.events || (day.events === busiest.events && day.day < busiest.day)) busiest = day;
+  }
+  return busiest;
+}
+
+/** The provider with the most events. On a tie, the first by name from A to Z, with the others in `tiedWith`. */
+export function mostActiveProvider(providers: readonly ProviderCount[]): TopProvider | null {
+  const most = Math.max(0, ...providers.map((entry) => entry.events));
+  if (most === 0) return null;
+  const [first, ...rest] = providers
+    .filter((entry) => entry.events === most)
+    .map((entry) => entry.provider)
+    .sort((a, b) => PROVIDER_NAMES[a].localeCompare(PROVIDER_NAMES[b], "en-US"));
+  return first === undefined ? null : { provider: first, events: most, tiedWith: rest };
+}
+
+/**
+ * The slides' figures for `year` at `now`, from stored data only: events up to the end of the year
+ * or `now`, of the workspace's included accounts. One accounts read; the rest run in parallel, one
+ * run read per connected deployment provider. The totals summary is always read, since every slide
+ * shows its period and provenance; the event counts and the runs are read only for `slides` that
+ * show them (one slide image needs one), and the review carries `slides` so `yearSlides` returns
+ * only those.
+ */
+export async function computeYearReview(
+  source: YearReviewStore,
+  year: number,
+  now: Date,
+  slides: readonly YearSlideId[] = YEAR_SLIDE_IDS,
+): Promise<YearReview> {
+  const store = withSharedAccounts(source);
+  const start = new Date(Date.UTC(year, 0, 1));
+  const asOf = new Date(Math.min(now.getTime(), Date.UTC(year + 1, 0, 1)));
+  const accounts = await store.accounts();
+  const deployers = DEPLOYMENT_OUTCOMES.flatMap((outcome) => {
+    const accountIds = accounts.filter((account) => account.provider === outcome.provider).map((account) => account.accountId);
+    return accountIds.length === 0 ? [] : [{ ...outcome, accountIds }];
+  });
+  const readsActivity = slides.includes("busiest-day") || slides.includes("top-provider");
+
+  const [summary, activity, runs] = await Promise.all([
+    computeYearSummary(store, year, now),
+    readsActivity
+      ? store.eventActivity({
+          accountIds: accounts.map((account) => account.accountId),
+          excludedTypeIds: PAYMENT_EVENT_TYPE_IDS,
+          from: start,
+          to: asOf,
+        })
+      : { days: [], providers: [] },
+    deployers.length === 0 || !slides.includes("deployment-run")
+      ? null
+      : Promise.all(
+          deployers.map(async (deployer) => ({
+            provider: deployer.provider,
+            events: await store.longestRun({
+              accountIds: deployer.accountIds,
+              successTypeId: deployer.successTypeId,
+              failureTypeId: deployer.failureTypeId,
+              from: start,
+              to: asOf,
+            }),
+          })),
+        ),
+  ]);
+
+  const firstConnected = Math.min(...accounts.map((account) => account.connectionCreatedAt.getTime()));
+  const firstDays = [
+    ...(firstConnected < asOf.getTime() ? [londonDate(new Date(firstConnected))] : []),
+    ...activity.days.map((entry) => entry.day),
+  ].sort();
+  const dataFrom = firstDays[0] ?? null;
+  return {
+    slides,
+    summary,
+    busiestDay: busiestDay(activity.days),
+    longestRun:
+      runs === null
+        ? { status: "not_connected" }
+        : { status: "available", connected: runs.map((run) => run.provider), longest: mostActiveProvider(runs) },
+    topProvider: mostActiveProvider(activity.providers),
+    // Data from any time on 1 January covers the whole year, as a `since` within its first day does.
+    dataFrom: dataFrom !== null && dataFrom > formatUtcDate(start) ? dataFrom : null,
+  };
+}
+
+/** Slide order, and the address and file name each slide's image goes by. */
+export const YEAR_SLIDE_IDS = ["busiest-day", "deployment-run", "top-provider", "totals"] as const;
+export type YearSlideId = (typeof YEAR_SLIDE_IDS)[number];
+
+/** A total as its slide shows it, with its note ("since 2026-08-07") worded on the server. */
+export type YearSlideFigure = YearFigure & Readonly<{ note: string | null }>;
+
+export type YearSlide =
+  | Readonly<{ id: Exclude<YearSlideId, "totals">; title: string; value: string; detail: string }>
+  | Readonly<{ id: "totals"; title: string; figures: readonly YearSlideFigure[] }>;
+
+const AND_LIST = new Intl.ListFormat("en-US", { type: "conjunction" });
+/**
+ * Providers a tie names besides the one shown; the rest read "and 3 more". Keeps the sentence to
+ * three lines on a slide image, whose detail wraps (card-image.tsx), however many providers tie.
+ */
+const TIED_NAMED_MAX = 2;
+
+function counted(value: number, one: string, many: string): string {
+  return `${NUMBER_FORMAT.format(value)} ${value === 1 ? one : many}`;
+}
+
+/** The slides the review was read for, in slide order, every value in words or digits, never a dash. */
+export function yearSlides(review: YearReview): YearSlide[] {
+  const label = yearSummaryLabel(review.summary);
+  const { busiestDay: day, longestRun: run, topProvider: top } = review;
+
+  const busiest: YearSlide =
+    day === null
+      ? { id: "busiest-day", title: "Busiest day", value: "No events", detail: `Your connected providers sent no events in ${label}.` }
+      : {
+          id: "busiest-day",
+          title: "Busiest day",
+          value: londonDayLabel(londonDayStart(day.day)),
+          detail: `${counted(day.events, "event", "events")} on your timeline that day, not counting payments.`,
+        };
+
+  const runTitle = "Longest run of successful deployments";
+  const deployers = DEPLOY_OR_LIST.format(DEPLOYMENT_OUTCOMES.map((outcome) => PROVIDER_NAMES[outcome.provider]));
+  const longest: YearSlide =
+    run.status === "not_connected"
+      ? { id: "deployment-run", title: runTitle, value: UNAVAILABLE_LABELS.not_connected, detail: `Connect ${deployers} to count your deployments.` }
+      : run.longest === null
+        ? {
+            id: "deployment-run",
+            title: runTitle,
+            value: "No successful deployments",
+            detail: `No ${DEPLOY_OR_LIST.format(run.connected.map((id) => PROVIDER_NAMES[id]))} deployment succeeded in ${label}.`,
+          }
+        : {
+            id: "deployment-run",
+            title: runTitle,
+            value: `${NUMBER_FORMAT.format(run.longest.events)} in a row on ${PROVIDER_NAMES[run.longest.provider]}`,
+            detail: runDetail(run.longest),
+          };
+
+  const providerTitle = "Most active provider";
+  const provider: YearSlide =
+    top === null
+      ? { id: "top-provider", title: providerTitle, value: "No provider activity", detail: `No connected provider sent events in ${label}.` }
+      : {
+          id: "top-provider",
+          title: providerTitle,
+          value: PROVIDER_NAMES[top.provider],
+          detail:
+            top.tiedWith.length === 0
+              ? `${counted(top.events, "event", "events")} on your timeline, more than any other provider, not counting payments.`
+              : `${counted(top.events, "event", "events")} on your timeline, as many as ${tiedNames(top.tiedWith)}, not counting payments. On a tie the first by name is shown.`,
+        };
+
+  const figures = yearFigures(review.summary).map((figure) => ({ ...figure, note: yearFigureNote(figure) }));
+  const slides: YearSlide[] = [busiest, longest, provider, { id: "totals", title: "Totals", figures }];
+  return slides.filter((slide) => review.slides.includes(slide.id));
+}
+
+/** Each provider's run is its own; a tie names the providers with a run as long. */
+function runDetail(longest: TopProvider): string {
+  const name = PROVIDER_NAMES[longest.provider];
+  const run = `${name} deployments that succeeded one after another, with no failed ${name} deployment between them.`;
+  return longest.tiedWith.length === 0 ? run : `${run} ${tiedNames(longest.tiedWith)} had a run as long. On a tie the first by name is shown.`;
+}
+
+/** "GitHub", "GitHub and Sentry", or "GitHub, Sentry, and 3 more". */
+function tiedNames(tiedWith: readonly ProviderId[]): string {
+  const named = tiedWith.slice(0, TIED_NAMED_MAX).map((id) => PROVIDER_NAMES[id]);
+  const more = tiedWith.length - named.length;
+  return AND_LIST.format(more === 0 ? named : [...named, `${more} more`]);
+}
+
+/** Alt text for a slide's image: the slide in words. The totals slide is the yearly card. */
+export function yearSlideAltText(review: YearReview, slide: YearSlide): string {
+  if (slide.id === "totals") return yearCardAltText(review.summary);
+  const { summary } = review;
+  return `DevMacro slide for your stack in ${yearSummaryLabel(summary)}, ${yearPeriod(summary)}. ${slide.title}: ${slide.value}. ${slide.detail} ${yearProvenance(summary)}.`;
+}
+
+/** The prefilled post for "Share to X" of one slide; a slide with nothing to count names the year only. */
+export function yearSlideShareText(review: YearReview, slide: YearSlide): string {
+  const { summary, busiestDay: day, longestRun: run, topProvider: top } = review;
+  if (slide.id === "totals") return yearShareText(summary);
+  const label = yearSummaryLabel(summary);
+  const simulated = summary.simulated ? " Simulated data." : "";
+  if (slide.id === "busiest-day" && day !== null) {
+    return `My busiest day of ${label} on DevMacro: ${counted(day.events, "event", "events")} on ${day.day}.${simulated}`;
+  }
+  if (slide.id === "deployment-run" && run.status === "available" && run.longest !== null) {
+    return `My longest run of successful deployments in ${label} on DevMacro: ${NUMBER_FORMAT.format(run.longest.events)} in a row on ${PROVIDER_NAMES[run.longest.provider]}.${simulated}`;
+  }
+  if (slide.id === "top-provider" && top !== null) {
+    return `My most active provider in ${label} on DevMacro: ${PROVIDER_NAMES[top.provider]}.${simulated}`;
+  }
+  return `My stack in ${label} on DevMacro.${simulated}`;
+}
+
+/** A slide's image under the year page. The totals keep the yearly card's address, `card.png`. */
+export function yearSlideFile(id: YearSlideId): string {
+  return id === "totals" ? "card.png" : `${id}.png`;
+}
+
+/** The slide a URL segment names, or null. */
+export function parseYearSlideFile(segment: string): YearSlideId | null {
+  return YEAR_SLIDE_IDS.find((id) => yearSlideFile(id) === segment) ?? null;
+}
+
+/** "devmacro-2025-busiest-day.png", "devmacro-2026-so-far.png" for the totals of the year to date. */
+export function yearSlideDownloadName(summary: YearSummary, id: YearSlideId): string {
+  const base = isYearComplete(summary.year, summary.asOf) ? `devmacro-${summary.year}` : `devmacro-${summary.year}-so-far`;
+  return id === "totals" ? `${base}.png` : `${base}-${id}.png`;
+}
+
+/** Why the slides may cover part of the year: nothing is stored for it before `dataFrom`. Null otherwise. */
+export function yearPartialNote(review: YearReview): string | null {
+  if (review.dataFrom === null) return null;
+  return `Nothing is stored for ${review.summary.year} before ${review.dataFrom}, so these slides may cover only part of it.`;
 }

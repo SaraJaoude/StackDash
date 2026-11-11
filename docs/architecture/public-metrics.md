@@ -35,11 +35,11 @@ A metric that cannot be computed honestly says why instead of showing a number:
 
 Partial data always understates, never overstates: an account added in the middle of a window adds only what it saw, and a missing start-of-window reading is replaced by the next day's (a shorter window), never an earlier one.
 
-A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [yearly card](#yearly-card), and asks for one more: when that one comes back it throws `AccountBoundError` rather than publish a smaller number. What each surface shows then:
+A number rests on every included account behind it, so it is never computed from part of them. The metric store (`src/lib/public-metrics/supabase-store.ts`) reads at most 200 included accounts of a project, or of the workspace for the [year in review](#year-in-review), and asks for one more: when that one comes back it throws `AccountBoundError` rather than publish a smaller number. What each surface shows then:
 
 - The public route, badges, and cards answer `503` like any failed read, and the error is logged.
 - The public project page shows its error page ("This project page could not be loaded", with Try again and a reference id).
-- The yearly card's page shows the workspace's error page, and its `card.png` answers `503`.
+- The year in review's page shows the workspace's error page, and each slide image answers `503`.
 - The owner's public metrics page still loads, because it holds every Unpublish control: each engine metric reads "Not computed: too many accounts", a notice above them says the project has more than 200 included accounts and to exclude the ones it does not need on their connection's page, and published values and self-reported values stay listed and can be unpublished.
 
 The connections behind the accounts are read by id, so that read can never be cut.
@@ -126,7 +126,7 @@ Server code that shows published values (badges and cards, project pages, the le
 
 The first three read live rows through `public_published_metrics()` with the service role and compute each value at its own delay. A leaderboard keeps only `provenance === "verified"` values that are not `simulated`. `src/lib/public-metrics/definitions.ts` holds the definitions (`PUBLIC_METRICS`, `publicMetricDefinition`, `formulaPath`), `engine.ts` computes from any `PublicMetricStore`, and `display.ts` formats values and summaries without touching data. `share.ts` builds badge and card URLs (`badgePath`, `cardPath`), alt text, and share text, and `badge.ts` renders the SVG. `definitions.ts`, `display.ts`, `share.ts`, and `badge.ts` import no adapter, data access, or Node module, so client components can use them; `display.test.ts` walks their imports and fails if one creeps in.
 
-Private surfaces compute values that need not be published. The [yearly card](#yearly-card) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, null)` (every included account of the workspace) and passes `from` on each request to count from there instead of the metric's own 7 or 30 days. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. `historyStart(store, metricId)` says where a change or count metric's stored history starts, so a caller can start its window there instead of reporting "Not enough history yet". Publications always use the metric's own window.
+Private surfaces compute values that need not be published. The [year in review](#year-in-review) calls `computePublicMetrics(store, requests)` in `engine.ts` with `createSupabaseMetricStore(db, workspaceId, null)` (every included account of the workspace) and passes `from` on each request to count from there instead of the metric's own 7 or 30 days. Only change and count metrics take `from`; a current total, a percent, or a streak refuses it, and `from` must be before `asOf`. `historyStart(store, metricId)` says where a change or count metric's stored history starts, so a caller can start its window there instead of reporting "Not enough history yet". Publications always use the metric's own window.
 
 ## Badges and cards
 
@@ -164,17 +164,27 @@ Where the IP comes from (`clientIpEnv` in `src/lib/env.ts`, `clientIp` in `reque
 
 Each time DevMacro serves a published metric's badge or card it counts one view for that project, metric, surface, and UTC day (`published_metric_views`), after the response has gone. The share dialog shows the last 7 days: "DevMacro served the badge 12 times and the card 3 times, including previews here." It counts what DevMacro served, not every reader: a cache in between (a CDN, GitHub's image proxy) serves copies for up to a minute that are not counted. Unpublishing stops the count. Counts are kept 13 months.
 
-## Yearly card
+## Year in review
 
-`/w/<workspace>/year/<year>` shows a workspace's year as a card: deployments shipped, stars gained, signups, and providers connected, counted by the engine from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year's card.
+`/w/<workspace>/year/<year>` shows a workspace's year as four slides, counted from stored data across every included account of the workspace. Dashboard, then "Your 2026 so far", opens the current year. `computeYearReview` in `src/lib/public-metrics/yearly.ts` computes every slide.
 
-- The current year's card is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review". Past years link from the page; a year that has not started is a `404`.
-- Each figure counts from 1 January, or from where its stored history starts when that is later (`historyStart`), and then says "since" that day. A figure whose provider was connected only after the year reads "No data in 2025".
-- A figure whose provider has not synced for more than 48 hours (`STALE_AFTER_MS`) is counted up to the oldest last sync of that provider's accounts and says "counted up to" that day, instead of "Not synced in the last 2 days" in place of the count. A count over the year is still true up to there; a public current value is not, so published values, badges, and cards keep the 48 hour rule.
-- The card is 1200 by 630 and every line on it is one line high: text that would not fit ends in an ellipsis instead of wrapping past its box. The page lists every figure in full under the card, and the alt text says them all.
-- Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not on the card. No money appears.
-- Private: the page and its image, `/w/<workspace>/year/<year>/card.png`, answer only members (`Cache-Control: private, no-store`, the same `404` for anyone else). Share opens the same dialog as milestone cards, with Download card in place of a public URL, the alt text, and "Share to X" with prefilled text. The card is public only once a member posts it.
-- A card that rests on simulated data says "Simulated data, not verified".
+| Slide | What it shows | Rule |
+|---|---|---|
+| Busiest day | The Europe/London calendar day with the most events on the timeline, and how many | Every event type counts except payments, failed payments, and refunds (`PAYMENT_EVENT_TYPE_IDS`), because a payment count hints at revenue. Events with no account, such as daily summaries, do not count. On a tie, the earliest of those days |
+| Longest run of successful deployments | The most deployments that succeeded one after another on one provider in the year, with no failed deployment of that provider between them, and the provider's name | Each deployment provider's own success and failure types (`DEPLOYMENT_OUTCOMES`: DigitalOcean, GitLab, Railway, and Vercel), the deployments "Deployments shipped" counts. A failure on one provider never breaks another's run. On a tie between providers, the first name from A to Z, and the slide names at most two others and then how many more. A run that began the year before counts from 1 January. A failure at the same instant as a success is taken first, so a tie never lengthens a run |
+| Most active provider | The provider's product name, for example Vercel, and its event count | The same events as the busiest day. On a tie, the first name from A to Z, and the slide names at most two others and then how many more |
+| Totals | Deployments shipped, stars gained, signups, and providers connected | Counted by the engine, as below |
+
+- The current year is there at any time as the year to date: titled "Your stack in 2026 so far", tagged "Year to date", and counted up to now. Once the year ends (1 January, UTC), the same page shows the whole year, tagged "2026 in review". Past years link from the page; a year that has not started is a `404`.
+- A slide with nothing to count says so in words: "No events", "No successful deployments", "Not connected", "No provider activity". When no provider was connected in the year, the page says so, and for the current year links to Connections. When the first thing stored for the year (the first connection, or the first event counted, whichever is earlier) is after 1 January, the page says nothing is stored before that day, so the slides may cover only part of the year.
+- Each total counts from 1 January, or from where its stored history starts when that is later (`historyStart`), and then says "since" that day. A total whose provider was connected only after the year reads "No data in 2025".
+- A total whose provider has not synced for more than 48 hours (`STALE_AFTER_MS`) is counted up to the oldest last sync of that provider's accounts and says "counted up to" that day, instead of "Not synced in the last 2 days" in place of the count. A count over the year is still true up to there; a public current value is not, so published values, badges, and cards keep the 48 hour rule.
+- No spend, revenue, account names, or repository names appear on any slide. Emails and GitHub Actions minutes are monthly totals in the engine, with no yearly formula, so they are not among the totals.
+- The busiest day, the most active provider, and the run are counted in the database (see [Year in review counts](schema.md#year-in-review-counts)), so a year of events is never read into the app.
+- Keyboard: Previous slide and Next slide are buttons; at either end the one that cannot move stays focusable and says it is unavailable (`GuardedButton`). Each move is announced as "Slide 2 of 4" and the slide's title. A slide's entrance animation is off under reduced motion.
+- Each slide downloads as a 1200 by 630 PNG of the same figure: `busiest-day.png`, `deployment-run.png`, and `top-provider.png` under the year's address, and the totals at `card.png`. Each image reads only what its slide shows: the totals image never runs the year's event counts. On a slide image the title and the value are one line each, ending in an ellipsis where they would not fit; the detail wraps, and a tie names at most two other providers and then how many more, so the longest detail stays within three lines. The page shows the slide in full and the alt text says it all.
+- Private: the page and its images answer only members (`Cache-Control: private, no-store`, the same `404` for anyone else, and for an unknown slide). Share opens the same dialog as milestone cards for the slide in view, with Download card in place of a public URL, the alt text, and "Share to X" with prefilled text. A slide is public only once a member posts it.
+- A slide that rests on simulated data says "Simulated data, not verified".
 
 History points are the engine's own values at each moment, computed by `computeMetricHistories` in `history.ts` with the same formulas as the current value. To avoid reading the database once per day and metric, it computes against `preloadHistoryStore`, a read-through cache that loads the window's snapshots (one paged read per metric key, up to 10,000 rows) and events (up to 5,000, in pages of 1,000, newest first) once, answers every query it fully covers from memory, and passes anything older to the real store. A read that stopped at its bound may be cut short, so its oldest day is treated as not loaded. Every answer is therefore the real store's answer.
 
@@ -231,15 +241,19 @@ The newest star count minus the star count at the end of the day 30 days ago, pe
 
 ### `vercel-deployments-7d`
 
-Deployments in 7 days. Verified, in deployments. Events: `vercel.deployment.succeeded`. Minimum history: 7 days.
+Deployments in 7 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 7 days.
 
-Vercel deployments that finished successfully in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 7 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+
+The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 
 ### `vercel-deployments-30d`
 
-Deployments in 30 days. Verified, in deployments. Events: `vercel.deployment.succeeded`. Minimum history: 30 days.
+Deployments in 30 days. Verified, in deployments. Events: `digitalocean.deployment.succeeded`, `gitlab.deployment.succeeded`, `railway.deployment.deployed`, `vercel.deployment.succeeded`. Minimum history: 30 days. The year in review's "Deployments shipped" total counts these events over the year.
 
-Vercel deployments that finished successfully in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+Deployments that finished successfully on the project's DigitalOcean, GitLab, Railway, and Vercel accounts in the last 30 days, one per deployment. Counts deployments to every environment (production and preview) until DevMacro records the environment of each deployment.
+
+The id keeps its `vercel-` prefix because published rows store it; until 2026-11 it counted Vercel deployments only, so a project with deployments on the other providers reads a higher value from then on.
 
 ### `vercel-deployment-streak`
 

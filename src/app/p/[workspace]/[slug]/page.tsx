@@ -11,7 +11,7 @@ import { SiteNav } from "@/components/site-nav";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
 import { providerName, providerPlatform } from "@/lib/providers";
-import { FORMULAS_DOC_PATH, PROVENANCE_LABELS, publicMetricDefinition } from "@/lib/public-metrics/definitions";
+import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
   loadPublishedProjectHistory,
@@ -95,14 +95,9 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
 
   const engine = page.published.metrics.filter(isEngine);
   const selfReported = page.published.metrics.filter((metric): metric is PublishedSelfReportedMetric => metric.kind === "self_reported");
-  // Icons only, for the providers behind published values that are connected; never account names.
-  const providers = [
-    ...new Set(
-      engine
-        .filter((metric) => metric.value.status === "available" || metric.value.reason !== "not_connected")
-        .map((metric) => publicMetricDefinition(metric.metricId).provider),
-    ),
-  ];
+  // Icons only, for the connected providers behind published values; never account names. A metric
+  // that counts several providers (deployments) shows only those the project has connected.
+  const providers = [...new Set(engine.flatMap((metric) => metric.providers))];
 
   return (
     <>

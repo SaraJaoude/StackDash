@@ -21,9 +21,17 @@ describe("memberEmails", () => {
 describe("demoPublicMetricIds", () => {
   it("lists every metric the project's providers can count, once each, in definition order", () => {
     const ids = demoPublicMetricIds(["vercel", "github", "vercel"]);
-    expect(ids).toEqual(PUBLIC_METRICS.filter((definition) => ["vercel", "github"].includes(definition.provider)).map((definition) => definition.id));
+    expect(ids).toEqual(
+      PUBLIC_METRICS.filter((definition) => definition.providers.some((provider) => provider === "vercel" || provider === "github")).map(
+        (definition) => definition.id,
+      ),
+    );
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids.length).toBeGreaterThan(0);
+  });
+
+  it("lists a metric that counts several providers for any one of them (boundary: Railway only)", () => {
+    expect(demoPublicMetricIds(["railway"])).toEqual(["vercel-deployments-7d", "vercel-deployments-30d"]);
   });
 
   it("lists nothing for a project with no provider that has public metrics (boundary)", () => {

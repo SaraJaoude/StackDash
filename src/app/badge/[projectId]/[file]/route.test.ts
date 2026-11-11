@@ -31,6 +31,7 @@ const STARS: PublishedEngineMetric = {
   kind: "engine",
   publicationId: "80000000-0000-4000-8000-000000000001",
   metricId: "github-stars",
+  providers: ["github"],
   label: "GitHub stars",
   unit: "stars",
   provenance: "verified",

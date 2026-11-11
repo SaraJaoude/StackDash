@@ -2,6 +2,7 @@ import "server-only";
 
 import { z } from "zod";
 
+import type { ProviderId } from "@/lib/adapters/types";
 import { formatQuantity } from "@/lib/format";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -105,6 +106,8 @@ export type PublishedEngineMetric = Readonly<{
   /** The moment the value describes: now, or `delayDays` before now. */
   asOf: Date;
   value: PublishedValue;
+  /** The connected providers the value counts (`ComputedMetric.providers`), for the project page's icons. */
+  providers: readonly ProviderId[];
 }>;
 
 /** A value a person typed (#147). Project pages only: never a badge, never on a leaderboard. */
@@ -178,6 +181,7 @@ function toPublishedEngineMetrics(rows: readonly EngineRow[], computed: readonly
       publishedAt: new Date(row.publishedAt),
       asOf: result.asOf,
       value: publishedValue(result, definition.unit, row.rounding),
+      providers: result.providers,
     };
   });
 }
@@ -203,6 +207,7 @@ export function unavailablePublishedEngineMetrics(rows: readonly EngineRow[], no
       metricId: row.metricId,
       asOf: new Date(now.getTime() - asDelay(row.delayDays) * DAY_MS),
       result: { status: "unavailable", reason },
+      providers: [],
     })),
   );
 }
