@@ -39,6 +39,7 @@ export function SeverityLinks({ action, query }: { action: string; query: Timeli
         <Link
           key={label}
           href={timelineHref(action, { ...query, severities }, null)}
+          scroll={false}
           aria-current={current ? "page" : undefined}
           className={`${SEVERITY_LINK} ${
             current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"

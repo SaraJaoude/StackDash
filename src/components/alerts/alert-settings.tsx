@@ -38,6 +38,7 @@ import {
   defaultBudgetValues,
   defaultRuleValues,
   formatMinorAmount,
+  PAGED_HEADING_SCROLL_MARGIN,
   ruleToFormValues,
   type AlertFormOptions,
 } from "./labels";
@@ -221,12 +222,16 @@ export async function AlertSettings({
       ].sort();
 
   const alertsPath = workspacePath(workspace.slug, "alerts");
-  const pageHref = (cursors: { rulesAfter: string | null; budgetsAfter: string | null }) => {
+  // A pager replaces its list, so it lands on that list's heading rather than the top of the page.
+  const pageHref = (
+    cursors: { rulesAfter: string | null; budgetsAfter: string | null },
+    headingId: typeof RULES_HEADING_ID | typeof BUDGETS_HEADING_ID,
+  ) => {
     const query = new URLSearchParams();
     if (cursors.rulesAfter !== null) query.set("rulesAfter", cursors.rulesAfter);
     if (cursors.budgetsAfter !== null) query.set("budgetsAfter", cursors.budgetsAfter);
     const text = query.toString();
-    return text === "" ? alertsPath : `${alertsPath}?${text}`;
+    return `${text === "" ? alertsPath : `${alertsPath}?${text}`}#${headingId}`;
   };
   const deniedReason = actionDeniedReason("manage_budgets");
 
@@ -263,7 +268,7 @@ export async function AlertSettings({
 
       <section aria-labelledby={RULES_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={RULES_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <h2 id={RULES_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Alert rules
           </h2>
           <p className="mt-1 text-sm text-muted">
@@ -306,13 +311,13 @@ export async function AlertSettings({
         {rules.nextCursor === null && rulesAfter === null ? null : (
           <nav aria-label="Alert rule pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {rulesAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter: null, budgetsAfter })} className="text-accent underline underline-offset-2">
+              <Link href={pageHref({ rulesAfter: null, budgetsAfter }, RULES_HEADING_ID)} className="text-accent underline underline-offset-2">
                 Show the first rules
               </Link>
             )}
             {rules.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter: rules.nextCursor, budgetsAfter })}
+                href={pageHref({ rulesAfter: rules.nextCursor, budgetsAfter }, RULES_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more rules
@@ -337,7 +342,7 @@ export async function AlertSettings({
 
       <section aria-labelledby={BUDGETS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Budgets
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-muted">
@@ -396,13 +401,13 @@ export async function AlertSettings({
         {budgets.nextCursor === null && budgetsAfter === null ? null : (
           <nav aria-label="Budget pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {budgetsAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter, budgetsAfter: null })} className="text-accent underline underline-offset-2">
+              <Link href={pageHref({ rulesAfter, budgetsAfter: null }, BUDGETS_HEADING_ID)} className="text-accent underline underline-offset-2">
                 Show the first budgets
               </Link>
             )}
             {budgets.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter, budgetsAfter: budgets.nextCursor })}
+                href={pageHref({ rulesAfter, budgetsAfter: budgets.nextCursor }, BUDGETS_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more budgets

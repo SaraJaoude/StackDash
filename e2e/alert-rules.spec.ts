@@ -199,6 +199,36 @@ ownerTest.describe("alert rules as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  ownerTest("pages budgets onto the Budgets heading, not the top of the page (#312)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Budget pages");
+    try {
+      // One more than a page of budgets (BUDGETS_PAGE_SIZE is 50), so "Show more budgets" appears.
+      const { error } = await adminClient()
+        .from("budgets")
+        .insert(
+          Array.from({ length: 51 }, (_, index) => ({
+            workspace_id: workspace.id,
+            name: `Budget ${String(index + 1).padStart(2, "0")}`,
+            scope: "workspace" as const,
+            amount_minor: 10_000,
+            currency: "USD",
+          })),
+        );
+      if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.getByRole("link", { name: "Show more budgets" }).click();
+      await expect(page).toHaveURL(/[?&]budgetsAfter=[^#]+#budgets-title$/);
+      await expect(page.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
+      const heading = page.getByRole("heading", { name: "Budgets", exact: true });
+      await expect(heading).toBeInViewport();
+      // Below the sticky header, not under it.
+      const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
+      await expect.poll(async () => (await heading.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
 });
 
 viewerTest.describe("alert rules as a viewer", () => {

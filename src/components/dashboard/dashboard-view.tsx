@@ -171,6 +171,7 @@ export function TrendsSection({ trends, markSimulated }: { trends: DashboardTren
             <Link
               key={granularity}
               href={trends.hrefs[granularity]}
+              scroll={false}
               aria-current={current ? "page" : undefined}
               className={`inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors ${
                 current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"
@@ -188,6 +189,7 @@ export function TrendsSection({ trends, markSimulated }: { trends: DashboardTren
           <Link
             key={category}
             href={href}
+            scroll={false}
             className="inline-flex min-h-10 items-center gap-2 rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
           >
             <MarkerShape category={category} filled={shown} />
@@ -285,6 +287,7 @@ function ProviderTrendsGroup({
           <>
             <Link
               href={toggleHref}
+              scroll={false}
               aria-expanded={open}
               aria-controls={open ? moreId : undefined}
               className="mt-3 inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"

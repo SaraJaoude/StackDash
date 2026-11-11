@@ -18,6 +18,7 @@ import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/worksp
 
 import { AcknowledgeAllButton, AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
 import { DeniedReason } from "./form-controls";
+import { PAGED_HEADING_SCROLL_MARGIN } from "./labels";
 
 /**
  * Triggered alerts, newest first: what fired, how bad, and whether someone has acknowledged it.
@@ -155,7 +156,7 @@ export async function TriggeredAlerts({
     <section aria-labelledby={HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
       <div className="flex flex-col gap-3 border-b border-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 id={HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <h2 id={HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Triggered alerts
           </h2>
           <p className="mt-1 text-sm text-muted">
@@ -165,7 +166,7 @@ export async function TriggeredAlerts({
           </p>
           {canAcknowledge ? null : <DeniedReason>{actionDeniedReason("acknowledge_alert")}</DeniedReason>}
         </div>
-        <Link href={hrefFor(!showAcknowledged, null)} className={`shrink-0 text-sm ${linkClass}`}>
+        <Link href={hrefFor(!showAcknowledged, null)} scroll={false} className={`shrink-0 text-sm ${linkClass}`}>
           {showAcknowledged ? "Hide acknowledged alerts" : "Show acknowledged alerts"}
         </Link>
       </div>
@@ -228,15 +229,16 @@ export async function TriggeredAlerts({
         )}
       </AcknowledgeAnnouncer>
 
+      {/* A pager replaces the list, so it lands on the list's heading rather than the top of the page. */}
       {page.nextCursor === null && after === null ? null : (
         <nav aria-label="Triggered alert pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
           {after === null ? null : (
-            <Link href={hrefFor(showAcknowledged, null)} className={linkClass}>
+            <Link href={`${hrefFor(showAcknowledged, null)}#${HEADING_ID}`} className={linkClass}>
               Show the newest alerts
             </Link>
           )}
           {page.nextCursor === null ? null : (
-            <Link href={hrefFor(showAcknowledged, page.nextCursor)} className={linkClass}>
+            <Link href={`${hrefFor(showAcknowledged, page.nextCursor)}#${HEADING_ID}`} className={linkClass}>
               Show older alerts
             </Link>
           )}

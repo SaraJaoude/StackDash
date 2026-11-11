@@ -36,6 +36,7 @@ export function ProviderBadges({
           <li key={badge.provider} className="pr-7">
             <Link
               href={timelineHref(action, link.query, null)}
+              scroll={false}
               aria-current={link.current ? "page" : undefined}
               className={`relative block rounded-md focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${
                 link.current ? "ring-2 ring-accent ring-offset-2 ring-offset-background" : ""

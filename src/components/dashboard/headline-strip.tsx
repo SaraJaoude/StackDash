@@ -288,6 +288,7 @@ export function HeadlineStrip({
               <Link
                 key={option}
                 href={hrefs[option]}
+                scroll={false}
                 aria-current={current ? "page" : undefined}
                 className={`inline-flex min-h-10 items-center rounded-md border px-4 py-2 text-sm transition-colors ${
                   current ? "border-accent font-medium text-foreground" : "border-line-strong text-muted hover:text-foreground"
