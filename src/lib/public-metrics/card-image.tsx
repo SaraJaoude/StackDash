@@ -207,8 +207,15 @@ export function YearCard({ summary }: { summary: YearSummary }) {
   );
 }
 
-/** A value that fits at full size; a longer one, such as a weekday and date, drops to a size that fits one line. */
-const SLIDE_VALUE_CHARS_MAX = 12;
+/**
+ * Value sizes by length, so a value stays on one line: a count at full size, a weekday and date or
+ * "72 in a row on Vercel" smaller, and the longest run value, "1,234 in a row on DigitalOcean",
+ * smaller still, so the provider's name is never cut off.
+ */
+function slideValueSize(value: string): number {
+  if (value.length <= 12) return 104;
+  return value.length <= 24 ? 72 : 56;
+}
 
 /** One slide of the year in review (#262) other than the totals, whose image is `YearCard`. */
 export function YearSlideCard({ summary, slide }: { summary: YearSummary; slide: Exclude<YearSlide, { id: "totals" }> }) {
@@ -219,7 +226,7 @@ export function YearSlideCard({ summary, slide }: { summary: YearSummary; slide:
       footer={[yearPeriod(summary), yearProvenance(summary)]}
     >
       <div style={line(40, COLORS.muted)}>{`${slide.title}, ${yearSummaryLabel(summary)}`}</div>
-      <div style={{ ...line(slide.value.length > SLIDE_VALUE_CHARS_MAX ? 72 : 104), letterSpacing: -2, marginTop: 8, marginBottom: 24 }}>
+      <div style={{ ...line(slideValueSize(slide.value)), letterSpacing: -2, marginTop: 8, marginBottom: 24 }}>
         {slide.value}
       </div>
       <div style={{ display: "flex", fontSize: 30, lineHeight: 1.3, color: COLORS.muted }}>{slide.detail}</div>
