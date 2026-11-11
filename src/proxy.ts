@@ -190,7 +190,8 @@ export async function proxy(request: NextRequest) {
   );
 
   // Verifies the access token and refreshes it when it is close to expiry. Run before deciding
-  // anything else so a refresh is never lost to an early return.
+  // anything else so a refresh is never lost to an early return. Local with an asymmetric signing
+  // key, an Auth server call per request with the legacy secret (see getCurrentUser, #318).
   const { data } = await supabase.auth.getClaims();
   const signedIn = data !== null;
 

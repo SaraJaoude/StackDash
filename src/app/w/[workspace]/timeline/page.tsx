@@ -19,6 +19,7 @@ import { getWorkspaceScope } from "@/lib/data/dashboard";
 import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
+import { timelineEmptyKind } from "@/lib/timeline/empty-state";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
@@ -60,6 +61,32 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
 
   // The type sample covers the newest events, so it is empty only when there are none at all.
   if (typeIds.length === 0) {
+    // Something is connected (#322): say whether events are coming instead of asking for a provider.
+    // Every role can read the Connections page, so neither control is ever denied.
+    const emptyKind = timelineEmptyKind(workspaceScope.connections);
+    if (emptyKind !== "no_connections") {
+      const connectionsPath = workspacePath(workspace.slug, "connections");
+      return (
+        <>
+          <PageHeader title="Timeline" description={DESCRIPTION} />
+          {emptyKind === "first_sync" ? (
+            <EmptyState
+              icon={<TimelineIcon width={20} height={20} />}
+              title="Events are on their way"
+              description="The first sync is queued or running. Its events appear here as they arrive, without a reload. While you wait, see its status on the Connections page."
+              action={{ href: connectionsPath, label: "Check connection status" }}
+            />
+          ) : (
+            <EmptyState
+              icon={<TimelineIcon width={20} height={20} />}
+              title="No activity yet"
+              description="Your connected providers have not reported any events yet. New events appear here as they happen. To see whether each connection is syncing, check the Connections page."
+              action={{ href: connectionsPath, label: "Check connections" }}
+            />
+          )}
+        </>
+      );
+    }
     const canConnect = canPerform(role, "manage_connections");
     // Offered to owners and admins of a workspace with nothing connected, while simulation is on.
     const offerSampleData =
