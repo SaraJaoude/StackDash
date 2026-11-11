@@ -1,3 +1,4 @@
+import type { AcknowledgeAllResult } from "@/app/w/[workspace]/alerts/actions";
 import {
   AMOUNT_PRESETS,
   CUSTOM_CHOICE,
@@ -172,4 +173,28 @@ export type ChannelFormValues = {
 
 export function defaultChannelValues(): ChannelFormValues {
   return { kind: "discord", name: "", url: "", rules: "all", ruleIds: [], digest: "off" };
+}
+
+/**
+ * What the triggered list's live region says after "Acknowledge all": how many, where they went,
+ * and what is left. Nothing acknowledged with alerts still waiting happens when another member got
+ * there first and more fired meanwhile, so it says this call did nothing rather than "none left".
+ */
+export function acknowledgedAllMessage(
+  { acknowledged, remaining }: Pick<Extract<AcknowledgeAllResult, { ok: true }>, "acknowledged" | "remaining">,
+  showAcknowledged: boolean,
+): string {
+  let message: string;
+  if (acknowledged === 0) {
+    message = remaining === 0 ? "No alerts were left to acknowledge." : "No alerts were acknowledged this time.";
+  } else {
+    const [count, pronoun] = acknowledged === 1 ? ["1 alert", "It stays"] : [`${acknowledged} alerts`, "They stay"];
+    message = `${count} acknowledged. ${pronoun} in the alert history.`;
+    if (!showAcknowledged) message += ` Choose Show acknowledged alerts to see ${acknowledged === 1 ? "it" : "them"}.`;
+  }
+  if (remaining > 0) {
+    const [count, pronoun] = remaining === 1 ? ["1 alert is", "it"] : [`${remaining} alerts are`, "them"];
+    message += ` ${count} still unacknowledged. Choose Acknowledge all again to acknowledge ${pronoun}.`;
+  }
+  return message;
 }
