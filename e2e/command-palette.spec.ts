@@ -1,7 +1,7 @@
 import type { Locator, Page, Route } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 /** A fresh workspace with one Vercel connection, account, and project, and two Vercel events. */
@@ -205,6 +205,7 @@ ownerTest.describe("command palette as the owner", () => {
       await openWith(palette(page), () => trigger(page).click());
       await expect(combobox(page)).toBeFocused();
       await expect(option(page, "Timeline", "Page")).toBeVisible();
+      await waitForTrends(page);
       await expectNoAxeViolations(page);
 
       await combobox(page).fill("failed vercel");

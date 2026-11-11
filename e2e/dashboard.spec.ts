@@ -1,10 +1,9 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
@@ -14,14 +13,6 @@ import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, 
 const HOUR_MS = 3_600_000;
 
 type SnapshotInsert = Database["public"]["Tables"]["usage_snapshots"]["Insert"];
-
-/**
- * Trends streams in behind its own Suspense boundary after the rest of the dashboard (#263), so a
- * whole-page axe scan waits for it; otherwise it could scan the loading skeleton, not the charts.
- */
-async function waitForTrends(page: Page): Promise<void> {
-  await expect(page.getByRole("region", { name: "Trends" })).toBeVisible();
-}
 
 /**
  * One fake connection polled hourly, two accounts (Production in project Checkout, Staging

@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import { STALE_AFTER_MS } from "../src/lib/public-metrics/engine";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { pngSize } from "./fixtures/share";
 import { seedStaleWorkspace } from "./fixtures/stale";
@@ -60,6 +60,7 @@ ownerTest.describe("stale data as the owner", () => {
       await page.keyboard.press("Shift+Tab");
       const sync = page.getByRole("region", { name: /^Data last synced/ }).getByRole("button", { name: "Sync now" });
       await expect(sync).toBeFocused();
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
       await page.keyboard.press("Enter");
