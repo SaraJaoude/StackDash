@@ -761,11 +761,6 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
-"count_activity_events":
-{ Args: { "p_account_ids": (string)[],"p_from": string,"p_type_ids": (string)[],"p_until": string,"p_workspace_id": string }; Returns: {
-              "connection_id": string,"events": number,"type_id": string
-            }[]
-                           },
 "create_notification_destination":
 { Args: { "p_all_rules": boolean,"p_auth_tag": string,"p_ciphertext": string,"p_created_by": string,"p_digest": Database["public"]['Enums']["digest_frequency"],"p_id": string,"p_iv": string,"p_key_id": string,"p_kind": Database["public"]['Enums']["destination_kind"],"p_name": string,"p_rule_ids": (string)[],"p_url_host": string,"p_workspace_id": string }; Returns: undefined
                            },
@@ -810,6 +805,11 @@ isOneToOne: false
                            },
 "has_workspace_role":
 { Args: { "p_min_role": Database["public"]['Enums']["workspace_role"],"p_workspace_id": string }; Returns: boolean
+                           },
+"headline_event_counts":
+{ Args: { "p_account_ids": (string)[],"p_end": string,"p_start": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
+              "connection_id": string,"events": number,"type_id": string
+            }[]
                            },
 "hook_before_user_created":
 { Args: { "event": Json }; Returns: Json
