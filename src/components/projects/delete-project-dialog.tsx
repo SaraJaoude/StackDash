@@ -3,8 +3,9 @@
 import { useActionState, useId, useRef, useState } from "react";
 
 import { deleteProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
-import { FormErrorSummary, failureOf } from "@/components/projects/project-form-parts";
+import { failureOf } from "@/components/projects/project-form-parts";
 import { deletionConsequences, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 
 type DeletableProject = { id: string; name: string } & ProjectDeletionImpact;
@@ -113,7 +114,7 @@ function DeleteProjectConfirmation({
           ))}
         </ul>
       </div>
-      <FormErrorSummary failure={failureOf(state)} />
+      <DialogError failure={failureOf(state)} />
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         <GuardedButton
           type="button"

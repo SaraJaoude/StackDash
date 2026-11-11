@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
 import { expectHydrated } from "./fixtures/hydration";
 
 // Each test creates its own workspace and seeds only inside it.
@@ -95,6 +96,32 @@ ownerTest.describe("alert rules as the owner", () => {
       await expect(item).toHaveCount(0);
       await expect(page.getByText("No alert rules yet")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Alert rules", level: 2 })).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert rule delete failure");
+    try {
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      const form = page.getByRole("form", { name: "Add an alert rule" });
+      await form.getByRole("radio", { name: "90%" }).check();
+      await form.getByRole("button", { name: "Add alert rule" }).click();
+      await expect(form.getByRole("status").filter({ hasText: "Alert rule added." })).toBeVisible();
+
+      const item = rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 90% of every allowance" });
+      await expectFailureInDialog(page, {
+        trigger: item.getByRole("button", { name: /^Delete rule/ }),
+        dialog: page.getByRole("dialog", { name: "Delete this alert rule?" }),
+        confirmName: "Delete rule",
+        // Deleted behind the open dialog, so the action finds nothing to delete.
+        breakIt: async () => {
+          const { error } = await adminClient().from("alert_rules").delete().eq("workspace_id", workspace.id);
+          if (error) throw new Error(`Deleting the rule failed (code ${error.code}).`);
+        },
+        message: "This alert rule no longer exists. Reload the page to see the current rules.",
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }
