@@ -16,7 +16,7 @@ interface PreviewRow {
 // Allowances work on every plan, so they come before spend, which only some plans report (#305).
 const limitRows: readonly PreviewRow[] = [
   { provider: "Resend", detail: "Monthly emails · resets in 9 days", source: "Allowance", measure: { kind: "share", percentUsed: 75 } },
-  { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", source: "Allowance", measure: { kind: "share", percentUsed: 42 } },
+  { provider: "GitHub Actions", detail: "Included minutes · resets in 21 days", source: "Allowance", measure: { kind: "share", percentUsed: 52 } },
   { provider: "Vercel", detail: "$22.80 of a $25 budget", source: "Budget", measure: { kind: "share", percentUsed: 91 } },
 ];
 const spendRows: readonly PreviewRow[] = [
