@@ -1,31 +1,19 @@
 import AxeBuilder from "@axe-core/playwright";
-import { request as playwrightRequest, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 
 import { expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { turnOffPage, turnOnPage } from "./fixtures/public-pages";
-import { ALL_METRIC_IDS, publishMetrics, seedShareProject, STARS_TODAY } from "./fixtures/share";
+import { ALL_METRIC_IDS, anonymous, pngSize, publishMetrics, seedShareProject, STARS_TODAY } from "./fixtures/share";
 
-// Badges, milestone cards, and the share dialog (#149), the yearly card (#151), and links to the
-// project page (#255). Each test creates its own workspace and seeds only inside it, so tests run
-// in any order.
+// Badges, milestone cards, and the share dialog (#149), and links to the project page (#255). The
+// yearly card (#151) is a year in review slide now, in year-in-review.spec.ts. Each test creates
+// its own workspace and seeds only inside it, so tests run in any order.
 
 const STARS_TEXT = new Intl.NumberFormat("en-US").format(STARS_TODAY);
 
 // The badge's own policy as served (next.config.ts): opened directly, it loads and runs nothing.
 const BADGE_CSP = "default-src 'none'; frame-ancestors 'none'; sandbox";
-
-/** A context with no session, as a README, a social network, or a stranger reads the routes. */
-async function anonymous(baseURL: string | undefined): Promise<APIRequestContext> {
-  if (baseURL === undefined) throw new Error("baseURL is not configured");
-  return playwrightRequest.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
-}
-
-/** Width and height from a PNG's IHDR chunk (PNG specification, section 11.2.2). */
-function pngSize(body: Buffer): { width: number; height: number } {
-  expect(body.subarray(1, 4).toString("latin1")).toBe("PNG");
-  return { width: body.readUInt32BE(16), height: body.readUInt32BE(20) };
-}
 
 /** The badge as served, with `message` as the text of its right half. */
 async function expectBadge(api: APIRequestContext, projectId: string, metricId: string, message: string | RegExp): Promise<string> {
@@ -270,72 +258,6 @@ ownerTest.describe("badges and cards", () => {
       await expect(link).toHaveValue(new RegExp(`/card/${projectId}/github-stars\\.png$`));
       expect(await sharedUrl(shareToX)).not.toContain("/@");
       await expect(dialog.getByLabel("Badge Markdown for a README")).not.toHaveValue(/\/@/);
-    } finally {
-      await api.dispose();
-      await deleteTestWorkspace(workspace);
-    }
-  });
-});
-
-ownerTest.describe("yearly card", () => {
-  ownerTest("shows this year so far and last year in full, shares by download, and stays private", async ({ page, baseURL }, testInfo) => {
-    const workspace = await createTestWorkspace("Year card");
-    const api = await anonymous(baseURL);
-    const year = new Date().getUTCFullYear();
-    try {
-      await seedShareProject(workspace);
-      await page.setViewportSize({ width: 1280, height: 900 });
-
-      await page.goto(`/w/${workspace.slug}/dashboard`);
-      await page.getByRole("link", { name: `Your ${year} so far` }).click();
-      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/year/${year}$`));
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Your stack in ${year} so far`);
-      await expect(page.getByRole("heading", { level: 2, name: new RegExp(`^Year to date: ${year}-01-01 to `) })).toBeVisible();
-      await expect(page.getByText(`${year} is not over yet.`)).toHaveText(
-        `${year} is not over yet. This card counts up to today and covers the whole year from ${year + 1}-01-01.`,
-      );
-      await expectImageLoaded(page.getByRole("img", { name: `Your ${year} year to date card. Its figures are listed below.` }), 1200);
-      const figures = page.getByRole("definition");
-      await expect(figures).toHaveCount(4);
-      await expect(page.getByRole("term")).toHaveText(["Deployments shipped", "Stars gained", "Signups", "Providers connected"]);
-      await expect(figures.last()).toHaveText("5");
-      expect(await axeViolations(page)).toEqual([]);
-      await testInfo.attach(`year-${year}`, { body: await page.screenshot({ fullPage: true }), contentType: "image/png" });
-
-      const trigger = page.getByRole("button", { name: `Share your ${year} year to date card` });
-      await trigger.click();
-      const dialog = page.getByRole("dialog", { name: `Share your ${year} year to date card` });
-      await expect(dialog.getByRole("button", { name: "Close" })).toBeFocused();
-      await expect(dialog.getByRole("link", { name: "Download card" })).toHaveAttribute("download", `devmacro-${year}-so-far.png`);
-      // Private: no public URL to copy, only the image to download and post.
-      await expect(dialog.getByLabel("Card URL")).toHaveCount(0);
-      await expect(dialog.getByLabel("Alt text for the card")).toHaveValue(new RegExp(`^DevMacro card: your stack in ${year} so far, `));
-      await expect(dialog.getByRole("link", { name: "Share to X (opens in a new tab)" })).toHaveAttribute(
-        "href",
-        new RegExp(`text=My\\+stack\\+in\\+${year}\\+so\\+far\\+on\\+DevMacro`),
-      );
-      expect(await axeViolations(page, "dialog[open]")).toEqual([]);
-      await page.keyboard.press("Escape");
-      await expect(trigger).toBeFocused();
-
-      // Last year is a whole year: no "so far", and no figure claims days before the data starts.
-      await page.getByRole("navigation", { name: "Years" }).getByRole("link", { name: String(year - 1) }).click();
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(`Your stack in ${year - 1}`);
-      await expect(page.getByRole("heading", { level: 2, name: `${year - 1}-01-01 to ${year - 1}-12-31` })).toBeVisible();
-      await expect(page.getByRole("button", { name: `Share your ${year - 1} card` })).toBeVisible();
-
-      // Members only: without a session the image sends you to sign in, and next year does not exist yet.
-      const stranger = await api.get(`/w/${workspace.slug}/year/${year}/card.png`, { maxRedirects: 0 });
-      expect(stranger.status()).toBe(307);
-      expect(stranger.headers()["location"]).toMatch(/\/sign-in\?next=/);
-      const own = await page.request.get(`/w/${workspace.slug}/year/${year}/card.png`);
-      expect(own.status()).toBe(200);
-      expect(own.headers()["cache-control"]).toBe("private, no-store");
-      expect(pngSize(await own.body())).toEqual({ width: 1200, height: 630 });
-      expect((await page.request.get(`/w/${workspace.slug}/year/${year + 1}/card.png`)).status()).toBe(404);
-      // Like a missing project, a year that has not started renders the workspace's not-found page.
-      await page.goto(`/w/${workspace.slug}/year/${year + 1}`);
-      await expect(page.getByRole("heading", { name: "We could not find that workspace" })).toBeVisible();
     } finally {
       await api.dispose();
       await deleteTestWorkspace(workspace);
