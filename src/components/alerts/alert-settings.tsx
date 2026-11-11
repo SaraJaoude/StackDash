@@ -34,15 +34,9 @@ import { AddSuggestedAlerts } from "./add-suggested-alerts";
 import { AlertDelivery } from "./alert-delivery";
 import { BudgetForm } from "./budget-form";
 import { DeniedReason } from "./form-controls";
-import {
-  defaultBudgetValues,
-  defaultRuleValues,
-  formatMinorAmount,
-  PAGED_HEADING_SCROLL_MARGIN,
-  ruleToFormValues,
-  type AlertFormOptions,
-} from "./labels";
+import { defaultBudgetValues, defaultRuleValues, formatMinorAmount, ruleToFormValues, type AlertFormOptions } from "./labels";
 import { BudgetListItem, RuleListItem } from "./list-items";
+import { PagedHeading } from "./paged-heading";
 import { RuleForm } from "./rule-form";
 
 /**
@@ -268,9 +262,9 @@ export async function AlertSettings({
 
       <section aria-labelledby={RULES_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={RULES_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
+          <PagedHeading id={RULES_HEADING_ID} cursor={rulesAfter}>
             Alert rules
-          </h2>
+          </PagedHeading>
           <p className="mt-1 text-sm text-muted">
             Rules watch synced usage and spend and raise an alert in DevMacro when a threshold is crossed, at most once
             per billing period.
@@ -342,9 +336,9 @@ export async function AlertSettings({
 
       <section aria-labelledby={BUDGETS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
+          <PagedHeading id={BUDGETS_HEADING_ID} cursor={budgetsAfter}>
             Budgets
-          </h2>
+          </PagedHeading>
           <p className="mt-1 max-w-3xl text-sm text-muted">
             Your budget is a monthly spending limit you set yourself. It is separate from provider allowances, which
             are the usage a provider plan includes before it charges more. Budgets reset on the first of each month

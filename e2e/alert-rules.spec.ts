@@ -200,7 +200,7 @@ ownerTest.describe("alert rules as the owner", () => {
     }
   });
 
-  ownerTest("pages budgets onto the Budgets heading, not the top of the page (#312)", async ({ page }) => {
+  ownerTest("pages budgets from the keyboard onto the Budgets heading, with focus on it (#312, #313)", async ({ page }) => {
     const workspace = await createTestWorkspace("Budget pages");
     try {
       // One more than a page of budgets (BUDGETS_PAGE_SIZE is 50), so "Show more budgets" appears.
@@ -217,7 +217,13 @@ ownerTest.describe("alert rules as the owner", () => {
         );
       if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
       await page.goto(`/w/${workspace.slug}/alerts`);
-      await page.getByRole("link", { name: "Show more budgets" }).click();
+      // A client navigation, as a user gets once the page has hydrated: before that the link is a
+      // plain anchor and the browser itself handles the fragment. Next.js mounts its route
+      // announcer from an effect, so it exists only once the page hydrated.
+      await expect(page.locator("next-route-announcer")).toBeAttached();
+      const showMore = page.getByRole("link", { name: "Show more budgets" });
+      await showMore.focus();
+      await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/[?&]budgetsAfter=[^#]+#budgets-title$/);
       await expect(page.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
       const heading = page.getByRole("heading", { name: "Budgets", exact: true });
@@ -225,6 +231,12 @@ ownerTest.describe("alert rules as the owner", () => {
       // Below the sticky header, not under it.
       const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
       await expect.poll(async () => (await heading.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
+      // The link that had focus is gone with the old list; focus lands on the heading, so the next
+      // Tab continues into the new list rather than from the top of the page.
+      await expect(heading).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("list", { name: "Budgets" }).getByRole("button", { name: /^Edit budget/ }).first()).toBeFocused();
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

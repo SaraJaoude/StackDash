@@ -22,13 +22,6 @@ export const KIND_LABELS: Record<AlertRuleKind, string> = {
   budget_percent: "Spend reaches a percentage of your budget",
 };
 
-/**
- * The scroll margin of a heading the alerts pagers link to (#312), so the browser stops it below
- * the sticky workspace header (`src/app/w/[workspace]/layout.tsx`: its 3.5rem top row, the
- * workspace nav under it, and a border) rather than under it. Change it with that header's height.
- */
-export const PAGED_HEADING_SCROLL_MARGIN = "scroll-mt-32";
-
 export const SCOPE_LABELS: Record<AlertScope, string> = {
   workspace: "The whole workspace",
   provider: "One provider",
