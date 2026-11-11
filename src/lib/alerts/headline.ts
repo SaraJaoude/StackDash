@@ -7,6 +7,11 @@
  *
  * Percentages use the evaluator's one decimal place, so the title never disagrees with the
  * sentence it summarizes.
+ *
+ * Limit: titles name the provider and the rule's kind, not the metric or budget. "Vercel bandwidth"
+ * and "Vercel build minutes" both read "Vercel allowance", because the evaluator's subject (the
+ * metric label, the scope, or the budget name) is not stored on `triggered_alerts`. Persisting it
+ * is #297.
  */
 import { formatPercentNumber } from "@/lib/alerts/evaluate";
 import type { AlertRuleKind } from "@/lib/alerts/rule-schema";
