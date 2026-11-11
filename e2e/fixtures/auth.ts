@@ -1,9 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { test as base } from "@playwright/test";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import {
+  combineChunks,
+  createChunks,
+  createServerClient,
+  stringFromBase64URL,
+  stringToBase64URL,
+  type CookieOptions,
+} from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -72,16 +79,18 @@ export function authAdminClient(env: AuthEnv): Admin {
   });
 }
 
-export type PlaywrightCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires: number;
-  httpOnly: boolean;
-  secure: boolean;
-  sameSite: "Strict" | "Lax" | "None";
-};
+const playwrightCookieSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+  domain: z.string(),
+  path: z.string(),
+  expires: z.number(),
+  httpOnly: z.boolean(),
+  secure: z.boolean(),
+  sameSite: z.enum(["Strict", "Lax", "None"]),
+});
+
+export type PlaywrightCookie = z.infer<typeof playwrightCookieSchema>;
 
 function toSameSite(value: CookieOptions["sameSite"]): PlaywrightCookie["sameSite"] {
   if (value === "strict" || value === true) return "Strict";
@@ -164,6 +173,50 @@ export async function signInCookies(env: AuthEnv, email: string, password: strin
     secure: false,
     sameSite: toSameSite(options.sameSite),
   }));
+}
+
+// The parts of a stored Supabase session a test rewrites; the rest passes through unchanged.
+const storedSessionSchema = z.looseObject({
+  access_token: z.string(),
+  refresh_token: z.string(),
+  expires_at: z.number(),
+});
+
+export type StoredSession = z.infer<typeof storedSessionSchema>;
+
+// The auth cookie @supabase/ssr writes, `sb-<host label>-auth-token`, split into `.0`, `.1`, ...
+// when the session is too long for one cookie.
+const AUTH_COOKIE = /^sb-[^.]+-auth-token(?:\.\d+)?$/;
+// @supabase/ssr's default cookie encoding prefixes the base64url session with this.
+const BASE64_PREFIX = "base64-";
+
+/**
+ * The cookies of a signed-in storage state with the Supabase session rewritten by `edit`, in the
+ * cookie format the app reads. Reads the state file and never writes it, so the session it came
+ * from stays valid for every other test.
+ */
+export async function editedSessionCookies(
+  stateFile: string,
+  edit: (session: StoredSession) => StoredSession,
+): Promise<PlaywrightCookie[]> {
+  const { cookies } = z
+    .object({ cookies: z.array(playwrightCookieSchema) })
+    .parse(JSON.parse(readFileSync(stateFile, "utf8")));
+  const first = cookies.find((cookie) => AUTH_COOKIE.test(cookie.name));
+  if (first === undefined) throw new Error(`${stateFile} holds no Supabase auth cookie.`);
+  const key = first.name.replace(/\.\d+$/, "");
+
+  const stored = await combineChunks(key, (name) => cookies.find((cookie) => cookie.name === name)?.value);
+  if (stored === null || stored === undefined || !stored.startsWith(BASE64_PREFIX)) {
+    throw new Error(`${stateFile} holds an auth cookie in an unexpected format.`);
+  }
+  const session = storedSessionSchema.parse(JSON.parse(stringFromBase64URL(stored.slice(BASE64_PREFIX.length))));
+
+  const chunks = createChunks(key, `${BASE64_PREFIX}${stringToBase64URL(JSON.stringify(edit(session)))}`);
+  return [
+    ...cookies.filter((cookie) => !AUTH_COOKIE.test(cookie.name)),
+    ...chunks.map(({ name, value }) => ({ ...first, name, value })),
+  ];
 }
 
 export type SyntheticUser = Readonly<{
