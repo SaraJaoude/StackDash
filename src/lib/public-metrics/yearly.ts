@@ -1,6 +1,7 @@
 import type { ProviderId } from "@/lib/adapters/types";
 import { formatUtcDate } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import { londonDate } from "@/lib/timeline/days";
 
 import { UNAVAILABLE_LABELS } from "./display";
 import { publicMetricDefinition, type PublicMetricId } from "./definitions";
@@ -304,8 +305,12 @@ export type YearReview = Readonly<{
   busiestDay: DayCount | null;
   longestRun: YearRun;
   topProvider: TopProvider | null;
-  /** When the workspace's first included account was connected, when that is after the first day of the year. */
-  firstConnectedAt: Date | null;
+  /**
+   * The first Europe/London day of the year with anything stored, when that is after 1 January: the
+   * workspace's first connection or its first event counted in the year, whichever is earlier (a
+   * provider sends some history on connecting). Null when it is 1 January, or nothing is stored.
+   */
+  dataFrom: string | null;
 }>;
 
 /** The day with the most events. On a tie, the earliest of those days: the first day the year reached that count. */
@@ -361,13 +366,18 @@ export async function computeYearReview(source: YearReviewStore, year: number, n
   ]);
 
   const firstConnected = Math.min(...accounts.map((account) => account.connectionCreatedAt.getTime()));
+  const firstDays = [
+    ...(firstConnected < asOf.getTime() ? [londonDate(new Date(firstConnected))] : []),
+    ...activity.days.map((entry) => entry.day),
+  ].sort();
+  const dataFrom = firstDays[0] ?? null;
   return {
     summary,
     busiestDay: busiestDay(activity.days),
     longestRun: longest === null ? { status: "not_connected" } : { status: "available", deployments: longest },
     topProvider: mostActiveProvider(activity.providers),
-    // A connection within the first day of the year still covers the whole year, as `since` does.
-    firstConnectedAt: firstConnected - start.getTime() >= DAY_MS && firstConnected < asOf.getTime() ? new Date(firstConnected) : null,
+    // Data from any time on 1 January covers the whole year, as a `since` within its first day does.
+    dataFrom: dataFrom !== null && dataFrom > formatUtcDate(start) ? dataFrom : null,
   };
 }
 
@@ -474,8 +484,8 @@ export function yearSlideDownloadName(summary: YearSummary, id: YearSlideId): st
   return id === "totals" ? `${base}.png` : `${base}-${id}.png`;
 }
 
-/** Why the slides may cover part of the year: the first provider was connected after it began. Null otherwise. */
+/** Why the slides may cover part of the year: nothing is stored for it before `dataFrom`. Null otherwise. */
 export function yearPartialNote(review: YearReview): string | null {
-  if (review.firstConnectedAt === null) return null;
-  return `Your first provider was connected on ${formatUtcDate(review.firstConnectedAt)}, so these slides may cover only part of ${review.summary.year}.`;
+  if (review.dataFrom === null) return null;
+  return `Nothing is stored for ${review.summary.year} before ${review.dataFrom}, so these slides may cover only part of it.`;
 }

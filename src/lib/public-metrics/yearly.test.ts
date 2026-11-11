@@ -256,7 +256,7 @@ function valuesAndDetails(review: YearReview): (readonly [string, string] | null
 describe("computeYearReview", () => {
   it("says in words that a year with no data has nothing to show (boundary: no accounts, no events)", async () => {
     const review = await computeYearReview(new MemoryMetricStore([], [], []), 2025, NOW);
-    expect(review).toMatchObject({ busiestDay: null, longestRun: { status: "not_connected" }, topProvider: null, firstConnectedAt: null });
+    expect(review).toMatchObject({ busiestDay: null, longestRun: { status: "not_connected" }, topProvider: null, dataFrom: null });
     expect(valuesAndDetails(review)).toEqual([
       ["No events", "Your connected providers sent no events in 2025."],
       ["Not connected", "Connect Vercel to count your deployments."],
@@ -297,8 +297,8 @@ describe("computeYearReview", () => {
     const review = await computeYearReview(store, 2026, NOW);
     expect(review.busiestDay).toEqual({ day: "2026-11-05", events: 2 });
     expect(review.longestRun).toEqual({ status: "available", deployments: 3 });
-    expect(review.firstConnectedAt).toEqual(new Date("2026-08-07T10:00:00Z"));
-    expect(yearPartialNote(review)).toBe("Your first provider was connected on 2026-08-07, so these slides may cover only part of 2026.");
+    expect(review.dataFrom).toBe("2026-08-07");
+    expect(yearPartialNote(review)).toBe("Nothing is stored for 2026 before 2026-08-07, so these slides may cover only part of it.");
     const [busiest, run, provider] = yearSlides(review);
     expect(busiest).toMatchObject({ value: "Thursday, 2026-11-05", detail: "2 events on your timeline that day, not counting payments." });
     expect(run).toMatchObject({ value: "3 in a row" });
@@ -316,12 +316,21 @@ describe("computeYearReview", () => {
   });
 
   it.each([
-    ["within the first day of the year still covers the whole year", "2026-01-01T23:59:59.999Z", null],
-    ["a day after the year began covers part of it", "2026-01-02T00:00:00.000Z", "2026-01-02"],
-    ["after the year ended is no part of it", "2027-02-01T00:00:00.000Z", null],
-  ])("a first connection %s (boundary: partial year)", async (_title, connectedAt, since) => {
-    const review = await computeYearReview(new MemoryMetricStore([account("github", connectedAt)], [], []), 2026, new Date("2027-03-01T00:00:00Z"));
-    expect(review.firstConnectedAt === null ? null : review.firstConnectedAt.toISOString().slice(0, 10)).toBe(since);
+    ["a connection within the first day of the year covers the whole year", "2026-01-01T23:59:59.999Z", [], null],
+    ["a connection a day after the year began covers part of it", "2026-01-02T00:00:00.000Z", [], "2026-01-02"],
+    ["a connection after the year ended is no part of it", "2027-02-01T00:00:00.000Z", [], null],
+    // A provider sends some history on connecting, so the data starts at its first event.
+    ["history sent on connecting starts the data before the connection", "2026-08-07T10:00:00Z", ["2026-06-01T09:00:00Z"], "2026-06-01"],
+    ["history sent on connecting from the year before leaves the year's first stored day at the connection", "2026-08-07T10:00:00Z", ["2025-12-31T09:00:00Z"], "2026-08-07"],
+    // 23:30 UTC on 1 June is 2 June in London.
+    ["the first event's day is a London day", "2026-08-07T10:00:00Z", ["2026-06-01T23:30:00Z"], "2026-06-02"],
+  ])("the data starts: %s (boundary: partial year)", async (_title, connectedAt, events, dataFrom) => {
+    const store = new MemoryMetricStore(
+      [account("github", connectedAt)],
+      [],
+      events.map((time) => at("github-acct", "github.stars.daily", time)),
+    );
+    expect((await computeYearReview(store, 2026, new Date("2027-03-01T00:00:00Z"))).dataFrom).toBe(dataFrom);
   });
 
   it("leaves payments out of the busiest day and the most active provider, and breaks a tie on the earliest day", async () => {
