@@ -189,26 +189,31 @@ async function subscribeOutsideApp(user: SyntheticUser, workspaceIds: readonly s
   };
 }
 
+type HeldRender = Readonly<{
+  /** Resolves with the held request. */
+  route: () => Promise<Route>;
+  /** How many render requests for the path the page has sent, the held one included. */
+  renders: () => number;
+}>;
+
 /**
  * Holds the next render request for `path` (a refresh, or a navigation to it) until the test
- * answers it, and lets every other request through. Call before the page opens. The function it
- * returns resolves with the held request.
+ * answers it, lets every other request through, and counts the render requests. Call before the
+ * page opens.
  */
-async function holdNextRender(page: Page, path: string): Promise<() => Promise<Route>> {
+async function holdNextRender(page: Page, path: string): Promise<HeldRender> {
   const held = Promise.withResolvers<Route>();
-  let holding = true;
+  let renders = 0;
   await page.route(
     (url) => url.pathname === path,
     async (route) => {
-      if (holding && isRenderRequest(route.request(), path)) {
-        holding = false;
-        held.resolve(route);
-      } else {
-        await route.fallback();
-      }
+      if (!isRenderRequest(route.request(), path)) return route.fallback();
+      renders += 1;
+      if (renders === 1) held.resolve(route);
+      else await route.fallback();
     },
   );
-  return () => held.promise;
+  return { route: () => held.promise, renders: () => renders };
 }
 
 /** Whether the channel has delivered the activity event with this title. */
@@ -282,7 +287,7 @@ ownerTest.describe("live updates", () => {
 
       const firstTitle = `First live event ${randomUUID().slice(0, 8)}`;
       await insertEvent(seeded, firstTitle);
-      const running = await heldRender();
+      const running = await heldRender.route();
       // The server renders the first refresh now, before the second event exists.
       const firstRender = await running.fetch();
       await firstRender.body();
@@ -291,11 +296,15 @@ ownerTest.describe("live updates", () => {
       await insertEvent(seeded, secondTitle);
       await expect.poll(() => deliveredEvent(live, secondTitle), { timeout: LIVE_TIMEOUT_MS }).toBe(true);
       // A round trip through the page, so it has handled the change, then its debounce ends while
-      // the first refresh is still running.
+      // the first refresh is still running, and another round trip for any request that sends.
       await page.evaluate(() => undefined);
       await page.clock.runFor(REFRESH_DEBOUNCE_MS);
+      await page.evaluate(() => undefined);
+      // The second change waits for the first refresh instead of rendering beside it.
+      expect(heldRender.renders()).toBe(1);
 
       await running.fulfill({ response: firstRender });
+      await expect.poll(heldRender.renders).toBe(2);
       await expect(page.getByRole("heading", { name: firstTitle, exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByRole("heading", { name: secondTitle, exact: true })).toBeVisible({
         timeout: LIVE_TIMEOUT_MS,
@@ -322,7 +331,7 @@ ownerTest.describe("live updates", () => {
       await expectSubscribed(live);
 
       await insertEvent(seeded, `Event before navigating ${randomUUID().slice(0, 8)}`);
-      const running = await heldRender();
+      const running = await heldRender.route();
       const navigating = page.waitForRequest((request) => isRenderRequest(request, dashboardPath));
       await page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Dashboard" }).click();
       await navigating;
