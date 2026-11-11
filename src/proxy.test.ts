@@ -82,6 +82,13 @@ describe("proxy for public project pages", () => {
     expect(findPublicProjectPage).not.toHaveBeenCalled();
   });
 
+  it("fails closed when the count cannot be taken: the request errors and the page is never read (boundary: counter down)", async () => {
+    checkPublicRateLimit.mockRejectedValue(new Error("Failed to count a public request"));
+
+    await expect(proxy(request(ADDRESS))).rejects.toThrow("Failed to count a public request");
+    expect(findPublicProjectPage).not.toHaveBeenCalled();
+  });
+
   it("refuses a slug address past the limit too, instead of redirecting it to the handle", async () => {
     checkPublicRateLimit.mockResolvedValue({ allowed: false, retryAfterSeconds: 1 });
 
