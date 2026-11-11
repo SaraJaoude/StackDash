@@ -420,7 +420,7 @@ ownerTest.describe("command palette as the owner", () => {
     }
   });
 
-  // Same race after choosing "Show keyboard shortcuts": that request belonged to the earlier close,
+  // Same race after choosing "Keyboard shortcuts": that request belonged to the earlier close,
   // so the reopened palette's own close must restore focus rather than open the list.
   ownerTest("drops a shortcut list request when the shortcut beats its close event", async ({ page }) => {
     const workspace = await createTestWorkspace("Palette fast choose");

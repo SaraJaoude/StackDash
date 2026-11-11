@@ -76,8 +76,11 @@ function resultStatus(search: PaletteSearch, query: string): string {
   return `${count.format(search.total)} ${search.total === 1 ? "result" : "results"}`;
 }
 
-/** What an action run from the palette is doing, or how it ended, in words for its live region. */
-type ActionOutcome = Readonly<{ tone: "pending" | "success" | "error"; message: string }>;
+/**
+ * What an action run from the palette is doing, or how it ended, in words for its live region. A
+ * failure the server logged carries its reference, shown the way every other status region does.
+ */
+type ActionOutcome = Readonly<{ tone: "pending" | "success" | "error"; message: string; referenceId?: string }>;
 
 /**
  * Queues a sync through the connection page's own Server Action, which authorizes the caller and
@@ -93,14 +96,17 @@ async function syncConnection(
   try {
     const result = await syncNow(null, formData);
     if (result.ok) return { tone: "success", message: result.message ?? `Sync queued for ${action.name}.` };
-    const reference = result.referenceId === undefined ? "" : ` Reference ${result.referenceId}.`;
-    return { tone: "error", message: `${result.message}${reference}` };
+    return {
+      tone: "error",
+      message: result.message,
+      ...(result.referenceId === undefined ? {} : { referenceId: result.referenceId }),
+    };
   } catch {
     // A rejected Server Action means the request or its response was lost on the way; the server
     // logs its own failures, so all the palette can add is the next step.
     return {
       tone: "error",
-      message: `The sync for ${action.name} could not be requested because DevMacro did not answer. Check your connection, then try again.`,
+      message: `The sync for ${action.name} could not be requested because DevMacro did not answer. Check that you are online, then try again.`,
     };
   }
 }
@@ -163,11 +169,13 @@ export function CommandPalette({
   const shortcutsCloseRef = useRef<HTMLButtonElement>(null);
   // Where focus goes back to on close: the trigger, or whatever was focused when a shortcut fired.
   const returnFocusRef = useRef<HTMLElement | null>(null);
-  // "Show keyboard shortcuts" closes the palette and opens the list without returning focus first.
+  // "Keyboard shortcuts" closes the palette and opens the list without returning focus first.
   const shortcutsNextRef = useRef(false);
   // Where the pointer last was over the results, so a row scrolling under a resting pointer does
   // not take the selection from the arrow keys.
   const pointerRef = useRef<PointerPosition | null>(null);
+  // Counts opens, so a sync still running from an earlier open does not report into this one.
+  const openCountRef = useRef(0);
   const titleId = useId();
   const inputId = useId();
   const listboxId = useId();
@@ -197,6 +205,7 @@ export function CommandPalette({
 
   function openPalette(): void {
     rememberFocus();
+    openCountRef.current += 1;
     setQuery("");
     setActive(0);
     setOutcome(null);
@@ -233,9 +242,18 @@ export function CommandPalette({
     const { action } = command;
     // An action runs with the palette open, so its result is announced where focus already is.
     if (action.kind === "sync") {
-      if (running) return;
+      // One at a time. A second request, including one from a reopened palette while the first is
+      // still on its way, gets an answer rather than nothing.
+      if (running) {
+        setOutcome({ tone: "pending", message: "A sync is already being queued. Wait for its result, then try again." });
+        return;
+      }
       setOutcome({ tone: "pending", message: `Queueing a sync for ${action.name}.` });
-      startRunning(async () => setOutcome(await syncConnection(workspaceSlug, action)));
+      const opened = openCountRef.current;
+      startRunning(async () => {
+        const next = await syncConnection(workspaceSlug, action);
+        if (openCountRef.current === opened) setOutcome(next);
+      });
       return;
     }
     if (action.kind === "shortcuts") shortcutsNextRef.current = true;
@@ -364,7 +382,7 @@ export function CommandPalette({
             autoCorrect="off"
             spellCheck={false}
             maxLength={MAX_QUERY_LENGTH}
-            placeholder="Search pages, actions, workspaces, providers, and accounts"
+            placeholder="Search pages, actions, workspaces, providers, projects, and accounts"
             value={query}
             onChange={(event) => {
               setQuery(event.target.value);
@@ -394,7 +412,17 @@ export function CommandPalette({
           )}
         </div>
         <div role="alert" aria-live="assertive" className="text-sm">
-          {outcome?.tone === "error" ? <p className="border-b border-line px-4 py-2 text-danger">{outcome.message}</p> : null}
+          {outcome?.tone === "error" ? (
+            <p className="border-b border-line px-4 py-2 text-danger">
+              {outcome.message}
+              {outcome.referenceId === undefined ? null : (
+                <>
+                  {" "}
+                  Reference <code className="font-mono text-xs text-foreground">{outcome.referenceId}</code>.
+                </>
+              )}
+            </p>
+          ) : null}
         </div>
 
         {hasResults ? (
