@@ -59,7 +59,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
 
-  // The type sample covers the newest events, so it is empty only when there are none at all.
+  // The type ids come from the daily event count rollup, which its triggers keep equal to every
+  // event the workspace has, so they are empty only when there are no events at all.
   if (typeIds.length === 0) {
     // Something is connected (#322): say whether events are coming instead of asking for a provider.
     // Every role can read the Connections page, so neither control is ever denied.
