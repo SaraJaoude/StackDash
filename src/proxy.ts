@@ -2,9 +2,9 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
+import { findPublicProjectPage } from "@/lib/data/project-pages";
 import { publicEnv } from "@/lib/env";
-import { parseProjectPagePath } from "@/lib/public-metrics/project-page";
-import { createAdminClient } from "@/lib/supabase/admin";
+import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -66,27 +66,36 @@ function contentSecurityPolicy(nonce: string, supabaseUrl: URL): string {
 const MIS_CASED_DOC_PATH = /^\/docs\/.*[A-Z]/;
 const UNKNOWN_DOC_PATH = "/docs/_";
 
-// Public project pages (#150) are addressed as /@<workspace slug>/<page slug>. A route folder that
-// starts with @ is a parallel route slot, so the address is rewritten to the page route under /p.
-// That route is never answered under its own path: anything else under /@ or /p is rewritten to a
-// path no route matches, so a page has one address and every other path there is the global 404.
-// parseProjectPagePath applies the page's own slug rules, length limits included, so a path the
-// page would refuse never reaches the database.
+// Public project pages (#150) are addressed as /@<handle or workspace slug>/<page slug>. A route
+// folder that starts with @ is a parallel route slot, so the address is rewritten to the page route
+// under /p. That route is never answered under its own path: anything else under /@ or /p is
+// rewritten to a path no route matches, so a page has one address and every other path there is the
+// global 404. parseProjectPagePath applies the page's own slug and handle rules, length limits
+// included, so a path the page would refuse never reaches the database.
+//
+// While a workspace has a handle (#258), its slug address answers 307 to the handle address.
+// Temporary, not 308: a handle can change or be removed, and the old one is released at once for
+// any workspace to claim, so no browser or crawler may keep the redirect. An unknown handle, a
+// released one, and another workspace's handle with this page slug get the same 404.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
 /**
- * Whether an address answers a public page right now, by public_project_page(), the same rule the
- * page reads (20261105120500_project_pages.sql). It runs here because with Cache Components the
- * page streams its shell with a 200 before its own notFound() can run, so only a check before the
- * render can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own
- * check for a page turned off between the two reads.
+ * Where a public address goes: the handle address for a slug address of a workspace with a handle,
+ * the page route for the address the page answers at, or the 404 path. It asks
+ * public_project_page(), the same rule the page reads, because with Cache Components the page
+ * streams its shell with a 200 before its own notFound() can run, so only a check before the render
+ * can answer a real 404 (Next.js docs, loading.js, "Status codes"). The page keeps its own check for
+ * a page turned off between the two reads.
  */
-async function isPublicProjectPage(workspaceSlug: string, pageSlug: string): Promise<boolean> {
-  const { data, error } = await createAdminClient()
-    .rpc("public_project_page", { p_workspace_slug: workspaceSlug, p_page_slug: pageSlug })
-    .maybeSingle();
-  if (error) throw new Error("Failed to check the project page", { cause: error });
-  return data !== null;
+async function routeProjectPage(pathname: string): Promise<{ redirect: string } | { rewrite: string }> {
+  const address = parseProjectPagePath(pathname);
+  if (address === null) return { rewrite: UNKNOWN_PROJECT_PAGE };
+  const page = await findPublicProjectPage(address.workspaceAddress, address.pageSlug);
+  if (page === null) return { rewrite: UNKNOWN_PROJECT_PAGE };
+  if (page.workspace.handle !== null && page.workspace.handle !== address.workspaceAddress) {
+    return { redirect: projectPagePath(page.workspace, address.pageSlug) };
+  }
+  return { rewrite: `/p/${address.workspaceAddress}/${address.pageSlug}` };
 }
 
 /** Puts a fresh nonce policy on the request (Next.js stamps its scripts with it) and the response. */
@@ -120,13 +129,14 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith("/@") || pathname === "/p" || pathname.startsWith("/p/")) {
     // No session refresh: nothing on a public page depends on who is signed in. The nonce policy
     // still applies, because the page renders its scripts per request.
-    const address = parseProjectPagePath(pathname);
-    const target =
-      address !== null && (await isPublicProjectPage(address.workspaceSlug, address.pageSlug))
-        ? `/p/${address.workspaceSlug}/${address.pageSlug}`
-        : UNKNOWN_PROJECT_PAGE;
+    const route = await routeProjectPage(pathname);
+    if ("redirect" in route) {
+      const target = request.nextUrl.clone();
+      target.pathname = route.redirect;
+      return NextResponse.redirect(target, 307);
+    }
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
-      NextResponse.rewrite(new URL(target, request.url), init),
+      NextResponse.rewrite(new URL(route.rewrite, request.url), init),
     );
   }
 

@@ -673,14 +673,14 @@ isOneToOne: false
                   ]
                 },"workspaces": {
                   Row: {
-                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
+                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"handle": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"handle"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"handle"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -774,6 +774,7 @@ isOneToOne: false
               "anomaly_detection_enabled": boolean,
 "created_at": string,
 "created_by": string | null,
+"handle": string | null,
 "id": string,
 "is_personal": boolean,
 "name": string,
@@ -825,12 +826,12 @@ isOneToOne: false
                            },
 "public_project_page":
 { Args: { "p_page_slug": string,"p_workspace_slug": string }; Returns: {
-              "indexable": boolean,"project_id": string,"project_name": string,"workspace_id": string
+              "indexable": boolean,"project_id": string,"project_name": string,"workspace_handle": string,"workspace_id": string,"workspace_slug": string
             }[]
                            },
 "public_project_page_sitemap":
 { Args: { "p_limit": number }; Returns: {
-              "page_slug": string,"updated_at": string,"workspace_slug": string
+              "page_slug": string,"updated_at": string,"workspace_handle": string,"workspace_slug": string
             }[]
                            },
 "public_published_metrics":
@@ -874,14 +875,23 @@ isOneToOne: false
 "record_published_metric_view":
 { Args: { "p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_surface": Database["public"]['Enums']["share_surface"] }; Returns: undefined
                            },
+"remove_workspace_handle":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: string
+                           },
 "request_manual_sync":
 { Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
                            },
 "require_published_metrics_admin":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
                            },
+"require_workspace_handle_admin":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
 "save_project_page":
 { Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string
+                           },
+"set_workspace_handle":
+{ Args: { "p_actor_id": string,"p_handle": string,"p_workspace_id": string }; Returns: string
                            },
 "timeline_connection_event_counts":
 { Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_title_pattern"?: string,"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
@@ -896,6 +906,14 @@ isOneToOne: false
                            },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
+                           },
+"year_review_event_counts":
+{ Args: { "p_account_ids": (string)[],"p_excluded_type_ids": (string)[],"p_from": string,"p_until": string,"p_workspace_id": string }; Returns: {
+              "bucket": string,"day": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
+"year_review_longest_run":
+{ Args: { "p_account_ids": (string)[],"p_failure_type_id": string,"p_from": string,"p_success_type_id": string,"p_until": string,"p_workspace_id": string }; Returns: number
                            }
           }
           Enums: {

@@ -4,7 +4,7 @@ import { request as playwrightRequest, type Browser, type Page } from "@playwrig
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { publishStars, seedIncludedAccounts, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
+import { claimHandle, publishStars, seedIncludedAccounts, seedProjectWithHistory, STARS_TODAY, turnOnPage } from "./fixtures/public-pages";
 import { watchLiveRefresh } from "./fixtures/realtime";
 
 // Public project pages (#150). Each test creates its own workspace and seeds only inside it, so
@@ -41,6 +41,29 @@ async function expectNotFound(page: Page, status: number | undefined): Promise<v
   expect(status).toBe(404);
   await expect(page).toHaveTitle("Page not found · DevMacro");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
+}
+
+/** The status and Location of `path` without following a redirect, signed out. */
+async function readRedirect(baseURL: string, path: string): Promise<{ status: number; location: string | null }> {
+  const context = await playwrightRequest.newContext({ baseURL });
+  try {
+    const response = await context.get(path, { maxRedirects: 0 });
+    const location = response.headers()["location"];
+    if (location === undefined) return { status: response.status(), location: null };
+    const target = new URL(location, baseURL);
+    return { status: response.status(), location: `${target.pathname}${target.search}` };
+  } finally {
+    await context.dispose();
+  }
+}
+
+/** A workspace with Acme web's page on at acme-web and GitHub stars published, so the page answers. */
+async function createPublicPageWorkspace(label: string): Promise<{ workspace: TestWorkspace; projectId: string }> {
+  const workspace = await createTestWorkspace(label);
+  const projectId = await seedProjectWithHistory(workspace);
+  await publishStars(workspace, projectId);
+  await turnOnPage(workspace, projectId, "acme-web", false);
+  return { workspace, projectId };
 }
 
 ownerTest.describe("project pages as the owner", () => {
@@ -245,6 +268,156 @@ ownerTest.describe("project pages as the owner", () => {
   });
 });
 
+ownerTest.describe("workspace handles as the owner", () => {
+  ownerTest("claims a handle in settings with the keyboard, and explains a refused one", async ({ page }) => {
+    const { workspace, projectId } = await createPublicPageWorkspace("Handle settings");
+    const other = await createTestWorkspace("Handle taken");
+    try {
+      // Workspace slugs are random, so handles built from them never collide between runs.
+      const handle = `acme-${workspace.slug}`;
+      const taken = `taken-${other.slug}`;
+      await claimHandle(other, taken);
+
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = page.getByRole("region", { name: "Public handle" });
+      await expect(section).toContainText(`No handle yet. Public project pages open at /@${workspace.slug}/ followed by the page address.`);
+      const field = section.getByRole("textbox", { name: "Handle" });
+      const save = section.getByRole("button", { name: "Save handle" });
+      await expect(field).toHaveAccessibleDescription(/3 to 32 characters: lowercase letters, numbers, and single hyphens between words\./);
+
+      // Each refusal is tied to the field and moves focus back to it.
+      for (const [input, message] of [
+        ["ab", "Use at least 3 characters."],
+        ["docs", "This handle is reserved. Choose another one."],
+        [taken, "Another workspace uses this handle. Choose another one."],
+      ] as const) {
+        await field.fill(input);
+        await save.click();
+        await expect(field).toHaveAttribute("aria-invalid", "true");
+        await expect(field).toHaveAccessibleDescription(new RegExp(message.replaceAll(".", "\\.")));
+        await expect(field).toBeFocused();
+        await expect(page.getByRole("status").filter({ hasText: `The handle was not saved. ${message}` })).toBeVisible();
+      }
+
+      // Keyboard only: the field, then Save handle. Capitals and spaces are tidied, not refused.
+      await field.fill(`  ${handle.toUpperCase()} `);
+      await page.keyboard.press("Tab");
+      await expect(save).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page.getByRole("status").filter({ hasText: `Saved. Public project pages now open at /@${handle}/ followed by the page address.` })).toBeVisible();
+      await expect(field).toHaveValue(handle);
+      await expect(field).not.toHaveAttribute("aria-invalid", "true");
+      await expect(section).toContainText(`Public project pages open at /@${handle}/ followed by the page address. Addresses with the workspace ID lead there too.`);
+      await page.keyboard.press("Tab");
+      await expect(section.getByRole("button", { name: "Remove handle" })).toBeFocused();
+      await expectNoAxeViolations(page);
+
+      // The publishing page links to the handle address.
+      await page.goto(settingsPath(workspace, projectId));
+      const pageSettings = page.getByRole("region", { name: "Project page" });
+      await expect(pageSettings.getByRole("link", { name: `/@${handle}/acme-web` })).toHaveAttribute("href", `/@${handle}/acme-web`);
+      await expect(pageSettings).toContainText(`The page opens at /@${handle}/ followed by this.`);
+
+      // Changing it asks first. Escape keeps the handle and returns focus to Save handle.
+      const renamed = `acme-two-${workspace.slug}`;
+      await page.goto(`/w/${workspace.slug}/settings`);
+      await field.fill(renamed);
+      await field.press("Enter");
+      const change = page.getByRole("dialog", { name: `Change the handle to ${renamed}?` });
+      await expect(change).toBeVisible();
+      await expect(change).toHaveAccessibleDescription(
+        `Links that use /@${handle}/ stop working at once, and any workspace can claim ${handle}. Public project pages will open at /@${renamed}/ instead.`,
+      );
+      await expect(change.getByRole("button", { name: "Cancel" })).toBeFocused();
+      await expectNoAxeViolations(page);
+      await page.keyboard.press("Escape");
+      await expect(change).toBeHidden();
+      await expect(save).toBeFocused();
+      await expect(section).toContainText(`Public project pages open at /@${handle}/ followed by the page address.`);
+      await save.click();
+      await change.getByRole("button", { name: "Change handle" }).click();
+      await expect(page.getByRole("status").filter({ hasText: `Saved. Public project pages now open at /@${renamed}/ followed by the page address.` })).toBeVisible();
+      await expect(section).toContainText(`Public project pages open at /@${renamed}/ followed by the page address.`);
+
+      // Removing it asks too. Cancel returns focus to the button; after removing, focus stays in the
+      // section and the workspace ID address is back.
+      const removeButton = section.getByRole("button", { name: "Remove handle" });
+      await removeButton.click();
+      const remove = page.getByRole("dialog", { name: `Remove the handle ${renamed}?` });
+      await expect(remove).toHaveAccessibleDescription(
+        `Links that use /@${renamed}/ stop working at once, and any workspace can claim ${renamed}. Public project pages go back to the workspace ID address, /@${workspace.slug}/.`,
+      );
+      await remove.getByRole("button", { name: "Cancel" }).click();
+      await expect(remove).toBeHidden();
+      await expect(removeButton).toBeFocused();
+      await removeButton.click();
+      await remove.getByRole("button", { name: "Remove handle" }).click();
+      await expect(
+        page.getByRole("status").filter({ hasText: `Removed the handle. Public project pages open at /@${workspace.slug}/ followed by the page address again.` }),
+      ).toBeVisible();
+      await expect(field).toBeFocused();
+      await expect(field).toHaveValue("");
+      await expect(removeButton).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+      await deleteTestWorkspace(other);
+    }
+  });
+
+  ownerTest("answers at the handle address, sends the ID address there, and frees a changed handle", async ({ browser, baseURL }) => {
+    if (baseURL === undefined) throw new Error("baseURL is not configured");
+    const { workspace } = await createPublicPageWorkspace("Handle address");
+    const other = await createTestWorkspace("Handle other");
+    try {
+      const handle = `acme-${workspace.slug}`;
+      const otherHandle = `other-${other.slug}`;
+      await claimHandle(workspace, handle);
+      await claimHandle(other, otherHandle);
+
+      await asStranger(browser, baseURL, `/@${handle}/acme-web`, async (publicPage, status) => {
+        expect(status).toBe(200);
+        await expect(publicPage.getByRole("heading", { level: 1 })).toHaveText("Acme web");
+      });
+
+      // The ID address answers a temporary redirect to the handle address, query string kept.
+      expect(await readRedirect(baseURL, `/@${workspace.slug}/acme-web?ref=readme`)).toEqual({
+        status: 307,
+        location: `/@${handle}/acme-web?ref=readme`,
+      });
+      await asStranger(browser, baseURL, `/@${workspace.slug}/acme-web`, async (publicPage, status) => {
+        expect(status).toBe(200);
+        expect(new URL(publicPage.url()).pathname).toBe(`/@${handle}/acme-web`);
+      });
+
+      // Another workspace's handle with this page answers exactly like a handle nobody has.
+      await asStranger(browser, baseURL, `/@${otherHandle}/acme-web`, expectNotFound);
+      await asStranger(browser, baseURL, `/@nobody-${workspace.slug}/acme-web`, expectNotFound);
+      // An address with no page never redirects, so it never reveals a handle.
+      expect(await readRedirect(baseURL, `/@${workspace.slug}/no-such-page`)).toEqual({ status: 404, location: null });
+
+      // A changed handle stops answering at once, and another workspace may claim it straight away.
+      const renamed = `acme-two-${workspace.slug}`;
+      await claimHandle(workspace, renamed);
+      await claimHandle(other, handle);
+      await asStranger(browser, baseURL, `/@${handle}/acme-web`, expectNotFound);
+      expect((await readPublic(baseURL, `/@${renamed}/acme-web`)).status).toBe(200);
+
+      // Without a handle the ID address answers the page itself again.
+      const { data, error } = await adminClient().rpc("remove_workspace_handle", {
+        p_workspace_id: workspace.id,
+        p_actor_id: workspace.ownerId,
+      });
+      if (error) throw new Error(`Removing the handle failed (code ${error.code}).`);
+      expect(data).toBe("removed");
+      expect(await readRedirect(baseURL, `/@${workspace.slug}/acme-web`)).toEqual({ status: 200, location: null });
+      await asStranger(browser, baseURL, `/@${renamed}/acme-web`, expectNotFound);
+    } finally {
+      await deleteTestWorkspace(workspace);
+      await deleteTestWorkspace(other);
+    }
+  });
+});
+
 viewerTest.describe("project pages as a viewer", () => {
   viewerTest("sees whether the page is on and no controls", async ({ page }) => {
     const workspace = await createTestWorkspace("Project page viewer");
@@ -259,6 +432,23 @@ viewerTest.describe("project pages as a viewer", () => {
       await expect(settings).toContainText("It asks search engines not to index it.");
       await expect(settings.getByRole("button")).toHaveCount(0);
       await expect(settings.getByLabel("Address")).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  viewerTest("sees the workspace's handle and why they cannot change it", async ({ page }) => {
+    const workspace = await createTestWorkspace("Handle viewer");
+    try {
+      const handle = `acme-${workspace.slug}`;
+      await claimHandle(workspace, handle);
+
+      await page.goto(`/w/${workspace.slug}/settings`);
+      const section = page.getByRole("region", { name: "Public handle" });
+      await expect(section).toContainText(`Public project pages open at /@${handle}/ followed by the page address.`);
+      await expect(section).toContainText("Only owners and admins can change this workspace's handle.");
+      await expect(section.getByRole("textbox")).toHaveCount(0);
+      await expect(section.getByRole("button")).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }

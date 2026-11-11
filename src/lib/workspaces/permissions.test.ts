@@ -27,6 +27,7 @@ const MATRIX: Record<WorkspaceAction, Record<WorkspaceRole, boolean>> = {
   publish_metrics: { owner: true, admin: true, viewer: false },
   manage_members: { owner: true, admin: true, viewer: false },
   rename_workspace: { owner: true, admin: true, viewer: false },
+  set_workspace_handle: { owner: true, admin: true, viewer: false },
   manage_api_keys: { owner: true, admin: true, viewer: false },
   manage_billing: { owner: true, admin: false, viewer: false },
   delete_workspace: { owner: true, admin: false, viewer: false },
