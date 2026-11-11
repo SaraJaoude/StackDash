@@ -1,38 +1,39 @@
-import { BellIcon, GaugeIcon, LayersIcon, MailIcon, ReportIcon, TimelineIcon } from "@/components/icons";
+import { BellIcon, EyeIcon, GaugeIcon, MailIcon, PuzzleIcon, TimelineIcon } from "@/components/icons";
 import { IconCard, type IconCardItem } from "@/components/icon-card";
 import { Section } from "@/components/section";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
 
+// What works on every plan first, spend last (#305): the same order as the hero.
 const features: readonly IconCardItem[] = [
-  {
-    icon: ReportIcon,
-    title: "Spending per provider and project",
-    body: "Total spend this month, broken down by service and by project, with trends over days, weeks, and months.",
-  },
-  {
-    icon: GaugeIcon,
-    title: "Allowances, quotas, and reset dates",
-    body: "How much of each included allowance you have used, what is left, and when it resets.",
-  },
-  {
-    icon: BellIcon,
-    title: "Thresholds that fire once",
-    body: "Alert at 50, 75, 90, or 100 percent, or at a dollar amount you choose. Each alert fires once per billing period and follows the provider's reset date.",
-  },
-  {
-    icon: MailIcon,
-    title: "Daily summaries",
-    body: "Yesterday's usage across every connected service, with each line marked as verified or estimated.",
-  },
   {
     icon: TimelineIcon,
     title: "One activity timeline",
-    body: "Signups, logins, payments, deployments, and GitHub stars next to usage events. Filter by provider, project, account, or severity.",
+    body: "Deploys, stars, signups, logins, payments, and errors from every connected account in one feed, across several organizations, teams, and projects. Filter by provider, project, account, or severity.",
   },
   {
-    icon: LayersIcon,
-    title: "Many accounts, many projects",
-    body: "Several GitHub organizations, Vercel teams, or Supabase projects side by side, grouped the way you run your projects.",
+    icon: BellIcon,
+    title: "Alerts where you read them",
+    body: "Email, Slack, Discord, or a signed webhook. A threshold fires once per billing period, and unusual daily spend or usage is flagged with no setup.",
+  },
+  {
+    icon: MailIcon,
+    title: "Daily and weekly digests",
+    body: "What changed across your stack, on the same channels as your alerts, with each number marked as verified or estimated.",
+  },
+  {
+    icon: EyeIcon,
+    title: "Stats you can share",
+    body: "Publish one metric at a time as a README badge, a card image, or a public project page. Every value is labeled verified or self-reported.",
+  },
+  {
+    icon: PuzzleIcon,
+    title: "A read-only API and MCP server",
+    body: "Read events, usage, alerts, and connections from your own scripts with scoped keys, or ask an AI assistant such as Claude Code or Cursor through the MCP server on the same keys.",
+  },
+  {
+    icon: GaugeIcon,
+    title: "Allowances and spend",
+    body: "What is left of each included allowance, when it resets, and where it is heading by the end of the period. Spend per provider and project where the provider's plan reports it.",
   },
 ];
 
@@ -44,9 +45,10 @@ interface TimelineEvent {
 
 // Illustrative events only, labeled as such in the UI.
 const timeline: readonly TimelineEvent[] = [
-  { time: "09:00", severity: "Summary", text: "Yesterday: $7.15 across 4 providers, $0.65 of it estimated" },
+  { time: "09:12", severity: "Success", text: "Production deployment of acme-web is ready" },
+  { time: "09:00", severity: "Summary", text: "Daily digest sent to Slack: yesterday had 3 deploys, 9 signups, and 1 alert" },
   { time: "08:42", severity: "Failed", text: "Vercel deployment failed for acme-web in production" },
-  { time: "08:10", severity: "Alert", text: "Resend reached 75% of its monthly email allowance" },
+  { time: "08:10", severity: "Alert", text: "Resend passed 75% of its monthly emails, sent to Slack and email" },
   { time: "07:55", severity: "Success", text: "Pull request #42 merged in acme/api" },
   { time: "07:31", severity: "Success", text: "Supabase: 12 new signups on acme-app since midnight" },
 ];
@@ -70,8 +72,8 @@ export function Features() {
     <Section
       id="features"
       eyebrow="Features"
-      title="Usage, spending, and activity in one place"
-      intro="The first release focuses on the questions you ask every week: what did this cost, what is left, and what changed."
+      title="One timeline, one alert, and stats you can share"
+      intro="The first release starts with what happened across your stack, who hears about it, and what you can show. Allowances and spend follow, where each provider reports them."
     >
       <ul className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {features.map((feature) => (
