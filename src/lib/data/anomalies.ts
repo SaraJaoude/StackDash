@@ -59,12 +59,14 @@ export const getAnomalyControls = cache(async (workspaceId: string): Promise<Ano
 });
 
 /**
- * The metrics detection checks, sorted by label: every spend and usage series the workspace's
- * snapshots hold, judged on its newest snapshot date by the rows `checkedRows` keeps, so a
- * breakdown beside its total (a GitHub SKU), a day inside a billing month
- * (`github.daily_spend.<product>`), or a provider's declared projection (#223) is not offered,
- * because muting it would silence nothing. Read per series in the database, so a metric last
- * reported long before the others is still offered, and a non-member gets none.
+ * The spend and usage metrics a person can mute, sorted by label: every series the workspace's
+ * snapshots hold, judged by `checkedRows` on the series' newest snapshot date, so a breakdown
+ * beside its total (a GitHub SKU), a day inside a billing month (`github.daily_spend.<product>`),
+ * or a provider's declared projection (#223) is not offered, because muting it would silence
+ * nothing. A series that stopped reporting is offered on purpose, even though detection reads only
+ * the last `ANOMALY_WINDOW_DAYS` and skips it for now: a mute holds by provider and metric key, so
+ * one set before the series resumes still applies when it does (#319). Read per series in the
+ * database, and a non-member gets none.
  */
 export const listAnomalyMetrics = cache(async (workspaceId: string): Promise<AnomalyMetric[]> => {
   const supabase = await createClient();
