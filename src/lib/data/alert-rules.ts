@@ -47,9 +47,9 @@ const RULE_COLUMNS =
 export const RULES_PAGE_SIZE = 50;
 // Pickers list every project and connection; workspaces in the MVP have a handful of each.
 const TARGET_LIMIT = 200;
-// Recent snapshot rows scanned for allowance metric keys. Each sync writes one row per metric per
-// account per day, so this covers the current metrics of any MVP-sized workspace.
-const SNAPSHOT_SCAN_LIMIT = 1000;
+// One row per allowance metric key; a provider reports a handful, so this bounds the read without
+// cutting any off.
+const ALLOWANCE_METRIC_LIMIT = 500;
 const COVERAGE_LIMIT = 500;
 
 const ALLOWANCE_KINDS = ["included_allowance", "remaining_allowance"] as const satisfies readonly Database["public"]["Enums"]["metric_kind"][];
@@ -132,27 +132,22 @@ export const listScopeTargets = cache(async (workspaceId: string): Promise<Scope
   return { projects: projects.data, connections: connections.data };
 });
 
-/** Allowance metric keys present in recent snapshots, with the connections that report them. */
+/**
+ * Every allowance metric key the workspace's snapshots hold, each with the label of its newest
+ * snapshot and the connections that report it, sorted by label. Read per series in the database
+ * (`snapshot_metric_options`), so a metric last reported long before the others is still offered,
+ * and a non-member gets none.
+ */
 export const listAllowanceMetrics = cache(async (workspaceId: string): Promise<AllowanceMetric[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("usage_snapshots")
-    .select("metric_key, label, connection_id")
-    .eq("workspace_id", workspaceId)
-    .in("kind", [...ALLOWANCE_KINDS])
-    .order("snapshot_date", { ascending: false })
-    .order("id", { ascending: true })
-    .limit(SNAPSHOT_SCAN_LIMIT);
+    .rpc("snapshot_metric_options", { p_workspace_id: workspaceId, p_kinds: [...ALLOWANCE_KINDS] })
+    .select("metric_key, label, connection_ids")
+    .order("metric_key", { ascending: true })
+    .limit(ALLOWANCE_METRIC_LIMIT);
   if (error) throw new Error("Failed to list allowance metrics", { cause: error });
-  const byKey = new Map<string, { label: string; connectionIds: Set<string> }>();
-  for (const row of data) {
-    const entry = byKey.get(row.metric_key);
-    // Newest first, so the first label seen is the current one.
-    if (entry === undefined) byKey.set(row.metric_key, { label: row.label, connectionIds: new Set([row.connection_id]) });
-    else entry.connectionIds.add(row.connection_id);
-  }
-  return [...byKey]
-    .map(([metricKey, { label, connectionIds }]) => ({ metricKey, label, connectionIds: [...connectionIds] }))
+  return data
+    .map((row) => ({ metricKey: row.metric_key, label: row.label, connectionIds: row.connection_ids }))
     .sort((a, b) => a.label.localeCompare(b.label, "en-US") || a.metricKey.localeCompare(b.metricKey));
 });
 

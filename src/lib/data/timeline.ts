@@ -7,6 +7,7 @@ import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope 
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import {
+  MAX_TYPE_FILTERS,
   occurredRange,
   TIMELINE_PAGE_SIZE,
   titleSearchPattern,
@@ -201,24 +202,22 @@ export async function listTimelineConnectionCounts(
   return data;
 }
 
-// PostgREST has no DISTINCT, so the type picker samples the newest events. Types older than the
-// sample are rare in practice and still filterable through the URL.
-const TYPE_SAMPLE_SIZE = 1000;
-const MAX_TYPE_OPTIONS = 50;
-
 /**
- * Up to 50 distinct event type ids seen in the workspace's newest 1,000 events, sorted. Empty
- * exactly when the workspace has no activity at all.
+ * Every distinct event type id the workspace has events of, sorted, up to `MAX_TYPE_FILTERS` (the
+ * most one URL may filter on, so every offered type can be ticked). Read from the daily event
+ * count rollup (`timeline_type_ids`), so a type whose only event is years older than the rest is
+ * still offered, and a non-member gets none. The rollup holds one row per day, type, provider, and
+ * account, and the function reads all of the workspace's rows: far fewer than its events, but not
+ * bounded by the number of types. The rollup is kept equal to `activity_events` by its triggers, so
+ * this is empty exactly when the workspace has no activity at all.
  */
 export const listTimelineTypeIds = cache(async (workspaceId: string): Promise<string[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("activity_events")
+    .rpc("timeline_type_ids", { p_workspace_id: workspaceId })
     .select("type_id")
-    .eq("workspace_id", workspaceId)
-    .order("occurred_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(TYPE_SAMPLE_SIZE);
+    .order("type_id", { ascending: true })
+    .limit(MAX_TYPE_FILTERS);
   if (error) throw new Error("Failed to load timeline event types", { cause: error });
-  return [...new Set(data.map((row) => row.type_id))].sort().slice(0, MAX_TYPE_OPTIONS);
+  return data.map((row) => row.type_id);
 });
