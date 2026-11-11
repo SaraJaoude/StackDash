@@ -124,7 +124,7 @@ export function ScopeFilter({
           )}
           <ChevronDownIcon className="size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none group-open:rotate-180" />
         </summary>
-        <Form action={action} scroll={false} className="col-span-2 grid gap-6 border-t border-line px-4 py-4">
+        <Form action={action} className="col-span-2 grid gap-6 border-t border-line px-4 py-4">
           {Object.entries(hidden ?? {}).flatMap(([name, value]) =>
             (typeof value === "string" ? [value] : value).map((item) => (
               <input key={`${name}=${item}`} type="hidden" name={name} value={item} />
@@ -163,7 +163,6 @@ export function ScopeFilter({
           </button>
           <Link
             href={action}
-            scroll={false}
             className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
           >
             Clear filters

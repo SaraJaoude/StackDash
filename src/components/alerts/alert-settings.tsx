@@ -38,6 +38,7 @@ import {
   defaultBudgetValues,
   defaultRuleValues,
   formatMinorAmount,
+  PAGED_HEADING_SCROLL_MARGIN,
   ruleToFormValues,
   type AlertFormOptions,
 } from "./labels";
@@ -222,7 +223,10 @@ export async function AlertSettings({
 
   const alertsPath = workspacePath(workspace.slug, "alerts");
   // A pager replaces its list, so it lands on that list's heading rather than the top of the page.
-  const pageHref = (cursors: { rulesAfter: string | null; budgetsAfter: string | null }, headingId: string) => {
+  const pageHref = (
+    cursors: { rulesAfter: string | null; budgetsAfter: string | null },
+    headingId: typeof RULES_HEADING_ID | typeof BUDGETS_HEADING_ID,
+  ) => {
     const query = new URLSearchParams();
     if (cursors.rulesAfter !== null) query.set("rulesAfter", cursors.rulesAfter);
     if (cursors.budgetsAfter !== null) query.set("budgetsAfter", cursors.budgetsAfter);
@@ -264,7 +268,7 @@ export async function AlertSettings({
 
       <section aria-labelledby={RULES_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={RULES_HEADING_ID} tabIndex={-1} className="scroll-mt-32 text-sm font-semibold">
+          <h2 id={RULES_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Alert rules
           </h2>
           <p className="mt-1 text-sm text-muted">
@@ -338,7 +342,7 @@ export async function AlertSettings({
 
       <section aria-labelledby={BUDGETS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className="scroll-mt-32 text-sm font-semibold">
+          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Budgets
           </h2>
           <p className="mt-1 max-w-3xl text-sm text-muted">

@@ -18,6 +18,7 @@ import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/worksp
 
 import { AcknowledgeAllButton, AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
 import { DeniedReason } from "./form-controls";
+import { PAGED_HEADING_SCROLL_MARGIN } from "./labels";
 
 /**
  * Triggered alerts, newest first: what fired, how bad, and whether someone has acknowledged it.
@@ -155,7 +156,7 @@ export async function TriggeredAlerts({
     <section aria-labelledby={HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
       <div className="flex flex-col gap-3 border-b border-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 id={HEADING_ID} tabIndex={-1} className="scroll-mt-32 text-sm font-semibold">
+          <h2 id={HEADING_ID} tabIndex={-1} className={`${PAGED_HEADING_SCROLL_MARGIN} text-sm font-semibold`}>
             Triggered alerts
           </h2>
           <p className="mt-1 text-sm text-muted">
