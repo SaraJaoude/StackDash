@@ -1139,8 +1139,8 @@ describe("a small product's demo (#264)", () => {
     const events = syncs.flatMap(({ result }) => result.events).filter((event) => money.some((typeId) => typeId === event.typeId));
     expect(events.filter((event) => event.typeId === paid).length).toBeGreaterThan(0);
     for (const event of events) {
-      // One amount in one currency, "$49.00" or "€19.00", and for a partial refund "of" the price.
-      expect(event.title, event.typeId).toMatch(/: [$€]\d+\.\d{2}( of [$€]\d+\.\d{2})?$/);
+      // One amount in one currency, "$49.00" or "€19.00", and for a partial refund "of" the price "so far".
+      expect(event.title, event.typeId).toMatch(/: [$€]\d+\.\d{2}( of [$€]\d+\.\d{2} so far)?$/);
       // A failed payment's reason is a sentence, never Stripe's code.
       if (event.body !== undefined) expect(event.body, event.typeId).not.toMatch(/_/);
     }

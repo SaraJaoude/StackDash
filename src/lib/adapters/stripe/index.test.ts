@@ -284,7 +284,7 @@ describe("stripeAdapter.sync", () => {
     });
 
     expect(result.events.map((event) => [event.typeId, event.title, event.dedupeKey])).toEqual([
-      ["stripe.charge.refunded", "Payment partially refunded: $5.00 of $20.00", "evt_fixture_charge_refunded"],
+      ["stripe.charge.refunded", "Payment partially refunded: $5.00 of $20.00 so far", "evt_fixture_charge_refunded"],
       ["stripe.charge.failed", "Payment failed: $15.00", "evt_fixture_charge_failed"],
       ["stripe.charge.succeeded", "Payment succeeded: $20.00", "evt_fixture_charge_succeeded"],
       ["stripe.customer.created", "New customer", "evt_fixture_customer_created"],
@@ -597,12 +597,12 @@ describe("stripe payment events on the timeline (#261)", () => {
     {
       name: "a partial refund",
       object: { amount: 4900, amount_refunded: 900, currency: "usd", refunded: false },
-      title: "Payment partially refunded: $9.00 of $49.00",
+      title: "Payment partially refunded: $9.00 of $49.00 so far",
     },
     {
       name: "a partial refund in a zero-decimal currency",
       object: { amount: 5000, amount_refunded: 1200, currency: "jpy", refunded: false },
-      title: "Payment partially refunded: ¥1,200 of ¥5,000",
+      title: "Payment partially refunded: ¥1,200 of ¥5,000 so far",
     },
     {
       name: "a partial refund without amount_refunded, never the charge amount as the refund",

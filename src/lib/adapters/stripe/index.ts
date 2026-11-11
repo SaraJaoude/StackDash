@@ -445,9 +445,10 @@ function timelineEntry(event: StripeEvent): TimelineEntry | undefined {
       const { amount, amount_refunded: refundedMinor, currency, refunded } = parseObject(ChargeObjectSchema, object, type);
       // A full refund returns the whole amount, so either field gives it.
       if (refunded !== false) return { severity: "info", title: titleWithAmount("Payment refunded", refundedMinor ?? amount, currency) };
-      // `amount_refunded` totals every refund of the charge so far, not just this one.
+      // `amount_refunded` totals every refund of the charge so far, not just this one, and the
+      // title says so: a second partial refund would otherwise read as one refund of the total.
       const ofAmount =
-        refundedMinor === undefined || amount === undefined || currency === undefined ? "" : ` of ${formatMoney(amount, currency)}`;
+        refundedMinor === undefined || amount === undefined || currency === undefined ? "" : ` of ${formatMoney(amount, currency)} so far`;
       return { severity: "info", title: `${titleWithAmount("Payment partially refunded", refundedMinor, currency)}${ofAmount}` };
     }
     case "customer.created":
