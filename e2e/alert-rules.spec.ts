@@ -4,6 +4,7 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectHydrated } from "./fixtures/hydration";
 
 // Each test creates its own workspace and seeds only inside it.
 
@@ -218,9 +219,8 @@ ownerTest.describe("alert rules as the owner", () => {
       if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
       await page.goto(`/w/${workspace.slug}/alerts`);
       // A client navigation, as a user gets once the page has hydrated: before that the link is a
-      // plain anchor and the browser itself handles the fragment. Next.js mounts its route
-      // announcer from an effect, so it exists only once the page hydrated.
-      await expect(page.locator("next-route-announcer")).toBeAttached();
+      // plain anchor and the browser itself handles the fragment.
+      await expectHydrated(page);
       const showMore = page.getByRole("link", { name: "Show more budgets" });
       await showMore.focus();
       await page.keyboard.press("Enter");

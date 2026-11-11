@@ -2,6 +2,7 @@ import { test, type Page } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { expectHydrated } from "./fixtures/hydration";
 import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
@@ -77,11 +78,6 @@ async function watchViolations(page: Page): Promise<string[]> {
     if (message.text().includes("Content Security Policy")) violations.push(message.text());
   });
   return violations;
-}
-
-/** Next.js mounts its route announcer from an effect, so it exists only once the page hydrated. */
-async function expectHydrated(page: Page): Promise<void> {
-  await expect(page.locator("next-route-announcer")).toBeAttached();
 }
 
 /**
