@@ -227,8 +227,8 @@ export function createSupabaseMetricStore(
       );
     },
 
-    // The year in review (#262): counted in the database, so a year of events never travels. Served
-    // by the index each function names (20261111120000_year_review_slides.sql).
+    // The year in review (#262): counted in the database, so a year of events never travels. The
+    // measured plans are in 20261111120000_year_review_slides.sql.
     async eventActivity({ accountIds, excludedTypeIds, from, to }) {
       if (accountIds.length === 0) return { days: [], providers: [] };
       const { data, error } = await db

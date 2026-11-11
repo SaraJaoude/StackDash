@@ -26,11 +26,14 @@
 --   but no provider is counted under a null provider, which the app leaves out.
 -- At most 366 day rows plus one row per provider, inside one PostgREST response.
 --
--- Index: activity_events_workspace_timeline_idx (workspace_id, occurred_at desc, id desc) serves
--- the window as a range scan; the type and account filters run on the heap rows, which the counts
--- need anyway. Measured with explain (analyze, buffers) on the local stack, as a member, for a year
--- of one million synthetic events in one workspace: 755 ms, as a sequential scan, because that
--- workspace held nearly every row of the table. The page streams it behind its Suspense boundary.
+-- Plan, measured with explain (analyze, buffers) in a rolled back transaction on the local stack,
+-- for 100,000 events of this workspace in 2026 among 1,125,164 events in the table: a BitmapAnd of
+-- activity_events_workspace_type_time_idx (added below; workspace_id with the occurred_at range as
+-- its index condition) and activity_events_external_account_id_idx, a bitmap heap scan of the
+-- 74,557 rows left after the payment filter, then one HashAggregate for both buckets: 33 to 45 ms
+-- (31 to 32 ms through the function as a member). The time grows with the workspace's own events
+-- in the year: a workspace holding nearly the whole table took 755 ms for one million events, as a
+-- sequential scan. Budget discussion: https://github.com/eddiejaoude/DevMacro/issues/262
 create function public.year_review_event_counts(
   p_workspace_id uuid,
   p_account_ids uuid[],
@@ -82,7 +85,8 @@ $$;
 --
 -- Index: activity_events_workspace_type_time_idx (workspace_id, type_id, occurred_at), added
 -- below, reads only the two types' rows of the window instead of every event of the year: 55 ms
--- for the same million events, against 480 ms without it.
+-- for one million events of one workspace, against 480 ms without it, and 4 to 6 ms in the
+-- measurement above.
 create function public.year_review_longest_run(
   p_workspace_id uuid,
   p_account_ids uuid[],
