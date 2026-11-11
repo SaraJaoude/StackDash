@@ -255,10 +255,16 @@ ownerTest.describe("dashboard trends", () => {
       await expect(burstRow.getByRole("link", { name: "14 deployments" })).toBeVisible();
       await expect(table.getByRole("row", { name: new RegExp(`^${seeded.yesterday}`) })).toContainText("No events");
 
-      // Hiding a category is URL state: the marker and its table entry go, the toggle flips.
+      // Hiding a category is URL state: the marker and its table entry go, the toggle flips. The
+      // page stays where it was rather than jumping to the top (#312).
+      await toggles.evaluate((element) => element.scrollIntoView({ block: "center" }));
+      const scrolled = await page.evaluate(() => window.scrollY);
+      expect(scrolled).toBeGreaterThan(0);
       await toggles.getByRole("link", { name: "Hide deployments" }).click();
       await expect(page).toHaveURL(/[?&]hide_marker=deployments(&|$)/);
       await expect(toggles.getByRole("link", { name: "Show deployments" })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(scrolled);
+      await expect(toggles).toBeInViewport();
       await expect(spend.getByRole("link", { name: `14 deployments on ${twoDaysAgo}` })).toHaveCount(0);
       await expect(spend.getByRole("link", { name: `1 signup on ${today}` })).toBeVisible();
       await expect(trends.getByRole("link", { name: "Monthly, last 13 months" })).toHaveAttribute(
