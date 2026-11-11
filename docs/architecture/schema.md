@@ -33,6 +33,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261106144639_self_reported_metrics_limit.sql` | `publish_self_reported_metric` returns `limit_reached` for a 101st live self-reported value in a project |
 | `20261107090000_timeline_connection_event_counts.sql` | `timeline_connection_event_counts`: events per connection under the timeline's filters, grouped by provider for the timeline's title badges |
 | `20261110090000_timeline_title_search.sql` | `timeline_connection_event_counts` gains `p_title_pattern`, so the title badges count only events whose title matches the timeline's search |
+| `20261111090000_workspace_handles.sql` | `workspaces.handle` with its format check and case-insensitive unique index, `set_workspace_handle` and `remove_workspace_handle`; `public_project_page` and `public_project_page_sitemap` gain the workspace's handle, and `public_project_page` finds a page by handle or slug |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
@@ -82,6 +83,7 @@ erDiagram
   workspaces {
     uuid id PK
     text slug UK "random, immutable"
+    text handle UK "chosen, nullable"
     text name
     boolean is_personal "display only"
   }
@@ -130,7 +132,7 @@ Every table in `public` has RLS enabled. Policies call one helper, `public.has_w
 
 | Table | Read | Write through the Data API |
 |---|---|---|
-| `workspaces` | viewer | rename and turn anomaly detection on or off: admin; delete: owner; create: only `create_workspace` (service role) |
+| `workspaces` | viewer | rename and turn anomaly detection on or off: admin; delete: owner; create: only `create_workspace` (service role); handle: only `set_workspace_handle` and `remove_workspace_handle` (service role, after an owner or admin check) |
 | `workspace_members` | viewer | owner manages any row; admin manages non-owner rows; only an owner grants `owner` |
 | `projects`, `connections`, `external_accounts`, `budgets`, `alert_rules`, `alert_rule_destinations` | viewer | admin |
 | `anomaly_mutes` | viewer | admin adds and removes; never updated |
@@ -286,9 +288,10 @@ Badges and cards read published values through the engine and add two tables. Ho
 `project_pages` holds a project's public page, one row per project, created the first time an owner or admin turns the page on. What the page shows is in [Public metrics](public-metrics.md#project-pages).
 
 - Nothing is public by default: a project has no row, and so no page, until someone turns it on. Turning it off sets `enabled = false` and keeps the row, so the slug stays reserved for that project.
-- The address is `/@<workspace slug>/<page slug>`. The workspace part is the immutable random slug, and `project_pages_workspace_slug_key` makes the page slug unique within the workspace, so no tenant can take another's old address. `project_pages_slug_format` allows 1 to 40 lowercase letters and numbers with single hyphens between words.
+- The address is `/@<workspace>/<page slug>`. The workspace part is `workspaces.handle` while the workspace has one and its immutable random slug otherwise, and `project_pages_workspace_slug_key` makes the page slug unique within the workspace. `project_pages_slug_format` allows 1 to 40 lowercase letters and numbers with single hyphens between words.
+- `workspaces.handle` is null until an owner or admin claims one. `workspaces_handle_format` allows 3 to 32 lowercase letters and numbers with single hyphens between them, and `workspaces_handle_key`, a unique index on `lower(handle)`, keeps handles unique across workspaces whatever their case. The reserved words are checked by the Server Action only (`src/lib/workspaces/handles.ts`). Members read the handle with their workspace row; nobody writes it through the Data API. `set_workspace_handle(workspace_id, actor_id, handle)` returns `saved`, `unchanged`, or `taken` (another workspace has it as its handle or its slug), and `remove_workspace_handle(workspace_id, actor_id)` returns `removed` or `unchanged`. Both check the actor's role again (owner or admin, `42501` otherwise). A changed or removed handle is free for any workspace at once, so another tenant can take an old handle address; nothing records old handles.
 - Members read it as viewers. Nobody writes through the Data API: `save_project_page` (turn on, or change the slug or the indexing choice) and `disable_project_page` are service role functions that the Server Actions call after `requireWorkspaceAction(slug, "publish_metrics")`. Each checks the actor's role again (owner or admin, `42501` otherwise) and writes the `devmacro.project_page_enabled`, `devmacro.project_page_updated`, or `devmacro.project_page_disabled` timeline event in the same transaction.
-- `public_project_page(workspace_slug, page_slug)` returns the page an address answers with: on, and with at least one live row in `published_metrics`. An unknown address, a page that is off, and a page with nothing published all return nothing, so the route answers the same 404. `public_project_page_sitemap(limit)` lists the pages that pass the same rule and are `indexable`, newest change first. Both are service role only.
+- `public_project_page(workspace_slug, page_slug)` returns the page an address answers with: on, and with at least one live row in `published_metrics`. Its first argument is the address's workspace part, a handle or a slug, and the row carries the workspace's slug and handle so the proxy can send a slug address to the handle address. An unknown address, a released handle, another workspace's handle, a page that is off, and a page with nothing published all return nothing, so the route answers the same 404. `public_project_page_sitemap(limit)` lists the pages that pass the same rule and are `indexable`, newest change first, with each workspace's handle. Both are service role only.
 - Workspace and project deletes cascade; `updated_by` is set to null when that user's account is deleted.
 
 ## Review against later plans
