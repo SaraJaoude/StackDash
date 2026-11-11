@@ -573,7 +573,8 @@ describe("the year in review's privacy rules", () => {
     };
     const review = await computeYearReview(store, 2026, NOW, [slide]);
     expect(reads).toEqual([...(readsActivity ? ["eventActivity"] : []), ...(readsRun ? ["longestRun"] : [])]);
-    expect(yearSlides(review).find((candidate) => candidate.id === slide)).toBeDefined();
+    // Only the slide asked for comes back, so a figure that was not read is never worded as empty.
+    expect(yearSlides(review).map((candidate) => candidate.id)).toEqual([slide]);
     expect(review.summary.stats[0]).toMatchObject({ status: "available", value: 1 });
   });
 

@@ -310,6 +310,8 @@ export type YearRun =
 export type TopProvider = Readonly<{ provider: ProviderId; events: number; tiedWith: readonly ProviderId[] }>;
 
 export type YearReview = Readonly<{
+  /** The slides these figures were read for; `yearSlides` returns only these. */
+  slides: readonly YearSlideId[];
   summary: YearSummary;
   busiestDay: DayCount | null;
   longestRun: YearRun;
@@ -348,8 +350,8 @@ export function mostActiveProvider(providers: readonly ProviderCount[]): TopProv
  * or `now`, of the workspace's included accounts. One accounts read; the rest run in parallel, one
  * run read per connected deployment provider. The totals summary is always read, since every slide
  * shows its period and provenance; the event counts and the runs are read only for `slides` that
- * show them (one slide image needs one), and a figure not read is left empty, so render only the
- * slides asked for.
+ * show them (one slide image needs one), and the review carries `slides` so `yearSlides` returns
+ * only those.
  */
 export async function computeYearReview(
   source: YearReviewStore,
@@ -400,6 +402,7 @@ export async function computeYearReview(
   ].sort();
   const dataFrom = firstDays[0] ?? null;
   return {
+    slides,
     summary,
     busiestDay: busiestDay(activity.days),
     longestRun:
@@ -483,7 +486,8 @@ export function yearSlides(review: YearReview): YearSlide[] {
         };
 
   const figures = yearFigures(review.summary).map((figure) => ({ ...figure, note: yearFigureNote(figure) }));
-  return [busiest, longest, provider, { id: "totals", title: "Totals", figures }];
+  const slides: YearSlide[] = [busiest, longest, provider, { id: "totals", title: "Totals", figures }];
+  return slides.filter((slide) => review.slides.includes(slide.id));
 }
 
 /** Each provider's run is its own; a tie names the providers with a run as long. */
