@@ -212,15 +212,19 @@ function StackDetail() {
         Sent to Slack and email: Resend passed 75% of its monthly emails.
       </p>
 
-      <p className="mt-4 font-mono text-[10px] text-muted">Allowances and budgets</p>
-      <ul className="divide-y divide-line">
+      <p id="hero-preview-limits" className="mt-4 font-mono text-[10px] text-muted">
+        Allowances and budgets
+      </p>
+      <ul aria-labelledby="hero-preview-limits" className="divide-y divide-line">
         {limitRows.map((row, index) => (
           <PreviewRowItem key={`${row.provider} ${row.source}`} row={row} delayMs={ROW_START_MS + index * ROW_STAGGER_MS} />
         ))}
       </ul>
 
-      <p className="mt-4 font-mono text-[10px] text-muted">Spend, where the provider reports it</p>
-      <ul className="divide-y divide-line">
+      <p id="hero-preview-spend" className="mt-4 font-mono text-[10px] text-muted">
+        Spend, where the provider reports it
+      </p>
+      <ul aria-labelledby="hero-preview-spend" className="divide-y divide-line">
         {spendRows.map((row, index) => (
           <PreviewRowItem
             key={`${row.provider} ${row.source}`}
