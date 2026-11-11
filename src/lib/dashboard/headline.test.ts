@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { EventType } from "@/lib/adapters/events";
 import { billingMetrics, signupMetric } from "@/lib/adapters/posthog";
 import { BillingResponseSchema } from "@/lib/adapters/posthog/schemas";
-import { declaredEventTypes, declaredProjectedSpend, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
+import {
+  declaredEventTypes,
+  declaredProjectedSpend,
+  declaredSignupDailyTotals,
+  revenueProviderIds,
+  spendProviderIds,
+} from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { toSnapshotRow } from "@/lib/jobs/ingest";
 import { providerName } from "@/lib/providers";
@@ -242,6 +248,7 @@ function headline({ events = NO_EVENTS, firstReadings: readings, kind = "week", 
     eventTypes: EVENT_TYPES,
     projectedSpend: declaredProjectedSpend,
     revenueProviders: revenueProviderIds,
+    spendProviders: spendProviderIds,
     ...overrides,
     events: { ...events, firstReadings: readings ?? firstReadings(overrides.snapshots) },
   });
@@ -332,11 +339,29 @@ describe("buildHeadline money", () => {
     expect(strip.spend.included).toEqual(["Example provider", "Vercel"]);
   });
 
-  it("names a provider that cannot report spend as unavailable and leaves it out of the sum", () => {
-    const strip = headline({ snapshots: [...vercelSpend, allowance(supabase.id, "2026-10-01")], connections: [vercel, supabase] });
+  it("names a provider that reports spend but has none for the window as unavailable and leaves it out of the sum", () => {
+    const strip = headline({ snapshots: [...vercelSpend, allowance(github.id, "2026-10-01")], connections: [vercel, github] });
     expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
-    expect(strip.spend.unavailable).toEqual(["Supabase"]);
+    expect(strip.spend.unavailable).toEqual(["GitHub"]);
     expect(strip.spend.included).toEqual(["Vercel"]);
+  });
+
+  it("leaves out a provider that never reports spend instead of naming it unavailable (#286)", () => {
+    const nonSpending = (["gitlab", "resend", "sentry", "supabase"] as const).map((provider) => connection(`c-${provider}`, provider));
+    const readings = nonSpending.map((owner) => allowance(owner.id, "2026-10-01"));
+    const strip = headline({ snapshots: [...vercelSpend, ...readings], connections: [vercel, ...nonSpending] });
+    expect(strip.spend).toMatchObject({ included: ["Vercel"], unavailable: [], previousUnavailable: [] });
+    expect(strip.costPerSignup).toMatchObject({ spendUnavailable: [] });
+    // Boundary: with only those in view, no provider reports spend, so none is named as failing.
+    expect(headline({ snapshots: readings, connections: nonSpending }).spend).toMatchObject({ lines: null, included: [], unavailable: [] });
+    // Boundary: one that declares spend and has no reading at all is still named.
+    expect(headline({ snapshots: readings, connections: [vercel, ...nonSpending] }).spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
+  });
+
+  it("counts a spend reading from a provider whatever its adapter declares", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [vercel], spendProviders: [] });
+    expect(strip.spend).toMatchObject({ included: ["Vercel"], unavailable: [] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
   });
 
   it("keeps verified and estimated amounts apart in spend, revenue minus spend, and cost per signup", () => {
@@ -509,12 +534,12 @@ describe("buildHeadline counts", () => {
       value: 125,
       comparison: { status: "change", direction: "down", percent: 50, previous: 250 },
     });
-    // Supabase cannot report spend, so its spend is left out while its signups count.
+    // Supabase reports no spend, so it is not named among the spend left out while its signups count.
     expect(strip.costPerSignup).toMatchObject({
       missing: null,
       spendFrom: ["Vercel"],
       signupsFrom: ["Supabase"],
-      spendUnavailable: ["Supabase"],
+      spendUnavailable: [],
       signupsUnavailable: [],
       comparisonGap: null,
     });
@@ -645,7 +670,7 @@ describe("buildHeadline daily signup totals", () => {
     expect(strip.costPerSignup).toMatchObject({
       signupsFrom: ["PostHog", "Supabase"],
       signupsWholeDays: ["PostHog"],
-      spendUnavailable: ["PostHog", "Supabase"],
+      spendUnavailable: ["PostHog"],
     });
   });
 
@@ -716,7 +741,7 @@ describe("the last complete window when the window to date has no figure (#267)"
   it("reports nothing for the week so far when every connection is three days stale, and the last complete week instead", () => {
     const current = headline({ snapshots: [...untilSync, ...supabaseHistory], connections });
     expect(hasFigure(current)).toBe(false);
-    expect(current.spend).toMatchObject({ lines: null, unavailable: ["Supabase", "Vercel"] });
+    expect(current.spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
 
     const windows = fallbackWindows(current, connections, NOW);
     expect(windows).toEqual({

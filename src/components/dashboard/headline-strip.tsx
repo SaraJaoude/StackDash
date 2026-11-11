@@ -66,7 +66,7 @@ function sourcesUnavailable(sources: FigureSources, noun: string): string {
     : `${formatList(sources.unavailable)} could not report ${noun} for this window.`;
 }
 
-/** "From Vercel. Unavailable from Supabase, not counted." */
+/** "From Vercel. Unavailable from Stripe, not counted." */
 function SourcesLine({ sources }: { sources: FigureSources }) {
   const parts = [`From ${formatList(sources.included)}.`];
   if (sources.unavailable.length > 0) parts.push(`Unavailable from ${formatList(sources.unavailable)}, not counted.`);
@@ -177,7 +177,7 @@ const COST_PER_SIGNUP_MISSING = {
   no_signups: "No signups in this window to share the spend over.",
 } as const satisfies Record<NonNullable<CostPerSignupFigure["missing"]>, string>;
 
-/** "Leaves out spend from Supabase, unavailable for this window." for each side that left one out. */
+/** "Leaves out spend from Stripe, unavailable for this window." for each side that left one out. */
 function LeftOut({ side, names }: { side: string; names: readonly string[] }) {
   if (names.length === 0) return null;
   return <p className="text-xs leading-5 text-muted">{`Leaves out ${side} from ${formatList(names)}, unavailable for this window.`}</p>;
