@@ -11,6 +11,7 @@ import {
 import { GuardedButton } from "@/components/guarded-button";
 
 import { failureOf, smallButtonClass } from "./form-controls";
+import { acknowledgedAllMessage } from "./labels";
 
 /**
  * Acknowledging re-renders the list, and the row's button goes away (or the whole row, while
@@ -81,25 +82,6 @@ export function AcknowledgeButton({
       </div>
     </form>
   );
-}
-
-/** What "Acknowledge all" says once it is done: how many, where they went, and what is left. */
-function acknowledgedAllMessage(
-  { acknowledged, remaining }: Extract<AcknowledgeAllResult, { ok: true }>,
-  showAcknowledged: boolean,
-): string {
-  let message: string;
-  if (acknowledged === 0) {
-    message = "No alerts were left to acknowledge.";
-  } else {
-    const [count, pronoun] = acknowledged === 1 ? ["1 alert", "It stays"] : [`${acknowledged} alerts`, "They stay"];
-    message = `${count} acknowledged. ${pronoun} in the alert history.`;
-    if (!showAcknowledged) message += ` Choose Show acknowledged alerts to see ${acknowledged === 1 ? "it" : "them"}.`;
-  }
-  if (remaining > 0) {
-    message += ` ${remaining === 1 ? "1 alert is" : `${remaining} alerts are`} still unacknowledged. Choose Acknowledge all again to acknowledge ${remaining === 1 ? "it" : "them"}.`;
-  }
-  return message;
 }
 
 /**
