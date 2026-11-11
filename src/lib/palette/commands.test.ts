@@ -53,8 +53,6 @@ function find(commands: readonly PaletteCommand[], kind: PaletteKind, label: str
   return commands.find((command) => command.kind === kind && command.label === label);
 }
 
-const ACTION_IDS = /^(action:|connect:)/;
-
 /** The search params of an app-relative href, as a page's `searchParams` would hold them. */
 function searchParamsOf(href: string): Record<string, string[]> {
   const params = new URL(href, "https://devmacro.example").searchParams;
@@ -108,13 +106,15 @@ describe("buildPaletteCommands", () => {
     expect(byType?.keywords).toContain("deployment failed");
   });
 
-  it("never repeats an account's name in its label, and still finds it by its provider", () => {
+  it("never repeats an account's name in its label, and still finds it by its provider and connection", () => {
     const stripe = find(commands, "Account dashboard", "Example Stripe account (test mode)");
     expect(hrefOf(stripe)).toBe(`/w/${SLUG}/dashboard?account=${A2}`);
     for (const command of commands) {
       expect(command.label.split("Example Stripe account").length, command.label).toBeLessThanOrEqual(2);
     }
     expect(searchCommands(commands, "stripe").results.map((command) => command.id)).toContain(`dashboard:account:${A2}`);
+    // "Vercel team" is the connection's name, which the account's label no longer carries.
+    expect(searchCommands(commands, "vercel team").results.map((command) => command.id)).toContain(`dashboard:account:${A1}`);
   });
 
   it("adds the connection to an account's label only when another account has the same name", () => {
@@ -179,12 +179,10 @@ describe("buildPaletteCommands", () => {
     ["viewer", false],
   ])("lists actions to %s only when the role can run them (%s)", (role, allowed) => {
     const forRole = buildPaletteCommands({ ...SOURCES, role });
-    const actions = forRole.filter((command) => ACTION_IDS.test(command.id)).map((command) => command.label);
+    const actions = forRole.filter((command) => command.kind === "Action").map((command) => command.label);
     expect(actions).toEqual(allowed ? ["Sync Vercel now", "Sync Stripe now", "Create API key", "Connect Resend"] : []);
     // Pages, views, and other workspaces are for every member.
-    expect(forRole.filter((command) => !ACTION_IDS.test(command.id))).toEqual(
-      commands.filter((command) => !ACTION_IDS.test(command.id)),
-    );
+    expect(forRole.filter((command) => command.kind !== "Action")).toEqual(commands.filter((command) => command.kind !== "Action"));
   });
 
   it("ends with the shortcut list", () => {
@@ -216,8 +214,8 @@ describe("buildPaletteCommands", () => {
       "page:year",
       "page:account",
       "action:create-api-key",
-      `workspace:${OTHER_SLUG}`,
       "connect:resend",
+      `workspace:${OTHER_SLUG}`,
       "help:shortcuts",
     ]);
   });

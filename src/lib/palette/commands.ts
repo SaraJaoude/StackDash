@@ -94,12 +94,16 @@ function scopeCommands(sources: PaletteSources, scope: PaletteScope) {
   );
   const accounts = scope.accounts
     .map((account, index): PaletteCommand => {
-      const provider = connections.get(account.connection_id)?.provider;
+      const connection = connections.get(account.connection_id);
       return {
         id: `dashboard:account:${account.id}`,
         label: accountLabels[index] ?? account.display_name,
         kind: "Account dashboard",
-        keywords: provider === undefined ? "spend usage" : `${provider} ${providerName(provider)} spend usage`,
+        // The provider and connection the label no longer repeats still find the account.
+        keywords:
+          connection === undefined
+            ? "spend usage"
+            : `${connection.provider} ${providerName(connection.provider)} ${connection.display_name} spend usage`,
         action: { kind: "navigate", href: dashboardHref(dashboardPath, { ...EMPTY_SCOPE, accounts: [account.id] }) },
       };
     })
@@ -165,9 +169,9 @@ function scopeCommands(sources: PaletteSources, scope: PaletteScope) {
 }
 
 /**
- * Every command, in display order for a blank query: pages, actions, other workspaces, dashboard
- * scopes (providers, projects, accounts), timeline views (providers, then event types), providers
- * to connect, and the shortcut list.
+ * Every command, in display order for a blank query: pages, actions (syncs, Create API key, then
+ * providers to connect, so one kind sits together), other workspaces, dashboard scopes (providers,
+ * projects, accounts), timeline views (providers, then event types), and the shortcut list.
  */
 export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] {
   const { workspaceSlug, role } = sources;
@@ -238,5 +242,5 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
     action: { kind: "shortcuts" },
   };
 
-  return [...pages, ...actions, ...workspaces, ...dashboards, ...timelines, ...connect, help];
+  return [...pages, ...actions, ...connect, ...workspaces, ...dashboards, ...timelines, help];
 }
