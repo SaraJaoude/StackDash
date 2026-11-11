@@ -8,8 +8,10 @@ import { generateApiKey } from "@/lib/api/keys";
 import { API_KEY_SCOPES } from "@/lib/api/scopes";
 import { MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
 import { logError } from "@/lib/log/logger";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireWorkspaceAction } from "@/lib/workspaces/access";
+import { handleSchema } from "@/lib/workspaces/handles";
 import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions";
 
 export type RenameWorkspaceResult =
@@ -84,6 +86,96 @@ export async function renameWorkspace(
   // The header switcher shows the name too, so refresh the whole route, not just this form.
   refresh();
   return { ok: true };
+}
+
+export type WorkspaceHandleResult =
+  | { ok: true; message: string }
+  | { ok: false; fieldErrors?: { handle?: string }; message: string; referenceId?: string };
+
+const handleFormSchema = z.object({ workspace: z.string().min(1), handle: handleSchema }).strict();
+const removeHandleSchema = z.object({ workspace: z.string().min(1) }).strict();
+
+const HANDLE_TAKEN = "Another workspace uses this handle. Choose another one.";
+
+function handleFailure(error: unknown, event: string, message: string): WorkspaceHandleResult {
+  // notFound() and redirect() signal through throws; let Next.js handle them.
+  unstable_rethrow(error);
+  if (error instanceof ForbiddenError) return { ok: false, message: error.message };
+  const referenceId = logError(event, error);
+  return { ok: false, message, referenceId };
+}
+
+/** The database function's own role check refused it: the role changed after ours. */
+function handleRpcError(error: { code: string }, operation: string): never {
+  if (error.code === INSUFFICIENT_PRIVILEGE) throw new ForbiddenError("admin", actionDeniedReason("set_workspace_handle"));
+  throw new Error(`${operation} failed`, { cause: error });
+}
+
+/**
+ * Claims or changes the workspace's handle (#258), the name its public project page addresses use.
+ * The old handle stops working at once and any workspace may claim it. Owners and admins only:
+ * checked here with the role matrix, then set_workspace_handle() checks the member again and
+ * decides uniqueness (20261111090000_workspace_handles.sql). The reserved words are checked here
+ * only, by handleSchema.
+ */
+export async function setWorkspaceHandle(
+  _previous: WorkspaceHandleResult | null,
+  formData: FormData,
+): Promise<WorkspaceHandleResult> {
+  const handle = formData.get("handle");
+  if (typeof handle !== "string") return { ok: false, message: OUT_OF_DATE };
+  const parsed = handleFormSchema.safeParse({ workspace: formData.get("workspace"), handle });
+  if (!parsed.success) {
+    const handleIssue = parsed.error.issues.find((issue) => issue.path[0] === "handle");
+    if (handleIssue === undefined) return { ok: false, message: OUT_OF_DATE };
+    return { ok: false, fieldErrors: { handle: handleIssue.message }, message: `The handle was not saved. ${handleIssue.message}` };
+  }
+
+  try {
+    const { workspace, user } = await requireWorkspaceAction(parsed.data.workspace, "set_workspace_handle");
+    const { data, error } = await createAdminClient().rpc("set_workspace_handle", {
+      p_workspace_id: workspace.id,
+      p_actor_id: user.id,
+      p_handle: parsed.data.handle,
+    });
+    if (error) handleRpcError(error, "Set workspace handle");
+    if (data === "taken") {
+      return { ok: false, fieldErrors: { handle: HANDLE_TAKEN }, message: `The handle was not saved. ${HANDLE_TAKEN}` };
+    }
+    if (data === "unchanged") return { ok: true, message: `This workspace already has the handle ${parsed.data.handle}.` };
+  } catch (error) {
+    return handleFailure(error, "workspaces.handle_failed", "The handle could not be saved. Try again in a moment.");
+  }
+
+  refresh();
+  return { ok: true, message: `Saved. Public project pages now open at /@${parsed.data.handle}/ followed by the page address.` };
+}
+
+/**
+ * Removes the workspace's handle: public project pages answer at the workspace ID address again,
+ * and links that use the handle stop working at once. Same checks as setWorkspaceHandle.
+ */
+export async function removeWorkspaceHandle(
+  _previous: WorkspaceHandleResult | null,
+  formData: FormData,
+): Promise<WorkspaceHandleResult> {
+  const parsed = removeHandleSchema.safeParse({ workspace: formData.get("workspace") });
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+
+  try {
+    const { workspace, user } = await requireWorkspaceAction(parsed.data.workspace, "set_workspace_handle");
+    const { data, error } = await createAdminClient().rpc("remove_workspace_handle", {
+      p_workspace_id: workspace.id,
+      p_actor_id: user.id,
+    });
+    if (error) handleRpcError(error, "Remove workspace handle");
+    if (data === "unchanged") return { ok: true, message: "This workspace has no handle." };
+  } catch (error) {
+    return handleFailure(error, "workspaces.handle_remove_failed", "The handle could not be removed. Try again in a moment.");
+  }
+
+  refresh();
+  return { ok: true, message: `Removed the handle. Public project pages open at /@${parsed.data.workspace}/ followed by the page address again.` };
 }
 
 export type ApiKeyActionFailure = {

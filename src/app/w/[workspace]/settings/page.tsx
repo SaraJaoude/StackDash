@@ -11,12 +11,14 @@ import { connectOrigin } from "@/lib/connections/oauth-state";
 import { API_KEYS_LIST_LIMIT, listApiKeys, MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
 import { formatDateTime } from "@/lib/format";
 import { mcpEndpointUrl } from "@/lib/mcp/setup";
+import { workspaceAddress } from "@/lib/public-metrics/project-page";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
 import { ApiKeysManager, type ApiKeyItem } from "./api-keys";
 import { AssistantSetup } from "./assistant-setup";
 import { RenameWorkspaceForm } from "./rename-workspace-form";
+import { WorkspaceHandleForm } from "./workspace-handle-form";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -34,6 +36,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
   const { workspace: slug } = await params;
   const { user, workspace, role } = await requireWorkspace(slug, "viewer");
   const canRename = canPerform(role, "rename_workspace");
+  const canSetHandle = canPerform(role, "set_workspace_handle");
   const canManageKeys = canPerform(role, "manage_api_keys");
   // Row level security shows keys to owners and admins only, so viewers are not asked to load them.
   const apiKeys = canManageKeys ? await listApiKeys(workspace.id) : null;
@@ -71,6 +74,27 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
             <p className="mt-3 flex items-center gap-2 text-muted">
               <LockIcon className="shrink-0" />
               <span>{actionDeniedReason("rename_workspace")}</span>
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="workspace-handle-title" className="mt-6 rounded-xl border border-line bg-panel">
+        <h2 id="workspace-handle-title" className="border-b border-line px-6 py-4 text-sm font-semibold">
+          Public handle
+        </h2>
+        {canSetHandle ? (
+          <WorkspaceHandleForm workspaceSlug={workspace.slug} currentHandle={workspace.handle} />
+        ) : (
+          <div className="px-6 py-5 text-sm">
+            <p>
+              {workspace.handle === null ? "No handle yet. " : null}
+              Public project pages open at{" "}
+              <span className="font-mono break-all">/@{workspaceAddress(workspace)}/</span> followed by the page address.
+            </p>
+            <p className="mt-3 flex items-center gap-2 text-muted">
+              <LockIcon className="shrink-0" />
+              <span>{actionDeniedReason("set_workspace_handle")}</span>
             </p>
           </div>
         )}
