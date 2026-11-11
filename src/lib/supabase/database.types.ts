@@ -927,6 +927,37 @@ isOneToOne: false
 "unpublish_metric":
 { Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string
                            },
+"usage_snapshot_monthly_latest":
+{ Args: { "p_since": string,"p_workspace_id": string }; Returns: {
+              "amount_minor": number | null,
+"connection_id": string,
+"created_at": string,
+"currency": string | null,
+"external_account_id": string,
+"id": string,
+"kind": Database["public"]['Enums']["metric_kind"],
+"label": string,
+"metric_key": string,
+"period_end": string | null,
+"period_start": string | null,
+"point_at": string | null,
+"pricing_source": string | null,
+"provenance_endpoint": string | null,
+"provenance_source": string,
+"resets_at": string | null,
+"retrieved_at": string,
+"snapshot_date": string,
+"unit": string | null,
+"updated_at": string,
+"value": number | null,
+"workspace_id": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "usage_snapshots"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
 "usage_snapshot_series_heads":
 { Args: { "p_workspace_id": string }; Returns: {
               "amount_minor": number | null,

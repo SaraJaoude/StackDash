@@ -1,8 +1,9 @@
 import type * as React from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
+import { log } from "@/lib/log/logger";
 import { fakeSupabase, type PageRequest, type Row } from "@/lib/supabase/fake-postgrest";
 
 import { getDashboardData, snapshotWindowStart } from "./dashboard";
@@ -80,23 +81,53 @@ const SNAPSHOT_DATES = ["2026-11-11", WINDOW_START, "2026-09-26", "2026-01-15", 
 
 let requests: readonly PageRequest[] = [];
 
-/** The workspace's connection and account, and `usageSnapshots`, behind the fake PostgREST. */
-function seed(usageSnapshots: readonly Row[]) {
-  const fake = fakeSupabase({
-    connections: [{ id: CONNECTION, workspace_id: WORKSPACE, provider: "github", created_at: "2026-01-01T00:00:00.000Z" }],
-    external_accounts: [{ id: ACCOUNT, workspace_id: WORKSPACE, connection_id: CONNECTION, included: true, project_id: null, display_name: "Account" }],
-    projects: [],
-    usage_snapshots: usageSnapshots,
-  });
+const MONTHLY_FUNCTION = "usage_snapshot_monthly_latest";
+
+/**
+ * What `usage_snapshot_monthly_latest` returns for `rows`: those of `workspaceId` dated `since` or
+ * later, newest per account, metric, UTC month, currency, and unit. The database test
+ * (supabase/tests/database/24_usage_snapshot_monthly_latest.test.sql) checks the function itself.
+ */
+function monthlyLatest(rows: readonly Row[], workspaceId: unknown, since: unknown): Row[] {
+  const latest = new Map<string, Row>();
+  for (const row of rows) {
+    const date = String(row.snapshot_date);
+    if (row.workspace_id !== workspaceId || typeof since !== "string" || date < since) continue;
+    const key = [row.external_account_id, row.metric_key, date.slice(0, 7), row.currency, row.unit].join(" ");
+    const current = latest.get(key);
+    if (current === undefined || date > String(current.snapshot_date)) latest.set(key, row);
+  }
+  return [...latest.values()];
+}
+
+/**
+ * The workspace's connection and account, and `usageSnapshots`, behind the fake PostgREST.
+ * `usage_snapshot_monthly_latest` answers from `monthlyRows` as the database would.
+ */
+function seed(usageSnapshots: readonly Row[], monthlyRows: readonly Row[] = usageSnapshots) {
+  const fake = fakeSupabase(
+    {
+      connections: [{ id: CONNECTION, workspace_id: WORKSPACE, provider: "github", created_at: "2026-01-01T00:00:00.000Z" }],
+      external_accounts: [{ id: ACCOUNT, workspace_id: WORKSPACE, connection_id: CONNECTION, included: true, project_id: null, display_name: "Account" }],
+      projects: [],
+      usage_snapshots: usageSnapshots,
+    },
+    { [MONTHLY_FUNCTION]: ({ p_workspace_id, p_since }) => monthlyLatest(monthlyRows, p_workspace_id, p_since) },
+  );
   state.db = fake.db;
   requests = fake.requests;
 }
 
-/** The `snapshot_date` filters of each `usage_snapshots` request, such as `["gte.2025-11-01", "lt.2026-09-27"]`. */
+/** The `snapshot_date` filters of each `usage_snapshots` request, such as `["gte.2025-11-01"]`. */
 function snapshotDateFilters(): string[][] {
   return requests
     .filter((request) => request.table === "usage_snapshots")
     .map((request) => request.filters.flatMap(([column, filter]) => (column === "snapshot_date" ? [filter] : [])));
+}
+
+/** The arguments of each `usage_snapshot_monthly_latest` request, one per page. */
+function monthlyCalls(): PageRequest["args"][] {
+  return requests.filter((request) => request.table === `rpc/${MONTHLY_FUNCTION}`).map((request) => request.args);
 }
 
 function dates(rows: ReadonlyArray<{ snapshot_date: string }>): string[] {
@@ -131,13 +162,14 @@ describe("getTrendData", () => {
     expect(dates(dashboard.snapshots)).toEqual(dates(trends.snapshots));
   });
 
-  it("monthly: adds one read that stops before the window start, newest first, with no row twice", async () => {
+  it("monthly: reads the monthly rollup from the trend window start, not the dashboard's daily rows", async () => {
     const { dashboard, trends } = await dashboardRequest("monthly");
-    const reads = snapshotDateFilters();
-    expect(reads).toHaveLength(2);
-    expect(reads).toEqual(expect.arrayContaining([[`gte.${WINDOW_START}`], [`gte.${TREND_START}`, `lt.${WINDOW_START}`]]));
-    // Both window edges are in, each once; the day before the trend window is not.
-    expect(dates(trends.snapshots)).toEqual(["2026-11-11", WINDOW_START, "2026-09-26", "2026-01-15", TREND_START]);
+    // The cards still read their 45 days; the trend reads only the rollup, once.
+    expect(snapshotDateFilters()).toEqual([[`gte.${WINDOW_START}`]]);
+    expect(monthlyCalls()).toEqual([{ p_workspace_id: WORKSPACE, p_since: TREND_START }]);
+    // One row per month, newest first: 2026-09-26 shares September with the newer window start, and
+    // the day before the trend window is not read.
+    expect(dates(trends.snapshots)).toEqual(["2026-11-11", WINDOW_START, "2026-01-15", TREND_START]);
     expect(dates(dashboard.snapshots)).toEqual(["2026-11-11", WINDOW_START]);
   });
 
@@ -146,6 +178,50 @@ describe("getTrendData", () => {
     const { dashboard, trends } = await dashboardRequest(granularity);
     expect(trends.snapshots).toEqual([]);
     expect(dashboard.snapshots).toEqual([]);
-    expect(snapshotDateFilters()).toHaveLength(granularity === "daily" ? 1 : 2);
+    expect(snapshotDateFilters()).toHaveLength(1);
+    expect(monthlyCalls()).toHaveLength(granularity === "daily" ? 0 : 1);
+  });
+});
+
+describe("getTrendData monthly rollup paging (#317)", () => {
+  /** `count` rollup rows of one month in the trend window: one metric each, so each is its own row. */
+  function rollupRows(count: number): Row[] {
+    return Array.from({ length: count }, (_, index) => {
+      const suffix = String(index).padStart(5, "0");
+      return { ...snapshot("2026-10-31"), id: `row-${suffix}`, metric_key: `github.metric_${suffix}.count` };
+    });
+  }
+
+  let warn: MockInstance<typeof log.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  it.each([
+    { case: "just under the cap", rows: 9_999, read: 9_999, warned: false },
+    // A full last page cannot say whether more rows follow, so the read at the cap is called cut.
+    { case: "at the cap", rows: 10_000, read: 10_000, warned: true },
+    { case: "over the cap", rows: 10_001, read: 10_000, warned: true },
+  ])("$case ($rows rollup rows): reads $read in pages of 1,000", async ({ rows, read, warned }) => {
+    seed([], rollupRows(rows));
+    const trends = await getTrendData(WORKSPACE, "monthly", NOW, EMPTY_SCOPE);
+    expect(trends.snapshots).toHaveLength(read);
+    expect(new Set(trends.snapshots.map((row) => row.snapshot_date))).toEqual(new Set(["2026-10-31"]));
+    expect(monthlyCalls()).toHaveLength(10);
+    expect(warn).toHaveBeenCalledTimes(warned ? 1 : 0);
+    if (warned) {
+      expect(warn).toHaveBeenCalledWith("dashboard.snapshots_truncated", { workspaceId: WORKSPACE, purpose: "monthly trend", rows: 10_000 });
+    }
+  });
+
+  it("one row reads one page and does not warn", async () => {
+    seed([], rollupRows(1));
+    const trends = await getTrendData(WORKSPACE, "monthly", NOW, EMPTY_SCOPE);
+    expect(trends.snapshots).toHaveLength(1);
+    expect(monthlyCalls()).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
   });
 });
