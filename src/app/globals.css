@@ -413,6 +413,11 @@ summary {
   animation: live-pulse 1s ease-out both;
 }
 
+/* A year in review slide coming into view (YearSlides): the content settles in once per move. */
+.slide-enter {
+  animation: feed-content-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -433,7 +438,8 @@ summary {
   .arrival-count,
   .arrival-bar,
   .arrival-draw,
-  .arrival-live-pulse {
+  .arrival-live-pulse,
+  .slide-enter {
     animation: none;
   }
   .arrival-live-pulse {

@@ -1,16 +1,17 @@
 import "server-only";
 
 import { createSupabaseMetricStore } from "@/lib/public-metrics/supabase-store";
-import { computeYearSummary, type YearSummary } from "@/lib/public-metrics/yearly";
+import { computeYearReview, type YearReview } from "@/lib/public-metrics/yearly";
 import { createClient } from "@/lib/supabase/server";
 
 /*
- * The yearly card's figures for one workspace (#151). Reads run as the signed-in member, so row
- * level security limits them to workspaces they belong to; the caller has checked membership.
- * Each surface (the year page and its card.png route) calls it once per request.
+ * The year in review's figures for one workspace (#151, slides #262). Reads run as the signed-in
+ * member, so row level security limits them to workspaces they belong to, and the review's counting
+ * functions check membership themselves; the caller has checked membership too. Each surface (the
+ * year page and its slide image route) calls it once per request.
  */
 
-export async function loadYearSummary(workspaceId: string, year: number, now: Date): Promise<YearSummary> {
+export async function loadYearReview(workspaceId: string, year: number, now: Date): Promise<YearReview> {
   const supabase = await createClient();
-  return computeYearSummary(createSupabaseMetricStore(supabase, workspaceId, null), year, now);
+  return computeYearReview(createSupabaseMetricStore(supabase, workspaceId, null), year, now);
 }

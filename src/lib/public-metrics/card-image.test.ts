@@ -1,8 +1,10 @@
 import { isValidElement, type CSSProperties, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { MetricCard, trendPath } from "./card-image";
+import { MetricCard, trendPath, YearSlideCard } from "./card-image";
+import { MemoryMetricStore } from "./memory-store";
 import type { PublishedMetricCard } from "./published";
+import { computeYearReview, yearSlides } from "./yearly";
 
 describe("trendPath", () => {
   it("draws from the oldest point on the left to the newest on the right, higher values higher up", () => {
@@ -108,5 +110,29 @@ describe("MetricCard", () => {
     expect(without).toContain("GitHub stars");
     expect(without).not.toContain("Acme web");
     expect(named.filter((text) => text !== "Acme web")).toEqual(without);
+  });
+});
+
+describe("YearSlideCard", () => {
+  it("draws each slide's title, value, and detail, the value on one line, every word at 4.5:1 contrast or more", async () => {
+    const review = await computeYearReview(
+      new MemoryMetricStore(
+        [{ accountId: "vercel-acct", provider: "vercel", connectionCreatedAt: new Date("2025-12-01T00:00:00Z"), lastSyncedAt: AT, simulated: true }],
+        [],
+        [{ accountId: "vercel-acct", typeId: "vercel.deployment.succeeded", occurredAt: new Date("2026-03-04T10:00:00Z") }],
+      ),
+      2026,
+      AT,
+    );
+    const slides = yearSlides(review).flatMap((slide) => (slide.id === "totals" ? [] : [slide]));
+    expect(slides).toHaveLength(3);
+    for (const slide of slides) {
+      const drawn = drawnText(YearSlideCard({ summary: review.summary, slide }));
+      expect(drawn.map((entry) => entry.text)).toEqual(
+        expect.arrayContaining([`${slide.title}, 2026 so far`, slide.value, slide.detail, "Year to date", "Simulated data, not verified"]),
+      );
+      expect(drawn.find((entry) => entry.text === slide.value)?.style).toMatchObject({ whiteSpace: "nowrap", textOverflow: "ellipsis" });
+      for (const entry of drawn) expect(contrastRatio(entry.color, entry.background)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });
