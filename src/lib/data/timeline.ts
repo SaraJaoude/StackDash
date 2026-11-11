@@ -7,6 +7,7 @@ import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope 
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import {
+  MAX_TYPE_FILTERS,
   occurredRange,
   TIMELINE_PAGE_SIZE,
   titleSearchPattern,
@@ -201,14 +202,14 @@ export async function listTimelineConnectionCounts(
   return data;
 }
 
-// One row per distinct type id, and every type comes from an adapter's declared types or
-// DevMacro's own (about 60 today), so this bounds the read without cutting any type off.
-const TYPE_OPTION_LIMIT = 200;
-
 /**
- * Every distinct event type id the workspace has events of, sorted. Read from the daily event
+ * Every distinct event type id the workspace has events of, sorted, up to `MAX_TYPE_FILTERS` (the
+ * most one URL may filter on, so every offered type can be ticked). Read from the daily event
  * count rollup (`timeline_type_ids`), so a type whose only event is years older than the rest is
- * still offered, and a non-member gets none. Empty exactly when the workspace has no activity at all.
+ * still offered, and a non-member gets none. The rollup holds one row per day, type, provider, and
+ * account, and the function reads all of the workspace's rows: far fewer than its events, but not
+ * bounded by the number of types. The rollup is kept equal to `activity_events` by its triggers, so
+ * this is empty exactly when the workspace has no activity at all.
  */
 export const listTimelineTypeIds = cache(async (workspaceId: string): Promise<string[]> => {
   const supabase = await createClient();
@@ -216,7 +217,7 @@ export const listTimelineTypeIds = cache(async (workspaceId: string): Promise<st
     .rpc("timeline_type_ids", { p_workspace_id: workspaceId })
     .select("type_id")
     .order("type_id", { ascending: true })
-    .limit(TYPE_OPTION_LIMIT);
+    .limit(MAX_TYPE_FILTERS);
   if (error) throw new Error("Failed to load timeline event types", { cause: error });
   return data.map((row) => row.type_id);
 });

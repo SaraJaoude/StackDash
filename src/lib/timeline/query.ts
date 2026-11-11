@@ -22,8 +22,13 @@ export type EventSeverity = Database["public"]["Enums"]["event_severity"];
 
 export const TIMELINE_PAGE_SIZE = 50;
 
-/** Most type ids one URL may filter on; the picker never offers more than this. */
-export const MAX_TYPE_FILTERS = 50;
+/**
+ * Most type ids one URL may filter on, and most the type picker offers (`listTimelineTypeIds`),
+ * so every offered type can be ticked at once. Every type comes from an adapter's declared types or
+ * DevMacro's own, about 60 today. The ids travel in the event list's PostgREST query string
+ * (`type_id=in.(...)`), so the bound also keeps that URL a few kilobytes long.
+ */
+export const MAX_TYPE_FILTERS = 100;
 
 export const EVENT_SEVERITIES = ["info", "success", "warning", "critical"] as const satisfies readonly EventSeverity[];
 
