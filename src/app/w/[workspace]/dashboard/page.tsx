@@ -11,7 +11,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
-import { DashboardView, renderedSeries } from "@/components/dashboard/dashboard-view";
+import { DashboardView, renderedSeries, TrendsSection, TrendsSkeleton } from "@/components/dashboard/dashboard-view";
 import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { WhatChanged } from "@/components/dashboard/what-changed";
@@ -39,6 +39,7 @@ import {
   bucketEventCounts,
   canonicalHidden,
   chartMarkers,
+  type EventCountRow,
   HIDE_MARKER_PARAM,
   isMarkerCategory,
   MARKER_CATEGORIES,
@@ -58,9 +59,9 @@ import {
 } from "@/lib/dashboard/trends";
 import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
 import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
-import { getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
+import { type DashboardData, getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
-import { getTrendData, getTrendEventCounts } from "@/lib/data/trends";
+import { getTrendData, getTrendEventCounts, type TrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";
 import {
   appendScopeParams,
@@ -121,7 +122,9 @@ function dashboardHref(basePath: string, scope: ScopeFilters, view: DashboardVie
 }
 
 // Every section renders inside its own Suspense boundary so navigating between sections
-// has an instant shell; access checks and data reads stream in behind it.
+// has an instant shell; access checks and data reads stream in behind it. Inside the dashboard,
+// Trends has a boundary of its own (#263): the monthly view reads 13 months of snapshots, and the
+// headline strip, cards, and By project do not wait for that read.
 export default function DashboardPage(props: PageProps<"/w/[workspace]/dashboard">) {
   return (
     <Suspense fallback={<PageSkeleton />}>
@@ -173,7 +176,7 @@ async function DashboardContent({
   view: DashboardViewParams;
 }) {
   const { workspace, role } = access;
-  const { trend, hidden, expanded } = view;
+  const { trend, hidden } = view;
   // Request data first: reading the clock before it would fail the prerender.
   await connection();
   const now = new Date();
@@ -182,6 +185,12 @@ async function DashboardContent({
   const eventTypes = headlineEventTypes(declaredEventTypes, declaredSignupDailyTotals);
   // Alerts load with the rest so their row never streams in later and shifts the provider cards.
   const anomaliesSince = new Date(now.getTime() - RECENT_ANOMALY_DAYS * 86_400_000).toISOString();
+  // The trend rows and the markers' counts are not awaited here: Trends awaits them behind its
+  // own Suspense boundary (#263). They start now, with the rest, so nothing waits on another read.
+  // The empty state below never awaits them, and a rejection can land before Trends awaits; Next's
+  // process-wide unhandledRejection handler logs either case and carries on, which is accepted
+  // here. Do not add a .catch or move these below the Promise.all, which would serialize the reads.
+  const trendData = getTrendData(workspace.id, trend, now, scope);
   const viewCounts = getTrendEventCounts(workspace.id, trend, now, scope, shown);
   // The summary names every category's events by day; the charts' own read already is that when
   // they show the daily trend with no category hidden.
@@ -190,8 +199,6 @@ async function DashboardContent({
   const [
     workspaceScope,
     data,
-    trendData,
-    eventCounts,
     alertsSummary,
     headlineSnapshots,
     headlineEvents,
@@ -200,9 +207,8 @@ async function DashboardContent({
     dayEventCounts,
   ] = await Promise.all([
     getWorkspaceScope(workspace.id),
+    // The same `now` as the trend read, so the daily view's rows come from this one cached read.
     getDashboardData(workspace.id, snapshotWindowStart(now), scope),
-    getTrendData(workspace.id, now, scope),
-    viewCounts,
     getUnacknowledgedSummary(workspace.id),
     getHeadlineSnapshots(workspace.id, scope, windows, eventTypes),
     getHeadlineEvents(workspace.id, scope, windows, eventTypes),
@@ -231,16 +237,6 @@ async function DashboardContent({
   const dashboardPath = workspacePath(workspace.slug, "dashboard");
   const timelinePath = workspacePath(workspace.slug, "timeline");
   const scopeOptions = buildScopeOptions(workspaceScope, scope);
-  const series = buildTrends(trendData.snapshots, trendData.connections, trend, now);
-  const groups = groupTrends(series, defaultSeriesKeys(trendData.snapshots, trendData.connections, declaredProjectedSpend, now));
-  const providers = groups.map((group) => ({
-    ...group,
-    open: expanded.includes(group.provider),
-    toggleHref: dashboardHref(dashboardPath, scope, { ...view, expanded: toggleExpanded(expanded, group.provider) }),
-  }));
-  // Only the charts on the page get markers: a closed disclosure renders nothing.
-  const rendered = providers.flatMap(renderedSeries);
-  const counts = bucketEventCounts(eventCounts, trend, now);
   const input = { ...data, projectedSpend: declaredProjectedSpend, now };
   // One notice for the page when most connections are stale, instead of a line on every value (#267).
   const { view: dashboard, notice } = withStaleNotice(aggregateDashboard(input));
@@ -248,14 +244,14 @@ async function DashboardContent({
   // every card, total, and chart; a mixed workspace keeps them (#269).
   const allSimulated = everySimulated(dashboard.byProvider);
   // What was unusual in the last week, in words (#270): the days the daily summary jobs checked,
-  // found again from the trend rows already read, so it follows the filter and today's mutes.
+  // found again from the 45 days of rows already read, so it follows the filter and today's mutes.
   const changes = whatChanged(
     recentAnomalies({
       now,
       days: RECENT_ANOMALY_DAYS,
       enabled: anomalyControls.enabled,
-      rows: trendData.snapshots,
-      connections: trendData.connections,
+      rows: data.snapshots,
+      connections: data.connections,
       mutes: anomalyControls.mutes,
       projectedSpend: declaredProjectedSpend,
     }),
@@ -264,7 +260,7 @@ async function DashboardContent({
   );
 
   const headlineInput = {
-    connections: trendData.connections,
+    connections: data.connections,
     eventTypes,
     projectedSpend: declaredProjectedSpend,
     revenueProviders: revenueProviderIds,
@@ -272,7 +268,7 @@ async function DashboardContent({
   const strip = buildHeadline({ ...headlineInput, windows, snapshots: headlineSnapshots, events: headlineEvents });
   // Only when the window to date has no figure because a connection in view is stale: the last
   // complete window, whose reads depend on the strip above, so they run after it.
-  const lastComplete = fallbackWindows(strip, trendData.connections, now);
+  const lastComplete = fallbackWindows(strip, data.connections, now);
   let fallback: HeadlineStripData | null = null;
   if (lastComplete !== null) {
     const [snapshots, events] = await Promise.all([
@@ -313,30 +309,94 @@ async function DashboardContent({
         declared={declaredCapabilities}
         markSimulated={!allSimulated}
         alerts={alerts}
-        trends={{
-          granularity: trend,
-          providers,
-          hrefs: {
-            daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
-            monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
-          },
-          markers: {
-            hidden,
-            bySeries: Object.fromEntries(
-              rendered.map((entry) => [
-                entry.key,
-                chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
-              ]),
-            ),
-            toggles: MARKER_CATEGORIES.map((category) => ({
-              category,
-              shown: shown.includes(category),
-              href: dashboardHref(dashboardPath, scope, { ...view, hidden: toggleHidden(hidden, category) }),
-            })),
-          },
-        }}
+        trends={
+          <Suspense fallback={<TrendsSkeleton />}>
+            <DashboardTrendsContent
+              trendData={trendData}
+              eventCounts={viewCounts}
+              dashboardRows={data}
+              now={now}
+              scope={scope}
+              view={view}
+              dashboardPath={dashboardPath}
+              timelinePath={timelinePath}
+              markSimulated={!allSimulated}
+            />
+          </Suspense>
+        }
       />
     </ArrivalScope>
+  );
+}
+
+/**
+ * The Trends section, awaited behind its own Suspense boundary (#263) so the rest of the dashboard
+ * shows without waiting for the trend read: the monthly view reads 13 months of snapshots.
+ */
+async function DashboardTrendsContent({
+  trendData,
+  eventCounts,
+  dashboardRows,
+  now,
+  scope,
+  view,
+  dashboardPath,
+  timelinePath,
+  markSimulated,
+}: {
+  trendData: Promise<TrendData>;
+  eventCounts: Promise<EventCountRow[]>;
+  /**
+   * The dashboard's own 45 days, so the default series follow the same rows as the spending and
+   * revenue cards in both periods.
+   */
+  dashboardRows: Pick<DashboardData, "snapshots" | "connections">;
+  now: Date;
+  scope: ScopeFilters;
+  view: DashboardViewParams;
+  dashboardPath: string;
+  timelinePath: string;
+  markSimulated: boolean;
+}) {
+  const { trend, hidden, expanded } = view;
+  const shown = shownCategories(hidden);
+  const [{ snapshots, connections }, eventCountRows] = await Promise.all([trendData, eventCounts]);
+  const series = buildTrends(snapshots, connections, trend, now);
+  const groups = groupTrends(series, defaultSeriesKeys(dashboardRows.snapshots, dashboardRows.connections, declaredProjectedSpend, now));
+  const providers = groups.map((group) => ({
+    ...group,
+    open: expanded.includes(group.provider),
+    toggleHref: dashboardHref(dashboardPath, scope, { ...view, expanded: toggleExpanded(expanded, group.provider) }),
+  }));
+  // Only the charts on the page get markers: a closed disclosure renders nothing.
+  const rendered = providers.flatMap(renderedSeries);
+  const counts = bucketEventCounts(eventCountRows, trend, now);
+  return (
+    <TrendsSection
+      markSimulated={markSimulated}
+      trends={{
+        granularity: trend,
+        providers,
+        hrefs: {
+          daily: dashboardHref(dashboardPath, scope, { ...view, trend: "daily" }),
+          monthly: dashboardHref(dashboardPath, scope, { ...view, trend: "monthly" }),
+        },
+        markers: {
+          hidden,
+          bySeries: Object.fromEntries(
+            rendered.map((entry) => [
+              entry.key,
+              chartMarkers(counts, { provider: entry.provider, shown, granularity: trend, timelinePath, scope }),
+            ]),
+          ),
+          toggles: MARKER_CATEGORIES.map((category) => ({
+            category,
+            shown: shown.includes(category),
+            href: dashboardHref(dashboardPath, scope, { ...view, hidden: toggleHidden(hidden, category) }),
+          })),
+        },
+      }}
+    />
   );
 }
 

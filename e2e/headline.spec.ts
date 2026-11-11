@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Seeds its own workspace with synthetic data: an Example provider (fake) connection with spend,
@@ -230,6 +231,7 @@ ownerTest.describe("dashboard headline strip", () => {
       await page.keyboard.press("Escape");
       await expect(tooltip).toBeHidden();
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 

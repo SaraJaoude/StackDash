@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
@@ -85,6 +85,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await expect(summary).toContainText("1 unusual spend or usage event in the last 7 days");
       await expect(summary).toContainText(ANOMALY_TITLE);
       await expect(summary).toContainText(ANOMALY_BODY);
+      await waitForTrends(page);
       await expectNoAxeViolations(page);
 
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();

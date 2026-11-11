@@ -1,7 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
 
 import { expect, ownerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 
@@ -81,6 +81,7 @@ ownerTest.describe("simulated Sentry", () => {
       for (const heading of ["Spend this billing period", "Credit balance"]) {
         await expect(card.getByRole("heading", { name: heading })).toHaveCount(0);
       }
+      await waitForTrends(page);
       await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);

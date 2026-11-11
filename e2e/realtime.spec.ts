@@ -14,7 +14,7 @@ import {
   syntheticUserClient,
   type SyntheticUser,
 } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { expectSubscribed, FrameSchema, LIVE_TIMEOUT_MS, SubscribedSchema, watchLiveChannel } from "./fixtures/realtime";
 
@@ -731,6 +731,7 @@ ownerTest.describe("arriving data", () => {
       await expect(usd.getByText("Updated", { exact: true })).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
       await expect(usd).toContainText("$50.00");
       await expect(page.getByTestId("arrival-announcement")).toContainText("Spend in USD updated.");
+      await waitForTrends(page);
       // The static highlight and its label, scanned while they show.
       await expectNoAxeViolations(page);
 

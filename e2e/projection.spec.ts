@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only (#167).
@@ -140,6 +141,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(allowance.getByText("Estimate by DevMacro", { exact: true })).toBeVisible();
       await expect(allowance.getByRole("button", { name: "How this projection is worked out" })).toHaveAccessibleDescription(/400 requests a day/);
 
+      await waitForTrends(page);
       const dashboardScan = await new AxeBuilder({ page }).analyze();
       expect(dashboardScan.violations).toEqual([]);
 
@@ -205,6 +207,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(daily).toBeVisible();
       await expect(daily).not.toContainText("Projection");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -280,6 +283,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(daily).not.toContainText("Projection");
       await expect(daily).not.toContainText("3 days");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {

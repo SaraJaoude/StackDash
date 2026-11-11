@@ -3,7 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { expectNoAxeViolations } from "./fixtures/axe";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
@@ -202,6 +202,7 @@ ownerTest.describe("dashboard as the owner", () => {
       await expect(checkout).not.toContainText("€67.89");
       await expect(byProject.getByRole("region", { name: "Unassigned" })).toContainText("€67.89");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -406,6 +407,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page);
       await expect(checkout).toBeChecked();
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
@@ -444,6 +446,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page, "keyboard");
       await expectFormBelowWrappedStatus(page);
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -531,6 +534,7 @@ ownerTest.describe("dashboard GitHub spend", () => {
       await expect(card).toContainText("$51.75");
       await expect(card).toContainText(new RegExp(`Billing period:\\s*${monthStart} to ${monthEnd}`));
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -645,6 +649,7 @@ ownerTest.describe("dashboard what changed", () => {
       const totalsBox = await page.getByRole("region", { name: "Spending this billing period" }).boundingBox();
       expect(summaryBox?.y ?? Infinity).toBeLessThan(totalsBox?.y ?? 0);
 
+      await waitForTrends(page);
       await expectNoAxeViolations(page);
 
       // Keyboard only: the filter bar's toggle, then each sentence's link in reading order.

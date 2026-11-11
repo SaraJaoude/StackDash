@@ -17,7 +17,10 @@ export type WorkspaceScope = Readonly<{
 
 export type DashboardData = WorkspaceScope & Readonly<{ snapshots: SnapshotInput[] }>;
 
-/** Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months. */
+/**
+ * Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months.
+ * The daily trends read this same window (#263); their 30 day chart sits inside it.
+ */
 export const SNAPSHOT_WINDOW_DAYS = 45;
 
 // Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
@@ -43,17 +46,26 @@ export function snapshotWindowStart(now: Date): string {
   return new Date(now.getTime() - SNAPSHOT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
 }
 
+/** Optional narrowing of a snapshot read on top of the workspace and `sinceDate`. */
+export type SnapshotReadFilters = Readonly<{
+  /** Only rows of these kinds. */
+  kinds?: readonly SnapshotInput["kind"][];
+  /** Only rows of these metrics. */
+  metricKeys?: readonly string[];
+  /** Only rows dated before this UTC date (`YYYY-MM-DD`, exclusive), so two reads can split a range without overlap. */
+  beforeDate?: string;
+}>;
+
 /**
- * The workspace's snapshots dated `sinceDate` or later, newest first, as one paged query on the
- * `(workspace_id, snapshot_date desc)` index. `purpose` names the caller in the truncation warning.
- * `kinds`, when given, reads only rows of those kinds, and `metricKeys` only those metrics.
+ * The workspace's snapshots dated `sinceDate` or later (and before `beforeDate`, when
+ * given), newest first, as one paged query on the `(workspace_id, snapshot_date desc)` index.
+ * `purpose` names the caller in the truncation warning.
  */
 export async function loadSnapshots(
   workspaceId: string,
   sinceDate: string,
   purpose: string,
-  kinds?: readonly SnapshotInput["kind"][],
-  metricKeys?: readonly string[],
+  { kinds, metricKeys, beforeDate }: SnapshotReadFilters = {},
 ): Promise<SnapshotInput[]> {
   const supabase = await createClient();
   const { rows, complete } = await readAllPages(async (from, to) => {
@@ -62,6 +74,7 @@ export async function loadSnapshots(
       .select(SNAPSHOT_COLUMNS)
       .eq("workspace_id", workspaceId)
       .gte("snapshot_date", sinceDate);
+    if (beforeDate !== undefined) query = query.lt("snapshot_date", beforeDate);
     if (kinds !== undefined) query = query.in("kind", kinds);
     if (metricKeys !== undefined) query = query.in("metric_key", metricKeys);
     const { data, error } = await query
@@ -75,6 +88,17 @@ export async function loadSnapshots(
   if (!complete) log.warn("dashboard.snapshots_truncated", { workspaceId, purpose, rows: rows.length });
   return rows;
 }
+
+/**
+ * Every snapshot of the dashboard window starting at `sinceDate`, unscoped, read once per request
+ * (#263). The dashboard's cards and the trend charts both need these rows, so `getDashboardData`
+ * and `getTrendData` share this one read instead of each issuing their own; the key is the
+ * primitive pair, so callers must pass the same `snapshotWindowStart(now)` string. Callers must not
+ * mutate the returned array, which every caller in the request shares.
+ */
+export const loadDashboardSnapshots = cache(
+  (workspaceId: string, sinceDate: string): Promise<SnapshotInput[]> => loadSnapshots(workspaceId, sinceDate, "dashboard"),
+);
 
 /**
  * Connections, the accounts included in the workspace's views, and projects, unfiltered. Row level
@@ -115,12 +139,13 @@ export const getWorkspaceScope = cache(async (workspaceId: string): Promise<Work
 /**
  * Everything the dashboard reduces, narrowed to `scope`: connections, included accounts, projects
  * (all of them, for names), and snapshots dated `sinceDate` or later (see `snapshotWindowStart`).
- * Call only after `requireWorkspace` has confirmed membership.
+ * The snapshots come from `loadDashboardSnapshots`, so the trend charts reuse them without a second
+ * query (#263). Call only after `requireWorkspace` has confirmed membership.
  */
 export async function getDashboardData(workspaceId: string, sinceDate: string, scope: ScopeFilters): Promise<DashboardData> {
   const [workspaceScope, snapshots] = await Promise.all([
     getWorkspaceScope(workspaceId),
-    loadSnapshots(workspaceId, sinceDate, "dashboard"),
+    loadDashboardSnapshots(workspaceId, sinceDate),
   ]);
   return { ...applyScope({ ...workspaceScope, snapshots }, scope), projects: workspaceScope.projects };
 }

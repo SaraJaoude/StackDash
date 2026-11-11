@@ -89,7 +89,7 @@ export const listSnapshotCurrencies = cache(async (workspaceId: string): Promise
 export async function getBudgetSpendRows(workspaceId: string, now: Date): Promise<AlertSnapshotInput[]> {
   const [scope, snapshots] = await Promise.all([
     getWorkspaceScope(workspaceId),
-    loadSnapshots(workspaceId, snapshotWindowStart(now), "budget projections", ["verified_spend", "estimated_spend"]),
+    loadSnapshots(workspaceId, snapshotWindowStart(now), "budget projections", { kinds: ["verified_spend", "estimated_spend"] }),
   ]);
   return joinAlertSnapshots(snapshots, scope.connections, scope.accounts);
 }

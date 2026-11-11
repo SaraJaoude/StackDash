@@ -23,3 +23,12 @@ export async function expectNoAxeViolations(page: Page): Promise<void> {
   const scan = await new AxeBuilder({ page }).analyze();
   expect(scan.violations).toEqual([]);
 }
+
+/**
+ * Trends streams in behind its own Suspense boundary after the rest of the dashboard (#263), so a
+ * whole-page axe scan of the dashboard waits for it; otherwise it could scan the loading skeleton,
+ * not the charts. Only a dashboard with a connection has Trends: the first-provider empty state does not.
+ */
+export async function waitForTrends(page: Page): Promise<void> {
+  await expect(page.getByRole("region", { name: "Trends" })).toBeVisible();
+}
