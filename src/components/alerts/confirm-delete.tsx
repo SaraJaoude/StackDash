@@ -3,6 +3,7 @@
 import { useActionState, useId, useRef } from "react";
 
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 
 import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
@@ -82,23 +83,11 @@ export function ConfirmDelete({
         <p id={descriptionId} className="mt-2 text-sm leading-6 text-muted">
           {description}
         </p>
+        <DialogError failure={failure} />
         <form action={formAction} className="mt-6">
           {Object.entries(fields).map(([name, value]) => (
             <input key={name} type="hidden" name={name} value={value} />
           ))}
-          <div role="status" aria-live="polite" className="text-sm">
-            {failure === null ? null : (
-              <p className="mb-4 text-danger">
-                {failure.message}
-                {failure.referenceId === undefined ? null : (
-                  <>
-                    {" "}
-                    Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-                  </>
-                )}
-              </p>
-            )}
-          </div>
           <div className="flex flex-wrap justify-end gap-3">
             <button type="button" onClick={() => dialogRef.current?.close()} className={secondaryButtonClass}>
               Cancel

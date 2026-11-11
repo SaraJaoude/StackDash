@@ -11,6 +11,7 @@ import {
   syncNow,
   type ConnectionActionResult,
 } from "@/app/w/[workspace]/connections/actions";
+import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
@@ -201,7 +202,8 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
 
 /**
  * Native modal dialog: the browser traps focus, closes on Escape, and returns focus to the
- * opener. The body lists exactly what confirming does.
+ * opener. The body lists exactly what confirming does. A failure keeps the dialog open and shows
+ * inside it, where it can be seen and heard; a success closes it and shows beside the opener.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -238,8 +240,8 @@ function ConfirmDialog({
           {openLabel}
         </button>
       )}
-      {/* Outside the dialog so the result stays readable after it closes. */}
-      <ActionStatus state={state} pending={pending} />
+      {/* Outside the dialog so a success stays readable after it closes. */}
+      <ActionStatus state={state?.ok === true ? state : null} pending={pending} />
       <dialog
         ref={dialogRef}
         aria-labelledby={titleId}
@@ -249,6 +251,7 @@ function ConfirmDialog({
           {title}
         </h2>
         <div className="mt-3 text-sm leading-6 text-muted">{children}</div>
+        <DialogError failure={state?.ok === false ? state : null} />
         <form action={formAction} className="mt-6 flex flex-wrap justify-end gap-3">
           <input type="hidden" name="workspace" value={workspaceSlug} />
           <input type="hidden" name="connectionId" value={connectionId} />
