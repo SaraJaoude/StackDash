@@ -12,7 +12,7 @@ import {
 } from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { formatDateTime } from "@/lib/format";
-import { barPercent } from "@/lib/realtime/arrivals";
+import { barPercent, usageBarClass } from "@/lib/realtime/arrivals";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
@@ -75,7 +75,7 @@ export function AlertTime({ iso }: { iso: string }) {
 
 /**
  * The observed value in words, with a bar before it when there is a percent. The words are the
- * accessible value; the bar only repeats them, colored the way the dashboard's usage bars are.
+ * accessible value; the bar only repeats them, colored by `usageBarClass` like the dashboard's.
  */
 export function AlertValue({ headline }: { headline: AlertHeadline }) {
   const { percent, value } = headline;
@@ -85,7 +85,7 @@ export function AlertValue({ headline }: { headline: AlertHeadline }) {
       {percent === null ? null : (
         <span aria-hidden="true" className="block h-1.5 w-32 overflow-hidden rounded-full bg-line">
           <span
-            className={`block h-full rounded-full ${percent >= 100 ? "bg-danger" : percent >= 80 ? "bg-warning" : "bg-accent"}`}
+            className={`block h-full rounded-full ${usageBarClass(percent)}`}
             style={{ width: `${barPercent(percent)}%` }}
           />
         </span>

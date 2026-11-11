@@ -170,6 +170,15 @@ export function barPercent(percent: number): number {
 }
 
 /**
+ * The fill of a usage bar: danger at or past the allowance, warning from 80 percent, accent below.
+ * Every usage bar takes it from here, so the dashboard and the alerts list agree on the thresholds.
+ */
+export function usageBarClass(percent: number): string {
+  if (percent >= 100) return "bg-danger";
+  return percent >= 80 ? "bg-warning" : "bg-accent";
+}
+
+/**
  * The bar's starting scale, as a fraction of its new width, so it grows or shrinks from the old
  * width with a transform and never changes layout. null when there is nothing to animate,
  * including a new width of zero, which no scale of a zero-width bar can show.
