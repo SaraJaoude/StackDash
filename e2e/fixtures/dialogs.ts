@@ -8,7 +8,8 @@ import { expectHydrated } from "./hydration";
  * failure. Opens the dialog from `trigger` with Enter, runs `breakIt` to make the action fail on
  * the server (delete the row it targets, say), confirms with Tab and Enter, and expects the error
  * inside the still-open dialog: in its assertive live region and focused. Tab then reaches Cancel,
- * and Escape closes the dialog and returns focus to the trigger.
+ * and Escape closes the dialog and returns focus to the trigger. Opening it again starts fresh,
+ * without the previous attempt's error.
  */
 export async function expectFailureInDialog(
   page: Page,
@@ -49,4 +50,11 @@ export async function expectFailureInDialog(
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await expect(dialog).toBeVisible();
+  await expect(cancel).toBeFocused();
+  await expect(dialog.getByRole("alert")).toHaveText("");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeHidden();
 }

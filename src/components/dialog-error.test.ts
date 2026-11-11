@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 
 import { DialogError, type DialogFailure } from "./dialog-error";
 
-const REGION = '<div role="alert" aria-live="assertive" class="text-sm">';
+// The assertive region by its attributes, whatever classes style it.
+const REGION_OPEN = /^<div role="alert" aria-live="assertive"[^>]*>/;
 
 function render(failure: DialogFailure | null | undefined): string {
   return renderToStaticMarkup(createElement(DialogError, { failure }));
@@ -17,14 +18,13 @@ describe("DialogError", () => {
     ["null", null],
     ["undefined", undefined],
   ])("renders the empty live region when there is no failure (%s)", (_label, failure) => {
-    expect(render(failure)).toBe(`${REGION}</div>`);
+    expect(render(failure)).toMatch(/^<div role="alert" aria-live="assertive"[^>]*><\/div>$/);
   });
 
   it("renders the message inside the region, focusable from script only, without a reference", () => {
     const markup = render({ message: "This project no longer exists. Reload the page to see the current list." });
-    expect(markup.startsWith(REGION)).toBe(true);
-    expect(markup).toContain('tabindex="-1"');
-    expect(markup).toContain("This project no longer exists. Reload the page to see the current list.");
+    expect(markup).toMatch(REGION_OPEN);
+    expect(markup).toMatch(/<p [^>]*tabindex="-1"[^>]*>This project no longer exists\. Reload the page to see the current list\.<\/p>/);
     expect(markup).not.toContain("Reference");
   });
 
@@ -33,8 +33,7 @@ describe("DialogError", () => {
       message: "The connection could not be disconnected. Try again in a moment.",
       referenceId: "ref_123",
     });
-    expect(markup).toContain(
-      'Try again in a moment. Reference <code class="font-mono text-xs text-foreground">ref_123</code>.',
-    );
+    expect(markup).toMatch(REGION_OPEN);
+    expect(markup).toMatch(/Try again in a moment\. Reference <code[^>]*>ref_123<\/code>\./);
   });
 });
