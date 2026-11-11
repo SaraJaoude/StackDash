@@ -97,9 +97,11 @@ On the **JWT signing keys** page (`https://supabase.com/dashboard/project/<proje
 
 1. Select **Migrate JWT secret**. The legacy secret becomes the current key and Supabase creates an ECC (P-256) key on standby. Nothing changes for signed-in users yet.
 2. Select **Rotate keys**. Auth signs new access tokens with the ECC key. Tokens signed with the legacy secret stay valid until they expire, so nobody is signed out.
-3. Leave the legacy secret under **Previously used**. Revoking it is not needed for this. Revoking it also disables the legacy `anon` and `service_role` keys, so only revoke it once `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_...`), and no sooner than 1 hour 15 minutes after rotating, so every token it signed has expired.
+3. Leave the legacy secret under **Previously used**. Revoking it is not needed for this. The dashboard only lets you revoke it once the legacy `anon` and `service_role` keys are disabled, so first make sure `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_...`), disable the legacy keys, and revoke no sooner than 1 hour 15 minutes after rotating, so every token the legacy secret signed has expired.
 
-Supabase throttles key changes to about one every 5 minutes. Nothing changes in the app or in Vercel: no variable holds a signing key or the JWT secret. The private key never leaves Supabase.
+Supabase throttles key changes to about one every 5 minutes. No variable in the app or in Vercel holds a signing key or the JWT secret, and the private key never leaves Supabase.
+
+What the rotation trades away: on the legacy secret, Auth checks the session on every app page, so a session ended on the server (a sign-out of all devices, an account deleted from another device, a ban) is refused on the next request. With the asymmetric key the app checks only the signature and the expiry, so the proxy and the pages keep accepting such a session until its access token expires: up to the project's JWT expiry, 3600 seconds by default. Supabase names the same trade-off in its guide ("To ensure secure revocation, Auth server is in the hot path of your application").
 
 ## 4. Invite testers
 
