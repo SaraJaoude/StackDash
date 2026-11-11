@@ -266,6 +266,44 @@ ownerTest.describe("timeline as the owner", () => {
     }
   });
 
+  // #319: the type filter used to read only the newest 1,000 events for its choices.
+  ownerTest("offers an event type whose only event is older than the newest 1,000 events", async ({ page }) => {
+    const workspace = await createTestWorkspace("Timeline rare type");
+    try {
+      const { connectionId, accountId } = await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel e2e connection",
+        externalId: "team_e2e",
+        accountName: "Acme e2e team",
+        kind: "team",
+      });
+      const recent = Array.from({ length: 1000 }, (_, index) => syntheticEvent(workspace, connectionId, accountId, index));
+      const rare = {
+        ...syntheticEvent(workspace, connectionId, accountId, 1000),
+        type_id: "vercel.deployment.failed",
+        title: "Rare failed deployment",
+      };
+      const { error } = await adminClient().from("activity_events").insert([...recent, rare]);
+      if (error) throw new Error(`Seeding events failed (code ${error.code}).`);
+
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await openFilters(page);
+      const types = page.getByRole("group", { name: "Event type" }).getByRole("checkbox");
+      await expect(types).toHaveCount(2);
+      // Sorted by type id, and "." sorts before "_".
+      await expect(types.nth(0)).toHaveAccessibleName("Vercel: Deployment failed");
+      await expect(types.nth(1)).toHaveAccessibleName("Vercel: Deployment ready");
+      await types.nth(0).check();
+      await page.getByRole("button", { name: "Apply filters" }).click();
+
+      await expect(page).toHaveURL(/type=vercel\.deployment\.failed/);
+      await expect(page.getByRole("status").filter({ hasText: "Showing 1 event" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Rare failed deployment", exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("offers to connect a provider when there is no activity", async ({ page }) => {
     const workspace = await createTestWorkspace("Timeline empty");
     try {
