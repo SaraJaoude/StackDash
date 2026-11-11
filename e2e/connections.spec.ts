@@ -3,6 +3,7 @@ import { test, type APIResponse, type Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -416,6 +417,61 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .select("id", { count: "exact", head: true })
         .eq("id", connectionId);
       expect(count).toBe(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a failed disconnect and a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Connection failures");
+    try {
+      const admin = adminClient();
+      // Seeded rather than connected through the UI: the failure is forced by deleting the row
+      // behind the open dialog, and Realtime refreshes the page on inserts and updates only.
+      const seedConnection = async (): Promise<string> => {
+        const { data, error } = await admin
+          .from("connections")
+          .insert({
+            workspace_id: workspace.id,
+            provider: "fake",
+            status: "active",
+            display_name: `${PROVIDER_NAME} (Seeded team)`,
+            authorized_account_label: "Seeded team",
+            poll_interval_seconds: 3600,
+          })
+          .select("id")
+          .single();
+        if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+        return data.id;
+      };
+      const deleteConnectionRow = (id: string) => async () => {
+        const { error } = await admin.from("connections").delete().eq("id", id);
+        if (error) throw new Error(`Deleting the connection failed (code ${error.code}).`);
+      };
+      const message = "That item no longer exists in this workspace. Reload the page to see what is current.";
+      const main = page.getByRole("main");
+
+      const disconnectId = await seedConnection();
+      await page.goto(`/w/${workspace.slug}/connections/${disconnectId}`);
+      await expectFailureInDialog(page, {
+        trigger: main.getByRole("button", { name: "Disconnect", exact: true }),
+        dialog: page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` }),
+        confirmName: "Disconnect",
+        breakIt: deleteConnectionRow(disconnectId),
+        message,
+      });
+      // Only the dialog reports it: the status beside the opener stays for a success.
+      await expect(page.getByRole("status").filter({ hasText: message })).toHaveCount(0);
+
+      const deleteId = await seedConnection();
+      await page.goto(`/w/${workspace.slug}/connections/${deleteId}`);
+      await expectFailureInDialog(page, {
+        trigger: main.getByRole("button", { name: "Delete connection and history", exact: true }),
+        dialog: page.getByRole("dialog", { name: "Delete this connection and its history?" }),
+        confirmName: "Delete connection and history",
+        breakIt: deleteConnectionRow(deleteId),
+        message,
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }
