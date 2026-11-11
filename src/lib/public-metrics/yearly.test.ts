@@ -1,19 +1,36 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredEventTypes, revenueProviderIds } from "@/lib/adapters/registry";
+import { markerTypeIds } from "@/lib/dashboard/markers";
+
 import { STALE_AFTER_MS, type SnapshotPoint, type SourceAccount, type StoredEvent } from "./engine";
 import { MemoryMetricStore } from "./memory-store";
 import {
+  busiestDay,
+  computeYearReview,
   computeYearSummary,
   hasYearStarted,
   isYearComplete,
   latestCardYear,
+  mostActiveProvider,
   parseCardYear,
+  parseYearSlideFile,
+  PAYMENT_EVENT_TYPE_IDS,
+  YEAR_SLIDE_IDS,
   yearCardAltText,
   yearFigureNote,
   yearFigures,
   yearLabel,
+  yearPartialNote,
   yearShareText,
+  yearSlideAltText,
+  yearSlideDownloadName,
+  yearSlideFile,
+  yearSlides,
+  yearSlideShareText,
   yearToDateNote,
+  type YearReview,
+  type YearSlide,
 } from "./yearly";
 
 const NOW = new Date("2026-11-05T12:00:00Z");
@@ -199,8 +216,8 @@ describe("which years have a card", () => {
   });
 
   it("dates the end of the year to date as the next 1 January in ISO form (boundary: 2099 rolls into 2100)", () => {
-    expect(yearToDateNote(2026)).toBe("2026 is not over yet. This card counts up to today and covers the whole year from 2027-01-01.");
-    expect(yearToDateNote(2099)).toContain("covers the whole year from 2100-01-01.");
+    expect(yearToDateNote(2026)).toBe("2026 is not over yet. These slides count up to today and cover the whole year from 2027-01-01.");
+    expect(yearToDateNote(2099)).toContain("cover the whole year from 2100-01-01.");
     expect(yearToDateNote(2026)).not.toContain("January");
   });
 
@@ -214,5 +231,263 @@ describe("which years have a card", () => {
     ["", null],
   ])("parses the URL segment %s as %s", (segment, expected) => {
     expect(parseCardYear(segment, NOW)).toBe(expected);
+  });
+});
+
+// ── The year in review (#262) ──────────────────────────────────────────────────
+
+const at = (accountId: string, typeId: string, occurredAt: string): StoredEvent => ({ accountId, typeId, occurredAt: new Date(occurredAt) });
+const SUCCEEDED = "vercel.deployment.succeeded";
+const FAILED = "vercel.deployment.failed";
+
+/** Every word the four slides show, for checks that hold across all of them. */
+function slideWords(slides: readonly YearSlide[]): string[] {
+  return slides.flatMap((slide) =>
+    slide.id === "totals"
+      ? [slide.title, ...slide.figures.flatMap((figure) => [figure.label, figure.value])]
+      : [slide.title, slide.value, slide.detail],
+  );
+}
+
+function valuesAndDetails(review: YearReview): (readonly [string, string] | null)[] {
+  return yearSlides(review).map((slide) => (slide.id === "totals" ? null : ([slide.value, slide.detail] as const)));
+}
+
+describe("computeYearReview", () => {
+  it("says in words that a year with no data has nothing to show (boundary: no accounts, no events)", async () => {
+    const review = await computeYearReview(new MemoryMetricStore([], [], []), 2025, NOW);
+    expect(review).toMatchObject({ busiestDay: null, longestRun: { status: "not_connected" }, topProvider: null, firstConnectedAt: null });
+    expect(valuesAndDetails(review)).toEqual([
+      ["No events", "Your connected providers sent no events in 2025."],
+      ["Not connected", "Connect Vercel to count your deployments."],
+      ["No provider activity", "No connected provider sent events in 2025."],
+      null,
+    ]);
+    const slides = yearSlides(review);
+    expect(slides.map((slide) => slide.id)).toEqual(YEAR_SLIDE_IDS);
+    // A value is never a dash, and no copy carries one.
+    for (const word of slideWords(slides)) expect(word).not.toMatch(/^[-\u2013\u2014]$|[\u2013\u2014]/);
+    expect(yearPartialNote(review)).toBeNull();
+    expect(slides.slice(0, 3).map((slide) => yearSlideShareText(review, slide))).toEqual([
+      "My stack in 2025 on DevMacro.",
+      "My stack in 2025 on DevMacro.",
+      "My stack in 2025 on DevMacro.",
+    ]);
+  });
+
+  it("says no deployment succeeded when Vercel is connected but only failed (boundary: a run of 0)", async () => {
+    const store = new MemoryMetricStore([account("vercel", "2025-01-01T00:00:00Z")], [], [at("vercel-acct", FAILED, "2025-05-01T10:00:00Z")]);
+    const review = await computeYearReview(store, 2025, NOW);
+    expect(review.longestRun).toEqual({ status: "available", deployments: 0 });
+    expect(valuesAndDetails(review)[1]).toEqual(["No successful deployments", "No Vercel deployment succeeded in 2025."]);
+  });
+
+  it("counts the year to date of a workspace connected in August and says the slides may cover part of the year", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2026-08-07T10:00:00Z")],
+      [],
+      [
+        at("vercel-acct", SUCCEEDED, "2026-09-01T09:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-11-05T11:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-11-05T11:30:00Z"),
+        // After now: not counted yet, or 5 November would have three.
+        at("vercel-acct", SUCCEEDED, "2026-11-05T13:00:00Z"),
+      ],
+    );
+    const review = await computeYearReview(store, 2026, NOW);
+    expect(review.busiestDay).toEqual({ day: "2026-11-05", events: 2 });
+    expect(review.longestRun).toEqual({ status: "available", deployments: 3 });
+    expect(review.firstConnectedAt).toEqual(new Date("2026-08-07T10:00:00Z"));
+    expect(yearPartialNote(review)).toBe("Your first provider was connected on 2026-08-07, so these slides may cover only part of 2026.");
+    const [busiest, run, provider] = yearSlides(review);
+    expect(busiest).toMatchObject({ value: "Thursday, 2026-11-05", detail: "2 events on your timeline that day, not counting payments." });
+    expect(run).toMatchObject({ value: "3 in a row" });
+    expect(provider).toMatchObject({ value: "Vercel", detail: "3 events on your timeline, more than any other provider, not counting payments." });
+    expect(YEAR_SLIDE_IDS.map((id) => yearSlideDownloadName(review.summary, id))).toEqual([
+      "devmacro-2026-so-far-busiest-day.png",
+      "devmacro-2026-so-far-deployment-run.png",
+      "devmacro-2026-so-far-top-provider.png",
+      "devmacro-2026-so-far.png",
+    ]);
+    expect(busiest === undefined ? "" : yearSlideShareText(review, busiest)).toBe("My busiest day of 2026 so far on DevMacro: 2 events on 2026-11-05.");
+    expect(busiest === undefined ? "" : yearSlideAltText(review, busiest)).toBe(
+      "DevMacro slide for your stack in 2026 so far, 2026-01-01 to 2026-11-05. Busiest day: Thursday, 2026-11-05. 2 events on your timeline that day, not counting payments. Counted by DevMacro from stored data.",
+    );
+  });
+
+  it.each([
+    ["within the first day of the year still covers the whole year", "2026-01-01T23:59:59.999Z", null],
+    ["a day after the year began covers part of it", "2026-01-02T00:00:00.000Z", "2026-01-02"],
+    ["after the year ended is no part of it", "2027-02-01T00:00:00.000Z", null],
+  ])("a first connection %s (boundary: partial year)", async (_title, connectedAt, since) => {
+    const review = await computeYearReview(new MemoryMetricStore([account("github", connectedAt)], [], []), 2026, new Date("2027-03-01T00:00:00Z"));
+    expect(review.firstConnectedAt === null ? null : review.firstConnectedAt.toISOString().slice(0, 10)).toBe(since);
+  });
+
+  it("leaves payments out of the busiest day and the most active provider, and breaks a tie on the earliest day", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-12-01T00:00:00Z"), account("supabase", "2025-12-01T00:00:00Z"), account("stripe", "2025-12-01T00:00:00Z")],
+      [],
+      [
+        at("vercel-acct", SUCCEEDED, "2026-03-02T09:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-03-02T10:00:00Z"),
+        at("supabase-acct", "supabase.auth.signup", "2026-03-01T09:00:00Z"),
+        at("supabase-acct", "supabase.auth.signup", "2026-03-01T10:00:00Z"),
+        // Five payments and a refund on 1 April would make it the busiest day, and Stripe the most active provider.
+        ...["stripe.charge.succeeded", "stripe.charge.succeeded", "stripe.charge.failed", "stripe.charge.refunded", "stripe.charge.succeeded"].map(
+          (typeId, index) => at("stripe-acct", typeId, `2026-04-01T0${index}:00:00Z`),
+        ),
+        at("stripe-acct", "stripe.customer.created", "2026-04-01T08:00:00Z"),
+      ],
+    );
+    const review = await computeYearReview(store, 2026, NOW);
+    // 1 and 2 March both have two events; 1 March is the earlier.
+    expect(review.busiestDay).toEqual({ day: "2026-03-01", events: 2 });
+    expect(valuesAndDetails(review)[0]).toEqual(["Sunday, 2026-03-01", "2 events on your timeline that day, not counting payments."]);
+    // Supabase and Vercel tie at two events; Stripe's one new customer counts, its payments do not.
+    expect(review.topProvider).toEqual({ provider: "supabase", events: 2, tiedWith: ["vercel"] });
+    expect(valuesAndDetails(review)[2]).toEqual([
+      "Supabase",
+      "2 events on your timeline, as many as Vercel, not counting payments. On a tie the first by name is shown.",
+    ]);
+  });
+
+  it("resets the run on a failure, takes a failure first when it shares an instant, and counts only the year's deployments", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-01-01T00:00:00Z")],
+      [],
+      [
+        // The run before 1 January belongs to 2025.
+        at("vercel-acct", SUCCEEDED, "2025-12-31T22:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2025-12-31T23:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-01-01T09:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-01-02T09:00:00Z"),
+        at("vercel-acct", FAILED, "2026-01-03T09:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-02-01T09:00:00Z"),
+        // Other event types neither extend nor break a run.
+        at("vercel-acct", "github.stars.daily", "2026-02-01T10:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-02-02T09:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-02-03T09:00:00Z"),
+        // A success and a failure at one instant: the failure goes first, so this is not a run of four.
+        at("vercel-acct", SUCCEEDED, "2026-03-01T09:00:00Z"),
+        at("vercel-acct", FAILED, "2026-03-01T09:00:00Z"),
+      ],
+    );
+    expect((await computeYearReview(store, 2026, NOW)).longestRun).toEqual({ status: "available", deployments: 3 });
+    expect((await computeYearReview(store, 2025, NOW)).longestRun).toEqual({ status: "available", deployments: 2 });
+  });
+
+  it.each([
+    // British Summer Time: 23:30 UTC on 30 June is 00:30 on 1 July in London.
+    ["summer, an hour after UTC midnight", ["2026-06-30T22:30:00Z", "2026-06-30T23:30:00Z", "2026-07-01T10:00:00Z"], { day: "2026-07-01", events: 2 }],
+    // Greenwich Mean Time: London is UTC, so 23:30 UTC on 15 January stays 15 January.
+    ["winter, on UTC midnight", ["2026-01-15T00:10:00Z", "2026-01-15T23:30:00Z", "2026-01-16T00:30:00Z"], { day: "2026-01-15", events: 2 }],
+    // The clocks go forward at 01:00 UTC on 29 March 2026; 23:30 UTC on 29 March is 00:30 on 30 March.
+    ["the day the clocks go forward", ["2026-03-29T00:30:00Z", "2026-03-29T23:30:00Z", "2026-03-30T08:00:00Z"], { day: "2026-03-30", events: 2 }],
+  ])("counts Europe/London days in %s (boundary: day edges)", async (_title, times, expected) => {
+    const store = new MemoryMetricStore(
+      [account("github", "2025-12-01T00:00:00Z")],
+      [],
+      times.map((time) => at("github-acct", "github.stars.daily", time)),
+    );
+    expect((await computeYearReview(store, 2026, NOW)).busiestDay).toEqual(expected);
+  });
+
+  it("counts the last London evening of December in its own year (boundary: the year edge in winter)", async () => {
+    const store = new MemoryMetricStore(
+      [account("github", "2025-12-01T00:00:00Z")],
+      [],
+      [at("github-acct", "github.stars.daily", "2025-12-31T23:30:00Z"), at("github-acct", "github.stars.daily", "2026-01-01T00:30:00Z")],
+    );
+    expect((await computeYearReview(store, 2025, NOW)).busiestDay).toEqual({ day: "2025-12-31", events: 1 });
+    expect((await computeYearReview(store, 2026, NOW)).busiestDay).toEqual({ day: "2026-01-01", events: 1 });
+  });
+});
+
+describe("the year in review's tie rules", () => {
+  it.each([
+    ["no days", [], null],
+    ["only empty days", [{ day: "2026-02-01", events: 0 }], null],
+    ["one day", [{ day: "2026-02-01", events: 1 }], { day: "2026-02-01", events: 1 }],
+    [
+      "a tie, in any order, goes to the earliest day",
+      [
+        { day: "2026-05-01", events: 4 },
+        { day: "2026-02-01", events: 4 },
+        { day: "2026-03-01", events: 3 },
+      ],
+      { day: "2026-02-01", events: 4 },
+    ],
+  ])("busiestDay: %s", (_title, days, expected) => {
+    expect(busiestDay(days)).toEqual(expected);
+  });
+
+  it.each([
+    ["no providers", [], null],
+    ["only providers with no events", [{ provider: "vercel" as const, events: 0 }], null],
+    [
+      "a clear winner",
+      [
+        { provider: "vercel" as const, events: 3 },
+        { provider: "github" as const, events: 5 },
+      ],
+      { provider: "github", events: 5, tiedWith: [] },
+    ],
+    [
+      "a three way tie goes to the first name from A to Z",
+      [
+        { provider: "vercel" as const, events: 5 },
+        { provider: "posthog" as const, events: 5 },
+        { provider: "digitalocean" as const, events: 5 },
+      ],
+      { provider: "digitalocean", events: 5, tiedWith: ["posthog", "vercel"] },
+    ],
+  ])("mostActiveProvider: %s", (_title, providers, expected) => {
+    expect(mostActiveProvider(providers)).toEqual(expected);
+  });
+});
+
+describe("the year in review's privacy rules", () => {
+  it("leaves out every payment and refund a revenue provider declares, and names only declared types", () => {
+    const declared = new Set(declaredEventTypes.map((eventType) => eventType.id));
+    const excluded: readonly string[] = PAYMENT_EVENT_TYPE_IDS;
+    expect(excluded.filter((typeId) => !declared.has(typeId))).toEqual([]);
+    const moneyEvents = declaredEventTypes.filter(
+      (eventType) => revenueProviderIds.some((provider) => eventType.id.startsWith(`${provider}.`)) && /payment|order|refund/i.test(eventType.label),
+    );
+    expect(moneyEvents.map((eventType) => eventType.id).filter((typeId) => !excluded.includes(typeId))).toEqual([]);
+    expect(markerTypeIds(["payments"]).filter((typeId) => !excluded.includes(typeId))).toEqual([]);
+  });
+
+  it("names a provider by its product name only, never an account", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-12-01T00:00:00Z", { accountId: "acme-secret-team" })],
+      [],
+      [at("acme-secret-team", SUCCEEDED, "2026-02-01T09:00:00Z")],
+    );
+    const review = await computeYearReview(store, 2026, NOW);
+    const words = slideWords(yearSlides(review)).join(" ");
+    expect(words).toContain("Vercel");
+    expect(words).not.toContain("acme-secret-team");
+  });
+});
+
+describe("slide images", () => {
+  it("keeps the yearly card's address for the totals and names every other slide by its id", () => {
+    expect(YEAR_SLIDE_IDS.map(yearSlideFile)).toEqual(["busiest-day.png", "deployment-run.png", "top-provider.png", "card.png"]);
+    for (const id of YEAR_SLIDE_IDS) expect(parseYearSlideFile(yearSlideFile(id))).toBe(id);
+  });
+
+  it.each(["totals.png", "busiest-day", "Busiest-day.png", "busiest-day.png.png", "", "../card.png"])(
+    "refuses the segment %s (boundary: unknown slide)",
+    (segment) => {
+      expect(parseYearSlideFile(segment)).toBeNull();
+    },
+  );
+
+  it("downloads a whole year's slides without so far", async () => {
+    const review = await computeYearReview(new MemoryMetricStore([], [], []), 2025, NOW);
+    expect(yearSlideDownloadName(review.summary, "busiest-day")).toBe("devmacro-2025-busiest-day.png");
+    expect(yearSlideDownloadName(review.summary, "totals")).toBe("devmacro-2025.png");
   });
 });

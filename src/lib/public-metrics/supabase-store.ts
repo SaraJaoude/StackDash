@@ -4,11 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { log } from "@/lib/log/logger";
-import type { Database } from "@/lib/supabase/database.types";
+import { Constants, type Database } from "@/lib/supabase/database.types";
 import { readAllPages } from "@/lib/supabase/paging";
 
 import { SNAPSHOT_READ_MAX_ROWS, type SnapshotPoint, type SourceAccount } from "./engine";
 import type { HistoryEvent, HistoryStore } from "./history";
+import type { DayCount, ProviderCount, YearReviewStore } from "./yearly";
 
 /*
  * The engine's reads for one project (or, with `projectId` null, every included account of the
@@ -29,6 +30,14 @@ const QUANTITY_KINDS: readonly MetricKind[] = ["usage", "included_allowance", "r
 // trend window of many accounts holds more.
 export const ACCOUNTS_LIMIT = 200;
 
+// year_review_event_counts returns a row per London day of a window of at most 366 days, and a row
+// per provider plus one for events without one, so this many rows always fit one request.
+const YEAR_REVIEW_COUNT_ROWS = 366 + Constants.public.Enums.provider_id.length + 1;
+
+// Generated function types mark every returned column non-null; `day` is null on a provider row,
+// `provider` on a day row and for events with no provider.
+type YearReviewCountRow = Readonly<{ bucket: string; day: string | null; provider: Database["public"]["Enums"]["provider_id"] | null; events: number }>;
+
 /**
  * The project (or, with no project, the workspace) has more included accounts than ACCOUNTS_LIMIT,
  * so no number may be computed from what the read returned (#220). Public routes answer it as any
@@ -42,7 +51,7 @@ export function createSupabaseMetricStore(
   db: SupabaseClient<Database>,
   workspaceId: string,
   projectId: string | null,
-): HistoryStore {
+): HistoryStore & YearReviewStore {
   return {
     async accounts(): Promise<SourceAccount[]> {
       const included = db.from("external_accounts").select("id, connection_id").eq("workspace_id", workspaceId).eq("included", true);
@@ -216,6 +225,44 @@ export function createSupabaseMetricStore(
           ? []
           : [{ id: row.id, accountId: row.external_account_id, typeId: row.type_id, occurredAt: new Date(row.occurred_at) }],
       );
+    },
+
+    // The year in review (#262): counted in the database, so a year of events never travels. Served
+    // by the index each function names (20261111120000_year_review_slides.sql).
+    async eventActivity({ accountIds, excludedTypeIds, from, to }) {
+      if (accountIds.length === 0) return { days: [], providers: [] };
+      const { data, error } = await db
+        .rpc("year_review_event_counts", {
+          p_workspace_id: workspaceId,
+          p_account_ids: [...accountIds],
+          p_excluded_type_ids: [...excludedTypeIds],
+          p_from: from.toISOString(),
+          p_until: to.toISOString(),
+        })
+        .limit(YEAR_REVIEW_COUNT_ROWS);
+      if (error) throw new Error("Failed to count events for the year in review", { cause: error });
+      const rows: readonly YearReviewCountRow[] = data;
+      const days: DayCount[] = [];
+      const providers: ProviderCount[] = [];
+      for (const row of rows) {
+        if (row.bucket === "day" && row.day !== null) days.push({ day: row.day, events: row.events });
+        if (row.bucket === "provider" && row.provider !== null) providers.push({ provider: row.provider, events: row.events });
+      }
+      return { days, providers };
+    },
+
+    async longestRun({ accountIds, successTypeId, failureTypeId, from, to }) {
+      if (accountIds.length === 0) return 0;
+      const { data, error } = await db.rpc("year_review_longest_run", {
+        p_workspace_id: workspaceId,
+        p_account_ids: [...accountIds],
+        p_success_type_id: successTypeId,
+        p_failure_type_id: failureTypeId,
+        p_from: from.toISOString(),
+        p_until: to.toISOString(),
+      });
+      if (error) throw new Error("Failed to find the longest run of deployments for the year in review", { cause: error });
+      return data;
     },
   };
 }
