@@ -259,7 +259,7 @@ describe("computeYearReview", () => {
     expect(review).toMatchObject({ busiestDay: null, longestRun: { status: "not_connected" }, topProvider: null, dataFrom: null });
     expect(valuesAndDetails(review)).toEqual([
       ["No events", "Your connected providers sent no events in 2025."],
-      ["Not connected", "Connect Vercel to count your deployments."],
+      ["Not connected", "Connect DigitalOcean, GitLab, Railway, or Vercel to count your deployments."],
       ["No provider activity", "No connected provider sent events in 2025."],
       null,
     ]);
@@ -278,7 +278,7 @@ describe("computeYearReview", () => {
   it("says no deployment succeeded when Vercel is connected but only failed (boundary: a run of 0)", async () => {
     const store = new MemoryMetricStore([account("vercel", "2025-01-01T00:00:00Z")], [], [at("vercel-acct", FAILED, "2025-05-01T10:00:00Z")]);
     const review = await computeYearReview(store, 2025, NOW);
-    expect(review.longestRun).toEqual({ status: "available", deployments: 0 });
+    expect(review.longestRun).toEqual({ status: "available", connected: ["vercel"], longest: null });
     expect(valuesAndDetails(review)[1]).toEqual(["No successful deployments", "No Vercel deployment succeeded in 2025."]);
   });
 
@@ -296,12 +296,15 @@ describe("computeYearReview", () => {
     );
     const review = await computeYearReview(store, 2026, NOW);
     expect(review.busiestDay).toEqual({ day: "2026-11-05", events: 2 });
-    expect(review.longestRun).toEqual({ status: "available", deployments: 3 });
+    expect(review.longestRun).toEqual({ status: "available", connected: ["vercel"], longest: { provider: "vercel", events: 3, tiedWith: [] } });
     expect(review.dataFrom).toBe("2026-08-07");
     expect(yearPartialNote(review)).toBe("Nothing is stored for 2026 before 2026-08-07, so these slides may cover only part of it.");
     const [busiest, run, provider] = yearSlides(review);
     expect(busiest).toMatchObject({ value: "Thursday, 2026-11-05", detail: "2 events on your timeline that day, not counting payments." });
-    expect(run).toMatchObject({ value: "3 in a row" });
+    expect(run).toMatchObject({
+      value: "3 in a row on Vercel",
+      detail: "Vercel deployments that succeeded one after another, with no failed Vercel deployment between them.",
+    });
     expect(provider).toMatchObject({ value: "Vercel", detail: "3 events on your timeline, more than any other provider, not counting payments." });
     expect(YEAR_SLIDE_IDS.map((id) => yearSlideDownloadName(review.summary, id))).toEqual([
       "devmacro-2026-so-far-busiest-day.png",
@@ -382,8 +385,71 @@ describe("computeYearReview", () => {
         at("vercel-acct", FAILED, "2026-03-01T09:00:00Z"),
       ],
     );
-    expect((await computeYearReview(store, 2026, NOW)).longestRun).toEqual({ status: "available", deployments: 3 });
-    expect((await computeYearReview(store, 2025, NOW)).longestRun).toEqual({ status: "available", deployments: 2 });
+    const run = (longest: number) => ({ status: "available", connected: ["vercel"], longest: { provider: "vercel", events: longest, tiedWith: [] } });
+    expect((await computeYearReview(store, 2026, NOW)).longestRun).toEqual(run(3));
+    expect((await computeYearReview(store, 2025, NOW)).longestRun).toEqual(run(2));
+  });
+
+  it("counts a workspace that deploys only on Railway, in the run and in Deployments shipped (boundary: no Vercel)", async () => {
+    const store = new MemoryMetricStore(
+      [account("railway", "2025-12-01T00:00:00Z")],
+      [],
+      [
+        at("railway-acct", "railway.deployment.deployed", "2026-02-01T09:00:00Z"),
+        at("railway-acct", "railway.deployment.deployed", "2026-02-02T09:00:00Z"),
+        // A crash is what became of a deployment later, not an outcome: it neither counts nor breaks the run.
+        at("railway-acct", "railway.deployment.crashed", "2026-02-02T10:00:00Z"),
+        at("railway-acct", "railway.deployment.deployed", "2026-02-03T09:00:00Z"),
+      ],
+    );
+    const review = await computeYearReview(store, 2026, NOW);
+    expect(review.summary.stats[0]).toMatchObject({ label: "Deployments shipped", status: "available", value: 3 });
+    expect(valuesAndDetails(review)[1]).toEqual([
+      "3 in a row on Railway",
+      "Railway deployments that succeeded one after another, with no failed Railway deployment between them.",
+    ]);
+    const [, run] = yearSlides(review);
+    expect(run === undefined ? "" : yearSlideShareText(review, run)).toBe("My longest run of successful deployments in 2026 so far on DevMacro: 3 in a row on Railway.");
+  });
+
+  it("keeps each provider's run its own: a failure on one never breaks another's", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-12-01T00:00:00Z"), account("gitlab", "2025-12-01T00:00:00Z")],
+      [],
+      [
+        at("vercel-acct", SUCCEEDED, "2026-02-01T09:00:00Z"),
+        at("gitlab-acct", "gitlab.deployment.failed", "2026-02-01T10:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-02-02T09:00:00Z"),
+        at("gitlab-acct", "gitlab.deployment.succeeded", "2026-02-02T10:00:00Z"),
+        at("vercel-acct", SUCCEEDED, "2026-02-03T09:00:00Z"),
+        at("vercel-acct", FAILED, "2026-02-04T09:00:00Z"),
+        at("gitlab-acct", "gitlab.deployment.succeeded", "2026-02-04T10:00:00Z"),
+      ],
+    );
+    // Mixed into one sequence the run would be 2; per provider, Vercel's is 3 and GitLab's is 2.
+    expect((await computeYearReview(store, 2026, NOW)).longestRun).toEqual({
+      status: "available",
+      connected: ["gitlab", "vercel"],
+      longest: { provider: "vercel", events: 3, tiedWith: [] },
+    });
+  });
+
+  it("breaks a tie between providers' runs on the first name from A to Z and names the others", async () => {
+    const store = new MemoryMetricStore(
+      [account("vercel", "2025-12-01T00:00:00Z"), account("railway", "2025-12-01T00:00:00Z"), account("digitalocean", "2025-12-01T00:00:00Z")],
+      [],
+      [
+        ...["2026-02-01", "2026-02-02"].map((day) => at("vercel-acct", SUCCEEDED, `${day}T09:00:00Z`)),
+        ...["2026-02-01", "2026-02-02"].map((day) => at("railway-acct", "railway.deployment.deployed", `${day}T09:00:00Z`)),
+        at("digitalocean-acct", "digitalocean.deployment.succeeded", "2026-02-01T09:00:00Z"),
+      ],
+    );
+    const review = await computeYearReview(store, 2026, NOW);
+    expect(review.longestRun).toMatchObject({ longest: { provider: "railway", events: 2, tiedWith: ["vercel"] } });
+    expect(valuesAndDetails(review)[1]).toEqual([
+      "2 in a row on Railway",
+      "Railway deployments that succeeded one after another, with no failed Railway deployment between them. Vercel had a run as long. On a tie the first by name is shown.",
+    ]);
   });
 
   it.each([

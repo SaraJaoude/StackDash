@@ -62,7 +62,7 @@ ownerTest.describe("year in review", () => {
       await page.keyboard.press("Enter");
       await expect(page.getByText("Slide 2 of 4: Longest run of successful deployments")).toBeAttached();
       await expect(slide("Longest run of successful deployments")).toContainText(
-        wholeHistoryThisYear ? `${2 * HISTORY_DAYS} in a row` : /\d+ in a row/,
+        wholeHistoryThisYear ? `${2 * HISTORY_DAYS} in a row on Vercel` : /\d+ in a row on Vercel/,
       );
       await expect(next).toBeFocused();
 
@@ -162,7 +162,7 @@ ownerTest.describe("year in review", () => {
       await expect(busiest).toContainText(`Your connected providers sent no events in ${year} so far.`);
       expect(await busiest.evaluate((element) => getComputedStyle(element).animationName)).toBe("none");
       const empty = [
-        ["Longest run of successful deployments", "Not connected", "Connect Vercel to count your deployments."],
+        ["Longest run of successful deployments", "Not connected", "Connect DigitalOcean, GitLab, Railway, or Vercel to count your deployments."],
         ["Most active provider", "No provider activity", `No connected provider sent events in ${year} so far.`],
       ] as const;
       for (const [title, value, detail] of empty) {

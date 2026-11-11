@@ -13,6 +13,8 @@ import { Constants } from "@/lib/supabase/database.types";
 
 import {
   allowedRoundings,
+  countsProvider,
+  DEPLOYMENT_OUTCOMES,
   formulaPath,
   isPublicMetricId,
   PUBLIC_METRIC_IDS,
@@ -64,16 +66,42 @@ describe("public metric definitions", () => {
   });
 
   it.each(PUBLIC_METRICS.map((definition) => [definition.id, definition] as const))(
-    "%s reads only quantities or events its provider declares",
+    "%s reads only quantities or events its providers declare",
     (_id, definition) => {
       for (const key of sourceKeys(definition.source)) {
-        expect(key.startsWith(`${definition.provider}.`), key).toBe(true);
+        expect(definition.providers.some((provider) => key.startsWith(`${provider}.`)), key).toBe(true);
         const stored = storedMetrics.filter((metric) => metric.metricKey === key);
         expect(stored.length, `${key} is stored by an adapter`).toBeGreaterThan(0);
         for (const metric of stored) expect(["usage", "included_allowance", "remaining_allowance"]).toContain(metric.kind);
       }
-      const declared = simulatedAdapters[definition.provider].eventTypes.map((type) => type.id);
+      const declared = definition.providers.flatMap((provider) => simulatedAdapters[provider].eventTypes.map((type) => type.id));
       for (const typeId of sourceEventTypes(definition.source)) expect(declared, typeId).toContain(typeId);
+    },
+  );
+
+  it("lists exactly the deployment outcomes the adapters declare, one success and one failure per provider", () => {
+    const declared = Object.entries(simulatedAdapters)
+      .flatMap(([provider, adapter]) =>
+        adapter.eventTypes.flatMap((type) =>
+          type.category === "deploy_succeeded" || type.category === "deploy_failed" ? [`${provider} ${type.category} ${type.id}`] : [],
+        ),
+      )
+      .sort();
+    const listed = DEPLOYMENT_OUTCOMES.flatMap((outcome) => [
+      `${outcome.provider} deploy_succeeded ${outcome.successTypeId}`,
+      `${outcome.provider} deploy_failed ${outcome.failureTypeId}`,
+    ]).sort();
+    expect(listed).toEqual(declared);
+  });
+
+  it.each(["vercel-deployments-7d", "vercel-deployments-30d"] as const)(
+    "%s counts every deployment provider's successes, and nothing of another provider (boundary: Railway only)",
+    (id) => {
+      const definition = publicMetricDefinition(id);
+      expect(definition.providers).toEqual(DEPLOYMENT_OUTCOMES.map((outcome) => outcome.provider));
+      expect(definition.source).toEqual({ type: "event_count", typeIds: DEPLOYMENT_OUTCOMES.map((outcome) => outcome.successTypeId) });
+      expect(countsProvider(definition, "railway")).toBe(true);
+      expect(countsProvider(definition, "github")).toBe(false);
     },
   );
 

@@ -131,7 +131,7 @@ export const loadProjectPublications = cache(
       if (!(error instanceof AccountBoundError)) throw error;
       log.warn("public_metrics.settings_accounts_over_limit", { workspaceId, projectId });
       tooManyAccounts = true;
-      current = currentRequests.map((request) => ({ ...request, result: { status: "unavailable", reason: "too_many_accounts" } }));
+      current = currentRequests.map((request) => ({ ...request, result: { status: "unavailable", reason: "too_many_accounts" }, providers: [] }));
       published = unavailablePublishedEngineMetrics(engineRows, now, "too_many_accounts");
     }
     const publications = new Map(published.map((publication) => [publication.metricId, publication]));

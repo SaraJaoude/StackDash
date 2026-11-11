@@ -409,3 +409,42 @@ describe("historyStart (#151)", () => {
     expect(result?.result).toMatchObject({ status: "available", value: 1 });
   });
 });
+
+describe("deployments across providers (#262)", () => {
+  const recent = (hoursAgo: number) => new Date(AS_OF.getTime() - hoursAgo * HOUR_MS);
+  const railway = account({ accountId: "railway-1", provider: "railway" });
+  const vercel = account({ accountId: "vercel-1", provider: "vercel" });
+
+  it("counts every deployment provider's successes and names the providers the value rests on", async () => {
+    const store = new MemoryMetricStore(
+      [railway, vercel, account()],
+      [],
+      [
+        event("railway.deployment.deployed", recent(2), "railway-1"),
+        event("railway.deployment.failed", recent(3), "railway-1"),
+        // What became of a deployment later, not an outcome: not counted.
+        event("railway.deployment.crashed", recent(4), "railway-1"),
+        event("vercel.deployment.succeeded", recent(5), "vercel-1"),
+      ],
+    );
+    const [result] = await computePublicMetrics(store, [{ metricId: "vercel-deployments-7d", asOf: AS_OF }]);
+    expect(result).toMatchObject({ result: { status: "available", value: 2 }, providers: ["railway", "vercel"] });
+  });
+
+  it("counts a project that deploys only on Railway (boundary: no Vercel account)", async () => {
+    const store = new MemoryMetricStore([railway], [], [event("railway.deployment.deployed", recent(2), "railway-1")]);
+    const [result] = await computePublicMetrics(store, [{ metricId: "vercel-deployments-7d", asOf: AS_OF }]);
+    expect(result).toMatchObject({ result: { status: "available", value: 1 }, providers: ["railway"] });
+  });
+
+  it("is not connected, with no providers, for a project with no deployment provider", async () => {
+    const [result] = await computePublicMetrics(new MemoryMetricStore([account()], [], []), [{ metricId: "vercel-deployments-7d", asOf: AS_OF }]);
+    expect(result).toMatchObject({ result: { status: "unavailable", reason: "not_connected" }, providers: [] });
+  });
+
+  it("keeps the deployment streak to Vercel", async () => {
+    const store = new MemoryMetricStore([railway], [], [event("railway.deployment.deployed", recent(2), "railway-1")]);
+    const [result] = await computePublicMetrics(store, [{ metricId: "vercel-deployment-streak", asOf: AS_OF }]);
+    expect(result).toMatchObject({ result: { status: "unavailable", reason: "not_connected" }, providers: [] });
+  });
+});

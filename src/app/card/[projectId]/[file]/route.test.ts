@@ -44,6 +44,7 @@ const CARD: PublishedMetricCard = {
     kind: "engine",
     publicationId: "80000000-0000-4000-8000-000000000001",
     metricId: "vercel-deployments-30d",
+    providers: ["vercel"],
     label: "Deployments in 30 days",
     unit: "deployments",
     provenance: "verified",
