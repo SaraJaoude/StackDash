@@ -65,11 +65,13 @@ function withClaims(token: string, claims: Record<string, unknown>): string {
 
 // Sessions are verified in the app against the stack's public signing key, without asking the
 // Auth server (#318), so the app itself must refuse a session it cannot vouch for. Each case edits
-// a copy of the owner's stored session and never touches the session itself.
+// a copy of the owner's stored session and never touches the session itself. An edited token no
+// longer matches its signature, so the first two cases prove refusal, not which check fired: a
+// correctly signed expired token would need the stack's private key, which stays out of the repo.
 test.describe("a session the app cannot verify", () => {
   const cases: [string, (session: StoredSession) => StoredSession][] = [
     [
-      "an access token past its exp claim",
+      "a tampered access token whose exp claim is past",
       (session) => ({
         ...session,
         access_token: withClaims(session.access_token, { exp: Math.floor(Date.now() / 1000) - 60 }),
