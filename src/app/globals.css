@@ -236,7 +236,7 @@ summary {
   animation: spark-ping 1.2s ease-out 2.4s 2 forwards;
 }
 
-/* The budget alert drops in once the 91% bar has filled, then pulses twice to draw the eye. */
+/* The sent alert drops in once the first allowance bar has filled, then pulses twice to draw the eye. */
 @keyframes alert-in {
   from {
     opacity: 0;

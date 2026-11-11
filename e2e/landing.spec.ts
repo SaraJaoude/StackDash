@@ -172,8 +172,8 @@ test.describe("landing page", () => {
       }).toPass();
     });
 
-    // 64rem is the lg breakpoint: from it the feed sits beside the month column and shows ten
-    // rows, below it the columns stack and the feed shows six.
+    // 64rem is the lg breakpoint: from it the feed sits beside the allowances and spend column and
+    // shows ten rows, below it the columns stack and the feed shows six.
     const layouts = [
       { name: "a phone", viewport: { width: 390, height: 844 }, rows: 6 },
       { name: "one pixel below the lg breakpoint", viewport: { width: 1023, height: 900 }, rows: 6 },

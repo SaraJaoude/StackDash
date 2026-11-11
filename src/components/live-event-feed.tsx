@@ -32,9 +32,10 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
 ];
 
-// Ten rows match the height of the month column beside the feed. Below the lg breakpoint the
-// columns stack, so only the first COMPACT_ROWS show, and the row pushed to COMPACT_ROWS closes
-// as the new row opens, the same way the row at VISIBLE_ROWS does in the wide layout.
+// Ten rows match the height of the alerts, allowances, and spend column beside the feed. Below
+// the lg breakpoint the columns stack, so only the first COMPACT_ROWS show, and the row pushed to
+// COMPACT_ROWS closes as the new row opens, the same way the row at VISIBLE_ROWS does in the wide
+// layout.
 const VISIBLE_ROWS = 10;
 const COMPACT_ROWS = 6;
 const TICK_SECONDS = 3;
