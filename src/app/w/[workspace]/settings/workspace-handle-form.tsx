@@ -75,7 +75,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
       <p className="text-sm">
         {currentHandle === null ? "No handle yet. " : null}
         Public project pages open at{" "}
-        <span className="font-mono break-all">/@{currentHandle ?? workspaceSlug}/</span> followed by the page address.
+        <span className="font-mono break-words">/@{currentHandle ?? workspaceSlug}/</span> followed by the page address.
         {currentHandle === null ? null : " Addresses with the workspace ID lead there too."}
       </p>
       <form
@@ -158,7 +158,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             }}
           >
             <ReleaseWarning handle={currentHandle} />
-            Public project pages will open at <span className="font-mono break-all">/@{nextHandle}/</span> instead.
+            Public project pages will open at <span className="font-mono break-words">/@{nextHandle}/</span> instead.
           </ConfirmHandleDialog>
           <ConfirmHandleDialog
             dialogRef={removeDialogRef}
@@ -173,7 +173,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
           >
             <ReleaseWarning handle={currentHandle} />
             Public project pages go back to the workspace ID address,{" "}
-            <span className="font-mono break-all">/@{workspaceSlug}/</span>.
+            <span className="font-mono break-words">/@{workspaceSlug}/</span>.
           </ConfirmHandleDialog>
         </>
       )}
@@ -201,7 +201,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
 function ReleaseWarning({ handle }: { handle: string }) {
   return (
     <>
-      Links that use <span className="font-mono break-all">/@{handle}/</span> stop working at once, and any workspace can
+      Links that use <span className="font-mono break-words">/@{handle}/</span> stop working at once, and any workspace can
       claim {handle}.{" "}
     </>
   );

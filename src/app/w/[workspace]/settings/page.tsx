@@ -90,7 +90,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
             <p>
               {workspace.handle === null ? "No handle yet. " : null}
               Public project pages open at{" "}
-              <span className="font-mono break-all">/@{workspaceAddress(workspace)}/</span> followed by the page address.
+              <span className="font-mono break-words">/@{workspaceAddress(workspace)}/</span> followed by the page address.
             </p>
             <p className="mt-3 flex items-center gap-2 text-muted">
               <LockIcon className="shrink-0" />
