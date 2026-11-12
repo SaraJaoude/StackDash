@@ -5,7 +5,7 @@ import { cache } from "react";
 
 import { requireUser, type SessionUser } from "@/lib/auth/session";
 import { superAdminEmails } from "@/lib/env";
-import { log } from "@/lib/log/logger";
+import { log, logError } from "@/lib/log/logger";
 
 /*
  * Super admins (#250) run the instance: they see its configuration and instance-wide figures. They
@@ -14,10 +14,29 @@ import { log } from "@/lib/log/logger";
  * database role, so a super admin is no more than a workspace member anywhere else in the app.
  */
 
+/** The super admin page: the instance overview. */
+export const ADMIN_PATH = "/app/admin";
+
 /** True when `email` is on the super admin list. A user with no email is never one. */
 export function isSuperAdminEmail(email: string | null, admins: ReadonlySet<string> = superAdminEmails()): boolean {
   return email !== null && admins.has(email.toLowerCase());
 }
+
+/**
+ * Whether the app header and the command palette offer the way to the admin page (#364): the rule
+ * `requireSuperAdmin` applies, for a user the caller already verified, so only a super admin's HTML
+ * and RSC payload carry the link or `ADMIN_PATH`. An invalid list hides the link and logs why,
+ * rather than failing every page that shows the header; the admin page itself still fails on it.
+ * Cached per request, so the header and the palette share one check and one log line.
+ */
+export const showsAdminLink = cache((email: string | null): boolean => {
+  try {
+    return isSuperAdminEmail(email);
+  } catch (error) {
+    logError("admin.link_check_failed", error);
+    return false;
+  }
+});
 
 /**
  * The signed-in super admin. Signed out, a redirect to sign-in like every app page; signed in as

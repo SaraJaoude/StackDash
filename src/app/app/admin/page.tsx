@@ -17,7 +17,7 @@ import {
   type ProviderSetup,
 } from "@/lib/admin/configuration";
 import { compareMigrations, deploymentInfo, expectedMigrationVersion, type MigrationState } from "@/lib/admin/deployment";
-import { requireSuperAdmin } from "@/lib/auth/super-admin";
+import { ADMIN_PATH, requireSuperAdmin } from "@/lib/auth/super-admin";
 import {
   loadInstanceTotals,
   loadJobFailures,
@@ -45,7 +45,6 @@ export async function generateMetadata(): Promise<Metadata> {
 // awaits `connection()` before anything renders and allows an empty static shell (#125).
 export const instant = false;
 
-const ADMIN_PATH = "/app/admin";
 // pg_cron calls the tick every minute (docs/operations/jobs.md), so a runnable job waiting this long
 // means ticks are not arriving or not authorized.
 const SCHEDULER_LAG_WARNING_MS = 10 * 60_000;

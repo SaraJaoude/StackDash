@@ -39,6 +39,7 @@ const SOURCES: PaletteSources = {
     { slug: SLUG, name: "Acme" },
     { slug: OTHER_SLUG, name: "Side project" },
   ],
+  superAdmin: false,
   reviewYear: 2026,
 };
 
@@ -76,6 +77,22 @@ describe("buildPaletteCommands", () => {
       ["Year in review", "Page", `/w/${SLUG}/year/2026`],
       ["Account", "Page", "/account"],
     ]);
+  });
+
+  it("goes to the admin page after the account for a super admin, and finds it as \"open admin\"", () => {
+    const forAdmin = buildPaletteCommands({ ...SOURCES, superAdmin: true });
+    expect(forAdmin.slice(8, 10).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
+      ["Account", "Page", "/account"],
+      ["Admin", "Page", "/app/admin"],
+    ]);
+    expect(searchCommands(forAdmin, "open admin").results.map((command) => command.id)).toEqual(["page:admin"]);
+    expect(searchCommands(forAdmin, "instance overview").results[0]?.id).toBe("page:admin");
+  });
+
+  it("leaves the admin page, and its path, out of anyone else's commands", () => {
+    expect(commands.find((command) => command.id === "page:admin")).toBeUndefined();
+    expect(JSON.stringify(commands)).not.toContain("/app/admin");
+    expect(searchCommands(commands, "admin").total).toBe(0);
   });
 
   // Rules, budgets, channels, and digests moved off the alerts inbox (#343).

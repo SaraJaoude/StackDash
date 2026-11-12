@@ -1,4 +1,5 @@
 import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
+import { ADMIN_PATH } from "@/lib/auth/super-admin";
 import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 import { eventTypeLabel, timelineHref } from "@/lib/timeline/query";
@@ -56,6 +57,8 @@ export type PaletteSources = Readonly<{
   configuredProviders: readonly Readonly<{ id: string; displayName: string }>[];
   /** Every workspace the member belongs to, this one included. */
   workspaces: readonly Readonly<{ slug: string; name: string }>[];
+  /** True for a super admin only (`showsAdminLink`); nobody else's list holds the admin page or its path. */
+  superAdmin: boolean;
   /** The newest year with a yearly card (`latestCardYear`). */
   reviewYear: number;
 }>;
@@ -208,6 +211,15 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
       action: { kind: "navigate", href: "/account" },
     },
   );
+  if (sources.superAdmin) {
+    pages.push({
+      id: "page:admin",
+      label: "Admin",
+      kind: "Page",
+      keywords: "open instance overview super configuration operator",
+      action: { kind: "navigate", href: ADMIN_PATH },
+    });
+  }
 
   const { dashboards, timelines, syncs } =
     sources.scope === null ? { dashboards: [], timelines: [], syncs: [] } : scopeCommands(sources, sources.scope);
