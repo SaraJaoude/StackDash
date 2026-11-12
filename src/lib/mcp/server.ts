@@ -274,7 +274,7 @@ function weeklyStackReview(now: Date): GetPromptResult {
       {
         tool: MCP_TOOLS.listEvents,
         arguments: { from: since, ...PROMPT_PAGE },
-        purpose: "deployments, failures, payments, and anomalies in the same days.",
+        purpose: "deployments, failures, payments, and unusual spend and usage events in the same days.",
       },
       { tool: MCP_TOOLS.listAlerts, arguments: { acknowledged: false, ...PROMPT_PAGE }, purpose: "alerts nobody has acknowledged yet." },
     ],
@@ -283,7 +283,7 @@ function weeklyStackReview(now: Date): GetPromptResult {
       "- Connections: each one that is not active, and what to do about it.",
       `- Spend: each spend metric on its newest day beside its ${from} reading, per provider and currency.`,
       "- Allowances: each remaining_allowance that is running low, and its resets_at.",
-      `- Events: failed deployments, sync failures, and anomalies (type ${ANOMALY_TYPE_ID}), with the day of each.`,
+      `- Events: failed deployments, sync failures, and unusual spend and usage events (type ${ANOMALY_TYPE_ID}), with the day of each.`,
       "- Alerts: each unacknowledged alert and what it measured.",
       "Finish with the one thing most worth doing next.",
     ],
@@ -308,7 +308,7 @@ function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSch
       {
         tool: MCP_TOOLS.listEvents,
         arguments: { from: since, ...PROMPT_PAGE },
-        purpose: `deployments, usage warnings, anomalies (type ${ANOMALY_TYPE_ID}), and daily summaries in the same days.`,
+        purpose: `deployments, usage warnings, unusual spend and usage events (type ${ANOMALY_TYPE_ID}), and daily summaries in the same days.`,
       },
       { tool: MCP_TOOLS.listAlerts, arguments: PROMPT_PAGE, purpose: "spend and usage alerts; keep the ones whose triggered_at falls in the period." },
     ],
