@@ -72,11 +72,22 @@ const clientIpEnvSchema = z.object({
     .optional(),
 });
 
+// Who runs this instance (#339): the privacy policy and terms of use name them, and the pages and
+// their links exist only when all three are set, so a self-hosted instance never names another
+// operator. Not secret. The landing page and the legal pages are prerendered, so they take the
+// values `next build` saw: set them before building and deploy again after changing one.
+const operatorEnvSchema = z.object({
+  DEVMACRO_OPERATOR_NAME: z.string().trim().min(1).max(200),
+  DEVMACRO_OPERATOR_EMAIL: z.email({ error: "use one email address, such as privacy@your-domain" }),
+  DEVMACRO_GOVERNING_LAW: z.string().trim().min(1).max(200),
+});
+
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
 export type EmailEnv = Readonly<{ from: string; apiKey: string; apiUrl: string }>;
 export type ClientIpEnv = Readonly<{ header: "x-vercel-forwarded-for" | "x-forwarded-for"; trustedProxies: number }>;
+export type OperatorEnv = Readonly<{ name: string; email: string; governingLaw: string }>;
 
 function parseEnv<Schema extends z.ZodType>(
   schema: Schema,
@@ -174,4 +185,21 @@ export function clientIpEnv(): ClientIpEnv {
   });
   if (env.VERCEL === "1") return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
   return { header: "x-forwarded-for", trustedProxies: Number(env.DEVMACRO_TRUSTED_PROXY_COUNT ?? "1") };
+}
+
+/**
+ * The operator the privacy policy and terms of use name, or null when none of the three variables
+ * is set: then /privacy and /terms answer 404 and nothing links to them. Setting only some of them
+ * is a configuration error rather than a silent "off", so a half-configured instance fails loudly
+ * instead of publishing a policy with no one to contact.
+ */
+export function operatorEnv(): OperatorEnv | null {
+  const input = {
+    DEVMACRO_OPERATOR_NAME: process.env.DEVMACRO_OPERATOR_NAME,
+    DEVMACRO_OPERATOR_EMAIL: process.env.DEVMACRO_OPERATOR_EMAIL,
+    DEVMACRO_GOVERNING_LAW: process.env.DEVMACRO_GOVERNING_LAW,
+  };
+  if (!input.DEVMACRO_OPERATOR_NAME && !input.DEVMACRO_OPERATOR_EMAIL && !input.DEVMACRO_GOVERNING_LAW) return null;
+  const env = parseEnv(operatorEnvSchema, input);
+  return { name: env.DEVMACRO_OPERATOR_NAME, email: env.DEVMACRO_OPERATOR_EMAIL, governingLaw: env.DEVMACRO_GOVERNING_LAW };
 }

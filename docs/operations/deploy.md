@@ -131,7 +131,7 @@ Preview deployments run unreviewed branch code. Point the **Preview** environmen
 
 ### Environment variables
 
-Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment; every other variable is read on the server at runtime. A secret must never get a `NEXT_PUBLIC_` name.
+Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment; every other variable is read on the server at runtime, except the three operator variables, which the prerendered home page and legal pages read at build time. A secret must never get a `NEXT_PUBLIC_` name. Vercel applies a changed variable only to the next deployment anyway.
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
@@ -147,6 +147,9 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 | `DEVMACRO_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
 | `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `DEVMACRO_OPERATOR_NAME` | Server only | `Eddie Jaoude` | Optional: unset keeps `/privacy` and `/terms` off previews | Who runs the instance, named on the privacy policy and terms of use. Set all three operator variables or none: with none, both pages answer 404 and nothing links to them; with only some, the build fails and names the missing one |
+| `DEVMACRO_OPERATOR_EMAIL` | Server only | `eddie@jaoudestudios.com` | Optional, with the name | The address for privacy and data requests, shown on both pages |
+| `DEVMACRO_GOVERNING_LAW` | Server only | `England and Wales` | Optional, with the name | The law the terms of use are governed by, as it reads after "the law of" |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |

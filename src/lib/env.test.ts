@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { emailEnv, isLoopbackUrl } from "./env";
+import { emailEnv, isLoopbackUrl, operatorEnv } from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -58,6 +58,46 @@ describe("emailEnv", () => {
   it("refuses a URL without a key rather than turning email off", () => {
     stubEmailEnv({ DEVMACRO_EMAIL_FROM: FROM, DEVMACRO_RESEND_API_URL: "http://127.0.0.1:55430" });
     expect(() => emailEnv()).toThrow(/DEVMACRO_RESEND_API_KEY is not set/);
+  });
+});
+
+const OPERATOR_VARIABLES = ["DEVMACRO_OPERATOR_NAME", "DEVMACRO_OPERATOR_EMAIL", "DEVMACRO_GOVERNING_LAW"] as const;
+
+function stubOperatorEnv(values: Partial<Record<(typeof OPERATOR_VARIABLES)[number], string>>): void {
+  for (const name of OPERATOR_VARIABLES) vi.stubEnv(name, values[name] ?? "");
+}
+
+const OPERATOR = {
+  DEVMACRO_OPERATOR_NAME: "Example Operator Ltd",
+  DEVMACRO_OPERATOR_EMAIL: "privacy@example.com",
+  DEVMACRO_GOVERNING_LAW: "England and Wales",
+};
+
+describe("operatorEnv", () => {
+  it("is off when none of the three is set", () => {
+    stubOperatorEnv({});
+    expect(operatorEnv()).toBeNull();
+  });
+
+  it("reads all three, trimming the outer spaces of the name and the law", () => {
+    stubOperatorEnv({ ...OPERATOR, DEVMACRO_OPERATOR_NAME: "  Example Operator Ltd ", DEVMACRO_GOVERNING_LAW: " England and Wales" });
+    expect(operatorEnv()).toEqual({ name: "Example Operator Ltd", email: "privacy@example.com", governingLaw: "England and Wales" });
+  });
+
+  it.each(OPERATOR_VARIABLES.map((name) => [name]))("refuses a configuration without %s", (missing) => {
+    stubOperatorEnv({ ...OPERATOR, [missing]: "" });
+    expect(() => operatorEnv()).toThrow(`${missing} is not set`);
+  });
+
+  it.each([
+    ["a name of spaces only", { DEVMACRO_OPERATOR_NAME: "   " }, "DEVMACRO_OPERATOR_NAME is invalid"],
+    ["a name longer than 200 characters", { DEVMACRO_OPERATOR_NAME: "a".repeat(201) }, "DEVMACRO_OPERATOR_NAME is invalid"],
+    ["text that is not an email address", { DEVMACRO_OPERATOR_EMAIL: "privacy at example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
+    ["two email addresses", { DEVMACRO_OPERATOR_EMAIL: "a@example.com, b@example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
+    ["a governing law of spaces only", { DEVMACRO_GOVERNING_LAW: " " }, "DEVMACRO_GOVERNING_LAW is invalid"],
+  ])("refuses %s", (_title, override, message) => {
+    stubOperatorEnv({ ...OPERATOR, ...override });
+    expect(() => operatorEnv()).toThrow(message);
   });
 });
 
