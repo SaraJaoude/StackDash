@@ -146,7 +146,7 @@ Send every request through `fetchJson` (`src/lib/adapters/errors.ts`). It applie
 | `429`, or `403` with rate limit headers | `RateLimitedError` | Backs off, honoring `Retry-After` |
 | `5xx` or no response | `ProviderUnavailableError` | Retries later |
 | Timeout | `AdapterTimeoutError` | Retries later |
-| A body that does not match the schema | `InvalidResponseError` | Retries later, like an outage |
+| Any other status that is not `2xx`, or a body that is not JSON or does not match the schema | `InvalidResponseError` | Retries later, like an outage |
 
 Only the first two stop the retries, because the user has to act before another attempt can work. Every other error is retried with backoff, and after the last attempt the connection is marked failed. Every failure is logged with an error reference.
 
@@ -250,7 +250,7 @@ When the provider reports deployments, also:
 | File | Change |
 |---|---|
 | `src/lib/dashboard/markers.ts` | Its finished deployment event types in the deployments marker category, with `markers.test.ts` |
-| `src/lib/public-metrics/definitions.ts` | Its success and failure types in `DEPLOYMENT_OUTCOMES`, with `definitions.test.ts`. The provider then joins the list in the year in review's deployment slide ("Connect DigitalOcean, GitLab, Railway, or Vercel to count your deployments."), so update that sentence in `src/lib/public-metrics/yearly.test.ts` and `e2e/year-in-review.spec.ts` |
+| `src/lib/public-metrics/definitions.ts` | Its success and failure types in `DEPLOYMENT_OUTCOMES`, with `definitions.test.ts`. The provider then joins the provider list in the year in review's deployment sentence ("Connect ... to count your deployments."), so update that sentence where `src/lib/public-metrics/yearly.test.ts` and `e2e/year-in-review.spec.ts` assert it |
 | `docs/architecture/public-metrics.md` | The provider in the deployment metrics' event lists |
 
 Event categories, capabilities, projections, and daily signup totals need no list of their own: the dashboard reads them from the registered adapter.
