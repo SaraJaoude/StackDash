@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
@@ -20,7 +19,7 @@ import {
 } from "@/components/public-metrics/publication-controls";
 import { SELF_REPORTED_LIVE_MAX } from "@/components/public-metrics/self-reported-rules";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
-import { connectOrigin } from "@/lib/connections/oauth-state";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { loadProjectPageSettings } from "@/lib/data/project-pages";
 import { countLivePublications, loadProjectPublications, VIEW_WINDOW_DAYS, type ProjectMetricStatus } from "@/lib/data/published-metrics";
 import { formatDateTime } from "@/lib/format";
@@ -83,17 +82,6 @@ function ValueText({ value }: { value: PublishedValue }) {
   );
 }
 
-/**
- * This deployment's public origin for share links: NEXT_PUBLIC_SITE_URL, else the request's own
- * host, as the public JSON route builds its formula links.
- */
-async function siteOrigin(): Promise<string> {
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  return connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL);
-}
-
 async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projects/[projectId]/public-metrics">) {
   const { workspace: slug, projectId } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
@@ -105,7 +93,8 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
     loadProjectPublications(workspace.id, projectId, now),
     countLivePublications(workspace.id),
     loadProjectPageSettings(workspace.id, projectId),
-    siteOrigin(),
+    // Share links use the public origin, as the public JSON route builds its formula links.
+    requestPublicOrigin(),
   ]);
   if (publications === null) notFound();
 

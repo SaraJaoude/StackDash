@@ -81,10 +81,14 @@ export default defineConfig({
       url: baseURL,
       reuseExistingServer: false,
       timeout: process.env.CI ? 300_000 : 120_000,
-      // The other override, and the only switch for it in end-to-end runs (CI does not set it): the
-      // live providers are simulated (#131), so their connect flow runs without OAuth apps. Rows a
-      // spec seeds for a live provider stay real connections and are never labeled "Simulated".
-      env: { ...inherited, ...fakeResendEnv, DEVMACRO_SIMULATE_PROVIDERS: "1" },
+      // Alert email goes to the fake Resend API, as above (fakeResendEnv).
+      // Simulated providers, and the only switch for it in end-to-end runs (CI does not set it):
+      // the live providers are simulated (#131), so their connect flow runs without OAuth apps.
+      // Rows a spec seeds for a live provider stay real connections and are never labeled
+      // "Simulated".
+      // The public origin is the server's own, whatever .env.local says, so absolute metadata URLs
+      // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
+      env: { ...inherited, ...fakeResendEnv, DEVMACRO_SIMULATE_PROVIDERS: "1", NEXT_PUBLIC_SITE_URL: baseURL },
     },
   ],
 });
