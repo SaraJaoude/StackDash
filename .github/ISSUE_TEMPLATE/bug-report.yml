@@ -58,11 +58,18 @@ body:
     attributes:
       label: Browser and operating system
       placeholder: Firefox 140 on macOS 26
+  # Two fields because `render` turns a textarea into a code block that cannot take file
+  # attachments: logs keep `render` so their lines stay literal, screenshots need attachments.
   - type: textarea
-    id: evidence
+    id: screenshots
     attributes:
-      label: Screenshots and logs
-      description: Attach screenshots or paste log lines. Remove tokens, emails, and account details first.
+      label: Screenshots
+      description: Drag images in or paste them. Crop or blur tokens, emails, and account details first.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste the log lines or error output. Remove tokens, emails, and account details first.
       render: text
   - type: checkboxes
     id: confirm
