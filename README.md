@@ -410,12 +410,13 @@ the simulator.
 the fake Resend API. Playwright starts the fake itself (`npm run email:fake`, on the app's port
 plus one, 3101 by default, or `E2E_RESEND_PORT`) and gives its dev server the fake's URL, a dummy
 key, and a sender, which take precedence over `.env.local`, so the spec needs no email settings
-and never reaches Resend. Its dev server also gets `NEXT_PUBLIC_SITE_URL` set to its own origin,
-so `e2e/social-metadata.spec.ts` can read absolute canonical and preview image addresses. CI also
-writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`,
-because it runs a production build, which sends no alert message without the first and refuses to
-post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without the second. The dev server
-needs neither.
+and never reaches Resend. Playwright also sets `NEXT_PUBLIC_SITE_URL` to the app server's own
+origin, locally and in CI, and that too takes precedence over `.env.local`:
+`e2e/social-metadata.spec.ts` reads absolute canonical and preview image addresses from it, and
+CI's production build sends no alert message without it. CI also writes
+`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
+post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without it. A local run on the dev
+server needs neither in `.env.local`.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
