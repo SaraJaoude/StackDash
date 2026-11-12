@@ -34,4 +34,4 @@ Commands to run and the expected result. Fill in actual output as the work proce
 Branch: `<issue-number>-<slug>`
 Closes with a `Closes #<issue-number>` footer on the commit or pull request.
 
-Model: <model> | Reasoning effort: <effort>
+<!-- Written with an AI assistant? End the issue with: Model: <model> | Reasoning effort: <effort> -->
