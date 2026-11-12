@@ -45,7 +45,11 @@ export function siteMetadataBase(siteUrl: string | undefined = process.env.NEXT_
 }
 
 export type SocialPage = Readonly<{
-  /** The preview title, without the site name: og:site_name carries it. */
+  /**
+   * The preview title. Pages leave out the site name, since og:site_name carries it; the landing
+   * page and the root default use LANDING_TITLE, the promise with the brand, as the document title
+   * does (#305).
+   */
   title: string;
   description: string;
   /**
