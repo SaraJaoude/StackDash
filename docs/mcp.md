@@ -37,13 +37,7 @@ Open **Settings**, then **Developer**, then **Edit Config**, and add the server 
   "mcpServers": {
     "devmacro": {
       "command": "npx",
-      "args": [
-        "-y",
-        "mcp-remote",
-        "https://your-devmacro-site.example.com/api/mcp",
-        "--header",
-        "Authorization:${AUTH_HEADER}"
-      ],
+      "args": ["-y", "mcp-remote", "https://your-devmacro-site.example.com/api/mcp", "--header", "Authorization:${AUTH_HEADER}"],
       "env": { "AUTH_HEADER": "Bearer paste-your-key-here" }
     }
   }
@@ -79,13 +73,13 @@ Any client that speaks Streamable HTTP works: give it the URL `$DEVMACRO_URL/api
 
 ## Tools
 
-| Tool                    | Scope              | What it returns                                                                                                                         | Arguments                                                                                                    |
-| ----------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `list_projects`         | any working key    | The key's workspace and its projects, oldest first                                                                                      | `limit`, `cursor`                                                                                            |
-| `get_usage`             | `usage:read`       | Daily usage, spend, allowance, credit balance, and revenue snapshots, newest day first. The latest day of a metric is its current value | `provider`, `project_id`, `from` and `to` (UTC days, inclusive), `metric_key`, `kind`, `limit`, `cursor`     |
-| `list_events`           | `events:read`      | The timeline, newest first: deployments, payments, sync failures, alerts, daily summaries                                               | `from` (inclusive) and `to` (exclusive) as RFC 3339 times, `type`, `severity`, `provider`, `limit`, `cursor` |
-| `list_alerts`           | `alerts:read`      | Alerts that fired, newest first, with the severity the alerts page shows                                                                | `acknowledged` (`true` or `false`), `limit`, `cursor`                                                        |
-| `get_connection_status` | `connections:read` | Each connection's status and last sync, oldest first. Never credentials                                                                 | `limit`, `cursor`                                                                                            |
+| Tool | Scope | What it returns | Arguments |
+|---|---|---|---|
+| `list_projects` | any working key | The key's workspace and its projects, oldest first | `limit`, `cursor` |
+| `get_usage` | `usage:read` | Daily usage, spend, allowance, credit balance, and revenue snapshots, newest day first. The latest day of a metric is its current value | `provider`, `project_id`, `from` and `to` (UTC days, inclusive), `metric_key`, `kind`, `limit`, `cursor` |
+| `list_events` | `events:read` | The timeline, newest first: deployments, payments, sync failures, alerts, daily summaries | `from` (inclusive) and `to` (exclusive) as RFC 3339 times, `type`, `severity`, `provider`, `limit`, `cursor` |
+| `list_alerts` | `alerts:read` | Alerts that fired, newest first, with the severity the alerts page shows | `acknowledged` (`true` or `false`), `limit`, `cursor` |
+| `get_connection_status` | `connections:read` | Each connection's status and last sync, oldest first. Never credentials | `limit`, `cursor` |
 
 The arguments are the REST API's query parameters, with the same limits: `limit` is 1 to 100 (default 50), an unknown argument is refused, and `cursor` is the `next_cursor` of the previous page, passed back with the same filters.
 
@@ -97,10 +91,10 @@ Each provider page in [`docs/providers/`](providers) is a Markdown resource at `
 
 Prompts are questions ready to ask: a client lists them, for example as slash commands, and running one hands the assistant a message that says which tools to call, with their exact arguments, and how to answer from the results. A prompt reads nothing itself, so every number in the answer still comes through a tool and its scope.
 
-| Prompt                 | Title                | What it asks                                                                                                                                                                                                                                                             | Arguments                                                            |
-| ---------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `weekly_stack_review`  | Weekly stack review  | Review the 7 UTC days ending today: connections that need attention, spend on the newest day beside the starting reading, allowances running low, failed deployments, sync failures, and unusual spend and usage events, and unacknowledged alerts. Calls all five tools | none                                                                 |
-| `why_did_spend_change` | Why did spend change | Explain how spend moved over the period: reads verified spend, estimated spend, and usage with `get_usage`, then events and alerts, and ties each increase to the usage and events behind it                                                                             | `days` (1 to 90, default 7), `provider` (a provider id, default all) |
+| Prompt | Title | What it asks | Arguments |
+|---|---|---|---|
+| `weekly_stack_review` | Weekly stack review | Review the 7 UTC days ending today: connections that need attention, spend on the newest day beside the starting reading, allowances running low, failed deployments, sync failures, and anomalies, and unacknowledged alerts. Calls all five tools | none |
+| `why_did_spend_change` | Why did spend change | Explain how spend moved over the period: reads verified spend, estimated spend, and usage with `get_usage`, then events and alerts, and ties each increase to the usage and events behind it | `days` (1 to 90, default 7), `provider` (a provider id, default all) |
 
 The period is the `days` UTC days ending today on the server's clock (7 for the weekly review), and the prompts also read the day before them as the starting reading, because a day's spend is its reading minus the previous day's. So the tool calls cover `days + 1` dates: for 7 days ending 2026-11-05, `from` is 2026-10-29. Arguments arrive as text, as MCP requires: `days` is a whole number from 1 to 90, and an unknown provider, an unknown argument, or a `days` outside that range is refused with an invalid params error (`-32602`) before anything is read.
 

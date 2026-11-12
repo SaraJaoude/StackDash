@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import type { Severity } from "@/components/severity-badge";
-import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
   hasScopeFilters,
@@ -31,12 +30,7 @@ export const TIMELINE_PAGE_SIZE = 50;
  */
 export const MAX_TYPE_FILTERS = 100;
 
-export const EVENT_SEVERITIES = [
-  "info",
-  "success",
-  "warning",
-  "critical",
-] as const satisfies readonly EventSeverity[];
+export const EVENT_SEVERITIES = ["info", "success", "warning", "critical"] as const satisfies readonly EventSeverity[];
 
 // The badge vocabulary shared with the landing page; the filter uses the same words so what a
 // person ticks is what they then see on each event.
@@ -60,16 +54,8 @@ export function isEventTypeId(value: string): value is string {
   return value.length <= MAX_TYPE_ID_LENGTH && TYPE_ID_PATTERN.test(value);
 }
 
-// DevMacro's own types whose id reads differently from the product's name for them (#345): the
-// alerts page calls these "unusual spend and usage", so the timeline must not say "anomaly".
-const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([
-  [ANOMALY_TYPE_ID, "Unusual spend or usage"],
-]);
-
 /** `vercel.deployment_failed` reads as "Deployment failed". The provider is shown beside it. */
 export function eventTypeLabel(typeId: string): string {
-  const named = DEVMACRO_TYPE_LABELS.get(typeId);
-  if (named !== undefined) return named;
   const rest = typeId.split(".").slice(1).join(" ").replaceAll("_", " ").trim();
   if (rest === "") return typeId;
   return rest.charAt(0).toUpperCase() + rest.slice(1);
@@ -81,17 +67,9 @@ const ISO_DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 export function isIsoDate(value: string): boolean {
   const match = ISO_DATE_PATTERN.exec(value);
   if (!match) return false;
-  const [year, month, day] = [
-    Number(match[1]),
-    Number(match[2]),
-    Number(match[3]),
-  ];
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
   const date = new Date(Date.UTC(year, month - 1, day));
-  return (
-    date.getUTCFullYear() === year &&
-    date.getUTCMonth() === month - 1 &&
-    date.getUTCDate() === day
-  );
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
 }
 
 export const TIMELINE_TIME_ZONE = "Europe/London";
@@ -127,13 +105,8 @@ function londonOffsetMs(instant: number): number {
 /** The UTC instant at which the London calendar day `date` (`YYYY-MM-DD`) begins. */
 export function londonDayStart(date: string): Date {
   const match = ISO_DATE_PATTERN.exec(date);
-  if (!match || !isIsoDate(date))
-    throw new RangeError("Expected a YYYY-MM-DD date");
-  const wallClock = Date.UTC(
-    Number(match[1]),
-    Number(match[2]) - 1,
-    Number(match[3]),
-  );
+  if (!match || !isIsoDate(date)) throw new RangeError("Expected a YYYY-MM-DD date");
+  const wallClock = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   // Two passes: the offset at the guess can differ from the offset at the answer on clock-change
   // days. London changes at 01:00 UTC, so midnight itself always exists and is unambiguous.
   const guess = wallClock - londonOffsetMs(wallClock);
@@ -143,11 +116,7 @@ export function londonDayStart(date: string): Date {
 function nextIsoDate(date: string): string {
   const match = ISO_DATE_PATTERN.exec(date);
   if (!match) throw new RangeError("Expected a YYYY-MM-DD date");
-  return new Date(
-    Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1),
-  )
-    .toISOString()
-    .slice(0, 10);
+  return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]) + 1)).toISOString().slice(0, 10);
 }
 
 export type OccurredRange = {
@@ -158,14 +127,10 @@ export type OccurredRange = {
 };
 
 /** Whole London days `from` to `to`, both inclusive, as UTC instants for the query. */
-export function occurredRange(
-  from: string | null,
-  to: string | null,
-): OccurredRange {
+export function occurredRange(from: string | null, to: string | null): OccurredRange {
   return {
     from: from === null ? null : londonDayStart(from).toISOString(),
-    toExclusive:
-      to === null ? null : londonDayStart(nextIsoDate(to)).toISOString(),
+    toExclusive: to === null ? null : londonDayStart(nextIsoDate(to)).toISOString(),
   };
 }
 
@@ -178,10 +143,8 @@ export type TimelineCursor = {
 const CURSOR_SEPARATOR = "|";
 const MAX_CURSOR_LENGTH = 200;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
-const TIMESTAMP_PATTERN =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function isCursor(value: TimelineCursor): boolean {
   return (
@@ -193,22 +156,13 @@ function isCursor(value: TimelineCursor): boolean {
 
 /** Opaque base64url token for the last event on a page. */
 export function encodeCursor(cursor: TimelineCursor): string {
-  if (!isCursor(cursor))
-    throw new RangeError("Cursor needs an ISO timestamp and a uuid");
-  return Buffer.from(
-    `${cursor.occurredAt}${CURSOR_SEPARATOR}${cursor.id}`,
-    "utf8",
-  ).toString("base64url");
+  if (!isCursor(cursor)) throw new RangeError("Cursor needs an ISO timestamp and a uuid");
+  return Buffer.from(`${cursor.occurredAt}${CURSOR_SEPARATOR}${cursor.id}`, "utf8").toString("base64url");
 }
 
 /** The cursor in `token`, or null for anything not produced by `encodeCursor`. */
 export function decodeCursor(token: string): TimelineCursor | null {
-  if (
-    token.length === 0 ||
-    token.length > MAX_CURSOR_LENGTH ||
-    !BASE64URL_PATTERN.test(token)
-  )
-    return null;
+  if (token.length === 0 || token.length > MAX_CURSOR_LENGTH || !BASE64URL_PATTERN.test(token)) return null;
   const bytes = Buffer.from(token, "base64url");
   // Node's decoder skips what it cannot read, so a token that does not re-encode to itself was
   // altered or truncated.
@@ -253,13 +207,10 @@ export type RawSearchParams = Record<string, SearchParamValue>;
 
 /** The first value of a parameter when it is valid, otherwise null. */
 function one<T>(parse: (value: string) => T | null) {
-  return z
-    .unknown()
-    .optional()
-    .transform((raw) => {
-      const first = paramValues(raw)[0]?.trim();
-      return first === undefined || first === "" ? null : parse(first);
-    });
+  return z.unknown().optional().transform((raw) => {
+    const first = paramValues(raw)[0]?.trim();
+    return first === undefined || first === "" ? null : parse(first);
+  });
 }
 
 const isSeverity = (value: string): value is EventSeverity =>
@@ -276,9 +227,7 @@ const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
 });
 
 /** The timeline filters in a request's search params. Never throws. */
-export function parseTimelineSearchParams(
-  searchParams: RawSearchParams,
-): TimelineQuery {
+export function parseTimelineSearchParams(searchParams: RawSearchParams): TimelineQuery {
   const parsed = TimelineSearchParamsSchema.parse(searchParams);
   return {
     types: parsed.type,
@@ -287,11 +236,7 @@ export function parseTimelineSearchParams(
     to: parsed.to,
     search: parsed.q,
     cursor: parsed.cursor,
-    scope: {
-      providers: parsed.provider,
-      projects: parsed.project,
-      accounts: parsed.account,
-    },
+    scope: { providers: parsed.provider, projects: parsed.project, accounts: parsed.account },
   };
 }
 
@@ -307,11 +252,7 @@ export function hasActiveFilters(query: TimelineQuery): boolean {
 }
 
 /** Link to `basePath` carrying the filters in `query`, and `cursor` when given. */
-export function timelineHref(
-  basePath: string,
-  query: TimelineQuery,
-  cursor: TimelineCursor | null,
-): string {
+export function timelineHref(basePath: string, query: TimelineQuery, cursor: TimelineCursor | null): string {
   const params = new URLSearchParams();
   for (const type of query.types) params.append("type", type);
   for (const severity of query.severities) params.append("severity", severity);

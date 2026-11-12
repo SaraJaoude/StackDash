@@ -1,20 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import AxeBuilder from "@axe-core/playwright";
-import {
-  test,
-  type Browser,
-  type BrowserContext,
-  type Page,
-} from "@playwright/test";
+import { test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { z } from "zod";
 
-import {
-  createSyntheticUser,
-  expect,
-  removeSyntheticUser,
-  type SyntheticUser,
-} from "./fixtures/auth";
+import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
 import { adminClient, type Admin } from "./fixtures/db";
 
 /*
@@ -24,29 +14,18 @@ import { adminClient, type Admin } from "./fixtures/db";
  * connection never reaches a live provider.
  */
 
-async function signedInContext(
-  browser: Browser,
-  user: SyntheticUser,
-): Promise<BrowserContext> {
-  return browser.newContext({
-    storageState: { cookies: user.cookies, origins: [] },
-  });
+async function signedInContext(browser: Browser, user: SyntheticUser): Promise<BrowserContext> {
+  return browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
 }
 
-async function personalWorkspaceId(
-  admin: Admin,
-  userId: string,
-): Promise<string> {
+async function personalWorkspaceId(admin: Admin, userId: string): Promise<string> {
   const { data, error } = await admin
     .from("workspaces")
     .select("id")
     .eq("created_by", userId)
     .eq("is_personal", true)
     .single();
-  if (error)
-    throw new Error(
-      `Finding the personal workspace failed (code ${error.code}).`,
-    );
+  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
   return data.id;
 }
 
@@ -57,8 +36,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     .insert({ workspace_id: workspaceId, name: "Checkout" })
     .select("id")
     .single();
-  if (projectError)
-    throw new Error(`Seeding a project failed (code ${projectError.code}).`);
+  if (projectError) throw new Error(`Seeding a project failed (code ${projectError.code}).`);
 
   const { data: connection, error: connectionError } = await admin
     .from("connections")
@@ -71,10 +49,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     })
     .select("id")
     .single();
-  if (connectionError)
-    throw new Error(
-      `Seeding a connection failed (code ${connectionError.code}).`,
-    );
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
 
   const { data: account, error: accountError } = await admin
     .from("external_accounts")
@@ -88,8 +63,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     })
     .select("id")
     .single();
-  if (accountError)
-    throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
 
   const { error: snapshotError } = await admin.from("usage_snapshots").insert({
     workspace_id: workspaceId,
@@ -106,36 +80,21 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     retrieved_at: "2026-10-31T09:00:00Z",
     provenance_source: "provider_api",
   });
-  if (snapshotError)
-    throw new Error(`Seeding a snapshot failed (code ${snapshotError.code}).`);
+  if (snapshotError) throw new Error(`Seeding a snapshot failed (code ${snapshotError.code}).`);
 
   const { data: budget, error: budgetError } = await admin
     .from("budgets")
-    .insert({
-      workspace_id: workspaceId,
-      name: "Monthly",
-      scope: "workspace",
-      amount_minor: 10_000,
-      currency: "USD",
-    })
+    .insert({ workspace_id: workspaceId, name: "Monthly", scope: "workspace", amount_minor: 10_000, currency: "USD" })
     .select("id")
     .single();
-  if (budgetError)
-    throw new Error(`Seeding a budget failed (code ${budgetError.code}).`);
+  if (budgetError) throw new Error(`Seeding a budget failed (code ${budgetError.code}).`);
 
   const { data: rule, error: ruleError } = await admin
     .from("alert_rules")
-    .insert({
-      workspace_id: workspaceId,
-      kind: "budget_percent",
-      scope: "workspace",
-      budget_id: budget.id,
-      threshold_percent: 80,
-    })
+    .insert({ workspace_id: workspaceId, kind: "budget_percent", scope: "workspace", budget_id: budget.id, threshold_percent: 80 })
     .select("id")
     .single();
-  if (ruleError)
-    throw new Error(`Seeding an alert rule failed (code ${ruleError.code}).`);
+  if (ruleError) throw new Error(`Seeding an alert rule failed (code ${ruleError.code}).`);
 
   const { error: alertError } = await admin.from("triggered_alerts").insert({
     workspace_id: workspaceId,
@@ -147,10 +106,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     is_estimated: true,
     message: "Spend is at 85 percent of the Monthly budget.",
   });
-  if (alertError)
-    throw new Error(
-      `Seeding a triggered alert failed (code ${alertError.code}).`,
-    );
+  if (alertError) throw new Error(`Seeding a triggered alert failed (code ${alertError.code}).`);
 
   const { error: eventError } = await admin.from("activity_events").insert({
     workspace_id: workspaceId,
@@ -162,8 +118,7 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     occurred_at: "2026-10-31T08:00:00Z",
     dedupe_key: `account-e2e:${randomUUID()}`,
   });
-  if (eventError)
-    throw new Error(`Seeding an event failed (code ${eventError.code}).`);
+  if (eventError) throw new Error(`Seeding an event failed (code ${eventError.code}).`);
 
   // Far in the future so no tick picks it up while the test runs.
   const { error: jobError } = await admin.from("sync_jobs").insert({
@@ -172,60 +127,26 @@ async function seedWorkspace(admin: Admin, workspaceId: string): Promise<void> {
     kind: "sync",
     run_after: "2099-01-01T00:00:00Z",
   });
-  if (jobError)
-    throw new Error(`Seeding a sync job failed (code ${jobError.code}).`);
+  if (jobError) throw new Error(`Seeding a sync job failed (code ${jobError.code}).`);
 }
 
 /** Rows left in every tenant table for `workspaceId`, by table. */
-async function rowsReferencingWorkspace(
-  admin: Admin,
-  workspaceId: string,
-): Promise<Record<string, number | null>> {
+async function rowsReferencingWorkspace(admin: Admin, workspaceId: string): Promise<Record<string, number | null>> {
   const head = { count: "exact", head: true } as const;
   const results = await Promise.all([
     admin.from("workspaces").select("id", head).eq("id", workspaceId),
-    admin
-      .from("workspace_members")
-      .select("user_id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("profiles")
-      .select("user_id", head)
-      .eq("last_workspace_id", workspaceId),
+    admin.from("workspace_members").select("user_id", head).eq("workspace_id", workspaceId),
+    admin.from("profiles").select("user_id", head).eq("last_workspace_id", workspaceId),
     admin.from("projects").select("id", head).eq("workspace_id", workspaceId),
-    admin
-      .from("connections")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("connection_credentials")
-      .select("connection_id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("oauth_states")
-      .select("state", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("external_accounts")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("usage_snapshots")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("activity_events")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
+    admin.from("connections").select("id", head).eq("workspace_id", workspaceId),
+    admin.from("connection_credentials").select("connection_id", head).eq("workspace_id", workspaceId),
+    admin.from("oauth_states").select("state", head).eq("workspace_id", workspaceId),
+    admin.from("external_accounts").select("id", head).eq("workspace_id", workspaceId),
+    admin.from("usage_snapshots").select("id", head).eq("workspace_id", workspaceId),
+    admin.from("activity_events").select("id", head).eq("workspace_id", workspaceId),
     admin.from("budgets").select("id", head).eq("workspace_id", workspaceId),
-    admin
-      .from("alert_rules")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
-    admin
-      .from("triggered_alerts")
-      .select("id", head)
-      .eq("workspace_id", workspaceId),
+    admin.from("alert_rules").select("id", head).eq("workspace_id", workspaceId),
+    admin.from("triggered_alerts").select("id", head).eq("workspace_id", workspaceId),
     admin.from("sync_jobs").select("id", head).eq("workspace_id", workspaceId),
   ]);
   const tables = [
@@ -246,10 +167,7 @@ async function rowsReferencingWorkspace(
   ];
   return Object.fromEntries(
     results.map(({ count, error }, index) => {
-      if (error)
-        throw new Error(
-          `Counting ${tables[index]} failed (code ${error.code}).`,
-        );
+      if (error) throw new Error(`Counting ${tables[index]} failed (code ${error.code}).`);
       return [tables[index], count];
     }),
   );
@@ -261,42 +179,27 @@ async function userExists(admin: Admin, userId: string): Promise<boolean> {
 }
 
 test.describe("the account header", () => {
-  test("fits a phone without horizontal overflow, and offers the workspace link from sm up", async ({
-    browser,
-  }) => {
+  test("fits a phone without horizontal overflow, and offers the workspace link from sm up", async ({ browser }) => {
     const user = await createSyntheticUser("header");
     const context = await signedInContext(browser, user);
     try {
       const page = await context.newPage();
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/account");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-        "Account",
-      );
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
       // The streamed account content has landed, so the width below is measured on the full page.
       const details = page.getByRole("region", { name: "Sign-in details" });
-      await expect(
-        details.getByText(user.email, { exact: true }),
-      ).toBeVisible();
+      await expect(details.getByText(user.email, { exact: true })).toBeVisible();
 
       const header = page.getByRole("banner");
       const brand = header.getByRole("link", { name: "DevMacro", exact: true });
-      const workspace = header.getByRole("link", {
-        name: "Open your workspace",
-        exact: true,
-      });
+      const workspace = header.getByRole("link", { name: "Open your workspace", exact: true });
       await expect(brand).toBeVisible();
       await expect(brand).toHaveAttribute("href", "/app");
-      await expect(
-        header.getByRole("button", { name: "Sign out", exact: true }),
-      ).toBeVisible();
+      await expect(header.getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
       // The brand already opens the workspace, so the duplicate link gives way on a phone.
       await expect(workspace).toBeHidden();
-      expect(
-        await page.evaluate(
-          () => document.documentElement.scrollWidth === window.innerWidth,
-        ),
-      ).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)).toBe(true);
 
       // At the sm breakpoint the link returns, still leading to the workspace.
       await page.setViewportSize({ width: 640, height: 844 });
@@ -321,11 +224,7 @@ async function openWorkspace(context: BrowserContext): Promise<Page> {
   const page = await context.newPage();
   await page.goto("/app");
   await expect(page).toHaveURL(/\/w\/[a-z2-7]{10}\//);
-  await expect(
-    page
-      .getByRole("banner")
-      .getByRole("button", { name: "Sign out", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
   return page;
 }
 
@@ -333,10 +232,7 @@ async function openWorkspace(context: BrowserContext): Promise<Page> {
  * Asserts that the header's top-row controls sit in order without overlapping, each holds its own
  * content and is at least 24 by 24 pixels, and the page does not scroll sideways (#198).
  */
-async function expectTopRowFits(
-  page: Page,
-  accountName: string,
-): Promise<void> {
+async function expectTopRowFits(page: Page, accountName: string): Promise<void> {
   const header = page.getByRole("banner");
   const controls = [
     header.getByRole("link", { name: "DevMacro", exact: true }),
@@ -345,111 +241,58 @@ async function expectTopRowFits(
     header.getByRole("link", { name: accountName, exact: true }),
     header.getByRole("button", { name: "Sign out", exact: true }),
   ];
-  const boxes = await Promise.all(
-    controls.map((control) => control.boundingBox()),
-  );
+  const boxes = await Promise.all(controls.map((control) => control.boundingBox()));
   for (const [index, box] of boxes.entries()) {
-    if (box === null)
-      throw new Error(`Top-row control ${index} is not rendered.`);
+    if (box === null) throw new Error(`Top-row control ${index} is not rendered.`);
     expect(box.width, `control ${index} width`).toBeGreaterThanOrEqual(24);
     expect(box.height, `control ${index} height`).toBeGreaterThanOrEqual(24);
     const next = boxes[index + 1];
-    if (next)
-      expect(
-        box.x + box.width,
-        `control ${index} ends before control ${index + 1}`,
-      ).toBeLessThanOrEqual(next.x);
+    if (next) expect(box.x + box.width, `control ${index} ends before control ${index + 1}`).toBeLessThanOrEqual(next.x);
   }
   for (const [index, control] of controls.entries()) {
-    expect(
-      await control.evaluate(
-        (element) => element.scrollWidth <= element.clientWidth,
-      ),
-      `control ${index} overflows`,
-    ).toBe(true);
+    expect(await control.evaluate((element) => element.scrollWidth <= element.clientWidth), `control ${index} overflows`).toBe(true);
   }
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth === window.innerWidth,
-    ),
-  ).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth === window.innerWidth)).toBe(true);
 }
 
 test.describe("the workspace header identity", () => {
-  test("shows the GitHub display name and avatar, fits a phone, and opens the Account page by keyboard", async ({
-    browser,
-  }) => {
-    const user = await createSyntheticUser("identity", {
-      full_name: "Ada Example",
-      name: "Ada Example",
-      avatar_url: AVATAR_URL,
-    });
+  test("shows the GitHub display name and avatar, fits a phone, and opens the Account page by keyboard", async ({ browser }) => {
+    const user = await createSyntheticUser("identity", { full_name: "Ada Example", name: "Ada Example", avatar_url: AVATAR_URL });
     const context = await signedInContext(browser, user);
     await context.route("https://avatars.githubusercontent.com/**", (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "image/svg+xml",
-        body: AVATAR_SVG,
-      }),
+      route.fulfill({ status: 200, contentType: "image/svg+xml", body: AVATAR_SVG }),
     );
     try {
       const page = await openWorkspace(context);
-      const account = page
-        .getByRole("banner")
-        .getByRole("link", { name: "Account: Ada Example", exact: true });
+      const account = page.getByRole("banner").getByRole("link", { name: "Account: Ada Example", exact: true });
       await expect(account).toHaveAttribute("href", "/account");
       await expect(account).toHaveText("Account: Ada Example");
-      await expect(
-        account.getByText("Ada Example", { exact: true }),
-      ).toBeVisible();
+      await expect(account.getByText("Ada Example", { exact: true })).toBeVisible();
 
       // The name beside it already says who this is, so the avatar is decorative, and it loaded.
       const avatar = account.getByTestId("account-avatar");
       await expect(avatar).toHaveAttribute("alt", "");
       await expect(avatar).toHaveAttribute("src", `${AVATAR_URL}&s=64`);
-      await expect
-        .poll(() =>
-          avatar.evaluate(
-            (image: HTMLImageElement) => image.complete && image.naturalWidth,
-          ),
-        )
-        .toBe(64);
+      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(64);
 
       const scan = await new AxeBuilder({ page }).include("header").analyze();
       expect(scan.violations).toEqual([]);
       await expectTopRowFits(page, "Account: Ada Example");
 
       // Keyboard: tab forward from the workspace switcher until the identity link has focus.
-      await page
-        .getByRole("banner")
-        .getByRole("button", { name: /^Workspace: / })
-        .focus();
-      for (
-        let presses = 0;
-        presses < 10 &&
-        !(await account.evaluate((link) => link === document.activeElement));
-        presses++
-      ) {
+      await page.getByRole("banner").getByRole("button", { name: /^Workspace: / }).focus();
+      for (let presses = 0; presses < 10 && !(await account.evaluate((link) => link === document.activeElement)); presses++) {
         await page.keyboard.press("Tab");
       }
       await expect(account).toBeFocused();
-      expect(
-        await account.evaluate((link) => getComputedStyle(link).outlineStyle),
-      ).toBe("solid");
+      expect(await account.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
 
       // On a phone the avatar stands for the link; the name is visually hidden (sr-only, so 1 px,
       // which Playwright still counts as visible) and stays in the link's accessible name.
       for (const width of [375, 320]) {
         await page.setViewportSize({ width, height: 700 });
         await expect
-          .poll(
-            async () =>
-              (
-                await account
-                  .getByText("Ada Example", { exact: true })
-                  .boundingBox()
-              )?.width,
-          )
+          .poll(async () => (await account.getByText("Ada Example", { exact: true }).boundingBox())?.width)
           .toBeLessThanOrEqual(1);
         await expect(avatar).toBeVisible();
         await expectTopRowFits(page, "Account: Ada Example");
@@ -457,9 +300,7 @@ test.describe("the workspace header identity", () => {
 
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/\/account$/);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-        "Account",
-      );
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
     } finally {
       await context.close();
       await removeSyntheticUser(user);
@@ -469,28 +310,18 @@ test.describe("the workspace header identity", () => {
   test("falls back to the GitHub username and a person icon when there is no display name and the avatar fails", async ({
     browser,
   }) => {
-    const user = await createSyntheticUser("identity-fallback", {
-      avatar_url: AVATAR_URL,
-    });
+    const user = await createSyntheticUser("identity-fallback", { avatar_url: AVATAR_URL });
     const context = await signedInContext(browser, user);
-    await context.route("https://avatars.githubusercontent.com/**", (route) =>
-      route.fulfill({ status: 404, body: "" }),
-    );
+    await context.route("https://avatars.githubusercontent.com/**", (route) => route.fulfill({ status: 404, body: "" }));
     try {
       const page = await openWorkspace(context);
       const accountName = `Account: ${user.userName}`;
-      const account = page
-        .getByRole("banner")
-        .getByRole("link", { name: accountName, exact: true });
-      await expect(
-        account.getByText(user.userName, { exact: true }),
-      ).toBeVisible();
+      const account = page.getByRole("banner").getByRole("link", { name: accountName, exact: true });
+      await expect(account.getByText(user.userName, { exact: true })).toBeVisible();
 
       // The failed avatar is removed rather than drawn broken, and the person icon shows instead.
       await expect(account.getByTestId("account-avatar")).toHaveCount(0);
-      await expect(
-        account.getByTestId("account-avatar-fallback"),
-      ).toBeVisible();
+      await expect(account.getByTestId("account-avatar-fallback")).toBeVisible();
       await expectTopRowFits(page, accountName);
 
       await account.click();
@@ -502,53 +333,8 @@ test.describe("the workspace header identity", () => {
   });
 });
 
-test.describe("an account with no workspace", () => {
-  test("explains why and who can help, in product words, and passes axe", async ({
-    browser,
-  }) => {
-    const admin = adminClient();
-    const user = await createSyntheticUser("no-workspace");
-    const context = await signedInContext(browser, user);
-    try {
-      // The only way to reach this page: the user's one workspace is gone.
-      const workspaceId = await personalWorkspaceId(admin, user.id);
-      const { error } = await admin
-        .from("workspaces")
-        .delete()
-        .eq("id", workspaceId);
-      if (error)
-        throw new Error(
-          `Deleting the personal workspace failed (code ${error.code}).`,
-        );
-
-      const page = await context.newPage();
-      await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto("/app");
-      const main = page.getByRole("main");
-      await expect(main.getByRole("heading", { level: 1 })).toHaveText(
-        "You are not a member of any workspace",
-      );
-      // #345: the product says "DevMacro", never "the DevMacro test".
-      await expect(main).toContainText(
-        "Contact the person who invited you to DevMacro, or sign out",
-      );
-      await expect(main).not.toContainText(/DevMacro test/);
-      await expect(
-        main.getByRole("button", { name: "Sign out" }),
-      ).toBeVisible();
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
-    } finally {
-      await context.close();
-      await removeSyntheticUser(user);
-    }
-  });
-});
-
 test.describe("deleting an account", () => {
-  test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({
-    browser,
-  }) => {
+  test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({ browser }) => {
     const admin = adminClient();
     const user = await createSyntheticUser("delete");
     const context = await signedInContext(browser, user);
@@ -558,15 +344,11 @@ test.describe("deleting an account", () => {
 
       const page = await context.newPage();
       await page.goto("/account");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-        "Account",
-      );
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
 
       // The confirmation lists exactly what is deleted.
       const deleted = page.getByRole("list", { name: "What is deleted" });
-      await expect(deleted).toContainText(
-        "The Personal workspace (personal), with:",
-      );
+      await expect(deleted).toContainText("The Personal workspace (personal), with:");
       for (const line of [
         "1 Example provider connection and their stored credentials",
         "1 connected account",
@@ -579,21 +361,13 @@ test.describe("deleting an account", () => {
       await expect(deleted).toContainText(/About \d+ history records/);
 
       // And what DevMacro cannot revoke itself, with the steps to do it by hand.
-      const manual = page.getByRole("list", {
-        name: "Providers to revoke by hand",
-      });
+      const manual = page.getByRole("list", { name: "Providers to revoke by hand" });
       await expect(manual.getByRole("listitem")).toHaveCount(1);
-      await expect(manual).toContainText(
-        "Example provider does not let apps revoke their own access.",
-      );
-      await expect(manual).toContainText(
-        "Remove DevMacro's access in your Example provider account settings.",
-      );
+      await expect(manual).toContainText("Example provider does not let apps revoke their own access.");
+      await expect(manual).toContainText("Remove DevMacro's access in your Example provider account settings.");
 
       // The button stays disabled until the account email is typed.
-      const confirmation = page.getByRole("textbox", {
-        name: "Type your email address or GitHub username to confirm",
-      });
+      const confirmation = page.getByRole("textbox", { name: "Type your email address or GitHub username to confirm" });
       const button = page.getByRole("button", { name: "Delete my account" });
       await expect(button).toBeDisabled();
       await confirmation.fill("someone-else@example.com");
@@ -608,12 +382,8 @@ test.describe("deleting an account", () => {
       await button.click();
 
       await expect(page).toHaveURL(/\/account\/deleted\?manual=fake$/);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText(
-        "Your account is deleted",
-      );
-      await expect(
-        page.getByRole("list", { name: "Providers to revoke by hand" }),
-      ).toContainText("Example provider");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Your account is deleted");
+      await expect(page.getByRole("list", { name: "Providers to revoke by hand" })).toContainText("Example provider");
 
       // Signed out: the account page now asks to sign in.
       await page.goto("/account");
@@ -647,9 +417,7 @@ test.describe("deleting an account", () => {
     }
   });
 
-  test("stops the sole owner of a workspace with another member, and deletes nothing", async ({
-    browser,
-  }) => {
+  test("stops the sole owner of a workspace with another member, and deletes nothing", async ({ browser }) => {
     const admin = adminClient();
     const owner = await createSyntheticUser("sole-owner");
     const member = await createSyntheticUser("member");
@@ -657,15 +425,8 @@ test.describe("deleting an account", () => {
     let sharedId: string | null = null;
     try {
       const name = `Shared ${randomUUID().slice(0, 8)}`;
-      const { data, error } = await admin.rpc("create_workspace", {
-        p_user_id: owner.id,
-        p_name: name,
-        p_is_personal: false,
-      });
-      if (error)
-        throw new Error(
-          `Creating the shared workspace failed (code ${error.code}).`,
-        );
+      const { data, error } = await admin.rpc("create_workspace", { p_user_id: owner.id, p_name: name, p_is_personal: false });
+      if (error) throw new Error(`Creating the shared workspace failed (code ${error.code}).`);
       sharedId = z.object({ id: z.string() }).parse(data).id;
       const personalId = await personalWorkspaceId(admin, owner.id);
       await seedWorkspace(admin, personalId);
@@ -673,44 +434,25 @@ test.describe("deleting an account", () => {
       // The page is loaded while the owner is still the only member, so the form is offered.
       const page = await context.newPage();
       await page.goto("/account");
-      await expect(
-        page.getByRole("list", { name: "What is deleted" }),
-      ).toContainText(`The ${name} workspace`);
-      await page
-        .getByRole("textbox", {
-          name: "Type your email address or GitHub username to confirm",
-        })
-        .fill(owner.email);
+      await expect(page.getByRole("list", { name: "What is deleted" })).toContainText(`The ${name} workspace`);
+      await page.getByRole("textbox", { name: "Type your email address or GitHub username to confirm" }).fill(owner.email);
 
       // Someone joins before the button is pressed: the server plans again and refuses.
       const { error: memberError } = await admin
         .from("workspace_members")
         .insert({ workspace_id: sharedId, user_id: member.id, role: "viewer" });
-      if (memberError)
-        throw new Error(`Adding the member failed (code ${memberError.code}).`);
+      if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
       await page.getByRole("button", { name: "Delete my account" }).click();
-      await expect(
-        page
-          .getByRole("status")
-          .filter({ hasText: "Your account was not deleted." }),
-      ).toContainText(
+      await expect(page.getByRole("status").filter({ hasText: "Your account was not deleted." })).toContainText(
         `You are the only owner of ${name}, and other people belong to it. Transfer ownership to another member or delete that workspace first, then try again.`,
       );
       await expect(page).toHaveURL(/\/account$/);
 
       // Reloaded, the page explains the block and offers no way to delete.
       await page.reload();
-      await expect(
-        page.getByRole("heading", {
-          name: "You cannot delete your account yet",
-        }),
-      ).toBeVisible();
-      await expect(
-        page.getByRole("list", { name: "Workspaces that need another owner" }),
-      ).toContainText(name);
-      await expect(
-        page.getByRole("button", { name: "Delete my account" }),
-      ).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "You cannot delete your account yet" })).toBeVisible();
+      await expect(page.getByRole("list", { name: "Workspaces that need another owner" })).toContainText(name);
+      await expect(page.getByRole("button", { name: "Delete my account" })).toHaveCount(0);
       await expect(page.getByText("Nothing has been deleted.")).toBeVisible();
 
       // Nothing was deleted: the user, both workspaces, and the personal workspace's data remain.
@@ -719,24 +461,13 @@ test.describe("deleting an account", () => {
       expect(shared.workspaces).toBe(1);
       expect(shared.workspace_members).toBe(2);
       const personal = await rowsReferencingWorkspace(admin, personalId);
-      expect(personal).toMatchObject({
-        workspaces: 1,
-        workspace_members: 1,
-        projects: 1,
-        connections: 1,
-        budgets: 1,
-      });
-      const { data: connection } = await admin
-        .from("connections")
-        .select("status")
-        .eq("workspace_id", personalId)
-        .single();
+      expect(personal).toMatchObject({ workspaces: 1, workspace_members: 1, projects: 1, connections: 1, budgets: 1 });
+      const { data: connection } = await admin.from("connections").select("status").eq("workspace_id", personalId).single();
       expect(connection?.status).toBe("active");
     } finally {
       await context.close();
       // The shared workspace goes first: while it has another member, the owner cannot be deleted.
-      if (sharedId !== null)
-        await admin.from("workspaces").delete().eq("id", sharedId);
+      if (sharedId !== null) await admin.from("workspaces").delete().eq("id", sharedId);
       await removeSyntheticUser(owner);
       await removeSyntheticUser(member);
     }
