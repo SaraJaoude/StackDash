@@ -1,12 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionMissingError } from "./errors";
 import { eventTypes, exampleAdapter, metricKeys } from "./example";
 import { fakeAdapter } from "./fake";
 import { checkAdapterDeclaration, checkSyncResult, checkTraffic, createAdapterHarness, routeKey } from "./harness";
 import type { AdapterMetric } from "./metrics";
-import { availableProviders } from "./registry";
+import { getAdapter } from "./registry";
 import { simulatedAdapters } from "./simulated";
-import type { ProviderAdapter, SyncResult } from "./types";
+import { liveProviderIds, type ProviderAdapter, type SyncResult } from "./types";
 
 const NOW = new Date("2026-11-16T00:00:00.000Z");
 const ACCOUNT = "acct_1001";
@@ -38,14 +38,23 @@ function adapterWith(change: Partial<ProviderAdapter<string>>): ProviderAdapter<
 }
 
 describe("checkAdapterDeclaration", () => {
-  const registered = [
-    ...availableProviders(),
-    ...Object.values(simulatedAdapters),
-    fakeAdapter,
-    exampleAdapter,
-  ];
+  // The live adapters whatever the developer's shell exports: with simulation on, `getAdapter`
+  // hands out the simulated twins, which are checked on their own below.
+  beforeEach(() => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "");
+  });
 
-  it.each(registered.map((adapter) => [adapter.id, adapter] as const))("passes the %s adapter", (_id, adapter) => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each(liveProviderIds)("passes the live %s adapter", (id) => {
+    expect(checkAdapterDeclaration(getAdapter(id))).toEqual([]);
+  });
+
+  const unregistered = [...Object.values(simulatedAdapters), fakeAdapter, exampleAdapter];
+
+  it.each(unregistered.map((adapter) => [adapter.id, adapter] as const))("passes the %s adapter", (_id, adapter) => {
     expect(checkAdapterDeclaration(adapter)).toEqual([]);
   });
 
