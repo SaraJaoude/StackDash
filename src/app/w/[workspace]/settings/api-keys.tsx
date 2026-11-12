@@ -4,6 +4,7 @@ import { startTransition, useActionState, useEffect, useId, useRef, useState } f
 
 import { buttonClass } from "@/components/ui/button";
 import { OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
@@ -380,9 +381,9 @@ function ApiKeyRow({
 }
 
 /**
- * Revoke button plus a native modal `<dialog>` that says what revoking does before confirming.
- * Escape closes it (native behavior) and focus goes back to the button; after a revoke the button
- * is gone, so the status region announces the result instead.
+ * Revoke button plus a `ModalDialog` that says what revoking does before confirming. Escape or
+ * Cancel returns focus to the button; after a revoke the button is gone, so the status region
+ * announces the result instead.
  */
 function RevokeApiKeyDialog({
   workspaceSlug,
@@ -393,53 +394,31 @@ function RevokeApiKeyDialog({
   apiKey: ApiKeyItem;
   onRevoked: (name: string) => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const revokedRef = useRef(false);
-  // Bumped on every open so the confirmation starts fresh, without a previous attempt's error.
-  const [openCount, setOpenCount] = useState(0);
-  const titleId = useId();
-  const descriptionId = useId();
+  const dialog = useModalDialog();
 
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
-        onClick={() => {
-          setOpenCount((count) => count + 1);
-          dialogRef.current?.showModal();
-        }}
+        onClick={(event) => dialog.open(event.currentTarget)}
         className={`shrink-0 self-start ${buttonClass("danger-quiet", "sm")}`}
       >
         Revoke<span className="sr-only"> {apiKey.name}</span>
       </button>
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        onClose={() => {
-          if (!revokedRef.current) triggerRef.current?.focus();
-        }}
-        className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
+      <ModalDialog
+        dialog={dialog}
+        title={`Revoke ${apiKey.name}?`}
+        description="Every script or tool using this key gets an error from its next request. A revoked key cannot be turned back on; create a new key if you need access again."
       >
-        {/* Mounted on first open only, so its autofocus never fires on page load. */}
-        {openCount === 0 ? null : (
-          <RevokeConfirmation
-            key={openCount}
-            workspaceSlug={workspaceSlug}
-            apiKey={apiKey}
-            titleId={titleId}
-            descriptionId={descriptionId}
-            onCancel={() => dialogRef.current?.close()}
-            onRevoked={(name) => {
-              revokedRef.current = true;
-              dialogRef.current?.close();
-              onRevoked(name);
-            }}
-          />
-        )}
-      </dialog>
+        <RevokeConfirmation
+          workspaceSlug={workspaceSlug}
+          apiKey={apiKey}
+          onRevoked={(name) => {
+            dialog.close("completed");
+            onRevoked(name);
+          }}
+        />
+      </ModalDialog>
     </>
   );
 }
@@ -447,16 +426,10 @@ function RevokeApiKeyDialog({
 function RevokeConfirmation({
   workspaceSlug,
   apiKey,
-  titleId,
-  descriptionId,
-  onCancel,
   onRevoked,
 }: {
   workspaceSlug: string;
   apiKey: ApiKeyItem;
-  titleId: string;
-  descriptionId: string;
-  onCancel: () => void;
   onRevoked: (name: string) => void;
 }) {
   const [state, formAction, pending] = useActionState<RevokeApiKeyResult | null, FormData>(
@@ -472,33 +445,13 @@ function RevokeConfirmation({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="keyId" value={apiKey.id} />
-      <h2 id={titleId} className="break-words text-lg font-semibold tracking-tight">
-        Revoke {apiKey.name}?
-      </h2>
-      <p id={descriptionId} className="mt-3 text-sm leading-6 text-muted">
-        Every script or tool using this key gets an error from its next request. A revoked key cannot be turned back
-        on; create a new key if you need access again.
-      </p>
       <ErrorSummary failure={failureOf(state)} />
-      <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button
-          type="button"
-          // Cancel first and focused, so Enter right after opening never revokes.
-          autoFocus
-          disabled={pending}
-          onClick={onCancel}
-          className={buttonClass("secondary")}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={pending}
-          className={buttonClass("danger")}
-        >
+      <DialogActions>
+        <DialogCloseButton unavailable={pending} />
+        <button type="submit" disabled={pending} className={buttonClass("danger")}>
           {pending ? "Revoking" : "Revoke key"}
         </button>
-      </div>
+      </DialogActions>
     </form>
   );
 }

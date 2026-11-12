@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useRef, useState, type ReactNode } from "react";
+import { useActionState, useId, useState, type ReactNode } from "react";
 
 import {
   assignAccountProject,
@@ -15,6 +15,7 @@ import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
 import { DialogError } from "@/components/ui/dialog-error";
 import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
 
@@ -185,11 +186,10 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
 }
 
 /**
- * Native modal dialog: the browser traps focus, closes on Escape, and returns focus to the
- * opener. The body lists exactly what confirming does. A failure keeps the dialog open and shows
- * inside it, where it can be seen and heard; a success closes it and shows beside the opener.
- * Like `DeleteProjectDialog`, the confirmation remounts on every open, so it starts without a
- * previous attempt's error.
+ * A `ModalDialog` whose body lists exactly what confirming does. A failure keeps the dialog open
+ * and shows inside it, where it can be seen and heard; a success closes it and shows beside the
+ * opener. The confirmation remounts on every open, so it starts without a previous attempt's
+ * error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -211,12 +211,9 @@ function ConfirmDialog({
   connectionId: string;
   children: ReactNode;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  // Bumped on every open so the confirmation starts fresh, without a previous attempt's error.
-  const [openCount, setOpenCount] = useState(0);
+  const dialog = useModalDialog();
   // Held here rather than in the confirmation, so a success outlives the dialog closing.
   const [succeeded, setSucceeded] = useState<ConnectionActionResult | null>(null);
-  const titleId = useId();
 
   return (
     <div className="flex flex-col gap-2">
@@ -224,10 +221,9 @@ function ConfirmDialog({
         <button
           type="button"
           className={`shrink-0 ${buttonClass("danger-outline")}`}
-          onClick={() => {
-            setOpenCount((count) => count + 1);
+          onClick={(event) => {
             setSucceeded(null);
-            dialogRef.current?.showModal();
+            dialog.open(event.currentTarget);
           }}
         >
           {openLabel}
@@ -235,31 +231,18 @@ function ConfirmDialog({
       )}
       {/* Outside the dialog so a success stays readable after it closes. */}
       <ActionStatus state={succeeded} pending={false} />
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-panel p-6 text-foreground backdrop:bg-black/70"
-      >
-        <h2 id={titleId} className="text-lg font-semibold tracking-tight">
-          {title}
-        </h2>
-        <div className="mt-3 text-sm leading-6 text-muted">{children}</div>
-        {/* Mounted on first open only, so its autofocus never fires on page load. */}
-        {openCount === 0 ? null : (
-          <ConfirmForm
-            key={openCount}
-            confirmLabel={confirmLabel}
-            action={action}
-            workspaceSlug={workspaceSlug}
-            connectionId={connectionId}
-            onCancel={() => dialogRef.current?.close()}
-            onSucceeded={(result) => {
-              setSucceeded(result);
-              dialogRef.current?.close();
-            }}
-          />
-        )}
-      </dialog>
+      <ModalDialog dialog={dialog} title={title} description={children}>
+        <ConfirmForm
+          confirmLabel={confirmLabel}
+          action={action}
+          workspaceSlug={workspaceSlug}
+          connectionId={connectionId}
+          onSucceeded={(result) => {
+            setSucceeded(result);
+            dialog.close("completed");
+          }}
+        />
+      </ModalDialog>
     </div>
   );
 }
@@ -269,14 +252,12 @@ function ConfirmForm({
   action,
   workspaceSlug,
   connectionId,
-  onCancel,
   onSucceeded,
 }: {
   confirmLabel: string;
   action: Action;
   workspaceSlug: string;
   connectionId: string;
-  onCancel: () => void;
   onSucceeded: (result: ConnectionActionResult) => void;
 }) {
   const [state, formAction, pending] = useConnectionAction(async (previous, formData) => {
@@ -288,16 +269,15 @@ function ConfirmForm({
   return (
     <>
       <DialogError failure={state?.ok === false ? state : null} />
-      <form action={formAction} className="mt-6 flex flex-wrap justify-end gap-3">
+      <form action={formAction}>
         <input type="hidden" name="workspace" value={workspaceSlug} />
         <input type="hidden" name="connectionId" value={connectionId} />
-        {/* Cancel first and focused, so Enter right after opening never confirms. */}
-        <button type="button" autoFocus className={`shrink-0 ${buttonClass("outline")}`} onClick={onCancel}>
-          Cancel
-        </button>
-        <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("danger-outline")}`}>
-          {pending ? "Working" : confirmLabel}
-        </GuardedButton>
+        <DialogActions>
+          <DialogCloseButton className={`shrink-0 ${buttonClass("outline")}`} />
+          <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("danger-outline")}`}>
+            {pending ? "Working" : confirmLabel}
+          </GuardedButton>
+        </DialogActions>
       </form>
     </>
   );

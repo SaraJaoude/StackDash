@@ -574,12 +574,15 @@ src/
     app/                       app shell: navigation, workspace switcher, command palette, page states
     account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
-    connections/               connection status, controls, provider marks
+    connections/               connection status and controls
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
+    ui/                        shared primitives, used instead of writing your own: ProviderMark,
+                               ModalDialog (the only <dialog>), buttonClass, LiveRegion and the
+                               status and error announcements, DialogError
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
