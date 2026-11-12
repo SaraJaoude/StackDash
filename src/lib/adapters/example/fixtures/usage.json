@@ -1,0 +1,16 @@
+{
+  "account_id": "acct_1001",
+  "period": {
+    "start": "2026-11-01T00:00:00Z",
+    "end": "2026-12-01T00:00:00Z"
+  },
+  "requests": {
+    "used": 41250,
+    "included": 50000
+  },
+  "credits": {
+    "balance_minor": 2500,
+    "currency": "USD"
+  },
+  "plan": "starter"
+}
