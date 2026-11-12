@@ -12,7 +12,7 @@ You land on the **Timeline** of your personal workspace. The navigation along th
 
 A new workspace has nothing to show yet, so the timeline says **No activity yet**. On a site that simulates providers (only a local install with `DEVMACRO_SIMULATE_PROVIDERS=1`, never a production deployment), owners and admins of a workspace with no connections also see **Explore with sample data**. Select it to connect every simulated provider to this workspace with this week's made-up history. The timeline opens with **Sample data added**, and everything that data shows is labeled **Simulated**.
 
-When you are done looking around, delete the simulated connections on the **Connections** page, then connect your real providers. Skip this step if your site does not offer the button.
+When you are done looking around, open each simulated connection from **Connections** and select **Delete connection and history**. A site that simulates providers simulates every provider, so real providers connect only after the person who runs the site removes `DEVMACRO_SIMULATE_PROVIDERS` and restarts DevMacro. Skip this step if your site does not offer the button.
 
 ## 3. Connect your first provider
 
@@ -31,7 +31,7 @@ The **Timeline** is the live feed of your stack: deploys, payments, sync failure
 
 The **Dashboard** adds up spend, usage, and allowances across every connected provider:
 
-- The headline at the top compares **This week** or **This month** with the same days of the period before: **Revenue**, **Revenue minus spend**, **Signups**, **Cost per signup**, and **Deploys**. A figure DevMacro cannot work out says why instead of showing a number.
+- The headline at the top compares **This week** or **This month** with the same days of the period before: **Revenue**, **Spend**, **Revenue minus spend**, **Signups**, **Cost per signup**, and **Deploys**. A figure DevMacro cannot work out says why instead of showing a number.
 - Below it, each provider has a card with its spend, its allowances and how much of each is left, and when they reset. **Verified spend** is the amount the provider reported. **Estimated spend** is calculated by DevMacro from the provider's published prices, and says so.
 
 ## 5. Set an alert
@@ -41,7 +41,7 @@ Open **Alerts**. Owners and admins manage rules; every member sees what fired.
 - **Suggested alerts** appears when a connected provider reports allowances that no rule watches yet. Select **Add these alerts** to be alerted at 75%, 90%, and 100% of each of that provider's allowances.
 - To write your own rule, go to **Add an alert rule**. Under **Alert when**, choose **Usage reaches a percentage of a provider allowance**, **Spend reaches an amount**, or **Spend reaches a percentage of your budget** (add the budget under **Add a budget** first), set the threshold, and select **Add alert rule**.
 
-A rule raises an alert at most once per billing period. Alerts that fired are listed under **Triggered alerts** at the top of the page, where you acknowledge them.
+A rule raises an alert at most once per billing period. Alerts that fired are listed under **Triggered alerts** at the top of the page, where owners and admins acknowledge them.
 
 ## 6. Publish a metric
 
