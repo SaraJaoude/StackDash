@@ -233,7 +233,7 @@ ownerTest.describe("alert rules as the owner", () => {
     }
   });
 
-  ownerTest("pages budgets from the keyboard onto the Budgets heading, with focus on it (#312, #313)", async ({ page }) => {
+  ownerTest("pages budgets from the keyboard onto the Budgets heading, with focus on it (#312, #313, #343)", async ({ page }) => {
     const workspace = await createTestWorkspace("Budget pages");
     try {
       // One more than a page of budgets (BUDGETS_PAGE_SIZE is 50), so "Show more budgets" appears.
@@ -249,10 +249,13 @@ ownerTest.describe("alert rules as the owner", () => {
           })),
         );
       if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
-      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      // Opened by its fragment, as the inbox's "Add an alert rule" link opens it (#343).
+      await page.goto(`/w/${workspace.slug}/alerts/settings#add-alert-rule`);
       // A client navigation, as a user gets once the page has hydrated: before that the link is a
       // plain anchor and the browser itself handles the fragment.
       await expectHydrated(page);
+      const ruleForm = page.getByRole("form", { name: "Add an alert rule" });
+      await ruleForm.getByRole("radio", { name: "90%" }).check();
       const showMore = page.getByRole("link", { name: "Show more budgets" });
       await showMore.focus();
       await page.keyboard.press("Enter");
@@ -269,6 +272,12 @@ ownerTest.describe("alert rules as the owner", () => {
       await page.keyboard.press("Tab");
       await expect(page.getByRole("list", { name: "Budgets" }).getByRole("button", { name: /^Edit budget/ }).first()).toBeFocused();
       await expectNoAxeViolations(page);
+      // The pager moved the fragment off #add-alert-rule without a hashchange. The rule form stays
+      // open with what was chosen in it, and the refresh after adding keeps it and its status.
+      await expect(ruleForm.getByRole("radio", { name: "90%" })).toBeChecked();
+      await ruleForm.getByRole("button", { name: "Add alert rule" }).click();
+      await expect(ruleForm.getByRole("status").filter({ hasText: "Alert rule added." })).toBeVisible();
+      await expect(rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 90% of every allowance" })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
