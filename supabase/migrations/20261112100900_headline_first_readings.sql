@@ -7,7 +7,7 @@
 --   p_on_or_before among the rows of that connection and of its accounts that were passed in. A
 --   connection with no such row returns no row. Connections come from the accounts passed in, so a
 --   connection with no account in view is not read, as before.
--- * One index probe per connection. The per connection requests read
+-- * Starts each connection at its own oldest row. The per connection requests read
 --   usage_snapshots_workspace_date_idx from the workspace's oldest day until they met a row of
 --   their connection, so a connection added months after the others scanned the others' history
 --   first: 6.4 ms and 27,236 buffers for the newest of ten connections over 46,200 synthetic rows.
@@ -16,9 +16,18 @@
 --   all ten. It still serves the foreign key to connections, whose leading column it keeps, so the
 --   table keeps the same number of indexes. Measured with explain (analyze, buffers), quoted on
 --   #346.
+-- * What a connection reads: external_account_id is not a column of the index, so the accounts
+--   passed in are a filter on the scan. When the connection's oldest row belongs to an account in
+--   view, that is one index probe. Otherwise the scan first reads and discards the connection's
+--   rows that are older than its first reading in view: a connection with a year of one account's
+--   history, read for a second account that joined it six weeks ago, reads 6,474 buffers (6,461
+--   rows filtered, 0.8 ms). That is bounded by one connection's history, where the request it
+--   replaces was bounded by the workspace's.
 -- * security definer with one membership check up front, as headline_event_counts
---   (20261112093000_headline_event_counts.sql): a non-member reads nothing, and every row read is
---   still scoped to p_workspace_id.
+--   (20261112093000_headline_event_counts.sql): a non-member reads nothing.
+--   20261112100902_headline_first_readings_connection_probe.sql drops the s.workspace_id
+--   predicate below, which let the planner go back to the workspace index, and says why every row
+--   read stays inside p_workspace_id without it.
 
 create index usage_snapshots_connection_date_idx on public.usage_snapshots (connection_id, snapshot_date);
 drop index public.usage_snapshots_connection_id_idx;
