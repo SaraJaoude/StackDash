@@ -43,12 +43,13 @@ OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and 
 
 ### 1. Prerequisites
 
-- Node.js 22.13 or later in the 22 line, or Node.js 24 or later, and npm. CI uses Node.js 22, and
-  `.nvmrc` says the same, so `nvm use` picks it. The floor comes from `package-lock.json`:
-  `@supabase/supabase-js` and its packages need Node.js 22, Vite and Rolldown (used by Vitest) and
-  `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used by typescript-eslint) needs
-  22.13. Node.js 23 is not supported: Vitest 4 and `eslint-visitor-keys` 5 both leave it out. The
-  `engines` field in `package.json` holds the same range.
+- Node.js 22.13 or later in the 22 line, and npm. CI and the hosted app on Vercel both use Node.js
+  22, and `.nvmrc` says the same, so `nvm install` installs the latest 22 and selects it. The floor
+  comes from `package-lock.json`: `@supabase/supabase-js` and its packages need Node.js 22, Vite and
+  Rolldown (used by Vitest) and `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used
+  by typescript-eslint) needs 22.13. The `engines` field in `package.json` holds the same range,
+  `^22.13.0`: Vercel reads it to choose the Node.js version it deploys, so it stays on the version CI
+  tests. On Node.js 24 or later, `npm ci` warns `EBADENGINE` and carries on.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
   version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
