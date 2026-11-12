@@ -226,7 +226,7 @@ export function checkAdapterDeclaration(adapter: ProviderAdapter<string>): strin
 
 // The capability that must be declared for the dashboard to show each metric kind (#269 leaves
 // out what a provider never declares).
-const KIND_CAPABILITY: Readonly<Record<AdapterMetric["kind"], keyof AdapterCapabilities>> = {
+export const KIND_CAPABILITY: Readonly<Record<AdapterMetric["kind"], keyof AdapterCapabilities>> = {
   usage: "usage",
   verified_spend: "spending",
   estimated_spend: "spending",

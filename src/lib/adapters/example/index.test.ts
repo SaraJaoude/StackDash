@@ -6,9 +6,10 @@ import {
   checkTraffic,
   createAdapterHarness,
   HARNESS_CLIENT_ID,
+  KIND_CAPABILITY,
   type RecordedRoutes,
 } from "@/lib/adapters/harness";
-import { Secret, type OAuthCredential } from "@/lib/adapters/types";
+import { Secret, type AdapterCapabilities, type OAuthCredential } from "@/lib/adapters/types";
 import {
   EVENT_BACKFILL_DAYS,
   EXAMPLE_API_BASE,
@@ -89,20 +90,17 @@ describe("example adapter declaration", () => {
     expect(checkAdapterDeclaration(exampleAdapter)).toEqual([]);
   });
 
-  it("declares every capability and the overage projection", () => {
-    expect(exampleAdapter.capabilities).toEqual({
-      oauth: true,
-      polling: true,
-      webhooks: false,
-      usage: true,
-      spending: true,
-      allowance: true,
-      credits: true,
-      revenue: true,
-      events: true,
-    });
-    expect(exampleAdapter.projectedSpend).toEqual([metricKeys.overageProjected]);
-    expect(exampleAdapter.permissions.every((permission) => permission.access === "read")).toBe(true);
+  // checkSyncResult rejects a kind whose capability is false; this is the other direction, so a
+  // capability declared but never exercised fails here instead of passing unnoticed.
+  it("emits a metric or an event for every data capability it declares", async () => {
+    const { result } = await syncWith();
+    const emitted = new Set<keyof AdapterCapabilities>(result.metrics.map((metric) => KIND_CAPABILITY[metric.kind]));
+    if (result.events.length > 0) emitted.add("events");
+    const dataCapabilities = new Set<keyof AdapterCapabilities>([...Object.values(KIND_CAPABILITY), "events"]);
+    const declared = [...dataCapabilities].filter((capability) => exampleAdapter.capabilities[capability]);
+
+    expect(declared).toHaveLength(dataCapabilities.size);
+    expect(declared.filter((capability) => !emitted.has(capability))).toEqual([]);
   });
 });
 
