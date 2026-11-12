@@ -620,7 +620,8 @@ URL (alert settings marks them as needing attention after their next message).
 
 ```text
 src/
-  proxy.ts                     content security policy, Supabase session refresh, project page addresses
+  proxy.ts                     content security policy, Supabase session refresh, project page addresses, and
+                               /app/admin sent to the super admin route for super admins only, so anyone else gets 404
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
@@ -636,7 +637,8 @@ src/
     docs/                      the Markdown in docs/ published at /docs, one page per file, except docs/internal/
     privacy/, terms/           privacy policy and terms of use, published only when the operator variables are set
     auth/                      OAuth callback, error page, sign-out
-    app/                       entry after sign-in, sends you to a workspace; app/admin/ is the super admin instance overview
+    app/                       entry after sign-in, sends you to a workspace
+    super-admin/               the super admin instance overview, answered at /app/admin through the proxy only
     account/                   account page, delete account action, signed-out "account deleted" page
     w/[workspace]/             dashboard, connections, projects, timeline, alerts and alert settings, settings, year in review
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
