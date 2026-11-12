@@ -5,6 +5,7 @@ import { useId, useRef, useState } from "react";
 
 import { inputClass } from "@/components/alerts/form-controls";
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 
 const SMALL_BUTTON = buttonClass("raised", "xs");
 
@@ -50,17 +51,17 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
   const dialogRef = useRef<HTMLDialogElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [opened, setOpened] = useState(false);
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<Outcome | null>(null);
   const titleId = useId();
   const baseId = useId();
 
   async function copy(text: string, target: CopyTarget) {
     try {
       await navigator.clipboard.writeText(text);
-      setStatus(`Copied the ${target}.`);
+      setStatus({ tone: "info", message: `Copied the ${target}.` });
     } catch {
       // The clipboard needs permission and a secure context; the text stays selectable instead.
-      setStatus(`Could not copy the ${target}. Select the text in its field and copy it yourself.`);
+      setStatus({ tone: "error", message: `Could not copy the ${target}. Select the text in its field and copy it yourself.` });
     }
   }
 
@@ -71,7 +72,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
         type="button"
         onClick={() => {
           setOpened(true);
-          setStatus("");
+          setStatus(null);
           dialogRef.current?.showModal();
         }}
         className={SMALL_BUTTON}
@@ -195,9 +196,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
                     Share to LinkedIn<span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 )}
-                <p role="status" aria-live="polite" className="text-muted">
-                  {status}
-                </p>
+                <OutcomeAnnouncement outcome={status} />
               </div>
             </div>
           </div>

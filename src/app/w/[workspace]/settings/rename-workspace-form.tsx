@@ -4,6 +4,7 @@ import { useActionState, useId, useState } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 
 import { renameWorkspace, type RenameWorkspaceResult } from "./actions";
 
@@ -23,7 +24,6 @@ export function RenameWorkspaceForm({ workspaceSlug, currentName }: { workspaceS
   const errorId = useId();
 
   const fieldError = state !== null && !state.ok ? state.fieldErrors?.name : undefined;
-  const formError = state !== null && !state.ok && fieldError === undefined ? state : undefined;
 
   return (
     <form action={formAction} className="px-6 py-5">
@@ -66,21 +66,7 @@ export function RenameWorkspaceForm({ workspaceSlug, currentName }: { workspaceS
       </div>
 
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="mt-3 text-sm">
-        {pending ? null : state?.ok === true ? (
-          <p className="text-success">Workspace renamed.</p>
-        ) : state !== null && !state.ok ? (
-          <p className="text-danger">
-            {state.message}
-            {formError?.referenceId === undefined ? null : (
-              <>
-                {" "}
-                Reference <code className="font-mono text-xs text-foreground">{formError.referenceId}</code>.
-              </>
-            )}
-          </p>
-        ) : null}
-      </div>
+      <OutcomeAnnouncement outcome={outcomeOf(pending ? null : state, "Workspace renamed.")} className="mt-3 text-sm" />
     </form>
   );
 }

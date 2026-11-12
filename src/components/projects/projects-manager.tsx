@@ -10,6 +10,7 @@ import { DeleteProjectDialog } from "@/components/projects/delete-project-dialog
 import { accountCountLabel, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 import { RenameProjectForm } from "@/components/projects/rename-project-form";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 
 export type ProjectItem = { id: string; name: string } & ProjectDeletionImpact;
 
@@ -48,9 +49,9 @@ export function ProjectsManager({
 
   const statusRegion = (
     // Always mounted so screen readers announce changes to it.
-    <div role="status" aria-live="polite" className="text-sm text-success">
+    <LiveRegion tone="status" className="text-sm text-success">
       {status === "" ? null : <p className="mt-6">{status}</p>}
-    </div>
+    </LiveRegion>
   );
 
   function onCreated(name: string) {

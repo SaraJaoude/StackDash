@@ -10,6 +10,7 @@ import {
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { FailureAnnouncement, LiveRegion } from "@/components/ui/live-region";
 
 import { failureOf } from "./form-controls";
 import { acknowledgedAllMessage } from "./labels";
@@ -28,9 +29,9 @@ export function AcknowledgeAnnouncer({ children }: { children: ReactNode }) {
   const [message, setMessage] = useState("");
   return (
     <AnnounceContext value={setMessage}>
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {message === "" ? null : <p className="border-b border-line px-6 py-3 text-success">{message}</p>}
-      </div>
+      </LiveRegion>
       {children}
     </AnnounceContext>
   );
@@ -64,7 +65,6 @@ export function AcknowledgeButton({
     null,
   );
   if (announce === null) throw new Error("AcknowledgeButton must be rendered inside AcknowledgeAnnouncer");
-  const failure = failureOf(state);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
@@ -73,14 +73,7 @@ export function AcknowledgeButton({
         {pending ? "Acknowledging" : "Acknowledge"}
         <span className="sr-only">: {accessibleSuffix}</span>
       </GuardedButton>
-      <div role="alert" aria-live="assertive" className="text-sm">
-        {failure === null ? null : (
-          <p className="mt-2 text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </p>
-        )}
-      </div>
+      <FailureAnnouncement failure={failureOf(state)} className="text-sm" messageClassName="mt-2" />
     </form>
   );
 }
@@ -112,21 +105,13 @@ export function AcknowledgeAllButton({
     null,
   );
   if (announce === null) throw new Error("AcknowledgeAllButton must be rendered inside AcknowledgeAnnouncer");
-  const failure = failureOf(state);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Acknowledging all" : "Acknowledge all"}
       </GuardedButton>
-      <div role="alert" aria-live="assertive" className="text-sm">
-        {failure === null ? null : (
-          <p className="mt-2 text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </p>
-        )}
-      </div>
+      <FailureAnnouncement failure={failureOf(state)} className="text-sm" messageClassName="mt-2" />
     </form>
   );
 }

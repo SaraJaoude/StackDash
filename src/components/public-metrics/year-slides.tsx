@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 import { GuardedButton } from "@/components/guarded-button";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import type { YearSlide } from "@/lib/public-metrics/yearly";
 
 /*
@@ -113,9 +114,9 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
           notes={SHARE_NOTES}
         />
       </div>
-      <p aria-live="polite" className="sr-only">
+      <LiveRegion tone="status" as="p" className="sr-only">
         {moved ? `Slide ${index + 1} of ${total}: ${slide.title}` : ""}
-      </p>
+      </LiveRegion>
     </div>
   );
 }

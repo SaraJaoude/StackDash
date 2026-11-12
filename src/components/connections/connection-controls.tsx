@@ -11,9 +11,10 @@ import {
   syncNow,
   type ConnectionActionResult,
 } from "@/app/w/[workspace]/connections/actions";
-import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
+import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
 
@@ -24,21 +25,10 @@ const ACCOUNT_FORM = "flex flex-col gap-2 sm:row-span-3 sm:grid sm:grid-rows-sub
 /** Always mounted, so screen readers announce every change. */
 function ActionStatus({ state, pending }: { state: ConnectionActionResult | null; pending: boolean }) {
   return (
-    <div role="status" aria-live="polite" className="text-sm">
-      {pending || state === null ? null : state.ok ? (
-        state.message === undefined ? null : <p className="text-success">{state.message}</p>
-      ) : (
-        <p className="text-danger">
-          {state.message}
-          {state.referenceId === undefined ? null : (
-            <>
-              {" "}
-              Reference <code className="font-mono text-xs text-foreground">{state.referenceId}</code>.
-            </>
-          )}
-        </p>
-      )}
-    </div>
+    <OutcomeAnnouncement
+      outcome={outcomeOf(pending ? null : state, state?.ok === true ? state.message : null)}
+      className="text-sm"
+    />
   );
 }
 

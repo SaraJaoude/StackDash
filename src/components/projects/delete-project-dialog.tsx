@@ -3,11 +3,11 @@
 import { useActionState, useId, useRef, useState } from "react";
 
 import { deleteProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
-import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 import { failureOf } from "@/components/projects/project-form-parts";
 import { deletionConsequences, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
 
 type DeletableProject = { id: string; name: string } & ProjectDeletionImpact;
 

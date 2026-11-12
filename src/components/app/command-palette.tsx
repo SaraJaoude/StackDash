@@ -20,6 +20,7 @@ import { syncNow } from "@/app/w/[workspace]/connections/actions";
 import { acknowledgedAllMessage } from "@/components/alerts/labels";
 import { SearchIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion, OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import {
   isApplePlatform,
   isTypingTarget,
@@ -79,12 +80,6 @@ function resultStatus(search: PaletteSearch, query: string): string {
   return `${count.format(search.total)} ${search.total === 1 ? "result" : "results"}`;
 }
 
-/**
- * What an action run from the palette is doing, or how it ended, in words for its live region. A
- * failure the server logged carries its reference, shown the way every other status region does.
- */
-type ActionOutcome = Readonly<{ tone: "pending" | "success" | "error"; message: string; referenceId?: string }>;
-
 /** The palette results that run a Server Action rather than open a page. */
 type ServerAction = Extract<PaletteAction, { kind: "sync" | "acknowledge_all" }>;
 
@@ -111,7 +106,7 @@ function wordsFor(action: ServerAction): Readonly<{ running: string; busy: strin
  * list's acknowledge all), which authorizes the caller and words every result, so the palette adds
  * only the case where the request never got an answer.
  */
-async function runServerAction(workspaceSlug: string, action: ServerAction): Promise<ActionOutcome> {
+async function runServerAction(workspaceSlug: string, action: ServerAction): Promise<Outcome> {
   const formData = new FormData();
   formData.set("workspace", workspaceSlug);
   let failure: Readonly<{ message: string; referenceId?: string | undefined }>;
@@ -188,7 +183,7 @@ export function CommandPalette({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
-  const [outcome, setOutcome] = useState<ActionOutcome | null>(null);
+  const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [running, startRunning] = useTransition();
   const buttonRef = useRef<HTMLButtonElement>(null);
   const paletteRef = useRef<HTMLDialogElement>(null);
@@ -279,12 +274,12 @@ export function CommandPalette({
       // still on its way, is told to wait, and this open now receives the running action's result.
       if (running) {
         actionOpenRef.current = openCountRef.current;
-        setOutcome({ tone: "pending", message: busyRef.current });
+        setOutcome({ tone: "info", message: busyRef.current });
         return;
       }
       const words = wordsFor(action);
       busyRef.current = words.busy;
-      setOutcome({ tone: "pending", message: words.running });
+      setOutcome({ tone: "info", message: words.running });
       actionOpenRef.current = openCountRef.current;
       startRunning(async () => {
         const next = await runServerAction(workspaceSlug, action);
@@ -440,26 +435,7 @@ export function CommandPalette({
 
         {/* Always mounted, so screen readers announce every change: progress and success politely,
             a failure at once. */}
-        <div role="status" aria-live="polite" className="text-sm">
-          {outcome === null || outcome.tone === "error" ? null : (
-            <p className={`border-b border-line px-4 py-2 ${outcome.tone === "success" ? "text-success" : "text-muted"}`}>
-              {outcome.message}
-            </p>
-          )}
-        </div>
-        <div role="alert" aria-live="assertive" className="text-sm">
-          {outcome?.tone === "error" ? (
-            <p className="border-b border-line px-4 py-2 text-danger">
-              {outcome.message}
-              {outcome.referenceId === undefined ? null : (
-                <>
-                  {" "}
-                  Reference <code className="font-mono text-xs text-foreground">{outcome.referenceId}</code>.
-                </>
-              )}
-            </p>
-          ) : null}
-        </div>
+        <OutcomeAnnouncement outcome={outcome} className="text-sm" messageClassName="border-b border-line px-4 py-2" />
 
         {hasResults ? (
           <ul
@@ -506,9 +482,9 @@ export function CommandPalette({
         ) : null}
 
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-line px-4 py-2 text-xs text-muted">
-          <p role="status" aria-live="polite">
+          <LiveRegion tone="status" as="p">
             {search === null ? null : resultStatus(search, query)}
-          </p>
+          </LiveRegion>
           <p aria-hidden="true" className="hidden sm:block">
             <ArrowKeys /> to move, <kbd className={KBD}>Enter</kbd> to choose, <kbd className={KBD}>Esc</kbd> to close
           </p>

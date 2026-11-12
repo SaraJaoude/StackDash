@@ -3,6 +3,7 @@
 import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
@@ -89,26 +90,28 @@ export function ApiKeysManager({
   hasMore: boolean;
   listLimit: number;
 }) {
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<Outcome | null>(null);
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
 
   return (
     <div className="px-6 py-5">
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="text-sm text-success">
-        {status === "" ? null : <p className="mb-4">{status}</p>}
-      </div>
+      <OutcomeAnnouncement outcome={status} className="text-sm" messageClassName="mb-4" />
 
       {created === null ? null : (
         <NewKeyPanel
           name={created.name}
           apiKey={created.key}
           onCopied={(copied) =>
-            setStatus(copied ? "Key copied." : "Copying did not work in this browser. Select the key and copy it yourself.")
+            setStatus(
+              copied
+                ? { tone: "success", message: "Key copied." }
+                : { tone: "error", message: "Copying did not work in this browser. Select the key and copy it yourself." },
+            )
           }
           onDismiss={() => {
             setCreated(null);
-            setStatus("The new key is hidden. It cannot be shown again.");
+            setStatus({ tone: "success", message: "The new key is hidden. It cannot be shown again." });
           }}
         />
       )}
@@ -117,7 +120,7 @@ export function ApiKeysManager({
         workspaceSlug={workspaceSlug}
         onCreated={(name, key) => {
           setCreated({ name, key });
-          setStatus(`Created the key ${name}.`);
+          setStatus({ tone: "success", message: `Created the key ${name}.` });
         }}
       />
 
@@ -131,7 +134,7 @@ export function ApiKeysManager({
               key={key.id}
               workspaceSlug={workspaceSlug}
               apiKey={key}
-              onRevoked={(name) => setStatus(`Revoked the key ${name}. Requests with it now fail.`)}
+              onRevoked={(name) => setStatus({ tone: "success", message: `Revoked the key ${name}. Requests with it now fail.` })}
             />
           ))}
         </ul>

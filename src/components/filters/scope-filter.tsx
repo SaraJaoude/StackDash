@@ -4,6 +4,7 @@ import { useId, type ReactNode } from "react";
 
 import { ChevronDownIcon, FilterIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import type { ScopeFilters, ScopeOption, ScopeOptions } from "@/lib/filters/scope";
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
@@ -102,13 +103,13 @@ export function ScopeFilter({
           level with the status. Browsers that grid a `details` wrap its content in
           `::details-content`, so the span goes on that box too; without it the open form lands in
           column 1 beside the summary. */}
-      <p
-        role="status"
-        aria-live="polite"
+      <LiveRegion
+        tone="status"
+        as="p"
         className="col-start-1 row-start-1 flex min-h-12 items-center break-words px-4 py-2 text-sm text-muted"
       >
         {status}
-      </p>
+      </LiveRegion>
       <details
         key={formKey}
         className="group col-span-2 col-start-1 row-span-2 row-start-1 grid grid-cols-subgrid grid-rows-subgrid details-content:col-span-2"

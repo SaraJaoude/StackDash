@@ -4,6 +4,7 @@ import { useId, type ReactNode } from "react";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import {
   hasSimulatedSource,
   type CurrencyAmounts,
@@ -226,7 +227,7 @@ export function TrendsSection({ trends, markSimulated }: { trends: DashboardTren
  */
 export function TrendsSkeleton() {
   return (
-    <div role="status" aria-live="polite" className="mt-6 min-w-0">
+    <LiveRegion tone="status" className="mt-6 min-w-0">
       <span className="sr-only">Loading the trend charts</span>
       <div aria-hidden="true">
         <div className="h-7 w-24 rounded bg-panel-raised motion-safe:animate-pulse" />
@@ -242,7 +243,7 @@ export function TrendsSkeleton() {
           <div className="mt-4 aspect-32/9 rounded bg-panel-raised motion-safe:animate-pulse" />
         </div>
       </div>
-    </div>
+    </LiveRegion>
   );
 }
 

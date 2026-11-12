@@ -4,6 +4,7 @@ import { startTransition, useActionState, useId, useRef, useState, type ReactNod
 
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 import { HANDLE_MAX, HANDLE_MIN, handleSchema } from "@/lib/workspaces/handles";
 
 import { removeWorkspaceHandle, setWorkspaceHandle, type WorkspaceHandleResult } from "./actions";
@@ -60,8 +61,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
   }, null);
 
   const pending = saving || removing;
-  const failure = last !== null && !last.ok ? last : undefined;
-  const fieldError = failure?.fieldErrors?.handle;
+  const fieldError = last !== null && !last.ok ? last.fieldErrors?.handle : undefined;
   // The handle a save would store, when the rules accept it; null for a value the server refuses.
   const parsed = handleSchema.safeParse(handle);
   const nextHandle = parsed.success ? parsed.data : null;
@@ -175,21 +175,10 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
       )}
 
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="mt-3 text-sm">
-        {pending || last === null ? null : last.ok ? (
-          <p className="text-success">{last.message}</p>
-        ) : (
-          <p className="text-danger">
-            {last.message}
-            {failure?.referenceId === undefined ? null : (
-              <>
-                {" "}
-                Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-              </>
-            )}
-          </p>
-        )}
-      </div>
+      <OutcomeAnnouncement
+        outcome={outcomeOf(pending ? null : last, last !== null && last.ok ? last.message : null)}
+        className="mt-3 text-sm"
+      />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { ErrorInfo } from "next/error";
 
 import { digestOf } from "@/components/app/error-panel";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 
 import { UnsubscribeCard } from "./unsubscribe-form";
 
@@ -15,14 +16,14 @@ export default function UnsubscribeError({ error, retry }: Pick<ErrorInfo, "erro
   const digest = digestOf(error);
   return (
     <UnsubscribeCard>
-      <div role="alert" className="text-sm leading-6">
+      <LiveRegion tone="error" className="text-sm leading-6">
         <p>DevMacro could not check your alert emails, so nothing has changed. Try again in a moment.</p>
         {digest === undefined ? null : (
           <p className="mt-2 text-muted">
             If it keeps happening, share reference <span className="font-mono text-foreground">{digest}</span>.
           </p>
         )}
-      </div>
+      </LiveRegion>
       <button
         type="button"
         onClick={() => retry()}

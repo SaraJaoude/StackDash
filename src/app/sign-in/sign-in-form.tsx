@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import { GuardedButton } from "@/components/guarded-button";
 import { GitHubIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 
 function ContinueButton() {
   // Leaving for GitHub takes a moment; say so, and stop a second click from starting a second flow.
@@ -20,9 +21,9 @@ function ContinueButton() {
         <GitHubIcon />
         Continue with GitHub
       </GuardedButton>
-      <p id="sign-in-status" role="status" aria-live="polite" className="mt-3 min-h-5 text-center text-xs text-muted">
+      <LiveRegion tone="status" as="p" id="sign-in-status" className="mt-3 min-h-5 text-center text-xs text-muted">
         {pending ? "Opening GitHub sign-in" : ""}
-      </p>
+      </LiveRegion>
     </>
   );
 }

@@ -16,6 +16,7 @@ import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { WhatChanged } from "@/components/dashboard/what-changed";
 import { GaugeIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import {
   declaredCapabilities,
   declaredEventTypes,
@@ -405,7 +406,7 @@ async function DashboardTrendsContent({
 /** Shaped like the first screen (the closed filter bar and the headline strip's first row), so nothing jumps. */
 function DashboardSkeleton() {
   return (
-    <div role="status" aria-live="polite">
+    <LiveRegion tone="status">
       <span className="sr-only">Loading the dashboard</span>
       <div aria-hidden="true">
         <div className="mt-4 h-12.5 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
@@ -416,6 +417,6 @@ function DashboardSkeleton() {
           <div className="h-36 rounded-xl border border-line bg-panel motion-safe:animate-pulse" />
         </div>
       </div>
-    </div>
+    </LiveRegion>
   );
 }

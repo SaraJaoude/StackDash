@@ -5,6 +5,7 @@ import { useActionState, useId, useState } from "react";
 import { saveAlertEmails, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import type { EmailFrequency } from "@/lib/notifications/model";
 
 import { ErrorSummary, submitWithoutReset } from "./form-controls";
@@ -59,9 +60,9 @@ export function AlertEmailsForm({ workspaceSlug, current }: { workspaceSlug: str
       <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
         {pending ? "Saving" : "Save alert emails"}
       </GuardedButton>
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true ? <p className="text-success">Alert email setting saved.</p> : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }

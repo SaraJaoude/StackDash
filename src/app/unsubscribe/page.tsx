@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { z } from "zod";
 
 import { EMAIL_FREQUENCY_CHOICES } from "@/components/alerts/labels";
+import { LiveRegion } from "@/components/ui/live-region";
 import { unsubscribeStatus } from "@/lib/data/notification-preferences";
 import { readUnsubscribeToken } from "@/lib/notifications/unsubscribe";
 
@@ -58,9 +59,9 @@ export default async function UnsubscribePage({ searchParams }: PageProps<"/unsu
     <UnsubscribeCard>
       <Suspense
         fallback={
-          <p role="status" className="text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="text-sm text-muted">
             Checking your unsubscribe link
-          </p>
+          </LiveRegion>
         }
       >
         <UnsubscribeDetails searchParams={searchParams} />

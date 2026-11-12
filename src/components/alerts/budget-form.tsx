@@ -5,6 +5,7 @@ import { useActionState, useId, useState } from "react";
 import { saveBudget, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { BUDGET_NAME_MAX } from "@/lib/alerts/rule-schema";
 
 import {
@@ -118,9 +119,9 @@ export function BudgetForm({
         )}
       </div>
 
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true && !isEdit ? <p className="text-success">Budget added.</p> : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }

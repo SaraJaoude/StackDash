@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
 import { API_KEY_SCOPES } from "@/lib/api/scopes";
 import { mcpClientSetups } from "@/lib/mcp/setup";
 
@@ -30,7 +31,7 @@ export function AssistantSetup({
   canManageKeys: boolean;
   maxKeys: number;
 }) {
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<Outcome | null>(null);
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
   // Set when the key is hidden, so focus goes back to the button that made it.
   const [returnFocus, setReturnFocus] = useState(false);
@@ -55,9 +56,7 @@ export function AssistantSetup({
           <dd className="break-all font-mono sm:col-span-2">{endpointUrl}</dd>
         </dl>
         {/* Always mounted so screen readers announce changes to it. */}
-        <div role="status" aria-live="polite" className="text-success">
-          {status === "" ? null : <p className="mt-4">{status}</p>}
-        </div>
+        <OutcomeAnnouncement outcome={status} messageClassName="mt-4" />
         <ol className="mt-5 list-decimal space-y-2 pl-5">
           <li>
             {canManageKeys ? (
@@ -71,7 +70,7 @@ export function AssistantSetup({
                     focusOnMount={returnFocus}
                     onCreated={(name, key) => {
                       setCreated({ name, key });
-                      setStatus(`Created the key ${name}.`);
+                      setStatus({ tone: "success", message: `Created the key ${name}.` });
                     }}
                   />
                 ) : (
@@ -81,13 +80,18 @@ export function AssistantSetup({
                       apiKey={created.key}
                       onCopied={(copied) =>
                         setStatus(
-                          copied ? "Key copied." : "Copying did not work in this browser. Select the key and copy it yourself.",
+                          copied
+                            ? { tone: "success", message: "Key copied." }
+                            : {
+                                tone: "error",
+                                message: "Copying did not work in this browser. Select the key and copy it yourself.",
+                              },
                         )
                       }
                       onDismiss={() => {
                         setCreated(null);
                         setReturnFocus(true);
-                        setStatus("The new key is hidden. It cannot be shown again.");
+                        setStatus({ tone: "success", message: "The new key is hidden. It cannot be shown again." });
                       }}
                     />
                   </div>

@@ -120,7 +120,7 @@ test.describe("docs", () => {
     await tabTo(page, copyButton);
     await page.keyboard.press("Space");
 
-    await expect(main.getByRole("status").first()).toHaveText(
+    await expect(main.getByRole("alert").first()).toHaveText(
       "Could not copy the code. Select the text in the block and copy it yourself.",
     );
   });

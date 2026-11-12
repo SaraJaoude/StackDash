@@ -5,6 +5,7 @@ import { useActionState, useId, useState } from "react";
 import { saveAlertRule, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { AMOUNT_PRESETS, PERCENT_MAX, PERCENT_MIN, PERCENT_PRESETS } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -219,9 +220,9 @@ export function RuleForm({
       </div>
 
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true && !isEdit ? <p className="text-success">Alert rule added.</p> : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }

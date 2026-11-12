@@ -6,6 +6,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import { safeNextPath, SIGN_IN_ERROR_CODES, type SignInErrorCode } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -96,14 +97,14 @@ async function SignInPanel({ searchParams }: { searchParams: PageProps<"/sign-in
   return (
     <>
       {error === undefined ? null : (
-        <div role="alert" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm leading-6">
+        <LiveRegion tone="error" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm leading-6">
           <p>{SIGN_IN_ERRORS[error]}</p>
           {ref === undefined ? null : (
             <p className="mt-1 text-muted">
               If it keeps happening, share reference <span className="font-mono text-foreground">{ref}</span>.
             </p>
           )}
-        </div>
+        </LiveRegion>
       )}
       <SignInForm action={signInWithGitHub.bind(null, next)} />
     </>

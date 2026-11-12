@@ -5,6 +5,7 @@ import { useActionState } from "react";
 import { addSuggestedAlerts, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { FailureAnnouncement } from "@/components/ui/live-region";
 import type { ProviderId } from "@/lib/alerts/rule-schema";
 
 import { failureOf } from "./form-controls";
@@ -30,7 +31,6 @@ export function AddSuggestedAlerts({
     },
     null,
   );
-  const failure = failureOf(state);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
@@ -39,14 +39,7 @@ export function AddSuggestedAlerts({
         {pending ? "Adding" : "Add these alerts"}
         <span className="sr-only"> for {providerLabel}</span>
       </GuardedButton>
-      <div role="status" aria-live="polite" className="mt-2 text-sm">
-        {failure === null ? null : (
-          <p className="text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </p>
-        )}
-      </div>
+      <FailureAnnouncement failure={failureOf(state)} className="mt-2 text-sm" />
     </form>
   );
 }

@@ -5,6 +5,7 @@ import { useActionState, useEffect, useRef, type ReactNode } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 
 import { unsubscribeFromEmail, type UnsubscribeResult } from "./actions";
@@ -56,10 +57,10 @@ export function EmailsOffNotice({ workspaceName, focusOnMount = false }: { works
   }, [focusOnMount]);
   return (
     <>
-      <p ref={ref} role="status" tabIndex={-1} className="text-sm leading-6">
+      <LiveRegion ref={ref} tone="status" as="p" tabIndex={-1} className="text-sm leading-6">
         Alert emails for <strong className="font-semibold">{workspaceName}</strong> are off. DevMacro sends you no more
         alert emails or digests for this workspace.
-      </p>
+      </LiveRegion>
       <p className="mt-3 text-sm leading-6 text-muted">
         Alerts still show in DevMacro. To get emails again, sign in and choose how often on the alerts page.
       </p>
@@ -88,12 +89,12 @@ export function UnsubscribeForm({
   return (
     <>
       {state?.ok === false && state.reason === "failed" ? (
-        <div role="alert" className="mb-4 text-sm leading-6 text-danger">
+        <LiveRegion tone="error" className="mb-4 text-sm leading-6 text-danger">
           <p>DevMacro could not turn off your alert emails. Try again in a moment.</p>
           <p className="mt-2 text-muted">
             If it keeps happening, share reference <span className="font-mono text-foreground">{state.referenceId}</span>.
           </p>
-        </div>
+        </LiveRegion>
       ) : null}
       <p className="text-sm leading-6">
         Your alert emails for <strong className="font-semibold">{workspaceName}</strong> are set to {frequencyLabel}.

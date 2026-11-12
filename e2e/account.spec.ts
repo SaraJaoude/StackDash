@@ -443,7 +443,7 @@ test.describe("deleting an account", () => {
         .insert({ workspace_id: sharedId, user_id: member.id, role: "viewer" });
       if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
       await page.getByRole("button", { name: "Delete my account" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Your account was not deleted." })).toContainText(
+      await expect(page.getByRole("alert").filter({ hasText: "Your account was not deleted." })).toContainText(
         `You are the only owner of ${name}, and other people belong to it. Transfer ownership to another member or delete that workspace first, then try again.`,
       );
       await expect(page).toHaveURL(/\/account$/);

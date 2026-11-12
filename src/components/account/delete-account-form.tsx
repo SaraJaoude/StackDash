@@ -5,6 +5,7 @@ import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { deleteAccount, type DeleteAccountResult } from "@/app/account/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement } from "@/components/ui/live-region";
 import { confirmationMatches, type AccountIdentity } from "@/lib/account/delete-account";
 
 /**
@@ -78,21 +79,16 @@ export function DeleteAccountForm({ identity }: { identity: AccountIdentity }) {
         </GuardedButton>
       </div>
       {/* Always mounted, so screen readers announce progress and the result. */}
-      <div role="status" aria-live="polite" className="text-sm">
-        {pending ? (
-          <p className="text-muted">Deleting your account. This can take a few seconds while providers respond.</p>
-        ) : state === null || fieldError !== undefined ? null : (
-          <p className="text-danger">
-            {state.message}
-            {state.referenceId === undefined ? null : (
-              <>
-                {" "}
-                Reference <code className="font-mono text-xs text-foreground">{state.referenceId}</code>.
-              </>
-            )}
-          </p>
-        )}
-      </div>
+      <OutcomeAnnouncement
+        outcome={
+          pending
+            ? { tone: "info", message: "Deleting your account. This can take a few seconds while providers respond." }
+            : state === null || fieldError !== undefined
+              ? null
+              : { tone: "error", message: state.message, referenceId: state.referenceId }
+        }
+        className="text-sm"
+      />
     </form>
   );
 }

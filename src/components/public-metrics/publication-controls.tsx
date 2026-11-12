@@ -14,6 +14,7 @@ import {
 import { inputClass } from "@/components/alerts/form-controls";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { FailureAnnouncement, LiveRegion } from "@/components/ui/live-region";
 import { PAGE_SLUG_MAX } from "@/lib/public-metrics/project-page";
 
 import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField } from "./self-reported-rules";
@@ -43,9 +44,9 @@ export function PublicationAnnouncer({ children }: { children: ReactNode }) {
   }, [announcement]);
   return (
     <AnnounceContext value={announce}>
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {announcement === null ? null : <p className="mt-6 text-success">{announcement.message}</p>}
-      </div>
+      </LiveRegion>
       {children}
     </AnnounceContext>
   );
@@ -65,18 +66,8 @@ function useAnnouncedAction(
   }, null);
 }
 
-function Failure({ state, id }: { state: PublicMetricActionResult | null; id?: string }) {
-  const failure = state !== null && !state.ok ? state : null;
-  return (
-    <div id={id} role="alert" aria-live="assertive" className="text-sm">
-      {failure === null ? null : (
-        <p className="mt-2 text-danger">
-          {failure.message}
-          {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-        </p>
-      )}
-    </div>
-  );
+function Failure({ state }: { state: PublicMetricActionResult | null }) {
+  return <FailureAnnouncement failure={state !== null && !state.ok ? state : null} className="text-sm" messageClassName="mt-2" />;
 }
 
 export type Choice = Readonly<{ value: string; label: string }>;

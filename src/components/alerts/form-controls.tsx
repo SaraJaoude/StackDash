@@ -4,6 +4,7 @@ import { startTransition, useEffect, useId, useRef, type FormEvent, type ReactNo
 
 import type { AlertActionFailure, AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { LockIcon } from "@/components/icons";
+import { LiveRegion, ReferenceNote } from "@/components/ui/live-region";
 import { CUSTOM_CHOICE, type AlertScope } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -336,10 +337,10 @@ export function ErrorSummary({
   if (failure === null) return null;
   const fieldErrors = Object.entries(failure.fieldErrors ?? {});
   return (
-    <div
+    <LiveRegion
       ref={ref}
+      tone="error"
       tabIndex={-1}
-      role="alert"
       aria-labelledby={titleId}
       className="rounded-lg border border-danger/50 bg-panel-raised px-4 py-3 text-sm"
     >
@@ -348,12 +349,7 @@ export function ErrorSummary({
       </p>
       <p className="mt-1">
         {failure.message}
-        {failure.referenceId === undefined ? null : (
-          <>
-            {" "}
-            Reference <code className="font-mono text-xs">{failure.referenceId}</code>.
-          </>
-        )}
+        <ReferenceNote referenceId={failure.referenceId} />
       </p>
       {fieldErrors.length === 0 ? null : (
         <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -366,7 +362,7 @@ export function ErrorSummary({
           ))}
         </ul>
       )}
-    </div>
+    </LiveRegion>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { buttonClass } from "@/components/ui/button";
+import { FailureAnnouncement, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 
 import { failureOf, SelectField } from "./form-controls";
 import type { Option } from "./labels";
@@ -20,22 +21,6 @@ import type { Option } from "./labels";
  * being dropped.
  */
 
-function Outcome({ state, pending, success }: { state: AlertActionResult | null; pending: boolean; success: string }) {
-  const failure = failureOf(state);
-  return (
-    <div role="status" aria-live="polite" className="mt-2 text-sm">
-      {pending || state === null ? null : failure === null ? (
-        <p className="text-success">{success}</p>
-      ) : (
-        <p className="text-danger">
-          {failure.message}
-          {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export function AnomalyToggle({ workspaceSlug, enabled }: { workspaceSlug: string; enabled: boolean }) {
   const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(setAnomalyDetection, null);
   return (
@@ -45,10 +30,12 @@ export function AnomalyToggle({ workspaceSlug, enabled }: { workspaceSlug: strin
       <button type="submit" disabled={pending} className={buttonClass("raised")}>
         {pending ? "Saving" : enabled ? "Turn off anomaly detection" : "Turn on anomaly detection"}
       </button>
-      <Outcome
-        state={state}
-        pending={pending}
-        success={enabled ? "Anomaly detection is on." : "Anomaly detection is off. No new unusual days are flagged."}
+      <OutcomeAnnouncement
+        outcome={outcomeOf(
+          pending ? null : state,
+          enabled ? "Anomaly detection is on." : "Anomaly detection is off. No new unusual days are flagged.",
+        )}
+        className="mt-2 text-sm"
       />
     </form>
   );
@@ -87,7 +74,10 @@ export function MuteMetricForm({ workspaceSlug, options }: { workspaceSlug: stri
           {pending ? "Muting" : "Mute metric"}
         </button>
       </div>
-      <Outcome state={fieldError === undefined ? state : null} pending={pending} success="Metric muted." />
+      <OutcomeAnnouncement
+        outcome={outcomeOf(pending || fieldError !== undefined ? null : state, "Metric muted.")}
+        className="mt-2 text-sm"
+      />
     </form>
   );
 }
@@ -113,7 +103,6 @@ export function UnmuteButton({
     },
     null,
   );
-  const failure = failureOf(state);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
@@ -122,14 +111,7 @@ export function UnmuteButton({
         {pending ? "Unmuting" : "Unmute"}
         <span className="sr-only">: {label}</span>
       </button>
-      <div role="alert" aria-live="assertive" className="text-sm">
-        {failure === null ? null : (
-          <p className="mt-2 text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </p>
-        )}
-      </div>
+      <FailureAnnouncement failure={failureOf(state)} className="text-sm" messageClassName="mt-2" />
     </form>
   );
 }

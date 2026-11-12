@@ -3,9 +3,9 @@
 import { useActionState, useId, useRef, useState } from "react";
 
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
-import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
 
 import { failureOf } from "./form-controls";
 
