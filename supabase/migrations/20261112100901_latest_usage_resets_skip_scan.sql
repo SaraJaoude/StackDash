@@ -6,7 +6,7 @@
 --   account and sorted them, on every sync of every account, so the read grew with history (up to
 --   the 13 months retention keeps). Over 7,320 rows (20 metrics, 366 days) the planner chose a
 --   sequential scan of the table: 6.3 ms and 1,712 buffers for the query, 5.2 to 5.5 ms a call
---   over five calls (3.5 to 4.0 ms and 417 buffers a call in a later session).
+--   over five calls (3.5 to 4.0 ms and 380 to 517 buffers a call in two later sessions).
 -- * Now a loose index scan on the unique key (external_account_id, metric_key, snapshot_date): a
 --   recursive step finds the next metric key with one index probe (the first key above the last
 --   one), and each key's newest row is one backward probe. Reads are two probes per metric,
