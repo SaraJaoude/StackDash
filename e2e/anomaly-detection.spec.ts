@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
 // detection itself is unit tested (src/lib/alerts/anomaly.test.ts, src/lib/jobs/daily-summary.test.ts);
@@ -91,6 +92,11 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
       await expect(page).toHaveURL(/\/timeline\?type=devmacro\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
+      // The page the link lands on names the type the way the alerts page names the feature (#345).
+      await openFilters(page);
+      const types = page.getByRole("group", { name: "Event type" });
+      await expect(types.getByRole("checkbox", { name: "DevMacro: Unusual spend or usage" })).toBeChecked();
+      await expect(types).not.toContainText(/anomal/i);
 
       await page.goto(`/w/${workspace.slug}/alerts`);
       const section = anomalySection(page);
