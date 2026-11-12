@@ -13,6 +13,7 @@ import { WorkspaceSwitcher } from "@/components/app/workspace-switcher";
 import { Wordmark } from "@/components/wordmark";
 import { availableProviders, isProviderConfigured } from "@/lib/adapters/registry";
 import { requireUser, type SessionUser } from "@/lib/auth/session";
+import { ADMIN_PATH, showsAdminLink } from "@/lib/auth/super-admin";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
 import {
   getWorkspaceMembership,
@@ -111,6 +112,17 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
             {roleLabel(membership.role)}
           </span>
         ) : null}
+        {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364).
+            From `sm` to `lg` the role badge, the account name, and this link leave the workspace
+            switcher too little room for its name, so it starts at `lg`; the palette offers it at every width. */}
+        {showsAdminLink(user.email) ? (
+          <Link
+            href={ADMIN_PATH}
+            className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground lg:inline-flex"
+          >
+            Admin
+          </Link>
+        ) : null}
         <AccountLink profile={user.profile} />
         <SignOutButton />
       </div>
@@ -125,7 +137,7 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
  * connected providers' adapters declare, and the member's workspaces (request-cached, shared with
  * the switcher). If a read fails, the palette still offers everything else and says what is missing.
  */
-async function HeaderPalette({ membership }: { membership: WorkspaceMembership }) {
+async function HeaderPalette({ membership, superAdmin }: { membership: WorkspaceMembership; superAdmin: boolean }) {
   const { workspace, role } = membership;
   const [scopeRead, workspacesRead] = await Promise.allSettled([getWorkspaceScope(workspace.id), listMyWorkspaces()]);
   const missing: string[] = [];
@@ -165,6 +177,7 @@ async function HeaderPalette({ membership }: { membership: WorkspaceMembership }
       .filter(isProviderConfigured)
       .map((adapter) => ({ id: adapter.id, displayName: adapter.displayName })),
     workspaces,
+    superAdmin,
     // Read after the membership above, so the clock never runs during prerendering.
     reviewYear: latestCardYear(new Date()),
   });
@@ -173,7 +186,7 @@ async function HeaderPalette({ membership }: { membership: WorkspaceMembership }
 
 async function HeaderNav({ params }: { params: WorkspaceParams }) {
   const { workspace: slug } = await params;
-  const { membership } = await loadMembership(slug);
+  const { user, membership } = await loadMembership(slug);
   // Without a membership the page shows "not found"; links into that workspace would only repeat it.
   if (!membership) return null;
   // The palette sits at the end of the nav row rather than in the crowded top row, so it fits
@@ -183,7 +196,7 @@ async function HeaderNav({ params }: { params: WorkspaceParams }) {
       <AppNav workspaceSlug={membership.workspace.slug} />
       <div className="flex min-h-11 shrink-0 items-center">
         <Suspense fallback={<PaletteSkeleton />}>
-          <HeaderPalette membership={membership} />
+          <HeaderPalette membership={membership} superAdmin={showsAdminLink(user.email)} />
         </Suspense>
       </div>
     </div>
