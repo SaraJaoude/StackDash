@@ -477,46 +477,61 @@ ownerTest.describe("connecting a provider as the owner", () => {
     }
   });
 
-  ownerTest("shows a failure beside the opener when its dialog was dismissed while working (#367)", async ({ page }) => {
-    const workspace = await createTestWorkspace("Dismissed failure");
-    try {
-      const connectionId = await seedConnection(workspace.id);
-      const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
-      // Holds the server action (a POST to the page) until the dialog is dismissed, so "Working"
-      // stays on screen for as long as the test needs it, with no sleep.
-      const held = Promise.withResolvers<void>();
-      await page.route(`**${connectionPath}`, async (route) => {
-        if (route.request().method() !== "POST") return route.fallback();
-        await held.promise;
-        return route.continue();
-      });
-      await page.goto(connectionPath);
-      await expectHydrated(page);
-      const main = page.getByRole("main");
-      const opener = main.getByRole("button", { name: "Disconnect", exact: true });
-      const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
+  for (const reopened of [false, true]) {
+    const when = reopened ? "dismissed and reopened" : "dismissed";
+    ownerTest(`shows a failure beside the opener when its dialog was ${when} while working (#367)`, async ({ page }) => {
+      const workspace = await createTestWorkspace("Dismissed failure");
+      try {
+        const connectionId = await seedConnection(workspace.id);
+        const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
+        // Holds the server action (a POST to the page) until the dialog is dismissed, so "Working"
+        // stays on screen for as long as the test needs it, with no sleep.
+        const held = Promise.withResolvers<void>();
+        await page.route(`**${connectionPath}`, async (route) => {
+          if (route.request().method() !== "POST") return route.fallback();
+          await held.promise;
+          return route.continue();
+        });
+        await page.goto(connectionPath);
+        await expectHydrated(page);
+        const main = page.getByRole("main");
+        const opener = main.getByRole("button", { name: "Disconnect", exact: true });
+        const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
 
-      await opener.click();
-      await deleteConnectionRow(connectionId);
-      await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
-      await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
-      await page.keyboard.press("Escape");
-      await expect(dialog).toBeHidden();
-      await expect(opener).toBeFocused();
-      held.resolve();
+        await opener.click();
+        await deleteConnectionRow(connectionId);
+        await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+        if (reopened) {
+          // The new confirmation is not the one that ran the action, so it cannot report the
+          // failure: it lands beside the opener, behind the open dialog, before that closes.
+          await opener.click();
+          await expect(dialog.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+          held.resolve();
+          await expect(page.getByText(GONE_MESSAGE)).toHaveCount(1);
+          await expect(dialog.getByText(GONE_MESSAGE)).toHaveCount(0);
+          await page.keyboard.press("Escape");
+          await expect(dialog).toBeHidden();
+        } else {
+          held.resolve();
+        }
 
-      // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
-      await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toBeVisible();
-      await expectNoAxeViolations(page);
+        // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
+        await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toBeVisible();
+        await expectNoAxeViolations(page);
 
-      // Opening the dialog again starts fresh, beside the opener too.
-      await opener.click();
-      await expect(dialog).toBeVisible();
-      await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
-    } finally {
-      await deleteTestWorkspace(workspace);
-    }
-  });
+        // Opening the dialog again starts fresh, beside the opener too.
+        await opener.click();
+        await expect(dialog).toBeVisible();
+        await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 });
 
 viewerTest.describe("connections as a viewer", () => {

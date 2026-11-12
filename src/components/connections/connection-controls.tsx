@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useState, type ReactNode } from "react";
+import { useActionState, useId, useRef, useState, type ReactNode } from "react";
 
 import {
   assignAccountProject,
@@ -188,9 +188,10 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
 /**
  * A `ModalDialog` whose body lists exactly what confirming does. A failure keeps the dialog open
  * and shows inside it, where it can be seen and heard; a success closes it and shows beside the
- * opener. A failure that arrives after Cancel or Escape closed the dialog mid-action shows beside
- * the opener too (#367), since the hidden dialog can no longer report it. The confirmation
- * remounts on every open, so it starts without a previous attempt's error.
+ * opener. A failure that arrives after Cancel or Escape closed the dialog mid-action, or after a
+ * reopen replaced the confirmation that ran it, shows beside the opener too (#367), since nothing
+ * on screen can report it otherwise. The confirmation remounts on every open, so it starts
+ * without a previous attempt's error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -238,11 +239,11 @@ function ConfirmDialog({
           action={action}
           workspaceSlug={workspaceSlug}
           connectionId={connectionId}
-          onSettled={(result) => {
+          onSettled={(result, shownInDialog) => {
             if (result.ok) {
               setSettled(result);
               dialog.close("completed");
-            } else if (dialog.ref.current?.open !== true) {
+            } else if (!shownInDialog) {
               setSettled(result);
             }
           }}
@@ -263,18 +264,21 @@ function ConfirmForm({
   action: Action;
   workspaceSlug: string;
   connectionId: string;
-  onSettled: (result: ConnectionActionResult) => void;
+  /** `shownInDialog`: this confirmation is still mounted in the open dialog, so it shows a failure itself. */
+  onSettled: (result: ConnectionActionResult, shownInDialog: boolean) => void;
 }) {
+  const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, pending] = useConnectionAction(async (previous, formData) => {
     const result = await action(previous, formData);
-    onSettled(result);
+    // React clears the ref once a reopen unmounts this confirmation.
+    onSettled(result, formRef.current?.closest("dialog")?.open === true);
     return result;
   });
 
   return (
     <>
       <DialogError failure={state?.ok === false ? state : null} />
-      <form action={formAction}>
+      <form ref={formRef} action={formAction}>
         <input type="hidden" name="workspace" value={workspaceSlug} />
         <input type="hidden" name="connectionId" value={connectionId} />
         <DialogActions>
