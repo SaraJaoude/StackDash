@@ -495,7 +495,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, the privacy policy and terms of use, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |

@@ -100,6 +100,21 @@ describe("with an operator configured", () => {
     for (const processor of absent) expect(html).not.toContain(`<strong>${processor}</strong>`);
   });
 
+  it.each([
+    ["the privacy policy", () => privacyMetadata(), "/privacy", "Privacy policy"],
+    ["the terms of use", () => termsMetadata(), "/terms", "Terms of use"],
+  ])("%s has its own canonical address and preview cards", (_title, metadata, path, title) => {
+    stubOperator(OPERATOR);
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example");
+
+    expect(metadata()).toMatchObject({
+      title,
+      alternates: { canonical: path },
+      openGraph: { title, url: path },
+      twitter: { card: "summary_large_image", title },
+    });
+  });
+
   it("each page shows its own date, and the sitemap sends the same one", () => {
     stubOperator(OPERATOR);
     stubHosting({ vercel: false, email: false });

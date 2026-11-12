@@ -4,7 +4,8 @@ import { LegalCode, LegalDocument, LegalLink, LegalSection } from "@/components/
 import { listDocs } from "@/lib/docs";
 import { emailEnv, onVercel, RESEND_API_URL } from "@/lib/env";
 import { PRIVACY_UPDATED, requireOperator } from "@/lib/legal";
-import { site } from "@/lib/site";
+import { privacyLink, site } from "@/lib/site";
+import { socialMetadata } from "@/lib/site-metadata";
 
 /*
  * The privacy policy (#339). Every statement about data describes what the code does; the pull
@@ -24,7 +25,11 @@ const description = `What ${site.name} collects, why, where it is kept, who proc
 
 export function generateMetadata(): Metadata {
   requireOperator();
-  return { title: "Privacy policy", description };
+  return {
+    title: "Privacy policy",
+    description,
+    ...socialMetadata({ title: "Privacy policy", description, path: privacyLink.href }),
+  };
 }
 
 // What the request and server logs hold, wherever the app is hosted.

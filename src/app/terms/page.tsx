@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 
 import { LegalDocument, LegalLink, LegalSection } from "@/components/legal/legal-document";
 import { requireOperator, TERMS_UPDATED } from "@/lib/legal";
-import { privacyLink, site } from "@/lib/site";
+import { privacyLink, site, termsLink } from "@/lib/site";
+import { socialMetadata } from "@/lib/site-metadata";
 
 /*
  * The terms of use (#339). The operator, contact, and governing law come from server configuration
@@ -15,7 +16,11 @@ const description = `The terms for using ${site.name}: your account, the service
 
 export function generateMetadata(): Metadata {
   requireOperator();
-  return { title: "Terms of use", description };
+  return {
+    title: "Terms of use",
+    description,
+    ...socialMetadata({ title: "Terms of use", description, path: termsLink.href }),
+  };
 }
 
 export default function TermsPage() {
