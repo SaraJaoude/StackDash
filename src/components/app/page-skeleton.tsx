@@ -1,3 +1,5 @@
+import { LiveRegion } from "@/components/ui/live-region";
+
 /**
  * Placeholder for a workspace page while it checks access and loads, shaped like PageHeader plus
  * a content panel so nothing jumps when the page arrives. Every page under /w/[workspace] renders
@@ -7,7 +9,7 @@
  */
 export function PageSkeleton({ label }: { label: string }) {
   return (
-    <div role="status" aria-live="polite">
+    <LiveRegion tone="status">
       <span className="sr-only">{label}</span>
       <div aria-hidden="true">
         <div className="border-b border-line pb-6">
@@ -16,6 +18,6 @@ export function PageSkeleton({ label }: { label: string }) {
         </div>
         <div className="mt-8 h-64 rounded-xl border border-dashed border-line bg-panel motion-safe:animate-pulse" />
       </div>
-    </div>
+    </LiveRegion>
   );
 }

@@ -2,6 +2,9 @@
 
 import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
+import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, ReferenceNote, type Outcome } from "@/components/ui/live-region";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
@@ -39,11 +42,6 @@ const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> =
   revoked: { label: "Revoked", className: "border-dashed border-line-strong text-muted" },
 };
 
-export const BUTTON_PRIMARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
-const BUTTON_SECONDARY =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-60";
-
 export function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKeyActionFailure | undefined {
   return state !== null && !state.ok ? state : undefined;
 }
@@ -67,12 +65,7 @@ export function ErrorSummary({ failure }: { failure: ApiKeyActionFailure | undef
     >
       <p>
         {failure.message}
-        {failure.referenceId === undefined ? null : (
-          <>
-            {" "}
-            Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-          </>
-        )}
+        <ReferenceNote referenceId={failure.referenceId} />
       </p>
     </div>
   );
@@ -93,26 +86,28 @@ export function ApiKeysManager({
   hasMore: boolean;
   listLimit: number;
 }) {
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState<Outcome | null>(null);
   const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
 
   return (
     <div className="px-6 py-5">
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="text-sm text-success">
-        {status === "" ? null : <p className="mb-4">{status}</p>}
-      </div>
+      <OutcomeAnnouncement outcome={status} className="text-sm" messageClassName="mb-4" />
 
       {created === null ? null : (
         <NewKeyPanel
           name={created.name}
           apiKey={created.key}
           onCopied={(copied) =>
-            setStatus(copied ? "Key copied." : "Copying did not work in this browser. Select the key and copy it yourself.")
+            setStatus(
+              copied
+                ? { tone: "success", message: "Key copied." }
+                : { tone: "error", message: "Copying did not work in this browser. Select the key and copy it yourself." },
+            )
           }
           onDismiss={() => {
             setCreated(null);
-            setStatus("The new key is hidden. It cannot be shown again.");
+            setStatus({ tone: "success", message: "The new key is hidden. It cannot be shown again." });
           }}
         />
       )}
@@ -121,7 +116,7 @@ export function ApiKeysManager({
         workspaceSlug={workspaceSlug}
         onCreated={(name, key) => {
           setCreated({ name, key });
-          setStatus(`Created the key ${name}.`);
+          setStatus({ tone: "success", message: `Created the key ${name}.` });
         }}
       />
 
@@ -135,7 +130,7 @@ export function ApiKeysManager({
               key={key.id}
               workspaceSlug={workspaceSlug}
               apiKey={key}
-              onRevoked={(name) => setStatus(`Revoked the key ${name}. Requests with it now fail.`)}
+              onRevoked={(name) => setStatus({ tone: "success", message: `Revoked the key ${name}. Requests with it now fail.` })}
             />
           ))}
         </ul>
@@ -197,7 +192,7 @@ export function NewKeyPanel({
         />
         <button
           type="button"
-          className={BUTTON_PRIMARY}
+          className={`shrink-0 ${buttonClass("primary")}`}
           onClick={() => {
             navigator.clipboard.writeText(apiKey).then(
               () => onCopied(true),
@@ -208,7 +203,7 @@ export function NewKeyPanel({
           Copy key
         </button>
       </div>
-      <button type="button" onClick={onDismiss} className={`mt-3 ${BUTTON_SECONDARY}`}>
+      <button type="button" onClick={onDismiss} className={`mt-3 ${buttonClass("secondary")}`}>
         Hide key
       </button>
     </section>
@@ -333,7 +328,7 @@ function CreateApiKeyForm({
         )}
       </fieldset>
 
-      <button type="submit" disabled={pending} className={`mt-5 ${BUTTON_PRIMARY}`}>
+      <button type="submit" disabled={pending} className={`mt-5 shrink-0 ${buttonClass("primary")}`}>
         {pending ? "Creating" : "Create key"}
       </button>
       <ErrorSummary failure={failure} />
@@ -381,9 +376,9 @@ function ApiKeyRow({
 }
 
 /**
- * Revoke button plus a native modal `<dialog>` that says what revoking does before confirming.
- * Escape closes it (native behavior) and focus goes back to the button; after a revoke the button
- * is gone, so the status region announces the result instead.
+ * Revoke button plus a `ModalDialog` that says what revoking does before confirming. Escape or
+ * Cancel returns focus to the button; after a revoke the button is gone, so the status region
+ * announces the result instead.
  */
 function RevokeApiKeyDialog({
   workspaceSlug,
@@ -394,53 +389,31 @@ function RevokeApiKeyDialog({
   apiKey: ApiKeyItem;
   onRevoked: (name: string) => void;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const revokedRef = useRef(false);
-  // Bumped on every open so the confirmation starts fresh, without a previous attempt's error.
-  const [openCount, setOpenCount] = useState(0);
-  const titleId = useId();
-  const descriptionId = useId();
+  const dialog = useModalDialog();
 
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
-        onClick={() => {
-          setOpenCount((count) => count + 1);
-          dialogRef.current?.showModal();
-        }}
-        className="inline-flex min-h-9 shrink-0 items-center self-start rounded-md border border-line-strong px-3 py-1.5 text-sm text-danger transition-colors hover:border-danger"
+        onClick={(event) => dialog.open(event.currentTarget)}
+        className={`shrink-0 self-start ${buttonClass("danger-quiet", "sm")}`}
       >
         Revoke<span className="sr-only"> {apiKey.name}</span>
       </button>
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        onClose={() => {
-          if (!revokedRef.current) triggerRef.current?.focus();
-        }}
-        className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
+      <ModalDialog
+        dialog={dialog}
+        title={`Revoke ${apiKey.name}?`}
+        description="Every script or tool using this key gets an error from its next request. A revoked key cannot be turned back on; create a new key if you need access again."
       >
-        {/* Mounted on first open only, so its autofocus never fires on page load. */}
-        {openCount === 0 ? null : (
-          <RevokeConfirmation
-            key={openCount}
-            workspaceSlug={workspaceSlug}
-            apiKey={apiKey}
-            titleId={titleId}
-            descriptionId={descriptionId}
-            onCancel={() => dialogRef.current?.close()}
-            onRevoked={(name) => {
-              revokedRef.current = true;
-              dialogRef.current?.close();
-              onRevoked(name);
-            }}
-          />
-        )}
-      </dialog>
+        <RevokeConfirmation
+          workspaceSlug={workspaceSlug}
+          apiKey={apiKey}
+          onRevoked={(name) => {
+            dialog.close("completed");
+            onRevoked(name);
+          }}
+        />
+      </ModalDialog>
     </>
   );
 }
@@ -448,16 +421,10 @@ function RevokeApiKeyDialog({
 function RevokeConfirmation({
   workspaceSlug,
   apiKey,
-  titleId,
-  descriptionId,
-  onCancel,
   onRevoked,
 }: {
   workspaceSlug: string;
   apiKey: ApiKeyItem;
-  titleId: string;
-  descriptionId: string;
-  onCancel: () => void;
   onRevoked: (name: string) => void;
 }) {
   const [state, formAction, pending] = useActionState<RevokeApiKeyResult | null, FormData>(
@@ -473,33 +440,13 @@ function RevokeConfirmation({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="keyId" value={apiKey.id} />
-      <h2 id={titleId} className="break-words text-lg font-semibold tracking-tight">
-        Revoke {apiKey.name}?
-      </h2>
-      <p id={descriptionId} className="mt-3 text-sm leading-6 text-muted">
-        Every script or tool using this key gets an error from its next request. A revoked key cannot be turned back
-        on; create a new key if you need access again.
-      </p>
       <ErrorSummary failure={failureOf(state)} />
-      <div className="mt-6 flex flex-wrap justify-end gap-3">
-        <button
-          type="button"
-          // Cancel first and focused, so Enter right after opening never revokes.
-          autoFocus
-          disabled={pending}
-          onClick={onCancel}
-          className={BUTTON_SECONDARY}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={pending}
-          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60"
-        >
+      <DialogActions>
+        <DialogCloseButton unavailable={pending} />
+        <button type="submit" disabled={pending} className={buttonClass("danger")}>
           {pending ? "Revoking" : "Revoke key"}
         </button>
-      </div>
+      </DialogActions>
     </form>
   );
 }

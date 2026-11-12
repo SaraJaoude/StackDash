@@ -7,6 +7,7 @@ import { DeleteAccountForm } from "@/components/account/delete-account-form";
 import { ManualRevokeList } from "@/components/account/manual-revoke-list";
 import { PageHeader } from "@/components/app/page-header";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import {
   blockedMessage,
@@ -70,10 +71,10 @@ export default async function AccountPage() {
 
 function LoadingAccount() {
   return (
-    <div role="status" aria-live="polite" className="mt-8">
+    <LiveRegion tone="status" className="mt-8">
       <span className="sr-only">Loading your account</span>
       <div aria-hidden="true" className="h-64 rounded-xl border border-dashed border-line bg-panel motion-safe:animate-pulse" />
-    </div>
+    </LiveRegion>
   );
 }
 

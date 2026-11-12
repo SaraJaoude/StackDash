@@ -4,6 +4,8 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
 
@@ -39,14 +41,14 @@ const searchParamsSchema = z.object({
 async function ErrorDetails({ searchParams }: { searchParams: PageProps<"/auth/error">["searchParams"] }) {
   const { reason, ref } = searchParamsSchema.parse(await searchParams);
   return (
-    <div role="alert" className="text-sm leading-6">
+    <LiveRegion tone="error" className="text-sm leading-6">
       <p>{reason === undefined ? FALLBACK_MESSAGE : REASONS[reason]}</p>
       {ref === undefined ? null : (
         <p className="mt-2 text-muted">
           If it keeps happening, share reference <span className="font-mono text-foreground">{ref}</span>.
         </p>
       )}
-    </div>
+    </LiveRegion>
   );
 }
 
@@ -66,13 +68,13 @@ export default async function AuthErrorPage({ searchParams }: PageProps<"/auth/e
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/app"
-            className="inline-flex min-h-11 items-center rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary", "lg")}
           >
             Go to DevMacro
           </Link>
           <Link
             href="/"
-            className="inline-flex min-h-11 items-center rounded-lg border border-line-strong px-5 py-3 text-sm font-medium transition-colors hover:bg-panel-raised"
+            className={buttonClass("outline", "lg")}
           >
             Go to the home page
           </Link>

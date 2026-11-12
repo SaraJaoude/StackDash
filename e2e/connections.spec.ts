@@ -461,7 +461,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
         message,
       });
       // Only the dialog reports it: the status beside the opener stays for a success.
-      await expect(page.getByRole("status").filter({ hasText: message })).toHaveCount(0);
+      await expect(page.getByText(message)).toHaveCount(0);
 
       const deleteId = await seedConnection();
       await page.goto(`/w/${workspace.slug}/connections/${deleteId}`);

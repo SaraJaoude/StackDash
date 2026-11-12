@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import { requireUser } from "@/lib/auth/session";
 import { getLastWorkspaceSlug, listMyWorkspaces } from "@/lib/data/workspaces";
@@ -49,9 +50,9 @@ async function OpenWorkspace() {
 
 function OpeningWorkspace() {
   return (
-    <p role="status" aria-live="polite" className="text-center text-sm text-muted">
+    <LiveRegion tone="status" as="p" className="text-center text-sm text-muted">
       Opening your workspace
-    </p>
+    </LiveRegion>
   );
 }
 

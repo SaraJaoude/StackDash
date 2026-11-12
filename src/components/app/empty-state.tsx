@@ -2,6 +2,7 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import { ArrowRightIcon, LockIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
 
 export type EmptyStateAction = {
   href: string;
@@ -60,7 +61,7 @@ export function EmptyState({
         <div className="mt-6 flex flex-wrap items-start justify-center gap-3">
           <Link
             href={action.href}
-            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={`gap-2 ${buttonClass("primary")}`}
           >
             {action.label}
             <ArrowRightIcon />

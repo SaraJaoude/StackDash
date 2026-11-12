@@ -2,9 +2,10 @@
 
 import { useId, useState } from "react";
 
-import { smallButtonClass } from "@/components/alerts/form-controls";
 import { GuardedButton } from "@/components/guarded-button";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import type { YearSlide } from "@/lib/public-metrics/yearly";
 
 /*
@@ -93,13 +94,13 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="button" unavailable={atStart} onClick={() => moveTo(index - 1)} className={smallButtonClass}>
+        <GuardedButton type="button" unavailable={atStart} onClick={() => moveTo(index - 1)} className={buttonClass("raised", "xs")}>
           Previous slide
         </GuardedButton>
-        <GuardedButton type="button" unavailable={atEnd} onClick={() => moveTo(index + 1)} className={smallButtonClass}>
+        <GuardedButton type="button" unavailable={atEnd} onClick={() => moveTo(index + 1)} className={buttonClass("raised", "xs")}>
           Next slide
         </GuardedButton>
-        <a href={image.src} download={image.downloadName} className={smallButtonClass}>
+        <a href={image.src} download={image.downloadName} className={buttonClass("raised", "xs")}>
           Download slide
           <span className="sr-only">: {slide.title}</span>
         </a>
@@ -113,9 +114,9 @@ export function YearSlides({ slides, yearName, width, height }: YearSlidesProps)
           notes={SHARE_NOTES}
         />
       </div>
-      <p aria-live="polite" className="sr-only">
+      <LiveRegion tone="status" as="p" className="sr-only">
         {moved ? `Slide ${index + 1} of ${total}: ${slide.title}` : ""}
-      </p>
+      </LiveRegion>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ErrorInfo } from "next/error";
 
 import { digestOf, ErrorPanel } from "@/components/app/error-panel";
+import { buttonClass } from "@/components/ui/button";
 
 /** The digest is the reference id (digestOf in error-panel.tsx); the raw message is never shown. */
 export default function WorkspaceError({ error, retry }: Pick<ErrorInfo, "error" | "retry">) {
@@ -18,13 +19,13 @@ export default function WorkspaceError({ error, retry }: Pick<ErrorInfo, "error"
           <button
             type="button"
             onClick={() => retry()}
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary")}
           >
             Try again
           </button>
           <Link
             href="/app"
-            className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            className={buttonClass("secondary")}
           >
             Open your workspaces
           </Link>
