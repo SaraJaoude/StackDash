@@ -10,9 +10,9 @@ import { Constants } from "@/lib/supabase/database.types";
 import { SCOPE_LABELS, type AlertFormOptions, type Option } from "./labels";
 
 /**
- * Form building blocks for the alerts page. Each field ties its hint and error to the control
- * with `aria-describedby` and marks itself `aria-invalid`; the error summary takes focus after a
- * failed submit and links to each field.
+ * Form building blocks for alert settings and the alerts inbox. Each field ties its hint and error
+ * to the control with `aria-describedby` and marks itself `aria-invalid`; the error summary takes
+ * focus after a failed submit and links to each field.
  */
 
 /**

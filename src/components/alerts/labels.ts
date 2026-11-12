@@ -12,8 +12,8 @@ import { currencyMinorDigits, decimalToMinorUnits } from "@/lib/money";
 import type { DestinationKind, DigestFrequency, EmailFrequency } from "@/lib/notifications/model";
 
 /**
- * Copy and serializable shapes shared by the server-rendered alerts page and its client forms.
- * Everything here is plain data or pure functions, safe on either side.
+ * Copy and serializable shapes shared by the server-rendered alerts inbox and alert settings and
+ * their client forms. Everything here is plain data or pure functions, safe on either side.
  */
 
 export const KIND_LABELS: Record<AlertRuleKind, string> = {

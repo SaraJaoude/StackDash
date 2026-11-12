@@ -362,7 +362,7 @@ describe("checkedRows", () => {
     ]);
   });
 
-  it("leaves a declared projection out, so the alerts page never offers to mute it (#223)", () => {
+  it("leaves a declared projection out, so alert settings never offers to mute it (#223)", () => {
     const spent = row({ snapshot_date: DATE, metric_key: "posthog.spend.current", amount_minor: 0 });
     const projected = row({ snapshot_date: DATE, metric_key: "posthog.spend.projected", kind: "estimated_spend", amount_minor: 2986 });
     expect(checkedRows([spent, projected], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["posthog.spend.current"]);
