@@ -35,10 +35,7 @@ export async function expectFailureInDialog(
   await page.keyboard.press("Enter");
   await expect(dialog).toBeVisible();
   const cancel = dialog.getByRole("button", { name: "Cancel" });
-  const confirm = dialog.getByRole("button", {
-    name: confirmName,
-    exact: true,
-  });
+  const confirm = dialog.getByRole("button", { name: confirmName, exact: true });
   await expect(cancel).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   await expect(confirm).toBeFocused();

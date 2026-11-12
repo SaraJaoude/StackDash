@@ -23,18 +23,14 @@ export function ProviderMark({
   labeled = false,
   className = "",
   ...source
-}: (
-  Readonly<{ provider: ProviderId | null }> | Readonly<{ platform: Platform }>
-) & {
+}: (Readonly<{ provider: ProviderId | null }> | Readonly<{ platform: Platform }>) & {
   size?: keyof typeof SIZES;
   labeled?: boolean;
   /** Placement only, such as `mt-0.5`. */
   className?: string;
 }) {
-  const platform =
-    "platform" in source ? source.platform : providerPlatform(source.provider);
-  const name =
-    "platform" in source ? source.platform : providerName(source.provider);
+  const platform = "platform" in source ? source.platform : providerPlatform(source.provider);
+  const name = "platform" in source ? source.platform : providerName(source.provider);
   const { frame, icon } = SIZES[size];
   return (
     <span
