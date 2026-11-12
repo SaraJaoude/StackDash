@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { groupDocs, listDocs, type DocVerification } from "@/lib/docs";
+import { DOCS_ROUTE, groupDocs, listDocs, type DocVerification } from "@/lib/docs";
+import { socialMetadata } from "@/lib/site-metadata";
 
 const intro = "How DevMacro connects to each provider, how to deploy and run it, and how its data is stored.";
 
-export const metadata: Metadata = { title: "Docs", description: intro };
+export const metadata: Metadata = {
+  title: "Docs",
+  description: intro,
+  // The preview title is the page's heading.
+  ...socialMetadata({ title: "Documentation", description: intro, path: DOCS_ROUTE }),
+};
 
 const VERIFICATION_BADGES: Record<DocVerification, { text: string; className: string }> = {
   documentation: { text: "Not yet tested with a real account", className: "border-warning/40 text-warning" },
