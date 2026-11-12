@@ -13,7 +13,7 @@ import {
 } from "@/app/w/[workspace]/connections/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
-import { DialogError } from "@/components/ui/dialog-error";
+import { DialogError, type DialogFailure } from "@/components/ui/dialog-error";
 import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 
@@ -189,9 +189,10 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
  * A `ModalDialog` whose body lists exactly what confirming does. A failure keeps the dialog open
  * and shows inside it, where it can be seen and heard; a success closes it and shows beside the
  * opener. A failure that arrives after Cancel or Escape closed the dialog mid-action, or after a
- * reopen replaced the confirmation that ran it, shows beside the opener too (#367), since nothing
- * on screen can report it otherwise. The confirmation remounts on every open, so it starts
- * without a previous attempt's error.
+ * reopen replaced the confirmation that ran it, shows beside the opener too (#367), since that
+ * confirmation can no longer report it. When the dialog is open again, the page behind it is
+ * inert, so the new confirmation shows that failure as well. The confirmation remounts on every
+ * open, so it starts without a previous attempt's error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -239,6 +240,7 @@ function ConfirmDialog({
           action={action}
           workspaceSlug={workspaceSlug}
           connectionId={connectionId}
+          replacedFailure={settled?.ok === false ? settled : null}
           onSettled={(result, shownInDialog) => {
             if (result.ok) {
               setSettled(result);
@@ -259,6 +261,7 @@ function ConfirmForm({
   workspaceSlug,
   connectionId,
   onSettled,
+  replacedFailure,
 }: {
   confirmLabel: string;
   action: Action;
@@ -266,6 +269,8 @@ function ConfirmForm({
   connectionId: string;
   /** `shownInDialog`: this confirmation is still mounted in the open dialog, so it shows a failure itself. */
   onSettled: (result: ConnectionActionResult, shownInDialog: boolean) => void;
+  /** The failure of a confirmation this one replaced, which settled after this one opened. */
+  replacedFailure: DialogFailure | null;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, pending] = useConnectionAction(async (previous, formData) => {
@@ -277,7 +282,7 @@ function ConfirmForm({
 
   return (
     <>
-      <DialogError failure={state?.ok === false ? state : null} />
+      <DialogError failure={state?.ok === false ? state : replacedFailure} />
       <form ref={formRef} action={formAction}>
         <input type="hidden" name="workspace" value={workspaceSlug} />
         <input type="hidden" name="connectionId" value={connectionId} />

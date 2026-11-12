@@ -506,13 +506,14 @@ ownerTest.describe("connecting a provider as the owner", () => {
         await expect(dialog).toBeHidden();
         await expect(opener).toBeFocused();
         if (reopened) {
-          // The new confirmation is not the one that ran the action, so it cannot report the
-          // failure: it lands beside the opener, behind the open dialog, before that closes.
+          // The confirmation that ran the action is gone, and the page behind the open dialog is
+          // inert, so the new confirmation reports the failure, focused and announced.
           await opener.click();
           await expect(dialog.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
           held.resolve();
-          await expect(page.getByText(GONE_MESSAGE)).toHaveCount(1);
-          await expect(dialog.getByText(GONE_MESSAGE)).toHaveCount(0);
+          await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+          await expect(dialog.getByText(GONE_MESSAGE)).toBeFocused();
+          await expectNoAxeViolations(page);
           await page.keyboard.press("Escape");
           await expect(dialog).toBeHidden();
         } else {
