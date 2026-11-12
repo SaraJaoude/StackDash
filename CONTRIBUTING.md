@@ -203,6 +203,8 @@ eyesight.
 - **Errors**: a `catch` handles the error or rethrows it with its `cause`. Expected failures
   (validation, not found, permission denied) are return values, not exceptions. Every outbound
   call has a timeout. Use the structured logger in `src/lib/log`, never `console.log`.
+- **Every user-facing route has an error boundary and an empty state**, and both are tested.
+  Retries are for idempotent operations only: bounded, backed off, and capped.
 - **Server first.** Server Components by default, `"use client"` only at the leaf that needs it,
   and independent fetches run together with `Promise.all`.
 - **Clean cutover.** When you replace something, migrate every caller and delete the old path. No
@@ -217,13 +219,40 @@ eyesight.
 - **Every mutation authorizes the caller**, for this specific row. A Server Action or route
   handler is a public endpoint; row level security is defense in depth, not the check.
 - **Identity comes from the verified session**: `getClaims()` or `getUser()`, never `getSession()`,
-  and never a user id from the request body or a query parameter.
+  and never a user id from the request body or a query parameter. `src/proxy.ts` refreshes the
+  session and redirects; it does not authorize, so every handler and query still checks.
 - **Trust nothing from the client**: amounts, ids, roles, statuses, and redirect targets are read
   again on the server. Redirects go only to allow-listed relative paths.
+- **Validate input at the boundary with a schema that rejects unknown fields.** Never spread a
+  request body into an update.
+- **Rate limit anything that sends email, costs money, or creates records**, keyed by user and by
+  IP.
+- Never build SQL by concatenation, and never pass user content to `dangerouslySetInnerHTML`.
+- **A route handler that changes state verifies `Origin`** and allow-lists origins rather than `*`.
+  Server Actions get the framework's protection; a bare `POST` handler gets none.
+- **A webhook handler verifies the signature against the raw body** before parsing it, with a
+  constant-time compare, and rejects stale timestamps. It is idempotent: store the provider event
+  id and ignore repeats, because delivery is at least once and out of order.
+- **The service-role key stays on the server.** `SUPABASE_SERVICE_ROLE_KEY` bypasses row level
+  security, so it never reaches a client component or the browser bundle.
 - A missing row and a row you do not own return the same response.
 - **Money is an integer in minor units with its ISO 4217 currency**, never a float. Timestamps are
   `timestamptz` in UTC; format dates and amounts only at the edge, with `Intl`.
 - Personal data never goes into logs, analytics events, error messages, fixtures, or screenshots.
+
+### Performance and data access
+
+- **Every list query is paginated and bounded on the server.** No unbounded select, however few
+  rows there are today.
+- Select only the columns you use, never `select('*')`.
+- **Every column in a filter, sort, or join has an index**, and a composite index matches the
+  query's column order. Name the index the query uses in the pull request.
+- **No queries inside a loop.** Batch them, join, or use one `in` clause. An N+1 that is instant
+  against five local rows times out against five thousand real ones.
+- Anything unbounded gets a limit: request bodies, uploads, in-memory collections, and provider
+  pagination loops.
+- **Stop what you start**: unsubscribe realtime channels, clear intervals and listeners, and abort
+  in-flight requests on unmount or navigation.
 
 ### Database
 
