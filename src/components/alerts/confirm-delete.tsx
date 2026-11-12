@@ -53,7 +53,7 @@ export function ConfirmDelete({
       <button
         type="button"
         onClick={(event) => dialog.open(event.currentTarget)}
-        className={`${buttonClass("raised", "xs")} text-danger`}
+        className={buttonClass("raised", "xs")}
       >
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
