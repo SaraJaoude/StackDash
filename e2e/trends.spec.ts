@@ -205,6 +205,77 @@ async function seedLongHistory(workspace: TestWorkspace): Promise<SeededLongHist
   return { firstMonth: UTC_MONTH.format(start), lastMonth: UTC_MONTH.format(today), rows: rows.length };
 }
 
+// Further back than the start of the previous month can ever be (61 days on the 31st), and past
+// the dashboard's 45 day window, so the account has stopped reporting.
+const STOPPED_DAYS_AGO = 75;
+
+/**
+ * Two accounts of one fake connection: "Production" reports $2.00 on the last day of the previous
+ * UTC month and $3.00 today; "Staging" reported $0.50 once, 75 days ago, and stopped (#308).
+ */
+async function seedStoppedAccount(workspace: TestWorkspace): Promise<{ today: string }> {
+  const admin = adminClient();
+  const now = new Date();
+  const today = utcDate(now.getTime());
+  const previousMonthEnd = utcDate(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0));
+  const stopped = utcDate(now.getTime() - STOPPED_DAYS_AGO * DAY_MS);
+
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "fake",
+      status: "active",
+      display_name: "Fake billing account",
+      poll_interval_seconds: 3_600,
+      last_synced_at: now.toISOString(),
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: accounts, error: accountError } = await admin
+    .from("external_accounts")
+    .insert(
+      ["Production", "Staging"].map((name) => ({
+        workspace_id: workspace.id,
+        connection_id: connection.id,
+        external_id: `acct_${name.toLowerCase()}`,
+        display_name: name,
+        kind: "account",
+      })),
+    )
+    .select("id, display_name");
+  if (accountError) throw new Error(`Seeding accounts failed (code ${accountError.code}).`);
+  const idOf = (name: string): string => {
+    const id = accounts.find((account) => account.display_name === name)?.id;
+    if (id === undefined) throw new Error(`Seeded account ${name} is missing.`);
+    return id;
+  };
+
+  const row = (account: string, date: string, amountMinor: number): SnapshotInsert => {
+    const at = `${date}T06:00:00.000Z`;
+    return {
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_account_id: idOf(account),
+      metric_key: "fake.spend.month",
+      kind: "verified_spend",
+      label: "Spend this month",
+      snapshot_date: date,
+      currency: "USD",
+      amount_minor: amountMinor,
+      point_at: at,
+      retrieved_at: at,
+      provenance_source: "provider_api",
+    };
+  };
+  const { error } = await admin
+    .from("usage_snapshots")
+    .insert([row("Production", previousMonthEnd, 200), row("Production", today, 300), row("Staging", stopped, 50)]);
+  if (error) throw new Error(`Seeding snapshots failed (code ${error.code}).`);
+  return { today };
+}
+
 ownerTest.describe("dashboard trends", () => {
   ownerTest("charts each metric with a table, shows a gap as unavailable, and marks estimates", async ({ page }) => {
     const workspace = await createTestWorkspace("Dashboard trends");
@@ -380,6 +451,26 @@ ownerTest.describe("dashboard trends", () => {
         "aria-label",
         `Spend this month (Example provider, USD), last 13 months. From $1.00 on ${firstMonth} to $13.00 on ${lastMonth}. Up 8 percent from last month.`,
       );
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("leaves an account that stopped reporting out of later days and months alike (#308)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard trend stopped account");
+    try {
+      const { today } = await seedStoppedAccount(workspace);
+      const name = "Spend this month (Example provider, USD)";
+
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const daily = page.getByRole("region", { name: "Trends" }).getByRole("figure", { name });
+      await daily.getByText("Show the values as a table").click();
+      await expect(daily.getByRole("table").getByRole("row", { name: new RegExp(`^${today}`) })).toContainText("$3.00");
+
+      await page.goto(`/w/${workspace.slug}/dashboard?trend=monthly`);
+      const monthly = page.getByRole("region", { name: "Trends" }).getByRole("figure", { name });
+      // Staging is not expected after its last month, so this month and last month have values.
+      await expect(monthly).toContainText("Up 50 percent from last month");
     } finally {
       await deleteTestWorkspace(workspace);
     }

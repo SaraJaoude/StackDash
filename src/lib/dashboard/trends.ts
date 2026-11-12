@@ -7,8 +7,12 @@
  * - A series is one provider, one metric key, and one currency or unit. Currencies and units are
  *   never mixed in a series; the same metric reported in two currencies is two series.
  * - Each account contributes its latest row in a bucket (day or month). A bucket's value is the
- *   sum over the series' accounts. If any account that had started reporting by the end of the
- *   bucket has no row in it, the bucket is unavailable (null), never zero and never a partial sum.
+ *   sum over the series' accounts. If any account expected in the bucket has no row in it, the
+ *   bucket is unavailable (null), never zero and never a partial sum.
+ * - An account is expected in a bucket from its first row on. One that has stopped reporting (no
+ *   row since `snapshotWindowStart(now)`, the dashboard's window) is expected only up to the
+ *   bucket of its last row, in both granularities (#308), so a stopped account never makes a
+ *   later day or month unavailable, and the daily and monthly views agree about it.
  * - A point is estimated when any row behind it is estimated. A series is simulated when any
  *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
@@ -21,7 +25,7 @@ import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
-import { ACCUMULATING_KINDS, countedSnapshots, isCurrentPeriod, isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
+import { ACCUMULATING_KINDS, countedSnapshots, isCurrentPeriod, isEstimated, snapshotWindowStart, type ProviderId, type SnapshotInput } from "./aggregate";
 
 export type TrendGranularity = "daily" | "monthly";
 
@@ -120,8 +124,9 @@ type SeriesBuilder = {
   metricKey: string;
   measure: TrendMeasure;
   latest: TrendRow;
-  /** First date each account reported this metric, within the loaded rows. */
+  /** First and last date each account reported this metric, within the loaded rows. */
   firstDates: Map<string, string>;
+  lastDates: Map<string, string>;
   /** Bucket, then account, then that account's latest row in the bucket. */
   cells: Map<string, Map<string, TrendRow>>;
   simulated: boolean;
@@ -154,6 +159,7 @@ export function buildTrends(
 ): TrendSeries[] {
   const byId = new Map(connections.map((connection) => [connection.id, connection]));
   const buckets = trendBuckets(granularity, now);
+  const reportingSince = snapshotWindowStart(now);
   const inWindow = new Set(buckets);
   const builders = new Map<string, SeriesBuilder>();
 
@@ -165,12 +171,14 @@ export function buildTrends(
     const key = seriesKey(provider, row.metric_key, measure);
     let builder = builders.get(key);
     if (builder === undefined) {
-      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), cells: new Map(), simulated: false };
+      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), lastDates: new Map(), cells: new Map(), simulated: false };
       builders.set(key, builder);
     }
     if (newer(row, builder.latest)) builder.latest = row;
     const first = builder.firstDates.get(row.external_account_id);
     if (first === undefined || row.snapshot_date < first) builder.firstDates.set(row.external_account_id, row.snapshot_date);
+    const last = builder.lastDates.get(row.external_account_id);
+    if (last === undefined || row.snapshot_date > last) builder.lastDates.set(row.external_account_id, row.snapshot_date);
 
     const bucket = granularity === "daily" ? row.snapshot_date : row.snapshot_date.slice(0, 7);
     if (!inWindow.has(bucket)) continue;
@@ -187,9 +195,15 @@ export function buildTrends(
   const series: TrendSeries[] = [];
   for (const [key, builder] of builders) {
     const points = buckets.map((bucket): TrendPoint => {
+      const bucketStart = granularity === "daily" ? bucket : `${bucket}-01`;
       // "YYYY-MM-31" sorts after every real date in the month, so it stands for the month's end.
       const bucketEnd = granularity === "daily" ? bucket : `${bucket}-31`;
-      const expected = [...builder.firstDates].filter(([, first]) => first <= bucketEnd).map(([account]) => account);
+      const expected = [...builder.firstDates]
+        .filter(([account, first]) => {
+          const last = builder.lastDates.get(account) ?? first;
+          return first <= bucketEnd && (last >= reportingSince || last >= bucketStart);
+        })
+        .map(([account]) => account);
       const cell = builder.cells.get(bucket);
       let value = 0;
       let estimated = false;

@@ -144,6 +144,53 @@ describe("buildTrends gaps", () => {
   });
 });
 
+describe("buildTrends accounts that stopped reporting (#308)", () => {
+  // 45 days before NOW: the dashboard's window, and the first date the daily trend reads.
+  const WINDOW_START = "2025-12-01";
+
+  /** a1 reports every month through today; a2 starts in October and last reports on `a2Last`. */
+  function rowsWithA2LastOn(a2Last: string): TrendRow[] {
+    return [
+      spend({ snapshot_date: "2025-10-31", amount_minor: 80 }),
+      spend({ snapshot_date: "2025-11-30", amount_minor: 90 }),
+      spend({ snapshot_date: "2025-12-31", amount_minor: 95 }),
+      spend({ snapshot_date: "2026-01-15", amount_minor: 100 }),
+      spend({ snapshot_date: "2025-10-20", amount_minor: 50, external_account_id: "a2" }),
+      spend({ snapshot_date: a2Last, amount_minor: 40, external_account_id: "a2" }),
+    ];
+  }
+
+  /**
+   * Today in the daily view, given only the rows the daily read loads, and this month in the
+   * monthly view. A daily series whose every day is unavailable is left out, which also means no
+   * value today, so that reads as null too.
+   */
+  function current(rows: TrendRow[]) {
+    const dailyRows = rows.filter((row) => row.snapshot_date >= WINDOW_START);
+    return { today: valueOn(dailyRows, "2026-01-15")?.value ?? null, thisMonth: valueOn(rows, "2026-01", "monthly")?.value ?? null };
+  }
+
+  it.each([
+    ["the day before the window: stopped, so neither view expects it", "2025-11-30", { today: 100, thisMonth: 100 }],
+    ["the window's first day: still reporting, so both views expect it", WINDOW_START, { today: null, thisMonth: null }],
+  ])("agrees in both views when the account's last row is on %s", (_title, a2Last, expected) => {
+    expect(current(rowsWithA2LastOn(a2Last))).toEqual(expected);
+  });
+
+  it("still counts a stopped account up to the bucket of its last row, and not after it", () => {
+    const rows = rowsWithA2LastOn("2025-11-30");
+    expect(valueOn(rows, "2025-10", "monthly")?.value).toBe(130);
+    expect(valueOn(rows, "2025-11", "monthly")?.value).toBe(130);
+    expect(valueOn(rows, "2025-12", "monthly")?.value).toBe(95);
+  });
+
+  it("keeps a stopped account's missing month inside its reporting span unavailable", () => {
+    const rows = rowsWithA2LastOn("2025-11-30").filter((row) => !(row.external_account_id === "a2" && row.snapshot_date === "2025-10-20"));
+    rows.push(spend({ snapshot_date: "2025-09-15", amount_minor: 30, external_account_id: "a2" }));
+    expect(valueOn(rows, "2025-10", "monthly")?.value).toBeNull();
+  });
+});
+
 describe("buildTrends series", () => {
   it("keeps each currency in its own series and never adds them", () => {
     const series = daily([
