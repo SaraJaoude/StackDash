@@ -2,18 +2,23 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicPageMatch } from "@/lib/data/project-pages";
+import type * as LoggerModule from "@/lib/log/logger";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision } from "@/lib/public-metrics/requests";
 
 import { proxy } from "./proxy";
 
 // Public project page addresses (#150) through the proxy: the rate limit the badges and cards
-// share (#321), then the lookup that decides between the page, a redirect, and the 404.
+// share (#321), then the lookup that decides between the page, a redirect, and the 404. Then the
+// super admin page (#374): only a verified super admin's /app/admin is sent to the page's route,
+// and that route's own path is answered as not found.
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { checkPublicRateLimit, findPublicProjectPage } = vi.hoisted(() => ({
+const { checkPublicRateLimit, findPublicProjectPage, getClaims, warn } = vi.hoisted(() => ({
   checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
   findPublicProjectPage: vi.fn<(address: string, pageSlug: string) => Promise<PublicPageMatch | null>>(),
+  getClaims: vi.fn<() => Promise<{ data: { claims: { sub: string; email?: string } } | null }>>(),
+  warn: vi.fn(),
 }));
 
 vi.mock("@/lib/data/project-pages", () => ({ findPublicProjectPage }));
@@ -21,6 +26,12 @@ vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   ...(await importOriginal<typeof RequestsModule>()),
   checkPublicRateLimit,
 }));
+vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth: { getClaims } }) }));
+// The admin refusal's warning is asserted; the invalid list case's error line stays out of the output.
+vi.mock("@/lib/log/logger", async (importOriginal) => {
+  const original = await importOriginal<typeof LoggerModule>();
+  return { ...original, log: { ...original.log, warn }, logError: () => "ref-123" };
+});
 
 const ADDRESS = "/@acme-labs/acme-web";
 const PAGE: PublicPageMatch = {
@@ -128,5 +139,78 @@ describe("proxy for public project pages", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("Location")).toBe("http://localhost/@acme-labs/acme-web?ref=readme");
     expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("proxy for the super admin page", () => {
+  beforeEach(() => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com");
+  });
+
+  const USER_ID = "10000000-0000-4000-8000-000000000001";
+
+  function signedInAs(email: string | undefined): void {
+    const claims = { sub: USER_ID, ...(email === undefined ? {} : { email }) };
+    getClaims.mockResolvedValue({ data: { claims } });
+  }
+
+  it.each([
+    ["another address", "someone@example.com"],
+    ["a user with no email", undefined],
+  ])("leaves %s on /app/admin, which has no route, exactly as a missing app path, and logs the refusal", async (_title, email) => {
+    signedInAs(email);
+
+    const admin = await proxy(request("/app/admin?after=x"));
+    const missing = await proxy(request("/app/no-such-page?after=x"));
+
+    for (const response of [admin, missing]) {
+      expect(rewrittenTo(response)).toBeNull();
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    }
+    expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
+  });
+
+  it("sends a super admin, in any case of the address, to the page route with the query kept", async () => {
+    signedInAs("OPS@example.com");
+
+    const response = await proxy(request("/app/admin?after=x"));
+
+    const target = new URL(response.headers.get("x-middleware-rewrite") ?? "http://localhost/none");
+    expect(`${target.pathname}${target.search}`).toBe("/super-admin?after=x");
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("sends an invalid list on to the page, whose error page reports it", async () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    signedInAs("someone@example.com");
+
+    const response = await proxy(request("/app/admin"));
+
+    expect(rewrittenTo(response)).toBe("/super-admin");
+  });
+
+  it("sends a signed-out visitor to sign in and back, as on every app page", async () => {
+    getClaims.mockResolvedValue({ data: null });
+
+    const response = await proxy(request("/app/admin"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Fapp%2Fadmin");
+  });
+
+  it.each([
+    ["a super admin", "ops@example.com"],
+    ["anyone else", "someone@example.com"],
+  ])("answers the page route's own path, and any path under it, with one 404 route for %s", async (_title, email) => {
+    signedInAs(email);
+
+    for (const path of ["/super-admin", "/super-admin?after=x", "/super-admin/anything"]) {
+      const response = await proxy(request(path));
+      expect(rewrittenTo(response)).toBe("/super-admin/_");
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    }
+    expect(getClaims).not.toHaveBeenCalled();
   });
 });

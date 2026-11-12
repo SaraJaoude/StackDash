@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isSuperAdminEmail, showsAdminLink } from "./super-admin";
+import { admitsToAdminRoute, isSuperAdminEmail, showsAdminLink } from "./super-admin";
 
-const logError = vi.hoisted(() => vi.fn(() => "ref-123"));
-vi.mock("@/lib/log/logger", () => ({ log: { warn: () => {} }, logError }));
+const { logError, warn } = vi.hoisted(() => ({ logError: vi.fn(() => "ref-123"), warn: vi.fn() }));
+vi.mock("@/lib/log/logger", () => ({ log: { warn }, logError }));
 
 const ADMINS: ReadonlySet<string> = new Set(["ops@example.com"]);
 
@@ -44,5 +44,43 @@ describe("showsAdminLink", () => {
     expect(showsAdminLink("ops@example.com")).toBe(false);
     expect(logError).toHaveBeenCalledOnce();
     expect(logError).toHaveBeenCalledWith("admin.link_check_failed", expect.any(Error));
+  });
+});
+
+describe("admitsToAdminRoute", () => {
+  const USER_ID = "10000000-0000-4000-8000-000000000001";
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    logError.mockClear();
+    warn.mockClear();
+  });
+
+  it.each([
+    ["admits the listed address", "ops@example.com,second@example.com", "second@example.com"],
+    ["admits the listed address in another case", "ops@example.com", "OPS@example.com"],
+  ])("%s, logging nothing", (_title, list, email) => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    expect(admitsToAdminRoute({ id: USER_ID, email })).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["refuses another address", "ops@example.com", "someone@example.com"],
+    ["refuses a user with no email", "ops@example.com", null],
+    ["refuses anyone when the list is empty", "", "ops@example.com"],
+  ])("%s and logs the refusal as the page does", (_title, list, email) => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    expect(admitsToAdminRoute({ id: USER_ID, email })).toBe(false);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("sends an invalid list on to the page, so its error page still shows, and logs the reason", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    expect(admitsToAdminRoute({ id: USER_ID, email: "someone@example.com" })).toBe(true);
+    expect(logError).toHaveBeenCalledExactlyOnceWith("admin.proxy_check_failed", expect.any(Error));
+    expect(warn).not.toHaveBeenCalled();
   });
 });

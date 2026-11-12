@@ -84,14 +84,16 @@ const searchSchema = z.object({
 });
 
 /**
- * The super admin page (#250): how this instance is configured and how it is used. Only addresses
- * in DEVMACRO_SUPER_ADMIN_EMAILS reach it; anyone else gets the not found page.
+ * The super admin page (#250): how this instance is configured and how it is used. Addressed as
+ * ADMIN_PATH; src/proxy.ts rewrites that address to this route for a super admin only, and answers
+ * this route's own path as not found, so anyone else gets the not found page with its 404 (#374).
  */
-export default async function AdminPage({ searchParams }: PageProps<"/app/admin">) {
+export default async function AdminPage({ searchParams }: PageProps<"/super-admin">) {
   await connection();
-  // Checked before anything renders, unlike the account page's streamed session read: a streamed
-  // notFound() would already have sent this page's heading with a 200, so a non super admin could
-  // tell the page apart from a missing one. `instant = false` lets the route block here.
+  // Checked before anything below renders: this is the authorization, and the proxy's routing is
+  // not. It cannot set the status on a production build, where the empty static shell
+  // `instant = false` allows has already been sent with a 200 by the time this runs: a request the
+  // proxy let through by mistake would still get the not-found page, but with a 200.
   const user = await requireSuperAdmin(ADMIN_PATH);
   return (
     <div className="flex flex-1 flex-col">
@@ -133,7 +135,7 @@ function LoadingOverview() {
   );
 }
 
-async function AdminContent({ userId, searchParams }: { userId: string } & Pick<PageProps<"/app/admin">, "searchParams">) {
+async function AdminContent({ userId, searchParams }: { userId: string } & Pick<PageProps<"/super-admin">, "searchParams">) {
   const after = searchSchema.parse(await searchParams).after ?? null;
   // Admin views are logged: who looked at instance-wide data, and when (the log line's time).
   log.info("admin.viewed", { userId });

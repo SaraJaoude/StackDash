@@ -209,6 +209,16 @@ test.describe("signed out", () => {
     }
     expect(violations).toEqual([]);
   });
+
+  // The super admin page's route answers only through the proxy's rewrite of /app/admin (#374):
+  // its own path and any path under it are the not-found page, under the nonce policy.
+  test("the super admin route's own paths answer 404 with a not-found page that hydrates", async ({ page }) => {
+    const violations = await watchViolations(page);
+    for (const path of ["/super-admin", "/super-admin/no-such-page"]) {
+      await test.step(path, () => expectNotFoundPage(page, path));
+    }
+    expect(violations).toEqual([]);
+  });
 });
 
 ownerTest.describe("signed in", () => {

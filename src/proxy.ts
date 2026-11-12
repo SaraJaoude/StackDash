@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
+import { ADMIN_PATH, ADMIN_ROUTE, admitsToAdminRoute } from "@/lib/auth/super-admin";
 import { findPublicProjectPage } from "@/lib/data/project-pages";
 import { publicEnv } from "@/lib/env";
 import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
@@ -80,6 +81,14 @@ const UNKNOWN_DOC_PATH = "/docs/_";
 // released one, and another workspace's handle with this page slug get the same 404.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
+// The super admin page (#250) is addressed as ADMIN_PATH, which has no route of its own: only a
+// super admin's request is rewritten to ADMIN_ROUTE, where the page is. Anyone else's is left alone
+// and is the global 404, with the same status and headers as any missing /app path; a rewrite to a
+// 404 path would show in the x-middleware-rewrite response header (#374). ADMIN_ROUTE is never
+// answered under its own path: every request there is rewritten to one path no route matches, so
+// the route and any missing path under it answer alike.
+const UNKNOWN_ADMIN_ROUTE = `${ADMIN_ROUTE}/_`;
+
 type ProjectPageRoute =
   | { redirect: string }
   | { rewrite: string }
@@ -128,9 +137,10 @@ function withNoncePolicy(
 
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
- * CSP headers, and rewrites public project page addresses. This is not authorization: every page,
- * Server Function, and route handler still checks the user itself, because a matcher can drift and
- * silently stop covering a path.
+ * CSP headers, rewrites public project page addresses, sends a super admin's ADMIN_PATH to the
+ * page's route (the only way to reach it), and answers that route's own path as not found. This is
+ * not authorization: every page, Server Function, and route handler still checks the user itself,
+ * because a matcher can drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
   if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
@@ -161,6 +171,14 @@ export async function proxy(request: NextRequest) {
     }
     return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(route.rewrite, request.url), init),
+    );
+  }
+
+  if (pathname === ADMIN_ROUTE || pathname.startsWith(`${ADMIN_ROUTE}/`)) {
+    // No session refresh: nothing is rendered for anyone here. The nonce policy still applies,
+    // because the global 404 renders its scripts per request.
+    return withNoncePolicy(request, publicEnv().NEXT_PUBLIC_SUPABASE_URL, (init) =>
+      NextResponse.rewrite(new URL(UNKNOWN_ADMIN_ROUTE, request.url), init),
     );
   }
 
@@ -200,6 +218,15 @@ export async function proxy(request: NextRequest) {
     const signIn = new URL("/sign-in", request.url);
     signIn.searchParams.set("next", safeNextPath(`${pathname}${search}`));
     response = NextResponse.redirect(signIn);
+  } else if (
+    signedIn &&
+    pathname === ADMIN_PATH &&
+    admitsToAdminRoute({ id: data.claims.sub, email: data.claims.email ?? null })
+  ) {
+    // The page reads `after` from the query, which a rewrite to a bare path would drop.
+    const target = request.nextUrl.clone();
+    target.pathname = ADMIN_ROUTE;
+    response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.rewrite(target, init));
   } else {
     response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.next(init));
   }
@@ -212,8 +239,9 @@ export async function proxy(request: NextRequest) {
 }
 
 // The signed-in app, the account page, the auth pages, the signed-out /unsubscribe page (it reads
-// its link per request and posts a form, so it gets the full policy), and public project pages (/@
-// addresses and the /p route they are rewritten to), plus /docs paths with an uppercase letter
+// its link per request and posts a form, so it gets the full policy), public project pages (/@
+// addresses and the /p route they are rewritten to), the super admin route (ADMIN_ROUTE, answered
+// as not found above), plus /docs paths with an uppercase letter
 // (answered as not found above, before any session or CSP work). The landing page, the docs, the
 // signed-out /account/deleted page, API routes, and static assets stay out: they need no session
 // refresh, and a nonce would force static pages to render per request. next.config.ts applies the
@@ -234,5 +262,7 @@ export const config = {
     "/docs/:path(.*[A-Z].*)",
     "/@:path(.*)",
     "/p/:path*",
+    "/super-admin",
+    "/super-admin/:path*",
   ],
 };

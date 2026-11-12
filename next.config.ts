@@ -20,10 +20,10 @@ const staticCsp = {
 };
 
 // Every path except the paths in the proxy matcher in src/proxy.ts (/app, /app/*, /w/*, /account,
-// /sign-in, /auth/*, /unsubscribe, and the public project pages at /@* and /p/*). Keep the two
-// lists in sync. The proxy also matches mis-cased /docs paths but sets no CSP there, so they stay
-// covered here.
-const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$|@|p$|p/).*)";
+// /sign-in, /auth/*, /unsubscribe, the public project pages at /@* and /p/*, and the super admin
+// route at /super-admin and /super-admin/*). Keep the two lists in sync. The proxy also matches
+// mis-cased /docs paths but sets no CSP there, so they stay covered here.
+const outsideProxy = "/((?!app$|app/|w/|account$|sign-in$|auth/|unsubscribe$|@|p$|p/|super-admin$|super-admin/).*)";
 
 // Badges (#149) are SVG documents another site embeds and anyone can open directly: opened as a
 // page, they may load and run nothing. Next applies these headers before a route handler runs and
@@ -53,7 +53,7 @@ const nextConfig: NextConfig = {
     "/docs/**": ["./docs/**/*.md"],
     "/api/mcp": ["./docs/**/*.md"],
     "/sitemap.xml": ["./docs/**/*.md"],
-    "/app/admin": ["./supabase/migrations/*.sql"],
+    "/super-admin": ["./supabase/migrations/*.sql"],
   },
   turbopack: {
     rules: {

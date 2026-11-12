@@ -146,12 +146,41 @@ ownerTest.describe("the instance overview as a super admin", () => {
   });
 });
 
+// Headers that would tell /app/admin apart from a missing path: a proxy rewrite shows in both (#374).
+const REWRITE_HEADERS = ["x-middleware-rewrite", "x-nextjs-rewritten-path"] as const;
+
+function rewriteHeaders(headers: Record<string, string>): Record<string, string | undefined> {
+  return Object.fromEntries(REWRITE_HEADERS.map((name) => [name, headers[name]]));
+}
+
 viewerTest("a signed-in user who is not a super admin gets page not found", async ({ page }) => {
   const response = await page.goto("/app/admin");
   expect(response?.status()).toBe(404);
   await expect(page).toHaveTitle("Page not found · DevMacro");
   await expect(page.getByRole("heading", { level: 1, name: "We could not find that page" })).toBeVisible();
   await expect(page.getByText("Instance overview")).toHaveCount(0);
+});
+
+viewerTest("a signed-in user who is not a super admin cannot tell the page from a missing one by its headers", async ({ page }) => {
+  for (const headers of [{}, { RSC: "1" }]) {
+    const admin = await page.request.get("/app/admin", { headers, maxRedirects: 0 });
+    const missing = await page.request.get("/app/no-such-page", { headers, maxRedirects: 0 });
+    expect(admin.status()).toBe(404);
+    expect(missing.status()).toBe(404);
+    expect(rewriteHeaders(admin.headers())).toEqual(rewriteHeaders(missing.headers()));
+    expect(rewriteHeaders(admin.headers())).toEqual({ "x-middleware-rewrite": undefined, "x-nextjs-rewritten-path": undefined });
+  }
+});
+
+ownerTest("the page's own route answers even a super admin as a missing path", async ({ page }) => {
+  for (const headers of [{}, { RSC: "1" }]) {
+    const route = await page.request.get("/super-admin", { headers, maxRedirects: 0 });
+    const missing = await page.request.get("/super-admin/no-such-page", { headers, maxRedirects: 0 });
+    expect(route.status()).toBe(404);
+    expect(missing.status()).toBe(404);
+    expect(rewriteHeaders(route.headers())).toEqual(rewriteHeaders(missing.headers()));
+    expect(await route.text()).not.toContain("Instance overview");
+  }
 });
 
 viewerTest("a signed-in user who is not a super admin is offered no way to the overview", async ({ page }) => {
