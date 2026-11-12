@@ -1,0 +1,102 @@
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import { E2E_OPERATOR } from "./fixtures/operator";
+
+/*
+ * The privacy policy and terms of use (#339), with the synthetic operator playwright.config.ts gives
+ * the app. That the pages answer 404 and every link disappears without an operator is covered by
+ * src/lib/legal.test.ts, because one e2e server cannot run both configurations.
+ */
+
+// More Tab stops than any of these pages has before the link a test looks for.
+const MAX_TAB_PRESSES = 60;
+
+/** Presses Tab from the top of the page until `target` has focus, and checks its focus ring shows. */
+async function tabTo(page: Page, target: Locator): Promise<void> {
+  await page.locator("body").focus();
+  for (let presses = 0; presses < MAX_TAB_PRESSES; presses += 1) {
+    if (await target.evaluate((element) => element === document.activeElement)) break;
+    await page.keyboard.press("Tab");
+  }
+  await expect(target).toBeFocused();
+  expect(await target.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none");
+}
+
+test.describe("privacy policy and terms of use", () => {
+  test("the privacy policy names the operator, how to reach them, and who processes data", async ({ page }) => {
+    const response = await page.goto("/privacy");
+
+    expect(response?.status()).toBe(200);
+    await expect(page).toHaveTitle("Privacy policy · DevMacro");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
+    await expect(main.getByText(`${E2E_OPERATOR.DEVMACRO_OPERATOR_NAME} runs DevMacro at this address`)).toBeVisible();
+    await expect(main.getByRole("link", { name: E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL }).first()).toHaveAttribute(
+      "href",
+      `mailto:${E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL}`,
+    );
+    for (const heading of ["Cookies", "Who processes data for us", "How long we keep it", "Deleting your account"]) {
+      await expect(main.getByRole("heading", { level: 2, name: heading })).toBeVisible();
+    }
+    await expect(main.getByRole("link", { name: "Stripe", exact: true })).toHaveAttribute("href", "/docs/providers/stripe");
+  });
+
+  test("the terms of use name the operator and the governing law", async ({ page }) => {
+    const response = await page.goto("/terms");
+
+    expect(response?.status()).toBe(200);
+    await expect(page).toHaveTitle("Terms of use · DevMacro");
+    const main = page.getByRole("main");
+    await expect(main.getByRole("heading", { level: 1 })).toHaveText("Terms of use");
+    await expect(main.getByText(`which ${E2E_OPERATOR.DEVMACRO_OPERATOR_NAME} runs`)).toBeVisible();
+    await expect(main.getByText(`governed by the law of ${E2E_OPERATOR.DEVMACRO_GOVERNING_LAW}`)).toBeVisible();
+  });
+
+  test("the sign-in page, the footer, and the sitemap lead to both pages", async ({ page, request }) => {
+    await page.goto("/sign-in");
+    const consent = page.getByRole("main").getByText("By continuing, you agree to the");
+    await expect(consent.getByRole("link", { name: "terms of use" })).toHaveAttribute("href", "/terms");
+    await expect(consent.getByRole("link", { name: "privacy policy" })).toHaveAttribute("href", "/privacy");
+
+    await page.goto("/");
+    const footer = page.getByRole("contentinfo");
+    await expect(footer.getByRole("link", { name: "Terms of use", exact: true })).toHaveAttribute("href", "/terms");
+    await footer.getByRole("link", { name: "Privacy policy", exact: true }).click();
+    await expect(page).toHaveURL("/privacy");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
+
+    const sitemap = await request.get("/sitemap.xml");
+    expect(sitemap.status()).toBe(200);
+    const body = await sitemap.text();
+    expect(body).toContain("/privacy</loc>");
+    expect(body).toContain("/terms</loc>");
+  });
+
+  for (const path of ["/privacy", "/terms", "/sign-in"]) {
+    test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
+      await page.goto(path);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    });
+  }
+
+  test("a keyboard alone goes from sign-in to the terms, to the policy, to the contact address", async ({ page }) => {
+    await page.goto("/sign-in");
+    const terms = page.getByRole("main").getByRole("link", { name: "terms of use" });
+    await tabTo(page, terms);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("/terms");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Terms of use");
+
+    const privacy = page.getByRole("main").getByRole("link", { name: "privacy policy" });
+    await tabTo(page, privacy);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("/privacy");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
+
+    await tabTo(page, page.getByRole("main").getByRole("link", { name: E2E_OPERATOR.DEVMACRO_OPERATOR_EMAIL }).first());
+  });
+});

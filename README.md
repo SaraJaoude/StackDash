@@ -452,6 +452,9 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
 | `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes and public project pages reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
+| `DEVMACRO_OPERATOR_NAME` | Who runs this instance, named as responsible for its data on `/privacy` and `/terms`. Set all three operator variables or none: with none, both pages answer 404 and the sign-in page, footer, and sitemap do not link to them. Read at build time by the prerendered pages, so rebuild after changing it | Server only | Optional (required to publish the privacy policy and terms) |
+| `DEVMACRO_OPERATOR_EMAIL` | One email address for privacy and data requests, shown on both pages | Server only | With `DEVMACRO_OPERATOR_NAME` |
+| `DEVMACRO_GOVERNING_LAW` | The law the terms of use are governed by, as it reads after "the law of", such as `England and Wales` | Server only | With `DEVMACRO_OPERATOR_NAME` |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -548,13 +551,14 @@ src/
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
-    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
+    sitemap.ts                 /sitemap.xml: the landing page, the legal pages, and indexable public project pages
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
     fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
     docs/                      the Markdown in docs/ published at /docs, one page per file
+    privacy/, terms/           privacy policy and terms of use, published only when the operator variables are set
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
@@ -580,6 +584,7 @@ src/
     timeline/                  event list and filters
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
+    legal/                     the privacy policy and terms of use layout, and the line beside the sign-in button
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
@@ -600,6 +605,7 @@ src/
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
+    legal.ts                   whether this instance names an operator, and the links to the legal pages
     docs.ts                    reads docs/ for /docs: the page list, titles, and link rewriting
   types/                       ambient type declarations
 supabase/
