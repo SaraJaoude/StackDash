@@ -10,7 +10,8 @@ import { proxy } from "./proxy";
 
 // Public project page addresses (#150) through the proxy: the rate limit the badges and cards
 // share (#321), then the lookup that decides between the page, a redirect, and the 404. Then the
-// super admin page's 404 status (#374), decided from the verified claims.
+// super admin page (#374): only a verified super admin's /app/admin is sent to the page's route,
+// and that route's own path is answered as not found.
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
 const { checkPublicRateLimit, findPublicProjectPage, getClaims, warn } = vi.hoisted(() => ({

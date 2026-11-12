@@ -137,9 +137,10 @@ function withNoncePolicy(
 
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
- * CSP headers, rewrites public project page addresses, and gives the super admin page's 404 its
- * status. This is not authorization: every page, Server Function, and route handler still checks
- * the user itself, because a matcher can drift and silently stop covering a path.
+ * CSP headers, rewrites public project page addresses, sends a super admin's ADMIN_PATH to the
+ * page's route (the only way to reach it), and answers that route's own path as not found. This is
+ * not authorization: every page, Server Function, and route handler still checks the user itself,
+ * because a matcher can drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
   if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
