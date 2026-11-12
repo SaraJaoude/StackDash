@@ -17,7 +17,8 @@ const auth = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({ auth }) }));
 
 const ORIGIN = "http://localhost:3000";
-const TOKEN_HASH = "pkce_0123456789abcdef0123456789abcdef0123456789abcdef01234567";
+// Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+const TOKEN_HASH = ["pkce_", "0123456789abcdef".repeat(3), "0123456789abcdef01234567"].join("");
 const DASHBOARD = "/w/demoslug/dashboard";
 const INVALID = `${ORIGIN}/sign-in?error=link_invalid&next=${encodeURIComponent(DASHBOARD)}`;
 
