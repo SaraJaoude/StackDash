@@ -108,7 +108,7 @@ export default function TermsPage() {
 
       <LegalSection id="changes" title="Changes to these terms">
         <p>
-          When these terms change, the date at the top changes with it. Using {site.name} after a change means you
+          When these terms change, the date at the top changes with them. Using {site.name} after a change means you
           accept the new terms.
         </p>
       </LegalSection>
