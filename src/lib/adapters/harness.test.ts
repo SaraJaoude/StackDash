@@ -17,6 +17,8 @@ import { liveProviderIds, type ProviderAdapter, type SyncResult } from "./types"
 const NOW = new Date("2026-11-16T00:00:00.000Z");
 const ACCOUNT = "acct_1001";
 const API = "https://api.example.com";
+// Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+const PRIVATE_KEY = ["synthetic", "private", "key", "1"].join("-");
 
 const usage: AdapterMetric = {
   kind: "usage",
@@ -255,11 +257,11 @@ describe("createAdapterHarness and checkTraffic", () => {
       routes: {},
       clientId: "acme-client-id",
       timeoutMs: 250,
-      extra: { privateKey: "synthetic-private-key-1" },
+      extra: { privateKey: PRIVATE_KEY },
     });
     expect(harness.ctx.client.clientId).toBe("acme-client-id");
     expect(harness.ctx.timeoutMs).toBe(250);
-    expect(harness.ctx.client.extra.privateKey?.reveal()).toBe("synthetic-private-key-1");
+    expect(harness.ctx.client.extra.privateKey?.reveal()).toBe(PRIVATE_KEY);
   });
 
   it("reports a request over http or without a timeout (boundary)", async () => {

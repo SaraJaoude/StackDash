@@ -434,8 +434,8 @@ docker run --rm -v "$PWD:/repo:ro" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 de
 ```
 
 Never commit a credential-shaped value, even a sample: use a placeholder such as `<access-token>`
-in docs and build fake keys at runtime in tests. `.gitleaks.toml` allowlists only the exact
-already-pushed commits that predate this rule.
+in docs and build fake keys at runtime in tests. `.gitleaks.toml` allowlists only exact
+already-pushed commits that added such a value, once the current tree no longer has it.
 
 ### End-to-end tests
 
