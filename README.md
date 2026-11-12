@@ -618,6 +618,15 @@ docs/
   providers/                   one page per provider: app setup, permissions, data read
 ```
 
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request: it covers the
+issue templates, setup and checks, branch and commit conventions, the review process, and the
+rules changes are reviewed against. The license and the contribution terms are not decided yet;
+CONTRIBUTING.md says what that means for you. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md). Report security vulnerabilities privately, as
+[SECURITY.md](SECURITY.md) describes, never in a public issue.
+
 ## Third-party marks
 
 The platform logos on the landing page use path data from [Simple Icons](https://simpleicons.org)
