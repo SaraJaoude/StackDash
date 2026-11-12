@@ -321,7 +321,7 @@ npm run demo:event -- --type budget-crossing
   validation, and alert checks, so a timeline open in the browser shows the event without a
   reload. A triggered alert is emailed and posted like any other by the next tick: keep
   `npm run jobs:tick -- --watch` running, or run `npm run jobs:tick`. With the fake Resend API
-  from step 12 running, the email prints there, and a channel added on the alerts page gets the
+  from step 12 running, the email prints there, and a channel added in alert settings gets the
   post.
 - `--workspace <slug>` targets another workspace on your stack that has a simulated Vercel
   connection, instead of the demo workspace. It writes nothing outside that one workspace, and it
@@ -348,7 +348,7 @@ npm run email:fake
 
 Then `npm run jobs:tick` sends what is due. A triggered alert goes to the owners and admins whose
 alert emails are set to **As each alert happens**, and the first tick of each day sends the
-**Daily digest** for the day before to members who chose it on the alerts page, in every workspace
+**Daily digest** for the day before to members who chose it in alert settings, in every workspace
 with a connection. Each email prints in the fake's terminal, and
 <http://127.0.0.1:55430/fake/emails> lists them all. To see how a failed email shows on the
 timeline, make the fake refuse the next one:
@@ -538,7 +538,7 @@ full procedure is in the header of `scripts/rotate-encryption-key.ts`:
 
 Rows that cannot be decrypted are counted as unreadable and left untouched (exit code 1); those
 connections need reconnecting, and those alert channels need removing and adding again with their
-URL (the alerts page marks them as needing attention after their next message).
+URL (alert settings marks them as needing attention after their next message).
 
 ## Project layout
 
@@ -558,7 +558,7 @@ src/
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
-    w/[workspace]/             dashboard, connections, projects, timeline, alerts, settings, year in review
+    w/[workspace]/             dashboard, connections, projects, timeline, alerts and alert settings, settings, year in review
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
     api/connections/[provider]/  provider OAuth start and callback routes
     api/jobs/tick/             scheduler entry point, protected by CRON_SECRET
