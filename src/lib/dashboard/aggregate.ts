@@ -18,7 +18,8 @@
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { formatRelative } from "@/lib/format";
+import type { AdapterCapabilities } from "@/lib/adapters/types";
+import { formatDateTime, formatList, formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
@@ -49,7 +50,14 @@ export type SnapshotInput = Pick<
 
 export type ConnectionInput = Pick<
   Tables["connections"]["Row"],
-  "id" | "provider" | "display_name" | "status" | "last_synced_at" | "poll_interval_seconds" | "granted_scopes"
+  | "id"
+  | "provider"
+  | "display_name"
+  | "status"
+  | "last_synced_at"
+  | "last_sync_requested_at"
+  | "poll_interval_seconds"
+  | "granted_scopes"
 >;
 
 export type AccountInput = Pick<Tables["external_accounts"]["Row"], "id" | "connection_id" | "display_name" | "project_id">;
@@ -142,6 +150,8 @@ export type ProviderSummary = Readonly<{
   simulated: boolean;
   status: ConnectionStatus;
   lastSyncedAt: string | null;
+  /** The last "Sync now" request, for the dashboard's cooldown hint (#267); null when never asked. */
+  lastSyncRequestedAt: string | null;
   /** True when the connection has synced before but not within two poll intervals. */
   stale: boolean;
   spend: readonly CurrencyAmounts[];
@@ -152,6 +162,29 @@ export type ProviderSummary = Readonly<{
   billingPeriod: Period | null;
   resetsAt: string | null;
 }>;
+
+/** What a provider's adapter declares it reports (`ProviderAdapter.capabilities`), as its card reads it. */
+export type DeclaredFields = Pick<AdapterCapabilities, "spending" | "credits">;
+
+/** Which of a provider card's fixed rows to show (#269). */
+export type ProviderCardFields = Readonly<{ billingPeriod: boolean; resetsAt: boolean; spend: boolean; credits: boolean }>;
+
+/**
+ * A provider card shows a row only when it can hold a value for that provider (#269), so no row
+ * reads "Unavailable" forever. Spend, the billing period it is read over, and the credit balance
+ * show when the adapter declares them, with "Unavailable" until the first reading. A reset comes
+ * with the reading itself (a quota reading carries when it resets) and no adapter declares one up
+ * front, so it shows only with a value. A row that has a value always shows, whatever the
+ * declaration says, so nothing a provider reported is ever hidden.
+ */
+export function providerCardFields(summary: ProviderSummary, declared: DeclaredFields): ProviderCardFields {
+  return {
+    billingPeriod: summary.billingPeriod !== null || declared.spending,
+    resetsAt: summary.resetsAt !== null,
+    spend: summary.spend.length > 0 || declared.spending,
+    credits: summary.credits.length > 0 || declared.credits,
+  };
+}
 
 export type ProjectSpend = Readonly<{
   /** null is the bucket for accounts not assigned to a project. */
@@ -239,7 +272,8 @@ export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly
   });
 }
 
-const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
+/** Money spent and money coming in: the kinds that accumulate over a period, and the trends' default set (#263). */
+export const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
 
 /**
  * Drops money that another row of the same account, kind, and currency already covers for a
@@ -554,6 +588,7 @@ function providerSummary(
     simulated: isSimulatedConnection(connection),
     status: connection.status,
     lastSyncedAt: connection.last_synced_at,
+    lastSyncRequestedAt: connection.last_sync_requested_at,
     stale: connection.last_synced_at !== null && isStale(connection.last_synced_at, connection.poll_interval_seconds, now),
     spend: sumByCurrency(spend, now),
     revenue: sumByCurrency(
@@ -655,4 +690,103 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
 export function freshnessLabel(retrievedAt: string, stale: boolean, now: Date): string {
   const relative = formatRelative(retrievedAt, now);
   return stale ? `Stale: last updated ${relative}` : `Updated ${relative}`;
+}
+
+/**
+ * The dashboard's one stale notice (#267), shown when most or all of the connections in view that
+ * can sync have not synced within two poll intervals (`ProviderSummary.stale`). A connection that
+ * never synced or is disconnected cannot be brought up to date by a sync, so it is not counted.
+ */
+export type StaleNotice = Readonly<{
+  connections: readonly Readonly<{ connectionId: string; name: string }>[];
+  /** Connections in view that have synced and can sync again. */
+  total: number;
+  /** The newest last sync among the stale connections: none of them has synced since. */
+  lastSyncedAt: string;
+  /**
+   * The earliest of the stale connections' last "Sync now" requests, or null when one has none: the
+   * button waits out the cooldown only while every one of them is in it (#161).
+   */
+  syncRequestedAt: string | null;
+}>;
+
+function withoutStaleMark<T extends Freshness>(value: T): T {
+  return { ...value, stale: false };
+}
+
+function amountsWithoutStaleMarks(list: readonly CurrencyAmounts[]): CurrencyAmounts[] {
+  return list.map((amounts) => ({
+    ...amounts,
+    verified: amounts.verified === null ? null : withoutStaleMark(amounts.verified),
+    estimated: amounts.estimated === null ? null : withoutStaleMark(amounts.estimated),
+  }));
+}
+
+/**
+ * The notice for `view`, and the view to show under it. With a notice, the stale connections' cards
+ * and values, and the totals that mix connections, carry no stale mark of their own, because the
+ * notice says it once for the page; each still says when it was read. A connection the notice does
+ * not name keeps its own marks. Without a notice (half or fewer stale), the view is returned as it
+ * is, so a lone stale value stands out.
+ */
+export function withStaleNotice(view: DashboardView): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
+  const syncable = view.byProvider.flatMap((summary) =>
+    summary.lastSyncedAt === null || summary.status === "revoked" ? [] : [{ summary, lastSyncedAt: summary.lastSyncedAt }],
+  );
+  const stale = syncable.filter(({ summary }) => summary.stale);
+  if (stale.length === 0 || stale.length * 2 <= syncable.length) return { view, notice: null };
+  const newest = stale.reduce((latest, entry) => (Date.parse(entry.lastSyncedAt) > Date.parse(latest.lastSyncedAt) ? entry : latest));
+  const requests = stale.flatMap(({ summary }) => (summary.lastSyncRequestedAt === null ? [] : [summary.lastSyncRequestedAt]));
+  const named = new Set(stale.map(({ summary }) => summary.connectionId));
+  return {
+    notice: {
+      connections: stale.map(({ summary }) => ({ connectionId: summary.connectionId, name: summary.name })),
+      total: syncable.length,
+      lastSyncedAt: newest.lastSyncedAt,
+      syncRequestedAt:
+        requests.length < stale.length ? null : requests.reduce((earliest, at) => (Date.parse(at) < Date.parse(earliest) ? at : earliest)),
+    },
+    view: {
+      totals: amountsWithoutStaleMarks(view.totals),
+      revenue: amountsWithoutStaleMarks(view.revenue),
+      byProvider: view.byProvider.map((summary) =>
+        named.has(summary.connectionId)
+          ? {
+              ...summary,
+              stale: false,
+              spend: amountsWithoutStaleMarks(summary.spend),
+              revenue: amountsWithoutStaleMarks(summary.revenue),
+              recurringRevenue: summary.recurringRevenue.map((rate) => ({ ...rate, value: withoutStaleMark(rate.value) })),
+              credits: summary.credits.map(withoutStaleMark),
+              allowances: summary.allowances.map((allowance) => ({
+                ...allowance,
+                included: allowance.included === null ? null : withoutStaleMark(allowance.included),
+                used: allowance.used === null ? null : withoutStaleMark(allowance.used),
+                remaining: allowance.remaining === null ? null : withoutStaleMark(allowance.remaining),
+              })),
+            }
+          : summary,
+      ),
+      byProject: view.byProject.map((project) => ({ ...project, spend: amountsWithoutStaleMarks(project.spend) })),
+    },
+  };
+}
+
+/**
+ * The notice in words: "Data last synced 3 days ago", and which connections, since when. The time
+ * is in Europe/London, as every time the app prints.
+ */
+export function staleNoticeText(notice: StaleNotice, now: Date): Readonly<{ title: string; body: string }> {
+  const count = notice.connections.length;
+  const since = formatDateTime(notice.lastSyncedAt);
+  const title = `Data last synced ${formatRelative(notice.lastSyncedAt, now)}`;
+  if (count === notice.total) {
+    const who = count === 1 ? "The only connection in view has" : `None of the ${count} connections in view has`;
+    return { title, body: `${who} ${count === 1 ? "not synced" : "synced"} since ${since}, so every figure on this page is from then or earlier.` };
+  }
+  const names = formatList(notice.connections.map((connection) => connection.name));
+  return {
+    title,
+    body: `${count} of ${notice.total} connections in view have not synced since ${since}: ${names}. Their figures on this page are from then or earlier.`,
+  };
 }

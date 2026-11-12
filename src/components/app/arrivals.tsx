@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { LiveRegion } from "@/components/ui/live-region";
 import { formatLondonTime } from "@/lib/format";
 import {
   createArrivalStore,
@@ -107,9 +108,9 @@ export function ArrivalProvider({ children }: { children: ReactNode }) {
       <ArrivalStoreContext value={store}>
         {children}
         {/* In the page from the first render, so a later sentence is a change a screen reader hears. */}
-        <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
+        <LiveRegion tone="status" as="p" aria-atomic="true" className="sr-only" data-testid="arrival-announcement">
           {announcement}
-        </p>
+        </LiveRegion>
       </ArrivalStoreContext>
     </ArrivalControlsContext>
   );

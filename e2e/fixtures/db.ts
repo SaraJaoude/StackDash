@@ -5,7 +5,7 @@
  * only touches rows inside it, so specs can run in parallel and in any order. Never seed into the
  * owner's personal workspace, which other specs read.
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -82,4 +82,56 @@ export async function createTestWorkspace(label: string): Promise<TestWorkspace>
 export async function deleteTestWorkspace(workspace: TestWorkspace): Promise<void> {
   const { error } = await adminClient().from("workspaces").delete().eq("id", workspace.id);
   if (error) throw new Error(`Deleting test workspace failed (code ${error.code}).`);
+}
+
+/** The personal workspace every user gets when their account is created. */
+export async function personalWorkspace(userId: string): Promise<Readonly<{ id: string; slug: string }>> {
+  const { data, error } = await adminClient()
+    .from("workspaces")
+    .select("id, slug")
+    .eq("created_by", userId)
+    .eq("is_personal", true)
+    .single();
+  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
+  return data;
+}
+
+/**
+ * A key made the way src/lib/api/keys.ts makes one (that module is server-only), for rows the
+ * service role inserts directly.
+ */
+export function seededKey(): { key: string; token_hash: string; token_prefix: string } {
+  const key = `dmk_${randomBytes(32).toString("base64url")}`;
+  return { key, token_hash: createHash("sha256").update(key, "utf8").digest("hex"), token_prefix: key.slice(0, 12) };
+}
+
+/** Inserts `count` usage-only keys the owner created, named "Seeded key 1" onward, for limit tests. */
+export async function seedApiKeys(workspace: TestWorkspace, count: number): Promise<void> {
+  const { error } = await adminClient()
+    .from("api_keys")
+    .insert(
+      Array.from({ length: count }, (_, index) => {
+        const { token_hash, token_prefix } = seededKey();
+        return {
+          workspace_id: workspace.id,
+          name: `Seeded key ${index + 1}`,
+          token_hash,
+          token_prefix,
+          scopes: ["usage:read" as const],
+          created_by: workspace.ownerId,
+        };
+      }),
+    );
+  if (error) throw new Error(`Seeding keys failed (code ${error.code}).`);
+}
+
+/** Keys in the workspace that are not revoked: what the limit of 20 counts. */
+export async function activeApiKeyCount(workspace: TestWorkspace): Promise<number> {
+  const { count, error } = await adminClient()
+    .from("api_keys")
+    .select("id", { count: "exact", head: true })
+    .eq("workspace_id", workspace.id)
+    .is("revoked_at", null);
+  if (error) throw new Error(`Counting keys failed (code ${error.code}).`);
+  return count ?? 0;
 }

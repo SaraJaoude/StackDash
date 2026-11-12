@@ -12,20 +12,25 @@ const PAD_Y = 10;
 const GAP_MARK = 6;
 
 /**
- * One window of a published metric's history (#150) as an inline SVG line chart, with the same
- * values in a table. Drawn like the dashboard's trend chart (src/components/dashboard/trend-chart.tsx)
- * but without its live arrival animation, which needs the signed-in app's realtime channel. The
- * chart is one image whose accessible name summarizes the window; the table holds every value.
- * Days without a value break the line and carry a mark on the baseline, said in words in the legend.
+ * A published metric's history (#150) as an inline SVG line chart, with the same values in a table.
+ * Drawn like the dashboard's trend chart (src/components/dashboard/trend-chart.tsx) but without its
+ * live arrival animation, which needs the signed-in app's realtime channel. The chart is one image
+ * whose accessible name summarizes the whole period; the table holds every value. The `recent`
+ * window at the end of the period is stated as a sentence rather than drawn again, so each metric
+ * has one chart (#344). Days without a value break the line and carry a mark on the baseline, said
+ * in words in the legend.
  */
 export function HistoryChart({
   title,
   period,
+  recent,
   points,
 }: {
   title: string;
-  /** "last 30 days", lowercase: it continues the title in sentences. */
+  /** "last 90 days", lowercase: it continues the title in sentences. */
   period: string;
+  /** The last `days` points, summarized in words beside the chart under their own `period`. */
+  recent: Readonly<{ days: number; period: string }>;
   points: readonly PublishedHistoryPoint[];
 }) {
   const captionId = useId();
@@ -60,56 +65,62 @@ export function HistoryChart({
         {simulated ? <SimulatedBadge /> : null}
       </figcaption>
 
-      <svg role="img" aria-label={historySummary(title, period, chartPoints)} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="mt-4 h-auto w-full text-accent">
-        <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
-        {chartPoints.map((point, index) => {
-          const previous = chartPoints[index - 1];
-          if (previous === undefined || previous.value === null || point.value === null) return null;
-          return (
-            <line
-              key={`segment-${point.asOf.toISOString()}`}
-              x1={x(index - 1)}
-              y1={y(previous.value)}
-              x2={x(index)}
-              y2={y(point.value)}
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          );
-        })}
-        {chartPoints.map((point, index) =>
-          point.value === null ? (
-            <line
-              key={`gap-${point.asOf.toISOString()}`}
-              x1={x(index)}
-              x2={x(index)}
-              y1={baseline - GAP_MARK}
-              y2={baseline}
-              className="stroke-muted"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null,
-        )}
-      </svg>
-
-      {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
-      <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
-        <span className="shrink-0">{first === undefined ? "" : utcDay(first.asOf)}</span>
-        <span className="min-w-0 text-center">{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
-        <span className="shrink-0">{last === undefined ? "" : utcDay(last.asOf)}</span>
-      </div>
-
-      {hasGaps ? (
-        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
-            <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
+      <div className="mt-4 grid gap-x-6 gap-y-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <svg role="img" aria-label={historySummary(title, period, chartPoints)} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="h-auto w-full text-accent">
+            <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
+            {chartPoints.map((point, index) => {
+              const previous = chartPoints[index - 1];
+              if (previous === undefined || previous.value === null || point.value === null) return null;
+              return (
+                <line
+                  key={`segment-${point.asOf.toISOString()}`}
+                  x1={x(index - 1)}
+                  y1={y(previous.value)}
+                  x2={x(index)}
+                  y2={y(point.value)}
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
+            })}
+            {chartPoints.map((point, index) =>
+              point.value === null ? (
+                <line
+                  key={`gap-${point.asOf.toISOString()}`}
+                  x1={x(index)}
+                  x2={x(index)}
+                  y1={baseline - GAP_MARK}
+                  y2={baseline}
+                  className="stroke-muted"
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null,
+            )}
           </svg>
-          Break in the line, mark on the baseline: no value that day
-        </p>
-      ) : null}
+
+          {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
+          <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
+            <span className="shrink-0">{first === undefined ? "" : utcDay(first.asOf)}</span>
+            <span className="min-w-0 text-center">{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
+            <span className="shrink-0">{last === undefined ? "" : utcDay(last.asOf)}</span>
+          </div>
+
+          {hasGaps ? (
+            <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+              <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
+                <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
+              </svg>
+              Break in the line, mark on the baseline: no value that day
+            </p>
+          ) : null}
+        </div>
+
+        <p className="text-sm leading-6">{historySummary(title, recent.period, chartPoints.slice(-recent.days))}</p>
+      </div>
 
       <details className="mt-4">
         <summary className="inline-flex min-h-6 cursor-pointer items-center text-sm font-medium underline underline-offset-4">

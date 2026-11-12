@@ -63,9 +63,10 @@ summary {
   border-radius: 2px;
 }
 
-/* A skip link (src/components/skip-link.tsx) focuses its target, #main or a trend chart's legend,
- * and marks it data-skip-focused until focus leaves. A skip target is a landmark or a block of
- * text, not a control, so it is not outlined like one; the next Tab lands on an outlined control. */
+/* A skip link (src/components/skip-link.tsx) focuses its target, #main or a trend chart's
+ * "Show the values as a table" disclosure, and marks it data-skip-focused until focus leaves. A
+ * skip target is a landmark or a block of content, not a control, so it is not outlined like one;
+ * the next Tab lands on an outlined control. */
 [data-skip-focused]:focus {
   outline: none;
 }
@@ -235,7 +236,7 @@ summary {
   animation: spark-ping 1.2s ease-out 2.4s 2 forwards;
 }
 
-/* The budget alert drops in once the 91% bar has filled, then pulses twice to draw the eye. */
+/* The sent alert drops in once the first allowance bar has filled, then pulses twice to draw the eye. */
 @keyframes alert-in {
   from {
     opacity: 0;
@@ -412,6 +413,11 @@ summary {
   animation: live-pulse 1s ease-out both;
 }
 
+/* A year in review slide coming into view (YearSlides): the content settles in once per move. */
+.slide-enter {
+  animation: feed-content-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -432,7 +438,8 @@ summary {
   .arrival-count,
   .arrival-bar,
   .arrival-draw,
-  .arrival-live-pulse {
+  .arrival-live-pulse,
+  .slide-enter {
     animation: none;
   }
   .arrival-live-pulse {

@@ -30,6 +30,11 @@
  *   a reading, or the provider is unavailable for the window.
  * - A comparison needs every connection behind the current figure to be available in the previous
  *   window as well, and the previous figure is taken over those same connections.
+ * - When no figure can be reported for the window to date because a connection in view has not
+ *   synced since its last required day (stale, #267), the strip shows the last complete week or
+ *   month instead: the newest one that ended before the day of the newest of those stale syncs,
+ *   against the whole one before it. When that has no figure either, one explanation replaces the
+ *   figures, never six "Unavailable" cards. Without a stale connection the strip keeps its reasons.
  */
 import type { EventCategory, EventType } from "@/lib/adapters/events";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
@@ -55,11 +60,14 @@ const DAY_MS = 86_400_000;
 /** UTC dates, `YYYY-MM-DD`, both ends inclusive. */
 export type DateRange = Readonly<{ start: string; end: string }>;
 
-export type HeadlineWindows = Readonly<{
-  kind: HeadlineWindowKind;
-  current: DateRange;
-  previous: DateRange;
-}>;
+/** The kind of window, and whether it is a whole one that has ended rather than the window to date. */
+export type HeadlineWindowLabel = Readonly<{ kind: HeadlineWindowKind; complete: boolean }>;
+
+export type HeadlineWindows = HeadlineWindowLabel &
+  Readonly<{
+    current: DateRange;
+    previous: DateRange;
+  }>;
 
 /**
  * A window plus the last day every source must have reported for it to be complete, and the last
@@ -137,6 +145,7 @@ export function headlineWindows(kind: HeadlineWindowKind, now: Date): HeadlineWi
     const previousStart = start - 7 * DAY_MS;
     return {
       kind,
+      complete: false,
       current: { start: isoDate(start), end: isoDate(today) },
       previous: { start: isoDate(previousStart), end: isoDate(previousStart + sinceMonday * DAY_MS) },
     };
@@ -145,6 +154,7 @@ export function headlineWindows(kind: HeadlineWindowKind, now: Date): HeadlineWi
   const previousStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
   return {
     kind,
+    complete: false,
     current: { start: isoDate(start), end: isoDate(today) },
     // A shorter month ends first: 2026-03-31 compares with all of February.
     previous: { start: isoDate(previousStart), end: isoDate(Math.min(previousStart + (today - start), start - DAY_MS)) },
@@ -152,11 +162,56 @@ export function headlineWindows(kind: HeadlineWindowKind, now: Date): HeadlineWi
 }
 
 /**
+ * The last whole UTC week (Monday to Sunday) or month that ended on or before `through`, against
+ * the whole one before it. Whole months differ in length, so October compares with all of September.
+ */
+function lastCompleteWindows(kind: HeadlineWindowKind, through: string): HeadlineWindows {
+  const day = new Date(dayStart(through));
+  if (kind === "week") {
+    const end = addDays(through, -day.getUTCDay());
+    const start = addDays(end, -6);
+    return { kind, complete: true, current: { start, end }, previous: { start: addDays(start, -7), end: addDays(end, -7) } };
+  }
+  const monthEnds = addDays(through, 1).endsWith("-01");
+  const end = monthEnds ? through : isoDate(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), 1) - DAY_MS);
+  const start = `${end.slice(0, 7)}-01`;
+  return { kind, complete: true, current: { start, end }, previous: { start: `${addDays(start, -1).slice(0, 7)}-01`, end: addDays(start, -1) } };
+}
+
+/**
+ * The windows to show when the window to date has no figure because its data is stale (#267): the
+ * last whole week or month that ended before the day of the newest sync among the connections in
+ * view that have not synced since the window's last required day began (the test `eventsOf` applies),
+ * so every day of it had been read, and never after yesterday. Null when the strip has a figure, or
+ * when no connection in view is stale that way: a strip whose providers report none of its kinds,
+ * or one connected too recently, keeps its own reasons and costs no second read. A disconnected
+ * connection is never stale here, as in the dashboard's stale notice: no sync brings it up to date.
+ */
+export function fallbackWindows(strip: HeadlineStrip, connections: readonly ConnectionInput[], now: Date): HeadlineWindows | null {
+  if (hasFigure(strip)) return null;
+  const requiredFrom = dayStart(windowSpecs(strip.windows).current.requiredEnd);
+  const staleSyncs = connections.flatMap((connection) => {
+    if (connection.last_synced_at === null || connection.status === "revoked") return [];
+    const syncedAt = Date.parse(connection.last_synced_at);
+    return syncedAt < requiredFrom ? [syncedAt] : [];
+  });
+  if (staleSyncs.length === 0) return null;
+  const yesterday = addDays(isoDate(now.getTime()), -1);
+  const beforeSyncDay = addDays(isoDate(Math.max(...staleSyncs)), -1);
+  return lastCompleteWindows(strip.windows.kind, beforeSyncDay < yesterday ? beforeSyncDay : yesterday);
+}
+
+/**
  * Today is still running, so the current window must be complete up to yesterday (or its first
  * day). A daily total exists only once its day has ended, so a source that reports whole days
- * counts the current window up to yesterday and the previous window over as many days.
+ * counts the current window up to yesterday and the previous window over as many days. A window
+ * that has ended must be complete to its last day, and so must the one before it.
  */
 function windowSpecs(windows: HeadlineWindows): Readonly<{ current: WindowSpec; previous: WindowSpec }> {
+  const previousWhole: WindowSpec = { ...windows.previous, requiredEnd: windows.previous.end, wholeDaysEnd: windows.previous.end };
+  if (windows.complete) {
+    return { current: { ...windows.current, requiredEnd: windows.current.end, wholeDaysEnd: windows.current.end }, previous: previousWhole };
+  }
   const wholeDays = (dayStart(windows.current.end) - dayStart(windows.current.start)) / DAY_MS;
   const previousWholeDaysEnd = addDays(windows.previous.start, wholeDays - 1);
   return {
@@ -166,8 +221,7 @@ function windowSpecs(windows: HeadlineWindows): Readonly<{ current: WindowSpec; 
       wholeDaysEnd: addDays(windows.current.end, -1),
     },
     previous: {
-      ...windows.previous,
-      requiredEnd: windows.previous.end,
+      ...previousWhole,
       // A shorter previous month ends before as many days have passed.
       wholeDaysEnd: previousWholeDaysEnd < windows.previous.end ? previousWholeDaysEnd : windows.previous.end,
     },
@@ -207,8 +261,8 @@ type MoneySeries = Readonly<{
   currency: string;
   estimated: boolean;
   increments: readonly Increment[];
-  /** Start of the period of the newest reading, an ISO timestamp. */
-  latestPeriodStart: string;
+  /** The first UTC day of every period read, so a last complete month is checked against its own. */
+  periodStarts: ReadonlySet<string>;
 }>;
 
 function groupBy<T>(items: readonly T[], keyOf: (item: T) => string): Map<string, T[]> {
@@ -257,16 +311,15 @@ function buildMoneySeries(rows: readonly SnapshotInput[], projectedSpend: readon
       previous = row;
     }
     const first = list[0];
-    const latest = list.at(-1);
     const measure = first === undefined ? null : moneyMeasure(first.kind);
-    if (first === undefined || latest === undefined || measure === null || increments.length === 0) continue;
+    if (first === undefined || measure === null || increments.length === 0) continue;
     series.push({
       connectionId: first.connection_id,
       measure,
       currency: first.currency ?? "",
       estimated: isEstimated(first),
       increments,
-      latestPeriodStart: latest.period_start ?? "",
+      periodStarts: new Set(list.map((row) => isoDate(Date.parse(row.period_start ?? "")))),
     });
   }
   return series;
@@ -460,8 +513,13 @@ export type HeadlineInput = Readonly<{
    * sources even before their first revenue reading, so one that cannot report it is named.
    */
   revenueProviders: readonly string[];
-  kind: HeadlineWindowKind;
-  now: Date;
+  /**
+   * Providers whose adapters declare spend (`capabilities.spending`): one with no spend for the
+   * window is named as unavailable, and one that never reports spend is left out (#286).
+   */
+  spendProviders: readonly string[];
+  /** The window to date (`headlineWindows`), or the last complete one (`fallbackWindows`). */
+  windows: HeadlineWindows;
 }>;
 
 function names(connections: readonly ConnectionInput[]): string[] {
@@ -552,7 +610,7 @@ function divideTotals(totals: Totals, count: number): Totals {
 }
 
 export function buildHeadline(input: HeadlineInput): HeadlineStrip {
-  const windows = headlineWindows(input.kind, input.now);
+  const { windows } = input;
   const specs = windowSpecs(windows);
   const connections = [...input.connections].sort(
     (a, b) => a.provider.localeCompare(b.provider) || a.display_name.localeCompare(b.display_name) || a.id.localeCompare(b.id),
@@ -569,8 +627,11 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
     (connection) => input.revenueProviders.includes(connection.provider) || seriesOf(connection, "revenue").length > 0,
   );
   const revenue = assemble(revenueCandidates, moneyOf("revenue"), specs);
-  // Every connection can cost money, so one that cannot report spend is named rather than skipped.
-  const spend = assemble(connections, moneyOf("spend"), specs);
+  // Only a provider that reports spend can fail to: one that never does is left out, not named.
+  const spendCandidates = connections.filter(
+    (connection) => input.spendProviders.includes(connection.provider) || seriesOf(connection, "spend").length > 0,
+  );
+  const spend = assemble(spendCandidates, moneyOf("spend"), specs);
 
   // Events.
   const countsFor = (window: WindowSpec) => (window === specs.current ? input.events.current : input.events.previous);
@@ -668,7 +729,7 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
       series.some(
         (entry) =>
           entry.connectionId === connection.id &&
-          (windows.kind === "week" || isoDate(Date.parse(entry.latestPeriodStart)) !== windows.current.start),
+          (windows.kind === "week" || !entry.periodStarts.has(windows.current.start)),
       ),
     ),
   );
@@ -687,15 +748,58 @@ export function buildHeadline(input: HeadlineInput): HeadlineStrip {
   };
 }
 
+/** True when any figure has a value; revenue minus spend and cost per signup follow from these. */
+export function hasFigure(strip: HeadlineStrip): boolean {
+  return strip.revenue.lines !== null || strip.spend.lines !== null || strip.signups.value !== null || strip.deploys.value !== null;
+}
+
+/**
+ * What the strip shows (#267): the window to date when it has a figure or no fallback was taken
+ * (`fallbackWindows` is null), so its per-figure reasons stand; else the last complete window when
+ * that has a figure; else one explanation in place of the figures.
+ */
+export type HeadlineView =
+  | Readonly<{ status: "current"; strip: HeadlineStrip }>
+  | Readonly<{ status: "fallback"; strip: HeadlineStrip; current: HeadlineWindows }>
+  | Readonly<{ status: "empty"; current: HeadlineWindows }>;
+
+export function chooseHeadline(current: HeadlineStrip, fallback: HeadlineStrip | null): HeadlineView {
+  if (hasFigure(current) || fallback === null) return { status: "current", strip: current };
+  if (hasFigure(fallback)) return { status: "fallback", strip: fallback, current: current.windows };
+  return { status: "empty", current: current.windows };
+}
+
 // Copy. US English, sentence case, no dashes; days are UTC dates because snapshot days are.
 
-const WINDOW_WORDS = {
-  week: { title: "This week so far", previous: "the same days last week", choice: "This week" },
-  month: { title: "This month so far", previous: "the same days last month", choice: "This month" },
-} as const satisfies Record<HeadlineWindowKind, Record<string, string>>;
+/** The previous window in words, with the preposition and verb that go with it. */
+type PreviousWords = Readonly<{ name: string; at: "on" | "in"; are: "are" | "is" }>;
 
-export function headlineTitle(kind: HeadlineWindowKind): string {
-  return WINDOW_WORDS[kind].title;
+const WINDOW_WORDS = {
+  week: {
+    title: "This week so far",
+    completeTitle: "Last complete week",
+    noun: "week",
+    previous: { name: "the same days last week", at: "on", are: "are" },
+    completePrevious: { name: "the week before", at: "in", are: "is" },
+    choice: "This week",
+  },
+  month: {
+    title: "This month so far",
+    completeTitle: "Last complete month",
+    noun: "month",
+    previous: { name: "the same days last month", at: "on", are: "are" },
+    completePrevious: { name: "the month before", at: "in", are: "is" },
+    choice: "This month",
+  },
+} as const satisfies Record<
+  HeadlineWindowKind,
+  Readonly<{ title: string; completeTitle: string; noun: string; previous: PreviousWords; completePrevious: PreviousWords; choice: string }>
+>;
+
+/** "This week so far", or "Last complete week" for a window that has ended. */
+export function headlineTitle(windows: HeadlineWindowLabel): string {
+  const words = WINDOW_WORDS[windows.kind];
+  return windows.complete ? words.completeTitle : words.title;
 }
 
 export function headlineChoiceLabel(kind: HeadlineWindowKind): string {
@@ -711,6 +815,18 @@ export function windowDescription(windows: HeadlineWindows): string {
   return `${rangeText(windows.current)} in UTC, compared with ${rangeText(windows.previous)}.`;
 }
 
+/** Why the strip shows the last complete window: the window to date has no figure yet. */
+export function headlineFallbackNote(current: HeadlineWindowLabel): string {
+  const words = WINDOW_WORDS[current.kind];
+  return `Nothing can be shown for ${words.title.toLowerCase()}: no connection in this view has a reading for every day of it yet. These figures are for the ${words.completeTitle.toLowerCase()} instead.`;
+}
+
+/** The one explanation in place of the figures when neither window has one. */
+export function headlineEmptyNote(current: HeadlineWindowLabel): string {
+  const words = WINDOW_WORDS[current.kind];
+  return `Nothing can be shown for ${words.title.toLowerCase()} or for the ${words.completeTitle.toLowerCase()}: each figure needs a reading for every day of its window, and no connection in this view has one. Figures appear once a connection has synced every day of a ${words.noun}.`;
+}
+
 /** Why there is no comparison, when the figure knows more than "unavailable". */
 export type ComparisonGap =
   | Readonly<{ reason: "providers"; names: readonly string[] }>
@@ -723,18 +839,19 @@ export type ComparisonGap =
 export function headlineComparisonText(
   comparison: TrendComparison,
   format: (value: number) => string,
-  kind: HeadlineWindowKind,
+  windows: HeadlineWindowLabel,
   gap: ComparisonGap | null = null,
 ): string {
-  const previous = WINDOW_WORDS[kind].previous;
+  const words = WINDOW_WORDS[windows.kind];
+  const previous = windows.complete ? words.completePrevious : words.previous;
   if (comparison.status === "unavailable") {
     if (gap?.reason === "providers" && gap.names.length > 0) {
-      return `No comparison: ${formatList(gap.names)} could not report ${previous}`;
+      return `No comparison: ${formatList(gap.names)} could not report ${previous.name}`;
     }
-    if (gap?.reason === "no_signups") return `No comparison: there were no signups on ${previous}`;
-    return `No comparison: ${previous} are unavailable`;
+    if (gap?.reason === "no_signups") return `No comparison: there were no signups ${previous.at} ${previous.name}`;
+    return `No comparison: ${previous.name} ${previous.are} unavailable`;
   }
-  const from = `${format(comparison.previous)} on ${previous}`;
+  const from = `${format(comparison.previous)} ${previous.at} ${previous.name}`;
   if (comparison.direction === "same") return `No change from ${from}`;
   const direction = comparison.direction === "up" ? "Up" : "Down";
   if (comparison.percent === null) return `${direction} from ${from}`;

@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
 
@@ -165,6 +166,8 @@ ownerTest.describe("dashboard as the owner", () => {
 
       const totals = page.getByRole("region", { name: "Spending this billing period" });
       await expect(totals.getByRole("region")).toHaveCount(2);
+      // Nothing was unusual (one day of rows is no history), so there is no summary at all (#270).
+      await expect(page.getByRole("region", { name: "What changed" })).toHaveCount(0);
 
       const usd = totals.getByRole("region", { name: "Spend in USD" });
       await expect(usd).toContainText("$123.45");
@@ -199,8 +202,60 @@ ownerTest.describe("dashboard as the owner", () => {
       await expect(checkout).not.toContainText("€67.89");
       await expect(byProject.getByRole("region", { name: "Unassigned" })).toContainText("€67.89");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("puts By project before Trends and opens a provider's other series by keyboard", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard trend defaults");
+    try {
+      await seedDashboard(workspace);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const byProject = page.getByRole("region", { name: "By project" });
+      const trends = page.getByRole("region", { name: "Trends" });
+      const projectBox = await byProject.boundingBox();
+      const trendsBox = await trends.boundingBox();
+      expect(projectBox?.y ?? Infinity).toBeLessThan(trendsBox?.y ?? 0);
+
+      // On load, the default set only (#263): spend so far in each currency, and not the month's
+      // declared projection, the allowance, or the usage.
+      const provider = trends.getByRole("region", { name: "Example provider" });
+      await expect(provider.getByRole("figure")).toHaveCount(3);
+      await expect(provider.getByRole("figure", { name: "Spend this month (Example provider, USD)" })).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Spend this month in euros (Example provider, EUR)" })).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Estimated spend so far (Example provider, USD)" })).toBeVisible();
+      await expect(trends.getByRole("list", { name: "Legend for every chart" })).toHaveCount(1);
+
+      // Keyboard only: from the last chart's table control, Tab reaches the disclosure, and Enter
+      // opens it, rendering the other series with their own table alternative.
+      const show = provider.getByRole("link", { name: "Show 3 more Example provider series" });
+      await expect(show).toHaveAttribute("aria-expanded", "false");
+      await provider.getByRole("figure").last().getByText("Show the values as a table").focus();
+      await page.keyboard.press("Tab");
+      await expect(show).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]expand=fake(&|$)/);
+      const hide = provider.getByRole("link", { name: "Hide 3 more Example provider series" });
+      await expect(hide).toHaveAttribute("aria-expanded", "true");
+      await expect(provider.getByRole("figure")).toHaveCount(6);
+      const usage = provider.getByRole("figure", { name: "Requests this month (Example provider, requests)" });
+      await expect(usage).toBeVisible();
+      await expect(provider.getByRole("figure", { name: "Estimated spend for the month (Example provider, USD)" })).toBeVisible();
+      await expect(page.locator(`[id="${await hide.getAttribute("aria-controls")}"]`).getByRole("figure")).toHaveCount(3);
+      await usage.getByText("Show the values as a table").focus();
+      await page.keyboard.press("Enter");
+      await expect(usage.getByRole("table")).toBeVisible();
+      await expectNoAxeViolations(page);
+
+      await hide.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).not.toHaveURL(/expand=/);
+      await expect(provider.getByRole("figure")).toHaveCount(3);
+      await expect(show).toBeFocused();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -352,6 +407,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page);
       await expect(checkout).toBeChecked();
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
 
@@ -390,6 +446,7 @@ ownerTest.describe("dashboard filters", () => {
       await openFilters(page, "keyboard");
       await expectFormBelowWrappedStatus(page);
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -477,8 +534,139 @@ ownerTest.describe("dashboard GitHub spend", () => {
       await expect(card).toContainText("$51.75");
       await expect(card).toContainText(new RegExp(`Billing period:\\s*${monthStart} to ${monthEnd}`));
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+const DAY_MS = 24 * HOUR_MS;
+
+/** The UTC date `offset` days from today, `YYYY-MM-DD`. */
+function utcDay(offset: number): string {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) + offset * DAY_MS).toISOString().slice(0, 10);
+}
+
+/** "Sunday, 2026-11-08": a date with its weekday, as the summary and the timeline write it. */
+function dayLabel(date: string): string {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: "Europe/London", weekday: "long" }).format(new Date(`${date}T00:00:00Z`));
+  return `${weekday}, ${date}`;
+}
+
+/**
+ * One fake account reporting a day's spend and a day's requests for each of the 20 days before
+ * today, each stored the day after its own day: USD 10.00 and 200 requests a day, except USD
+ * 50.00 two days ago and 900 requests three days ago. Three deployments two days ago.
+ */
+async function seedUnusualDays(workspace: TestWorkspace): Promise<void> {
+  const admin = adminClient();
+  const fresh = new Date(Date.now() - HOUR_MS / 6).toISOString();
+  const { data: connection, error: connectionError } = await admin
+    .from("connections")
+    .insert({
+      workspace_id: workspace.id,
+      provider: "fake",
+      status: "active",
+      display_name: "Fake billing account",
+      poll_interval_seconds: 3_600,
+      last_synced_at: fresh,
+    })
+    .select("id")
+    .single();
+  if (connectionError) throw new Error(`Seeding a connection failed (code ${connectionError.code}).`);
+  const { data: account, error: accountError } = await admin
+    .from("external_accounts")
+    .insert({ workspace_id: workspace.id, connection_id: connection.id, external_id: "acct_daily", display_name: "Production", kind: "account" })
+    .select("id")
+    .single();
+  if (accountError) throw new Error(`Seeding an account failed (code ${accountError.code}).`);
+  const snapshots: SnapshotInsert[] = [];
+  for (let offset = -20; offset <= -1; offset += 1) {
+    const common = {
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_account_id: account.id,
+      snapshot_date: utcDay(offset + 1),
+      period_start: `${utcDay(offset)}T00:00:00.000Z`,
+      period_end: `${utcDay(offset + 1)}T00:00:00.000Z`,
+      retrieved_at: fresh,
+      provenance_source: "provider_api",
+    } as const;
+    snapshots.push(
+      {
+        ...common,
+        metric_key: "fake.spend.daily",
+        kind: "verified_spend",
+        label: "Spend per day",
+        amount_minor: offset === -2 ? 5_000 : 1_000,
+        currency: "USD",
+      },
+      { ...common, metric_key: "fake.requests.daily", kind: "usage", label: "Requests per day", value: offset === -3 ? 900 : 200, unit: "requests" },
+    );
+  }
+  const { error } = await admin.from("usage_snapshots").insert(snapshots);
+  if (error) throw new Error(`Seeding snapshots failed (code ${error.code}).`);
+  const { error: eventError } = await admin.from("activity_events").insert(
+    [10, 11, 12].map((hour) => ({
+      workspace_id: workspace.id,
+      connection_id: connection.id,
+      external_account_id: account.id,
+      provider: "fake" as const,
+      type_id: "fake.deploy.succeeded",
+      severity: "success" as const,
+      title: `Deployment at ${hour}:00 succeeded`,
+      occurred_at: `${utcDay(-2)}T${hour}:00:00.000Z`,
+      dedupe_key: `deploy:${hour}`,
+    })),
+  );
+  if (eventError) throw new Error(`Seeding deployments failed (code ${eventError.code}).`);
+}
+
+ownerTest.describe("dashboard what changed", () => {
+  ownerTest("opens with what was unusual, newest first, and each sentence leads to that day on the timeline", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dashboard what changed");
+    try {
+      await seedUnusualDays(workspace);
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      const summary = page.getByRole("region", { name: "What changed" });
+      await expect(summary).toContainText("Unusual spend and usage in the last 7 days, newest first.");
+      const items = summary.getByRole("listitem");
+      await expect(items).toHaveCount(2);
+      await expect(items.nth(0)).toContainText(
+        `Example provider: Spend per day (verified) was $50.00 on ${dayLabel(utcDay(-2))}, 5 times the usual $10.00 a day ` +
+          `(the median of the 14 days from ${utcDay(-16)} to ${utcDay(-3)}), with 3 deployments that day.`,
+      );
+      await expect(items.nth(1)).toContainText(
+        `Example provider: Requests per day (verified) was 900 requests on ${dayLabel(utcDay(-3))}, 4.5 times the usual 200 requests a day ` +
+          `(the median of the 14 days from ${utcDay(-17)} to ${utcDay(-4)}).`,
+      );
+      // It opens the page: before the headline strip and the totals.
+      const summaryBox = await summary.boundingBox();
+      const totalsBox = await page.getByRole("region", { name: "Spending this billing period" }).boundingBox();
+      expect(summaryBox?.y ?? Infinity).toBeLessThan(totalsBox?.y ?? 0);
+
+      await waitForTrends(page);
+      await expectNoAxeViolations(page);
+
+      // Keyboard only: the filter bar's toggle, then each sentence's link in reading order.
+      const spendLink = summary.getByRole("link", { name: `Show Example provider events on ${utcDay(-2)}` });
+      const requestsLink = summary.getByRole("link", { name: `Show Example provider events on ${utcDay(-3)}` });
+      await page.getByRole("region", { name: "Filters", exact: true }).locator("summary").focus();
+      await page.keyboard.press("Tab");
+      await expect(spendLink).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(requestsLink).toBeFocused();
+      await page.keyboard.press("Shift+Tab");
+      await expect(spendLink).toBeFocused();
+      await page.keyboard.press("Enter");
+
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline\\?from=${utcDay(-2)}&to=${utcDay(-2)}&provider=fake$`));
+      await expect(page.getByText("Deployment at 10:00 succeeded")).toBeVisible();
+      await expect(page.getByText("Deployment at 12:00 succeeded")).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }

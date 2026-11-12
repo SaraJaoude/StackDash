@@ -1,8 +1,7 @@
-import type { ProviderId } from "@/lib/adapters/types";
 import { formatQuantity } from "@/lib/format";
 import { MAX_ROWS_PER_REQUEST, readAllPages } from "@/lib/supabase/paging";
 
-import { publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { countsProvider, publicMetricDefinition, type PublicMetricId } from "./definitions";
 import {
   computePublicMetrics,
   snapshotsWholeFrom,
@@ -229,19 +228,16 @@ export type Milestone = Readonly<{
 const FIRST_EVENT_MILESTONES: readonly Readonly<{
   id: string;
   title: string;
-  provider: ProviderId;
-  /** Published metrics that reveal these events; the first one's success events are read. */
+  /**
+   * Published metrics that reveal these events; the first one's success events are read, from the
+   * accounts of the providers it counts (every deployment provider for the deployment counts).
+   */
   metricIds: readonly PublicMetricId[];
 }>[] = [
-  {
-    id: "first-deployment",
-    title: "First deployment recorded",
-    provider: "vercel",
-    metricIds: ["vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak"],
-  },
-  { id: "first-signup", title: "First signup recorded", provider: "supabase", metricIds: ["supabase-signups-7d", "supabase-signups-30d"] },
-  { id: "first-customer", title: "First customer recorded", provider: "stripe", metricIds: ["stripe-customers-30d"] },
-  { id: "first-payment", title: "First successful payment recorded", provider: "stripe", metricIds: ["stripe-payments-30d"] },
+  { id: "first-deployment", title: "First deployment recorded", metricIds: ["vercel-deployments-7d", "vercel-deployments-30d", "vercel-deployment-streak"] },
+  { id: "first-signup", title: "First signup recorded", metricIds: ["supabase-signups-7d", "supabase-signups-30d"] },
+  { id: "first-customer", title: "First customer recorded", metricIds: ["stripe-customers-30d"] },
+  { id: "first-payment", title: "First successful payment recorded", metricIds: ["stripe-payments-30d"] },
 ];
 
 function successTypeIds(metricId: PublicMetricId): readonly string[] {
@@ -267,13 +263,13 @@ export async function firstEventMilestones(
     const first = revealing[0];
     if (first === undefined) return [];
     const asOf = new Date(Math.max(...revealing.map((entry) => entry.asOf.getTime())));
-    return [{ milestone, asOf, typeIds: successTypeIds(first.metricId) }];
+    return [{ milestone, asOf, typeIds: successTypeIds(first.metricId), definition: publicMetricDefinition(first.metricId) }];
   });
   if (candidates.length === 0) return [];
   const accounts = await store.accounts();
   const found = await Promise.all(
-    candidates.map(async ({ milestone, asOf, typeIds }): Promise<Milestone | null> => {
-      const accountIds = accounts.filter((account) => account.provider === milestone.provider).map((account) => account.accountId);
+    candidates.map(async ({ milestone, asOf, typeIds, definition }): Promise<Milestone | null> => {
+      const accountIds = accounts.filter((account) => countsProvider(definition, account.provider)).map((account) => account.accountId);
       if (accountIds.length === 0) return null;
       const at = await store.earliestEvent({ accountIds, typeIds });
       return at !== null && at.getTime() <= asOf.getTime() ? { id: milestone.id, title: milestone.title, at } : null;
@@ -314,20 +310,24 @@ export function starMilestones(
 export type ChartPoint = Readonly<{ asOf: Date; value: number | null; text: string }>;
 
 /**
- * A chart's text alternative in one or two sentences: where the period starts and ends, the
- * highest value, and how many days have no value. Dates are UTC days, like the points.
+ * A period of a metric's history in words: where it starts and ends, the highest and lowest
+ * values, and how many days have no value. Used as a chart's text alternative and as visible copy
+ * beside it (the last 30 days on a project page, #344), so it follows the copy rules. A period
+ * with no value says so without "yet": the metric may be new, or may have stopped syncing while
+ * the longer chart beside it still draws older values. Dates are UTC days, like the points.
  */
 export function historySummary(title: string, period: string, points: readonly ChartPoint[]): string {
   const available = points.filter((point) => point.value !== null);
   const first = available[0];
   const last = available.at(-1);
-  if (first === undefined || last === undefined) return `${title}, ${period}: no values yet.`;
+  if (first === undefined || last === undefined) return `${title}, ${period}: no value on any day.`;
   const highest = available.reduce((best, point) => ((point.value ?? 0) > (best.value ?? 0) ? point : best), first);
+  const lowest = available.reduce((best, point) => ((point.value ?? 0) < (best.value ?? 0) ? point : best), first);
   const missing = points.length - available.length;
   const range =
     first === last
       ? `${last.text} on ${utcDate(last.asOf)}.`
-      : `from ${first.text} on ${utcDate(first.asOf)} to ${last.text} on ${utcDate(last.asOf)}. Highest ${highest.text} on ${utcDate(highest.asOf)}.`;
+      : `from ${first.text} on ${utcDate(first.asOf)} to ${last.text} on ${utcDate(last.asOf)}. Highest ${highest.text} on ${utcDate(highest.asOf)}, lowest ${lowest.text} on ${utcDate(lowest.asOf)}.`;
   const gaps = missing === 0 ? "" : ` ${missing === 1 ? "1 day has" : `${missing} days have`} no value.`;
   return `${title}, ${period}: ${range}${gaps}`;
 }

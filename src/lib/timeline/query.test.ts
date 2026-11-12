@@ -11,11 +11,13 @@ import {
   isEventTypeId,
   isIsoDate,
   londonDayStart,
+  MAX_SEARCH_LENGTH,
   MAX_TYPE_FILTERS,
   occurredRange,
   parseTimelineSearchParams,
   severityBadge,
   timelineHref,
+  titleSearchPattern,
   type TimelineCursor,
 } from "./query";
 
@@ -119,6 +121,7 @@ describe("parseTimelineSearchParams", () => {
         severity: ["critical", "warning"],
         from: "2026-06-01",
         to: "2026-06-15",
+        q: "Deploy failed",
         cursor: token,
         provider: "vercel",
         project: ["unassigned", PROJECT_ID],
@@ -129,6 +132,7 @@ describe("parseTimelineSearchParams", () => {
       severities: ["critical", "warning"],
       from: "2026-06-01",
       to: "2026-06-15",
+      search: "Deploy failed",
       cursor: CURSOR,
       scope: { providers: ["vercel"], projects: ["unassigned", PROJECT_ID], accounts: [ACCOUNT_ID] },
     });
@@ -140,6 +144,7 @@ describe("parseTimelineSearchParams", () => {
       severities: [],
       from: null,
       to: null,
+      search: null,
       cursor: null,
       scope: EMPTY_SCOPE,
     });
@@ -152,6 +157,7 @@ describe("parseTimelineSearchParams", () => {
         severity: ["bogus", "info"],
         from: "2026-02-30",
         to: "",
+        q: "   ",
         cursor: "not a cursor",
         provider: ["bogus", "github"],
         project: "not-a-uuid",
@@ -162,6 +168,7 @@ describe("parseTimelineSearchParams", () => {
       severities: ["info"],
       from: null,
       to: null,
+      search: null,
       cursor: null,
       scope: { providers: ["github"], projects: [], accounts: [] },
     });
@@ -181,6 +188,28 @@ describe("parseTimelineSearchParams", () => {
     const types = Array.from({ length: MAX_TYPE_FILTERS + 1 }, (_, index) => `fake.type_${index}`);
     expect(parseTimelineSearchParams({ type: types }).types).toHaveLength(MAX_TYPE_FILTERS);
   });
+
+  it("trims the title search and keeps one of exactly the longest length", () => {
+    expect(parseTimelineSearchParams({ q: "  payment  " }).search).toBe("payment");
+    const longest = "a".repeat(MAX_SEARCH_LENGTH);
+    expect(parseTimelineSearchParams({ q: longest }).search).toBe(longest);
+  });
+
+  it("drops a title search one character too long", () => {
+    expect(parseTimelineSearchParams({ q: "a".repeat(MAX_SEARCH_LENGTH + 1) }).search).toBeNull();
+  });
+});
+
+describe("titleSearchPattern", () => {
+  it("leaves plain text, unicode, and spaces as they are", () => {
+    expect(titleSearchPattern("Paiement réussi 5")).toBe("Paiement réussi 5");
+  });
+
+  it("escapes every regular expression metacharacter so it matches literally", () => {
+    expect(titleSearchPattern("a.b*c+d?e^f$g|h(i)j[k]l{m}n\\o")).toBe(
+      "a\\.b\\*c\\+d\\?e\\^f\\$g\\|h\\(i\\)j\\[k\\]l\\{m\\}n\\\\o",
+    );
+  });
 });
 
 describe("isEventTypeId", () => {
@@ -195,6 +224,7 @@ describe("eventTypeLabel", () => {
   it.each([
     ["vercel.deployment_failed", "Deployment failed"],
     ["devmacro.daily_summary", "Daily summary"],
+    ["devmacro.anomaly_detected", "Unusual spend or usage"],
     ["github.release.published", "Release published"],
   ])("labels %s", (typeId, expected) => {
     expect(eventTypeLabel(typeId)).toBe(expected);
@@ -213,7 +243,7 @@ describe("severityBadge", () => {
 });
 
 describe("timelineHref and hasActiveFilters", () => {
-  const empty = { types: [], severities: [], from: null, to: null, cursor: null, scope: EMPTY_SCOPE };
+  const empty = { types: [], severities: [], from: null, to: null, search: null, cursor: null, scope: EMPTY_SCOPE };
 
   it("returns the bare path with no filters", () => {
     expect(timelineHref("/w/abc/timeline", empty, null)).toBe("/w/abc/timeline");
@@ -232,6 +262,14 @@ describe("timelineHref and hasActiveFilters", () => {
 
   it("does not count a cursor alone as a filter", () => {
     expect(hasActiveFilters({ ...empty, cursor: CURSOR })).toBe(false);
+  });
+
+  it("carries the title search into the link and counts it as a filter", () => {
+    const query = { ...empty, search: "deploy & ship" };
+    const params = new URL(timelineHref("/w/abc/timeline", query, CURSOR), "https://example.com").searchParams;
+    expect(params.get("q")).toBe("deploy & ship");
+    expect(decodeCursor(params.get("cursor") ?? "")).toEqual(CURSOR);
+    expect(hasActiveFilters(query)).toBe(true);
   });
 
   it("carries the scope filter into the link and counts it as a filter", () => {

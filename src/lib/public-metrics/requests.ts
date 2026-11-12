@@ -7,19 +7,23 @@ import { after } from "next/server";
 import { derivedKey } from "@/lib/crypto/credentials";
 import { clientIpEnv, type ClientIpEnv } from "@/lib/env";
 import { logError } from "@/lib/log/logger";
+import { site } from "@/lib/site";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
 import type { PublicMetricId } from "./definitions";
 
 /*
- * What every public read route shares (#149): the badge, the card, and the JSON route of #148.
+ * What every public read shares (#149): the badge, the card, the JSON route of #148, and the public
+ * project page (#150, limited by src/proxy.ts since #321).
  *
- * Caching: one minute in browsers and shared caches, so a value that is unpublished stops showing
- * within a minute (#149's acceptance bound), while an embed read by many people is computed about
- * once a minute per cache.
+ * Caching: one minute in browsers and shared caches for the badge, card, and JSON route, so a value
+ * that is unpublished stops showing within a minute (#149's acceptance bound), while an embed read
+ * by many people is computed about once a minute per cache. The project page is not cached: its
+ * HTML carries the per request CSP nonce, which a shared cache would hand to every reader, and
+ * turning a page off answers 404 from the next request (#150). The rate limit bounds it instead.
  *
- * Rate limit: PUBLIC_REQUESTS_PER_MINUTE requests per client IP per minute across all three routes,
+ * Rate limit: PUBLIC_REQUESTS_PER_MINUTE requests per client IP per minute across all four,
  * counted in Postgres (public_rate_limit_counters) so every server instance shares one count.
  * Requests a cache answers never reach the server, so they are not counted. The IP is hashed with
  * HMAC-SHA-256 under a key derived from the encryption key before it leaves the server, and the
@@ -85,6 +89,39 @@ export async function checkPublicRateLimit(headers: Headers, now: Date): Promise
 /** The headers of a refused request: never cached, and when to come back. */
 export function rateLimitedHeaders(decision: Readonly<{ retryAfterSeconds: number }>): Record<string, string> {
   return { "Cache-Control": NO_STORE, "Retry-After": String(decision.retryAfterSeconds) };
+}
+
+/**
+ * The document a refused public project page answers with, beside a 429 and rateLimitedHeaders
+ * (#321). It says what the badge and card notices say ("Too many requests from this address. Try
+ * again in a minute."), names the wait, and links home. src/proxy.ts sends it before the page
+ * renders, so it is plain HTML: no script and no style element, only style attributes, which the
+ * page policy allows (style-src-attr in src/proxy.ts). The colors are the site's (--background,
+ * --foreground, and --muted in src/app/globals.css), whose stylesheet this document cannot load.
+ * Nothing in it comes from the request.
+ */
+export function rateLimitedPageHtml(decision: Readonly<{ retryAfterSeconds: number }>): string {
+  const seconds = decision.retryAfterSeconds;
+  const wait = `${seconds} ${seconds === 1 ? "second" : "seconds"}`;
+  return [
+    "<!DOCTYPE html>",
+    '<html lang="en">',
+    "<head>",
+    '<meta charset="utf-8">',
+    '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta name="color-scheme" content="dark">',
+    '<meta name="robots" content="noindex">',
+    `<title>Too many requests · ${site.name}</title>`,
+    "</head>",
+    '<body style="margin:0;background:#0a0a0a;color:#ededed;font-family:system-ui,sans-serif;line-height:1.5">',
+    '<main id="main" style="max-width:36rem;margin:0 auto;padding:4rem 1.5rem">',
+    '<h1 style="font-size:1.5rem;margin:0">Too many requests from this address</h1>',
+    `<p style="color:#a1a1aa">Public project pages, badges, and cards answer up to ${PUBLIC_REQUESTS_PER_MINUTE} requests a minute from one network address. Try again in ${wait}, when the next minute starts.</p>`,
+    '<p><a href="/" style="color:#ededed">Go to the home page</a></p>',
+    "</main>",
+    "</body>",
+    "</html>",
+  ].join("\n");
 }
 
 export type ShareSurface = Database["public"]["Enums"]["share_surface"];

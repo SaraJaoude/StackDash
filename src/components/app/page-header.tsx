@@ -1,19 +1,32 @@
 import type { ReactNode } from "react";
 
-/** The page's one `<h1>`, with an optional summary and page-level actions. */
+/**
+ * The page's one `<h1>`, with an optional summary and page-level actions. `titleAside` sits at the
+ * end of the title's own row, for compact page-level status such as the timeline's provider
+ * badges.
+ */
 export function PageHeader({
   title,
   description,
   actions,
+  titleAside,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  titleAside?: ReactNode;
 }) {
   return (
     <div className="flex flex-col gap-4 border-b border-line pb-6 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+      <div className={titleAside === undefined ? "min-w-0" : "min-w-0 flex-1"}>
+        {titleAside === undefined ? (
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{title}</h1>
+            {titleAside}
+          </div>
+        )}
         {description === undefined ? null : (
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted">{description}</p>
         )}

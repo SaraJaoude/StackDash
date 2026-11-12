@@ -1,6 +1,6 @@
 # Workspaces, connections, accounts, and projects
 
-Issues: #139. A workspace holds everything. A connection is one OAuth grant to a provider, each connection finds one or more external accounts to measure, and a project is a name you create to group external accounts across providers. This page says what each one is for. The tables, keys, and policies behind them are in [Database schema](schema.md).
+A workspace holds everything. A connection is one OAuth grant to a provider, each connection finds one or more external accounts to measure, and a project is a name you create to group external accounts across providers. This page says what each one is for. The tables, keys, and policies behind them are in [Database schema](schema.md).
 
 | Concept | What it is | Created by | Table |
 |---|---|---|---|
@@ -11,12 +11,12 @@ Issues: #139. A workspace holds everything. A connection is one OAuth grant to a
 
 ## Workspace
 
-The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write through `has_workspace_role`, using the caller's role in `workspace_members`.
+The workspace is the tenant and the security boundary. Every other row carries a `workspace_id`, and row level security answers every read and write from the caller's role in `workspace_members`: reads through `current_user_workspace_ids`, writes through `has_workspace_role`.
 
-- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, alert rules, and anomaly detection (on or off, and muted metrics), publish and unpublish metrics ([Public metrics](public-metrics.md)), acknowledge alerts, and rename the workspace. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
+- Roles are viewer, admin, and owner. Viewers read everything in the workspace. Admins also manage connections, external accounts, projects, budgets, alert rules, and unusual spend and usage checks (on or off, and muted metrics), publish and unpublish metrics ([Public metrics](public-metrics.md)), acknowledge alerts, rename the workspace, and claim, change, or remove its public handle. Owners also delete the workspace and grant ownership. The full matrix is in [Roles and row level security](schema.md#roles-and-row-level-security).
 - Sign-up creates one personal workspace with the new user as its owner. `is_personal` only changes how the workspace is shown, never what anyone may do in it.
-- A user can belong to more than one workspace and switches between them in the app. Creating further workspaces (#106) and inviting members by email (#107) come with teams (#105); until then a shared workspace exists only in local seed data (Acme in `supabase/seed.sql`).
-- Workspace URLs are `/w/<slug>/...`. The slug is random and never changes, so renaming a workspace never breaks a link.
+- A user can belong to more than one workspace and switches between them in the app. Creating further workspaces and inviting members by email come with teams; until then a shared workspace exists only in local seed data (Acme in `supabase/seed.sql`).
+- Workspace URLs are `/w/<slug>/...`. The slug is random and never changes, so renaming a workspace never breaks a link. Public project pages use the workspace's handle instead when it has claimed one ([Project pages](public-metrics.md#project-pages)).
 
 ## Connection
 

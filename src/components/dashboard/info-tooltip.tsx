@@ -8,8 +8,13 @@ import { useEffect, useId, useState } from "react";
  * hover, focus, or a tap, stays open while the pointer is over it, and closes on Escape wherever
  * focus is, so a tooltip opened by hover can be dismissed without moving the pointer (WCAG
  * 1.4.13, content on hover or focus).
+ *
+ * `placement` "button" hangs the tooltip under the button. "container" spans it across the nearest
+ * positioned ancestor instead, for a button at the end of a row that wraps, where a tooltip hanging
+ * off the button could run past the edge of a card or the screen (#269); the caller makes that
+ * ancestor `relative`.
  */
-export function InfoTooltip({ label, text }: { label: string; text: string }) {
+export function InfoTooltip({ label, text, placement = "button" }: { label: string; text: string; placement?: "button" | "container" }) {
   const [open, setOpen] = useState(false);
   const tooltipId = useId();
   useEffect(() => {
@@ -21,7 +26,11 @@ export function InfoTooltip({ label, text }: { label: string; text: string }) {
     return () => document.removeEventListener("keydown", closeOnEscape);
   }, [open]);
   return (
-    <span className="relative inline-flex" onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <span
+      className={placement === "button" ? "relative inline-flex" : "inline-flex"}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+    >
       <button
         type="button"
         aria-label={label}
@@ -44,7 +53,9 @@ export function InfoTooltip({ label, text }: { label: string; text: string }) {
         role="tooltip"
         id={tooltipId}
         hidden={!open}
-        className="absolute top-full left-0 z-10 mt-2 w-72 max-w-[80vw] rounded-md border border-line bg-panel-raised p-3 text-xs leading-5 font-normal text-foreground shadow-lg"
+        className={`absolute top-full z-10 mt-2 rounded-md border border-line bg-panel-raised p-3 text-xs leading-5 font-normal text-foreground shadow-lg ${
+          placement === "button" ? "left-0 w-72 max-w-[80vw]" : "inset-x-0"
+        }`}
       >
         {text}
       </span>

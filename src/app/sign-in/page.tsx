@@ -6,8 +6,10 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { LegalConsent } from "@/components/legal/legal-consent";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
-import { safeNextPath } from "@/lib/auth/redirect";
+import { safeNextPath, SIGN_IN_ERROR_CODES, type SignInErrorCode } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/session";
 import { logError } from "@/lib/log/logger";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
@@ -25,14 +27,17 @@ export const metadata: Metadata = {
 export const instant = false;
 
 // Codes the auth routes put in `?error=`. Anything else in the URL is ignored.
-const signInErrorSchema = z.enum(["not_invited", "cancelled", "start_failed", "callback_failed"]);
+const signInErrorSchema = z.enum(SIGN_IN_ERROR_CODES);
 
-const SIGN_IN_ERRORS: Record<z.infer<typeof signInErrorSchema>, string> = {
-  not_invited:
-    "This GitHub account's email has not been invited to the DevMacro test. Ask for an invite, then try again.",
+const SIGN_IN_ERRORS: Record<SignInErrorCode, string> = {
+  not_invited: "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
   cancelled: "GitHub sign-in was cancelled. Continue with GitHub to try again.",
   start_failed: "We could not start GitHub sign-in. Try again in a moment.",
   callback_failed: "GitHub sign-in did not finish. Try again in a moment.",
+  // The demo sign-in link from `npm run demo` (#260). Anywhere that command cannot run, every link
+  // gets this message too, so the page never tells a valid link from a refused one.
+  link_invalid: "This sign-in link has expired or was already used. Run npm run demo again to print a new one.",
+  link_failed: "We could not sign you in with this link. Open it again in a moment, or run npm run demo for a new one.",
 };
 
 // Query values can repeat (`?next=a&next=b`); take the first and drop anything malformed.
@@ -92,14 +97,14 @@ async function SignInPanel({ searchParams }: { searchParams: PageProps<"/sign-in
   return (
     <>
       {error === undefined ? null : (
-        <div role="alert" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm leading-6">
+        <LiveRegion tone="error" className="mb-6 rounded-lg border border-danger/40 bg-danger/10 px-4 py-3 text-sm leading-6">
           <p>{SIGN_IN_ERRORS[error]}</p>
           {ref === undefined ? null : (
             <p className="mt-1 text-muted">
               If it keeps happening, share reference <span className="font-mono text-foreground">{ref}</span>.
             </p>
           )}
-        </div>
+        </LiveRegion>
       )}
       <SignInForm action={signInWithGitHub.bind(null, next)} />
     </>
@@ -121,6 +126,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
         <Suspense fallback={<div className="min-h-11 rounded-lg bg-panel-raised" aria-hidden="true" />}>
           <SignInPanel searchParams={searchParams} />
         </Suspense>
+        <LegalConsent />
       </div>
     </main>
   );

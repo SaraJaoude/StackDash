@@ -177,6 +177,11 @@ jwt_expiry = 3600
 # JWT issuer URL. If not set, defaults to auth.external_url.
 # jwt_issuer = ""
 # Path to JWT signing key. DO NOT commit your signing keys file to git.
+# Left unset on purpose (#318): with no path, the CLI (2.120) signs user access tokens with its
+# built-in ES256 key and publishes the public half at /auth/v1/.well-known/jwks.json, so
+# `getClaims()` verifies sessions in the app without calling Auth. That key is the CLI's public
+# default, fine for a local stack only. A key of your own goes in supabase/signing_keys.json
+# (`supabase gen signing-key --algorithm ES256`), which .gitignore keeps out of the repository.
 # signing_keys_path = "./signing_keys.json"
 # If disabled, the refresh token will never expire.
 enable_refresh_token_rotation = true

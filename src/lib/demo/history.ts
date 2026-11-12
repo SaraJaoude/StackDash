@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { SIMULATE_PROVIDERS_ENV } from "@/lib/adapters/simulated";
 import { DAY_MS, SLOT_MS } from "@/lib/adapters/simulated/simulation";
+import { headlineWindows } from "@/lib/dashboard/headline";
 import { isLoopbackUrl } from "@/lib/env";
 import { dailySummaryJobKey, runDailySummaryJob } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
@@ -21,22 +22,28 @@ import { londonDayStart } from "@/lib/timeline/query";
 export const DEMO_HISTORY_DAYS = 90;
 
 /**
- * Why the demo seed must not run here, or null when it may. It writes only with simulation on
- * (the same check the app uses, which already refuses a Vercel production deployment) and only
- * to a Supabase stack on this computer, so it can never touch a remote project.
+ * Why a demo command (`npm run demo`, `npm run demo:seed`, `npm run demo:event`) must not run
+ * here, or null when it may. They write only with simulation on (the same check the app uses,
+ * which already refuses a Vercel production deployment) and only to a Supabase stack on this
+ * computer, so they can never touch a remote project. The `/auth/confirm` route applies the same
+ * check before it accepts the demo account's one-time sign-in link, so the link works only where
+ * the commands that print it can run.
  */
-export function demoSeedRefusal(input: Readonly<{ simulationEnabled: boolean; supabaseUrl: string | undefined }>): string | null {
+export function demoCommandRefusal(input: Readonly<{ simulationEnabled: boolean; supabaseUrl: string | undefined }>): string | null {
   if (!input.simulationEnabled) {
-    return `Provider simulation is off. Set ${SIMULATE_PROVIDERS_ENV}=1 in .env.local and run the demo seed again.`;
+    return `Provider simulation is off. Set ${SIMULATE_PROVIDERS_ENV}=1 in .env.local and run the command again.`;
   }
   if (input.supabaseUrl === undefined || input.supabaseUrl.trim() === "") {
     return "NEXT_PUBLIC_SUPABASE_URL is not set. Start the local Supabase stack and copy its URL into .env.local.";
   }
   if (!isLoopbackUrl(input.supabaseUrl)) {
-    return "NEXT_PUBLIC_SUPABASE_URL is not a Supabase stack on this computer. The demo seed only writes to a local stack (localhost or 127.0.0.1).";
+    return "NEXT_PUBLIC_SUPABASE_URL is not a Supabase stack on this computer. The demo commands only write to a local stack (localhost or 127.0.0.1).";
   }
   return null;
 }
+
+/** The seed text `npm run demo` and `npm run demo:seed` use when `--seed` is not given. */
+export const DEMO_SEED_TEXT = "devmacro-demo";
 
 /**
  * The seed a simulated provider derives its accounts from, fixed by the demo seed text so a
@@ -74,6 +81,37 @@ export function historySteps(now: Date, days: number = DEMO_HISTORY_DAYS): Histo
   return steps;
 }
 
+/**
+ * How many London days `historySteps` must replay so the dashboard headline's week to date (#173,
+ * UTC, Monday first) has figures: every day since the week started, plus the day before it, whose
+ * reading of each running billing period total is what the window's first day is measured from
+ * (without it, that day's change would span the window edge and leave every provider
+ * unavailable). 1 on a Monday, 7 on a Sunday. When London is already on the next day (the first
+ * hour of a summer day), one more day is counted, so no UTC day is missed.
+ */
+export function headlineWeekDays(now: Date): number {
+  const weekStart = Date.parse(`${headlineWindows("week", now).current.start}T00:00:00Z`);
+  return Math.round((Date.parse(`${londonDate(now)}T00:00:00Z`) - weekStart) / DAY_MS) + 1;
+}
+
+/**
+ * The live job dependencies with every clock (the jobs' and the adapters') reading one movable
+ * clock that starts at `start`, and the `setNow` that moves it, for `replayHistory`.
+ */
+export function replayClock(live: SyncDeps, start: Date): Pick<ReplayInput, "deps" | "setNow"> {
+  let clock = start;
+  return {
+    deps: {
+      ...live,
+      now: () => clock,
+      createOAuthContext: (client) => ({ ...live.createOAuthContext(client), now: () => clock }),
+    },
+    setNow: (at) => {
+      clock = at;
+    },
+  };
+}
+
 export type ReplayInput = Readonly<{
   /** Live job dependencies whose `now`, and whose adapter context's `now`, read the replay clock. */
   deps: SyncDeps;
@@ -85,10 +123,11 @@ export type ReplayInput = Readonly<{
 }>;
 
 /**
- * A job as `claim_sync_jobs` would hand it over, on its one and only attempt: the replay never
- * retries, so a failure stops the seed instead of leaving a gap in the history.
+ * A job as `claim_sync_jobs` would hand it over, on its one and only attempt. The demo commands
+ * run their jobs directly and never retry: a failure stops the seed instead of leaving a gap in
+ * the history, and `npm run demo:event` reports it.
  */
-function replayJob(fields: Pick<ClaimedJob, "kind" | "workspace_id" | "connection_id" | "dedupe_key">, at: Date): ClaimedJob {
+export function oneShotJob(fields: Pick<ClaimedJob, "kind" | "workspace_id" | "connection_id" | "dedupe_key">, at: Date): ClaimedJob {
   return { id: randomUUID(), attempts: 1, max_attempts: 1, created_at: at.toISOString(), ...fields };
 }
 
@@ -106,13 +145,13 @@ export async function replayHistory(input: ReplayInput): Promise<void> {
     // Different connections never share a cursor, so they sync side by side as on a live tick.
     const outcomes = await Promise.all(
       input.connectionIds.map((connectionId) =>
-        runSyncJob(replayJob({ kind: "sync", workspace_id: workspaceId, connection_id: connectionId, dedupe_key: null }, step.at), deps),
+        runSyncJob(oneShotJob({ kind: "sync", workspace_id: workspaceId, connection_id: connectionId, dedupe_key: null }, step.at), deps),
       ),
     );
     for (const outcome of outcomes) check(outcome, "a sync", step.at);
 
     if (step.summaryDate !== null) {
-      const job = replayJob(
+      const job = oneShotJob(
         {
           kind: "daily_summary",
           workspace_id: workspaceId,

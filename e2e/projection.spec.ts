@@ -3,6 +3,7 @@ import AxeBuilder from "@axe-core/playwright";
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest } from "./fixtures/auth";
+import { waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only (#167).
@@ -117,7 +118,19 @@ ownerTest.describe("projection to the end of the period", () => {
       const totals = page.getByRole("region", { name: "Spending this billing period" }).getByRole("region", { name: "Spend in USD" });
       await expect(totals).toContainText(`On track for ${expected.spend} by ${expected.lastDay}`);
       await expect(totals.getByText("Estimate by DevMacro", { exact: true })).toBeVisible();
-      await expect(totals).toContainText("the average daily increase over the last 5 days with data");
+      // How it was worked out sits behind the info button (#269): out of the way until asked for,
+      // the button's description for a screen reader, and opened and closed from the keyboard.
+      const totalsMethod = totals.getByRole("button", { name: "How this projection is worked out" });
+      await expect(totalsMethod).toHaveAccessibleDescription(/the average daily increase over the last 5 days with data/);
+      await expect(totals.getByText(/the average daily increase/)).toBeHidden();
+      await totalsMethod.focus();
+      await expect(totals.getByRole("tooltip")).toBeVisible();
+      await expect(totals.getByRole("tooltip")).toContainText("the average daily increase over the last 5 days with data");
+      await page.keyboard.press("Escape");
+      await expect(totals.getByRole("tooltip")).toBeHidden();
+      await page.keyboard.press("Enter");
+      await expect(totals.getByRole("tooltip")).toBeVisible();
+      await page.keyboard.press("Escape");
       // The projection sits beside the verified amount and is never added to it.
       await expect(totals).toContainText("$5.00");
 
@@ -126,8 +139,9 @@ ownerTest.describe("projection to the end of the period", () => {
       const allowance = card.getByRole("article", { name: "Requests included in the plan" });
       await expect(allowance).toContainText(`Runs out around ${expected.runsOut}`);
       await expect(allowance.getByText("Estimate by DevMacro", { exact: true })).toBeVisible();
-      await expect(allowance).toContainText("400 requests a day");
+      await expect(allowance.getByRole("button", { name: "How this projection is worked out" })).toHaveAccessibleDescription(/400 requests a day/);
 
+      await waitForTrends(page);
       const dashboardScan = await new AxeBuilder({ page }).analyze();
       expect(dashboardScan.violations).toEqual([]);
 
@@ -193,6 +207,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(daily).toBeVisible();
       await expect(daily).not.toContainText("Projection");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -268,6 +283,7 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(daily).not.toContainText("Projection");
       await expect(daily).not.toContainText("3 days");
 
+      await waitForTrends(page);
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -303,6 +319,9 @@ ownerTest.describe("projection to the end of the period", () => {
       await expect(totals).toContainText("Projection unavailable");
       await expect(totals).toContainText("DevMacro needs at least 3 days of data in the current period to project it.");
       await expect(totals.getByText("Estimate by DevMacro", { exact: true })).toHaveCount(0);
+      // The reason there is no projection is the whole note, so it stays in view, not in a tooltip.
+      await expect(totals.getByText("DevMacro needs at least 3 days of data in the current period to project it.")).toBeVisible();
+      await expect(totals.getByRole("button", { name: "How this projection is worked out" })).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }

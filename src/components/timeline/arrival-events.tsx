@@ -43,25 +43,29 @@ export function ArrivalEvents({ eventIds, children }: { eventIds: readonly strin
 }
 
 /**
- * One event's list item. A new row mounts with the slide in, so it runs once; the edge and wash
- * (or, under reduced motion, a static highlight) stay only while the arrival is highlighted.
+ * One row's list item: a single event, or a run of identical events collapsed into one row (#253).
+ * A row that is new as a whole mounts with the slide in, so it runs once; a run already on screen
+ * that an arriving event joins stays put. Either way the edge and wash (or, under reduced motion,
+ * a static highlight) stay only while an arrival in the row is highlighted.
  */
 export function ArrivalEventRow({
-  eventId,
+  eventIds,
   flash,
   className,
   children,
 }: {
-  eventId: string;
+  /** The row's events: one, or every event in its run. */
+  eventIds: readonly string[];
   /** The severity color of the arriving edge, as a CSS color. */
   flash: string;
   className: string;
   children: ReactNode;
 }) {
   const { newIds, highlighted } = useContext(ArrivalsContext);
-  const arrived = newIds.has(eventId);
+  const arrived = eventIds.some((id) => newIds.has(id));
+  const entered = arrived && eventIds.every((id) => newIds.has(id));
   return (
-    <li className={`relative isolate ${className} ${arrived ? "arrival-enter" : ""}`}>
+    <li className={`relative isolate ${className} ${entered ? "arrival-enter" : ""}`}>
       {arrived && highlighted ? (
         <span
           aria-hidden="true"
@@ -75,13 +79,13 @@ export function ArrivalEventRow({
 }
 
 /**
- * "New" after a new event's details, so the highlight never rests on color alone. Once the
- * highlight ends it is hidden but keeps its space.
+ * "New" after a row's details when one of its events is new, so the highlight never rests on color
+ * alone. Once the highlight ends it is hidden but keeps its space.
  */
-export function ArrivalNewLabel({ eventId }: { eventId: string }) {
+export function ArrivalNewLabel({ eventIds }: { eventIds: readonly string[] }) {
   const { newIds, labeledIds, highlighted } = useContext(ArrivalsContext);
-  if (!labeledIds.has(eventId)) return null;
-  const visible = highlighted && newIds.has(eventId);
+  if (!eventIds.some((id) => labeledIds.has(id))) return null;
+  const visible = highlighted && eventIds.some((id) => newIds.has(id));
   return (
     <span
       className={`ml-2 rounded-full border border-accent px-1.5 font-mono text-[10px] text-accent ${visible ? "" : "invisible"}`}

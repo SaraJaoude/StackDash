@@ -1,6 +1,6 @@
 # Deploy the hosted app
 
-Issues: #78 (deploy), #89 (hosted scheduling), #88 (provider apps). This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
+This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
 
 Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for your own values. No real value belongs in this file or in the repository.
 
@@ -83,11 +83,25 @@ The sign-in page sends Supabase a `redirectTo` of `<origin>/auth/callback`; Supa
 - Hook type: **Postgres function**.
 - Schema `public`, function `hook_before_user_created`.
 
-This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else sees "This email has not been invited to the DevMacro test."
+This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else is sent back to the sign-in page with "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again."
 
 ### Custom SMTP sender
 
 **Authentication, Emails, SMTP Settings**: enable custom SMTP and enter the sender address, sender name, host, port, username, and password from your email provider (for example a Resend domain you have verified). Supabase's built-in sender is rate limited and only meant for testing. The SMTP password stays in Supabase.
+
+### JWT signing keys
+
+The app verifies every session with `supabase.auth.getClaims()`, in `src/proxy.ts` and in `src/lib/auth/session.ts`. When Auth signs access tokens with an asymmetric key, `getClaims()` checks them against the project's public keys, which supabase-js fetches from `https://<project-ref>.supabase.co/auth/v1/.well-known/jwks.json` and keeps in memory for 10 minutes, so a page request makes no Auth call. With the legacy JWT secret (HS256) it cannot check the signature itself and calls the Auth server instead: twice per signed-in app page, once in the proxy and once on render (measured on the local stack). The local stack already signs with an ES256 key; a hosted project that still shows **Migrate JWT secret** does not.
+
+On the **JWT signing keys** page (`https://supabase.com/dashboard/project/<project-ref>/settings/jwt`), following Supabase's [JWT signing keys guide](https://supabase.com/docs/guides/auth/signing-keys#getting-started):
+
+1. Select **Migrate JWT secret**. The legacy secret becomes the current key and Supabase creates an ECC (P-256) key on standby. Nothing changes for signed-in users yet.
+2. Select **Rotate keys**. Auth signs new access tokens with the ECC key. Tokens signed with the legacy secret stay valid until they expire, so nobody is signed out.
+3. Leave the legacy secret under **Previously used**. Revoking it is not needed for this. The dashboard only lets you revoke it once the legacy `anon` and `service_role` keys are disabled, so first make sure `SUPABASE_SERVICE_ROLE_KEY` holds a secret key (`sb_secret_...`), disable the legacy keys, and revoke no sooner than 1 hour 15 minutes after rotating, so every token the legacy secret signed has expired.
+
+Supabase throttles key changes to about one every 5 minutes. No variable in the app or in Vercel holds a signing key or the JWT secret, and the private key never leaves Supabase.
+
+What the rotation trades away: on the legacy secret, Auth checks the session on every app page, so a session ended on the server (a sign-out of all devices, an account deleted from another device, a ban) is refused on the next request. With the asymmetric key the app checks only the signature and the expiry, so the proxy and the pages keep accepting such a session until its access token expires: up to the project's JWT expiry, 3600 seconds by default. Supabase names the same trade-off in its guide ("To ensure secure revocation, Auth server is in the hot path of your application").
 
 ## 4. Invite testers
 
@@ -117,23 +131,26 @@ Preview deployments run unreviewed branch code. Point the **Preview** environmen
 
 ### Environment variables
 
-Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment; every other variable is read on the server at runtime. A secret must never get a `NEXT_PUBLIC_` name.
+Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment. Every other variable is read on the server at runtime, except the inputs of the prerendered home page and legal pages, which are read at build time: the three operator variables, and for the privacy policy's list of processors also `VERCEL` and the email variables (`DEVMACRO_RESEND_API_KEY`, `DEVMACRO_EMAIL_FROM`, `DEVMACRO_RESEND_API_URL`). So the policy names Resend only after a deployment that was built with the email variables set, and with the operator variables set, a half-set email configuration (a key without `DEVMACRO_EMAIL_FROM`) fails `next build` instead of only showing a notice on the alerts page. A secret must never get a `NEXT_PUBLIC_` name. Vercel applies a changed variable only to the next deployment anyway.
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the sitemap's addresses, of a public project page's canonical address and preview image, and of the links in alert messages, which a production build will not send without it |
+| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the addresses in the sitemap and robots.txt, of the canonical address, `og:url`, and preview image of the landing page, the docs, the privacy policy and terms of use, and public project pages (left out while it is unset), and of the links in alert messages, which a production build will not send without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
 | `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
-| `DEVMACRO_SUPER_ADMIN_EMAILS` | Server only | The operators' sign-in emails | Optional | Who can open the instance overview at `/app/admin` (#250), comma separated, matched without regard to case. Empty means nobody |
-| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails (#152), an address on a domain verified in the Resend account |
-| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend (#244), so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
+| `DEVMACRO_SUPER_ADMIN_EMAILS` | Server only | The operators' sign-in emails | Optional | Who can open the instance overview at `/app/admin`, comma separated, matched without regard to case. Empty means nobody |
+| `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails, an address on a domain verified in the Resend account |
+| `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
 | `DEVMACRO_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
-| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels (#153) reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
-| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes (#149). Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
+| `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `DEVMACRO_OPERATOR_NAME` | Server only | `Eddie Jaoude` | Optional: unset keeps `/privacy` and `/terms` off previews | Who runs the instance, named on the privacy policy and terms of use. Set all three operator variables or none: with none, both pages answer 404 and nothing links to them; with only some, the build fails and names the missing one. The policy names Vercel only when the build sees `VERCEL=1`, which Vercel sets only while **Settings, Environment Variables, Enable access to System Environment Variables** is checked ([system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)), so keep it checked: without it the policy says "Hosting" and nothing fails. After the first production deployment built with these and the email variables, check that `/privacy` lists Vercel and Resend |
+| `DEVMACRO_OPERATOR_EMAIL` | Server only | `eddie@jaoudestudios.com` | Optional, with the name | The address for privacy and data requests, shown on both pages |
+| `DEVMACRO_GOVERNING_LAW` | Server only | `England and Wales` | Optional, with the name | The law the terms of use are governed by, as it reads after "the law of" |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
@@ -188,7 +205,7 @@ To rotate `CRON_SECRET`, set the new value in Vercel, deploy, then update the cr
 
 To rotate `POSTHOG_OAUTH_PRIVATE_KEY`, generate a new key, set it, and deploy. It is a cutover: PostHog token calls can fail for up to a minute until PostHog fetches the new JWKS, and the affected syncs are retried. Details in [PostHog, Permission risks](../providers/posthog.md#permission-risks).
 
-## 7. Schedule syncs (#89)
+## 7. Schedule syncs
 
 After the production deployment exists and `CRON_SECRET` is set, register the `pg_cron` job in the production Supabase project (SQL editor). The SQL, the payload, how to change or remove the job, and how to read failed runs are in [Jobs, register the pg_cron job](jobs.md#register-the-pg_cron-job). Do not copy it here; keep one source.
 
@@ -228,6 +245,8 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Instance overview.** Sign in as an address in `DEVMACRO_SUPER_ADMIN_EMAILS` and open `https://<production-host>/app/admin`: it says nothing needs attention, the scheduler is running, and the database migrations are up to date. Signed in as anyone else, the same address answers page not found.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
+- [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
+- [ ] **Link previews and crawl rules.** `curl -s https://<production-host>/docs | grep -oE '<(meta property="og:(title|url|image)"|link rel="canonical")[^>]*>'` prints the page's own title and production addresses, the `og:image` address answers `200` with a PNG, and `curl -s https://<production-host>/robots.txt` names `https://<production-host>/sitemap.xml` and disallows `/w/`, `/app`, `/api/`, `/auth/`, `/account`, and `/oauth`.
 
 ## What stays Eddie's
 
@@ -236,4 +255,8 @@ Run every check against the production URL and write down the deployment URL you
 - Generating and storing the production secrets.
 - Running migrations against production, registering the cron job, and inviting testers.
 - Promoting production deployments. Agents never trigger or promote one.
+- Migrating and rotating the JWT signing keys of the production (and staging) Supabase projects ([JWT signing keys](#jwt-signing-keys)).
 - Turning on GitHub secret scanning and push protection for the repository. In **Settings, Code security** (called **Advanced Security** in newer GitHub layouts), enable **Secret scanning** and **Push protection**. For a private repository this needs GitHub Secret Protection, a paid part of GitHub Advanced Security; both are free once the repository is public. Until they are on, the gitleaks scan in CI is the only automated secret check, and it only runs after a push. Confirm with `gh api repos/eddiejaoude/DevMacro --jq '.security_and_analysis'`: `secret_scanning` and `secret_scanning_push_protection` must both show `"status": "enabled"`.
+- Turning on private vulnerability reporting, which `SECURITY.md` names as the way to report a vulnerability. GitHub offers it for public repositories only: while the repository is private, `gh api -X PUT repos/eddiejaoude/DevMacro/private-vulnerability-reporting` answers `404 Not Found` and reports go to the email address in `SECURITY.md`. Once the repository is public, run that command again (or enable **Private vulnerability reporting** in **Settings, Code security**) and confirm with `gh api repos/eddiejaoude/DevMacro/private-vulnerability-reporting`: it must show `"enabled": true`.
+- Checking the issue chooser after the contributor templates in `.github/ISSUE_TEMPLATE/` reach `main`. GitHub reads issue templates from the default branch only, so no branch before that can show them. On the repository, open **Issues**, then **New issue**: the chooser must list **Bug report**, **Adapter request**, and **Task**, and one **Report a security vulnerability** row that opens the security policy. GitHub may add its own row of that name once `SECURITY.md` is on `main`. If both show, remove the `contact_links` entry from `.github/ISSUE_TEMPLATE/config.yml`: it duplicates GitHub's row.
+- Turning the CI workflow back on before the repository takes pull requests from outside contributors. `CONTRIBUTING.md` tells contributors that CI runs on every pull request, and the workflow was switched off before launch. Check with `gh api repos/eddiejaoude/DevMacro/actions/workflows --jq '.workflows[] | {name, state}'`: while CI shows `"state": "disabled_manually"`, run `gh workflow enable ci.yml -R eddiejaoude/DevMacro` and check again. CI must show `"state": "active"`.

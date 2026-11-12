@@ -1,16 +1,17 @@
 import type { SVGProps } from "react";
 
-import { GaugeIcon, PlatformLogo, ServerIcon, ShieldIcon } from "@/components/icons";
+import { GaugeIcon, ShieldIcon } from "@/components/icons";
 import {
   freshnessLabel,
   type ConnectionStatus,
   type Provenance,
-  type ProviderId,
   type ValueSource,
 } from "@/lib/dashboard/aggregate";
 import { spendProjectionText, type ProjectionText, type SpendProjection } from "@/lib/dashboard/projection";
 import { formatDateTime } from "@/lib/format";
-import { providerName, providerPlatform } from "@/lib/providers";
+import { providerName } from "@/lib/providers";
+
+import { InfoTooltip } from "./info-tooltip";
 
 const STATUS_LABELS: Record<ConnectionStatus, string> = {
   pending: "Pending",
@@ -22,16 +23,6 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
 
 export function connectionStatusLabel(status: ConnectionStatus): string {
   return STATUS_LABELS[status];
-}
-
-/** The provider's mark as decoration; its name is always printed beside it. */
-export function ProviderMark({ provider }: { provider: ProviderId }) {
-  const platform = providerPlatform(provider);
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-white">
-      {platform === null ? <ServerIcon className="size-4" /> : <PlatformLogo platform={platform} className="size-4" />}
-    </span>
-  );
 }
 
 function EstimateIcon(props: SVGProps<SVGSVGElement>) {
@@ -55,7 +46,8 @@ function EstimateIcon(props: SVGProps<SVGSVGElement>) {
   );
 }
 
-function StaleIcon(props: SVGProps<SVGSVGElement>) {
+/** A clock: data that has not been refreshed. Always beside the word that says so. */
+export function StaleIcon(props: SVGProps<SVGSVGElement>) {
   return (
     <svg
       width={14}
@@ -103,14 +95,18 @@ function EstimateBadge({ label }: { label: string }) {
 
 /**
  * A projection to the end of a period (#167): the figure, labeled "Estimate by DevMacro" in words
- * with the estimate icon, and how it was calculated in text. `estimate` is false when nothing was
- * projected (why is in the text) or the figure is an observed reading. `flag` is a short status in
- * words, such as "Projected to cross", shown as a badge with its own icon.
+ * with the estimate icon. How it was calculated sits behind an info button beside the badge (#269),
+ * as the button's accessible description, so it is one keystroke or tap away rather than a
+ * paragraph under every projection. `estimate` is false when nothing was projected or the figure is
+ * an observed reading: then the text is the reason, which is the whole note, so it stays in view.
+ * `flag` is a short status in words, such as "Projected to cross", shown as a badge with its own
+ * icon.
  */
 export function ProjectionNote({ text, estimate, flag }: { text: ProjectionText; estimate: boolean; flag?: string }) {
   return (
     <div className="mt-3 rounded-lg border border-dashed border-line-strong p-3">
-      <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
+      {/* Relative: the method's tooltip spans this row, so it stays inside the card however the row wraps. */}
+      <p className="relative flex flex-wrap items-center gap-2 text-sm font-medium text-foreground">
         {flag === undefined ? null : (
           <span className="inline-flex items-center gap-1 rounded-full border border-warning px-2 py-0.5 text-xs font-semibold text-warning">
             <GaugeIcon width={14} height={14} />
@@ -118,9 +114,14 @@ export function ProjectionNote({ text, estimate, flag }: { text: ProjectionText;
           </span>
         )}
         <span>{text.headline}</span>
-        {estimate ? <EstimateBadge label="Estimate by DevMacro" /> : null}
+        {estimate ? (
+          <>
+            <EstimateBadge label="Estimate by DevMacro" />
+            <InfoTooltip label="How this projection is worked out" text={text.explanation} placement="container" />
+          </>
+        ) : null}
       </p>
-      <p className="mt-1 text-xs leading-5 text-muted">{text.explanation}</p>
+      {estimate ? null : <p className="mt-1 text-xs leading-5 text-muted">{text.explanation}</p>}
     </div>
   );
 }

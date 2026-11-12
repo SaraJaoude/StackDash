@@ -25,7 +25,7 @@ const phases: readonly Phase[] = [
       "Read-only REST API with scoped keys",
       "Read-only MCP server for AI assistants, on the same keys",
       "Allowances, remaining quota, and reset dates",
-      "Spend where the provider allows it",
+      "Spend where the provider reports it",
       "Spend and quota projected to the end of the period, labeled as estimates",
       "Usage history",
       "Deploys, payments, signups, stars, and alerts marked on the trend charts",

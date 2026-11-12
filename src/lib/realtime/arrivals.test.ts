@@ -15,6 +15,7 @@ import {
   liveStatusText,
   newEventIds,
   recurringValues,
+  usageBarClass,
 } from "./arrivals";
 
 const source = { connectionId: "c1", provider: "fake", connectionName: "Fake", simulated: false } as const;
@@ -267,5 +268,18 @@ describe("barScaleFrom", () => {
 
   it("clamps an overspent allowance to the full bar", () => {
     expect(barScaleFrom(50, 130)).toBe(0.5);
+  });
+});
+
+describe("usageBarClass", () => {
+  it.each([
+    [0, "bg-accent"],
+    [79.9, "bg-accent"],
+    [80, "bg-warning"],
+    [99.9, "bg-warning"],
+    [100, "bg-danger"],
+    [250, "bg-danger"],
+  ])("colors %s percent %s", (percent, expected) => {
+    expect(usageBarClass(percent)).toBe(expected);
   });
 });

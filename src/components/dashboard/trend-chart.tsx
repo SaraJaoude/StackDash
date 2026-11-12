@@ -28,15 +28,24 @@ const ESTIMATE_DASH = "6 4";
  * the only motion is today's point drawing in and pinging when a live refresh changes it (#171),
  * which reduced motion turns into a static ring. Meaning never rests on color: estimated values
  * use a dashed line and hollow points, gaps break the line and carry a mark on the baseline, and
- * the legend says so in words. The chart is one image whose accessible name summarizes the trend;
- * the table holds every value.
+ * `TrendLegend`, shared by every chart in the section (#263), says so in words. The chart is one
+ * image whose accessible name summarizes the trend; the table holds every value.
  *
  * `markers` are the event markers drawn under the chart and listed in the table's "Events"
  * column (#168); null when every marker category is hidden, which drops the column too.
+ * `markSimulated` is false when the page says "Simulated" once for every chart (#269).
  */
-export function TrendChart({ series, markers }: { series: TrendSeries; markers: readonly TrendMarker[] | null }) {
+export function TrendChart({
+  series,
+  markers,
+  markSimulated,
+}: {
+  series: TrendSeries;
+  markers: readonly TrendMarker[] | null;
+  markSimulated: boolean;
+}) {
   const titleId = useId();
-  const legendId = useId();
+  const tableId = useId();
   const { points, measure, granularity } = series;
   const values = points.flatMap((point) => (point.value === null ? [] : [point.value]));
   const low = Math.min(0, ...values);
@@ -47,8 +56,6 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
   const x = (index: number) => PAD_X + (points.length > 1 ? (index / (points.length - 1)) * plotWidth : plotWidth / 2);
   const y = (value: number) => PAD_Y + (1 - (value - low) / span) * plotHeight;
   const baseline = HEIGHT - PAD_Y;
-  const hasEstimates = points.some((point) => point.value !== null && point.estimated);
-  const hasGaps = points.some((point) => point.value === null);
   const first = points[0];
   const last = points.at(-1);
   const lastIndex = points.length - 1;
@@ -85,10 +92,10 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
   return (
     <figure aria-labelledby={titleId} className="rounded-xl border border-line bg-panel p-5">
       <div className="flex flex-wrap items-center gap-2">
-        <h3 id={titleId} className="font-semibold">
+        <h4 id={titleId} className="font-semibold">
           {seriesTitle(series)}
-        </h3>
-        {series.simulated ? <SimulatedBadge /> : null}
+        </h4>
+        {markSimulated && series.simulated ? <SimulatedBadge /> : null}
       </div>
       <p className="mt-1 text-sm text-muted">{comparisonText(series.comparison, measure, granularity)}</p>
 
@@ -141,7 +148,7 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
           </svg>
 
           {lanes.length === 0 ? null : (
-            <TrendMarkers markers={markers ?? []} granularity={granularity} positions={positions} skipTo={legendId} />
+            <TrendMarkers markers={markers ?? []} granularity={granularity} positions={positions} skipTo={tableId} />
           )}
 
           {/* Axis labels are in the table and the chart's name already, so screen readers skip them here. */}
@@ -155,29 +162,8 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
         </div>
       </div>
 
-      <ul id={legendId} className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
-        <li className="flex items-center gap-2">
-          <LegendLine dashed={false} />
-          Solid line, filled points: verified
-        </li>
-        {hasEstimates ? (
-          <li className="flex items-center gap-2">
-            <LegendLine dashed />
-            Dashed line, hollow points: estimated
-          </li>
-        ) : null}
-        {hasGaps ? (
-          <li className="flex items-center gap-2">
-            <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
-              <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
-            </svg>
-            Break in the line, mark on the baseline: unavailable
-          </li>
-        ) : null}
-        {lanes.length === 0 ? null : <MarkerLegend lanes={lanes} />}
-      </ul>
-
-      <details className="mt-4">
+      {/* The skip link past the markers lands here, so the next Tab reaches the table's control. */}
+      <details id={tableId} className="mt-4">
         <summary className="inline-flex min-h-6 cursor-pointer items-center text-sm font-medium underline underline-offset-4">
           Show the values as a table
         </summary>
@@ -230,6 +216,40 @@ export function TrendChart({ series, markers }: { series: TrendSeries; markers: 
         </div>
       </details>
     </figure>
+  );
+}
+
+/**
+ * One legend for every chart in the trends section (#263), listing what the charts on the page
+ * draw: line styles for the values they hold and a shape for each marker category they show.
+ */
+export function TrendLegend({ series, markers }: { series: readonly TrendSeries[]; markers: readonly TrendMarker[] }) {
+  const points = series.flatMap((entry) => entry.points);
+  const hasEstimates = points.some((point) => point.value !== null && point.estimated);
+  const hasGaps = points.some((point) => point.value === null);
+  const lanes = markerLanes(markers);
+  return (
+    <ul aria-label="Legend for every chart" className="mt-4 flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted">
+      <li className="flex items-center gap-2">
+        <LegendLine dashed={false} />
+        Solid line, filled points: verified
+      </li>
+      {hasEstimates ? (
+        <li className="flex items-center gap-2">
+          <LegendLine dashed />
+          Dashed line, hollow points: estimated
+        </li>
+      ) : null}
+      {hasGaps ? (
+        <li className="flex items-center gap-2">
+          <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
+            <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
+          </svg>
+          Break in the line, mark on the baseline: unavailable
+        </li>
+      ) : null}
+      {lanes.length === 0 ? null : <MarkerLegend lanes={lanes} />}
+    </ul>
   );
 }
 

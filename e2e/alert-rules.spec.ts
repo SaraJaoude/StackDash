@@ -4,6 +4,8 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
+import { expectHydrated } from "./fixtures/hydration";
 
 // Each test creates its own workspace and seeds only inside it.
 
@@ -94,6 +96,32 @@ ownerTest.describe("alert rules as the owner", () => {
       await expect(item).toHaveCount(0);
       await expect(page.getByText("No alert rules yet")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Alert rules", level: 2 })).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert rule delete failure");
+    try {
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      const form = page.getByRole("form", { name: "Add an alert rule" });
+      await form.getByRole("radio", { name: "90%" }).check();
+      await form.getByRole("button", { name: "Add alert rule" }).click();
+      await expect(form.getByRole("status").filter({ hasText: "Alert rule added." })).toBeVisible();
+
+      const item = rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 90% of every allowance" });
+      await expectFailureInDialog(page, {
+        trigger: item.getByRole("button", { name: /^Delete rule/ }),
+        dialog: page.getByRole("dialog", { name: "Delete this alert rule?" }),
+        confirmName: "Delete rule",
+        // Deleted behind the open dialog, so the action finds nothing to delete.
+        breakIt: async () => {
+          const { error } = await adminClient().from("alert_rules").delete().eq("workspace_id", workspace.id);
+          if (error) throw new Error(`Deleting the rule failed (code ${error.code}).`);
+        },
+        message: "This alert rule no longer exists. Reload the page to see the current rules.",
+      });
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -195,6 +223,47 @@ ownerTest.describe("alert rules as the owner", () => {
         ).toContainText("Applies to Example provider");
       }
       await expect(suggestions).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("pages budgets from the keyboard onto the Budgets heading, with focus on it (#312, #313)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Budget pages");
+    try {
+      // One more than a page of budgets (BUDGETS_PAGE_SIZE is 50), so "Show more budgets" appears.
+      const { error } = await adminClient()
+        .from("budgets")
+        .insert(
+          Array.from({ length: 51 }, (_, index) => ({
+            workspace_id: workspace.id,
+            name: `Budget ${String(index + 1).padStart(2, "0")}`,
+            scope: "workspace" as const,
+            amount_minor: 10_000,
+            currency: "USD",
+          })),
+        );
+      if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      // A client navigation, as a user gets once the page has hydrated: before that the link is a
+      // plain anchor and the browser itself handles the fragment.
+      await expectHydrated(page);
+      const showMore = page.getByRole("link", { name: "Show more budgets" });
+      await showMore.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]budgetsAfter=[^#]+#budgets-title$/);
+      await expect(page.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
+      const heading = page.getByRole("heading", { name: "Budgets", exact: true });
+      await expect(heading).toBeInViewport();
+      // Below the sticky header, not under it.
+      const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
+      await expect.poll(async () => (await heading.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
+      // The link that had focus is gone with the old list. The heading takes focus, so a screen
+      // reader announces where the user landed (#313), and it is the last stop before the new list.
+      await expect(heading).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("list", { name: "Budgets" }).getByRole("button", { name: /^Edit budget/ }).first()).toBeFocused();
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }

@@ -1,8 +1,9 @@
 /*
  * How to connect each MCP client to this instance (#163), for the settings page. docs/mcp.md walks
- * through the same steps with the URL as $DEVMACRO_URL. The key is never written into a snippet:
- * Claude Code and Cursor read it from DEVMACRO_API_KEY each time they connect, and the Claude
- * Desktop snippet holds a placeholder to replace in that app's own config file.
+ * through the same steps with the URL as $DEVMACRO_URL. Claude Code and Cursor never get the key in
+ * their snippet: they read it from DEVMACRO_API_KEY each time they connect. Claude Desktop and other
+ * clients keep the key in their own configuration anyway, so their snippets carry a placeholder, or
+ * the key itself right after "Create assistant key" made one (#254), shown once like the key.
  *
  * Sources, checked 2026-11-05:
  * - Claude Code: https://code.claude.com/docs/en/mcp, "Option 1: Add a remote HTTP server",
@@ -36,13 +37,14 @@ export function mcpEndpointUrl(origin: string): string {
   return new URL(MCP_ENDPOINT_PATH, origin).href;
 }
 
-export function mcpClientSetups(endpointUrl: string): readonly McpClientSetup[] {
+/** `apiKey` is the key settings just created, or null for the placeholder. */
+export function mcpClientSetups(endpointUrl: string, apiKey: string | null): readonly McpClientSetup[] {
   const claudeDesktop = {
     mcpServers: {
       devmacro: {
         command: "npx",
         args: ["-y", "mcp-remote", endpointUrl, "--header", "Authorization:${AUTH_HEADER}"],
-        env: { AUTH_HEADER: "Bearer paste-your-key-here" },
+        env: { AUTH_HEADER: `Bearer ${apiKey ?? "paste-your-key-here"}` },
       },
     },
   };
@@ -61,8 +63,9 @@ export function mcpClientSetups(endpointUrl: string): readonly McpClientSetup[] 
     {
       id: "claude-desktop",
       name: "Claude Desktop",
-      instructions:
-        "Open Settings, then Developer, then Edit Config, and add this to claude_desktop_config.json with your key after Bearer. Restart Claude Desktop. It needs Node.js for npx.",
+      instructions: `Open Settings, then Developer, then Edit Config, and add this to claude_desktop_config.json${
+        apiKey === null ? " with your key after Bearer" : ". It holds the new key, so keep that file to yourself"
+      }. Restart Claude Desktop. It needs Node.js for npx.`,
       snippet: JSON.stringify(claudeDesktop, null, 2),
     },
     {
@@ -76,7 +79,11 @@ export function mcpClientSetups(endpointUrl: string): readonly McpClientSetup[] 
       name: "Other clients",
       instructions:
         "Any client that speaks the Streamable HTTP transport works. Give it the URL and send the key as a bearer token on every request.",
-      snippet: [`URL:        ${endpointUrl}`, "Transport:  Streamable HTTP", "Header:     Authorization: Bearer <your key>"].join("\n"),
+      snippet: [
+        `URL:        ${endpointUrl}`,
+        "Transport:  Streamable HTTP",
+        `Header:     Authorization: Bearer ${apiKey ?? "<your key>"}`,
+      ].join("\n"),
     },
   ];
 }

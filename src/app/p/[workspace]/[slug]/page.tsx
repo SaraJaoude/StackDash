@@ -4,14 +4,14 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import { PlatformLogo, PuzzleIcon } from "@/components/icons";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { HistoryChart } from "@/components/public-metrics/history-chart";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
-import { providerName, providerPlatform } from "@/lib/providers";
-import { FORMULAS_DOC_PATH, PROVENANCE_LABELS, publicMetricDefinition } from "@/lib/public-metrics/definitions";
+import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
+import { HISTORY_DAYS } from "@/lib/public-metrics/history";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
   loadPublishedProjectHistory,
@@ -21,10 +21,12 @@ import {
 } from "@/lib/public-metrics/published";
 import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
+import { socialMetadata } from "@/lib/site-metadata";
 
 /*
- * A public project page (#150), answered at /@<workspace slug>/<page slug> (src/proxy.ts rewrites
- * that address here and refuses this path when it is asked for directly). It shows only what the
+ * A public project page (#150), answered at /@<handle or workspace slug>/<page slug> (src/proxy.ts
+ * rewrites that address here, sends a slug address to the handle address while the workspace has a
+ * handle (#258), and refuses this path when it is asked for directly). It shows only what the
  * metric engine publishes for the project: the published values, their history, the milestones
  * those values reveal, and the providers behind them as icons. No account names, no amounts.
  *
@@ -33,19 +35,22 @@ import { site } from "@/lib/site";
  * sent with a 200 before the data loads, so the proxy answers an unknown address, a page that is
  * off, and a page with nothing published with the same 404 before this page renders. The
  * notFound() calls here cover a page turned off between the proxy's read and this one: the
- * not-found page streams in with noindex. Nothing is cached: turning a page off answers 404 on the
- * very next request.
+ * not-found page streams in with noindex.
+ *
+ * Caching (#321): nothing is cached across requests. The HTML carries the per request nonce, which
+ * a shared cache would hand to every reader, and turning a page off must answer 404 on the very
+ * next request. Within a request, generateMetadata and the page share one loadPublicProjectPage
+ * read (React cache, in src/lib/data/project-pages.ts). What bounds the cost instead is the public
+ * rate limit the badges and cards share, which src/proxy.ts applies before this page renders,
+ * because only the proxy can still answer a 429.
  */
 export const instant = false;
 
-const HISTORY_WINDOWS = [
-  { days: 30, period: "last 30 days" },
-  { days: 90, period: "last 90 days" },
-] as const;
+// One chart per metric over the whole history the page reads (#344). The last 30 days are a
+// sentence beside it, not a second chart of the same line.
+const HISTORY_PERIOD = `last ${HISTORY_DAYS} days`;
+const RECENT_WINDOW = { days: 30, period: "last 30 days" } as const;
 const DESCRIPTION_METRICS = 3;
-
-// The public origin is configuration (root layout): unset means no absolute URLs in metadata.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
 function isEngine(metric: PublishedMetric): metric is PublishedEngineMetric {
   return metric.kind === "engine";
@@ -62,26 +67,20 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
     .slice(0, DESCRIPTION_METRICS)
     .map((metric) => `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`);
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
-  const path = projectPagePath(page.workspaceSlug, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
-  // The preview image is the badges and cards (#149) card of the first published engine metric.
+  // The preview image is the badges and cards (#149) card of the first published engine metric,
+  // and the site image (#338) when only self-reported values are published.
   const images =
     card === undefined
-      ? []
-      : [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }];
+      ? {}
+      : { images: [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }] };
 
   return {
     title,
     description,
     // Indexable only when the owner chose it (#150).
     robots: page.indexable ? { index: true, follow: true } : { index: false, follow: false },
-    ...(siteUrl
-      ? {
-          alternates: { canonical: path },
-          openGraph: { type: "website", siteName: site.name, title, description, url: path, images },
-          twitter: { card: images.length > 0 ? "summary_large_image" : "summary", title, description, images },
-        }
-      : {}),
+    ...socialMetadata({ title, description, path: projectPagePath(page.workspace, page.pageSlug), ...images }),
   };
 }
 
@@ -94,14 +93,9 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
 
   const engine = page.published.metrics.filter(isEngine);
   const selfReported = page.published.metrics.filter((metric): metric is PublishedSelfReportedMetric => metric.kind === "self_reported");
-  // Icons only, for the providers behind published values that are connected; never account names.
-  const providers = [
-    ...new Set(
-      engine
-        .filter((metric) => metric.value.status === "available" || metric.value.reason !== "not_connected")
-        .map((metric) => publicMetricDefinition(metric.metricId).provider),
-    ),
-  ];
+  // Icons only, for the connected providers behind published values; never account names. A metric
+  // that counts several providers (deployments) shows only those the project has connected.
+  const providers = [...new Set(engine.flatMap((metric) => metric.providers))];
 
   return (
     <>
@@ -117,25 +111,11 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
           <div className="mt-6">
             <h2 className="text-sm font-semibold">Connected providers</h2>
             <ul className="mt-3 flex flex-wrap gap-3">
-              {providers.map((provider) => {
-                const platform = providerPlatform(provider);
-                return (
-                  <li key={provider}>
-                    <span
-                      role="img"
-                      aria-label={providerName(provider)}
-                      title={providerName(provider)}
-                      className="flex size-10 items-center justify-center rounded-lg border border-line bg-panel-raised text-foreground"
-                    >
-                      {platform === null ? (
-                        <PuzzleIcon width={20} height={20} />
-                      ) : (
-                        <PlatformLogo platform={platform} width={20} height={20} />
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
+              {providers.map((provider) => (
+                <li key={provider}>
+                  <ProviderMark provider={provider} labeled />
+                </li>
+              ))}
             </ul>
           </div>
         )}
@@ -175,10 +155,8 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
             {history.histories.map((entry) => (
               <div key={entry.publicationId} className="mt-6">
                 <h3 className="font-medium">{entry.label}</h3>
-                <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                  {HISTORY_WINDOWS.map((window) => (
-                    <HistoryChart key={window.days} title={entry.label} period={window.period} points={entry.points.slice(-window.days)} />
-                  ))}
+                <div className="mt-3">
+                  <HistoryChart title={entry.label} period={HISTORY_PERIOD} recent={RECENT_WINDOW} points={entry.points} />
                 </div>
               </div>
             ))}

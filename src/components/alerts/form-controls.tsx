@@ -2,8 +2,9 @@
 
 import { startTransition, useEffect, useId, useRef, type FormEvent, type ReactNode } from "react";
 
-import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
+import type { AlertActionFailure, AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { LockIcon } from "@/components/icons";
+import { LiveRegion, ReferenceNote } from "@/components/ui/live-region";
 import { CUSTOM_CHOICE, type AlertScope } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -33,15 +34,9 @@ export function submitWithoutReset(formAction: (formData: FormData) => void) {
 
 export const inputClass =
   "block min-h-10 w-full rounded-md border bg-panel-raised px-3 py-2 text-sm text-foreground";
-export const primaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
-export const secondaryButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-accent aria-disabled:opacity-60";
-export const smallButtonClass =
-  "inline-flex min-h-8 min-w-8 items-center justify-center rounded-md border border-line-strong bg-panel-raised px-3 py-1 text-sm font-medium text-foreground transition-colors hover:border-accent aria-disabled:opacity-60";
 
 /** The failure part of an action result, or null. */
-export function failureOf(state: AlertActionResult | null): Extract<AlertActionResult, { ok: false }> | null {
+export function failureOf(state: { ok: true } | AlertActionFailure | null): AlertActionFailure | null {
   return state !== null && !state.ok ? state : null;
 }
 
@@ -342,10 +337,10 @@ export function ErrorSummary({
   if (failure === null) return null;
   const fieldErrors = Object.entries(failure.fieldErrors ?? {});
   return (
-    <div
+    <LiveRegion
       ref={ref}
+      tone="error"
       tabIndex={-1}
-      role="alert"
       aria-labelledby={titleId}
       className="rounded-lg border border-danger/50 bg-panel-raised px-4 py-3 text-sm"
     >
@@ -354,12 +349,7 @@ export function ErrorSummary({
       </p>
       <p className="mt-1">
         {failure.message}
-        {failure.referenceId === undefined ? null : (
-          <>
-            {" "}
-            Reference <code className="font-mono text-xs">{failure.referenceId}</code>.
-          </>
-        )}
+        <ReferenceNote referenceId={failure.referenceId} />
       </p>
       {fieldErrors.length === 0 ? null : (
         <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -372,7 +362,7 @@ export function ErrorSummary({
           ))}
         </ul>
       )}
-    </div>
+    </LiveRegion>
   );
 }
 

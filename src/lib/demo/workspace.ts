@@ -8,19 +8,24 @@ import { simulatedCredentialMetadata } from "@/lib/adapters/simulated/marker";
 import type { ProviderId } from "@/lib/adapters/types";
 import { alertRuleInputSchema, budgetInputSchema } from "@/lib/alerts/rule-schema";
 import { completeConnection } from "@/lib/connections/connect";
-import { PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
+import { createJobDeps } from "@/lib/jobs/queue";
+import { countsProvider, PUBLIC_METRICS, publicMetricDefinition, type PublicMetricId } from "@/lib/public-metrics/definitions";
 import { publicationSummary } from "@/lib/public-metrics/display";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
 
-import { demoAccountSeed } from "./history";
+import { demoAccountSeed, headlineWeekDays, historySteps, replayClock, replayHistory } from "./history";
+import { DEMO_USER_MARKER, isDemoAccount } from "./sign-in";
 
 /*
  * The demo account and workspace (#166), written with the service role on the local stack only
- * (the caller checks `demoSeedRefusal` first). A rerun deletes the workspaces the demo account
+ * (the caller checks `demoCommandRefusal` first). A rerun deletes the workspaces the demo account
  * created, except its personal one, and builds a fresh one, so there is only ever one demo
  * workspace. Connections go through `completeConnection`, exactly as the OAuth callback makes
- * them; budgets and alert rules go through the alerts page's input schemas.
+ * them; budgets and alert rules go through the alerts page's input schemas. Sample data (#257) is
+ * the one in-app caller: it connects the simulated providers to a member's own empty workspace,
+ * behind the role check and `sampleDataRefusal` instead.
  */
 
 type Admin = SupabaseClient<Database>;
@@ -29,8 +34,6 @@ type Admin = SupabaseClient<Database>;
 export const DEMO_USER_EMAIL = "demo@example.com";
 export const DEMO_WORKSPACE_NAME = "Demo workspace";
 export const DEMO_PROJECT_NAMES = ["Storefront", "Marketing site", "Internal tools"] as const;
-// Set in app_metadata, which only the service role can write, when the seed creates the account.
-const DEMO_USER_MARKER = "devmacro_demo";
 const USER_PAGE_SIZE = 1000;
 // A local stack holds a handful of users; past this the email is treated as not found.
 const USER_MAX_PAGES = 20;
@@ -48,11 +51,6 @@ async function findUserByEmail(admin: Admin, email: string): Promise<User | null
   return null;
 }
 
-function isDemoUser(user: User): boolean {
-  const marker: unknown = user.app_metadata[DEMO_USER_MARKER];
-  return marker === true;
-}
-
 /**
  * The demo account's id, creating it on the first run. Refuses an account with the demo email that
  * the seed did not create, so a rerun never deletes anything it does not own.
@@ -60,7 +58,7 @@ function isDemoUser(user: User): boolean {
 export async function ensureDemoUser(admin: Admin): Promise<string> {
   const existing = await findUserByEmail(admin, DEMO_USER_EMAIL);
   if (existing !== null) {
-    if (!isDemoUser(existing)) {
+    if (!isDemoAccount(existing.app_metadata)) {
       throw new Error(`${DEMO_USER_EMAIL} already exists and was not made by the demo seed, so the seed leaves it alone.`);
     }
     return existing.id;
@@ -70,7 +68,8 @@ export async function ensureDemoUser(admin: Admin): Promise<string> {
     .from("access_invites")
     .upsert({ email: DEMO_USER_EMAIL, invited_by: "demo seed" }, { onConflict: "email", ignoreDuplicates: true });
   if (inviteError) throw new Error(`Inviting ${DEMO_USER_EMAIL} failed (code ${inviteError.code}).`);
-  // No password: sign-in is GitHub only, so nobody signs in as the demo account (see #166).
+  // No password: the demo account signs in only with the one-time link `npm run demo` and
+  // `npm run demo:seed` print (#260), which `/auth/confirm` accepts on a local stack only.
   const { data, error } = await admin.auth.admin.createUser({
     email: DEMO_USER_EMAIL,
     email_confirm: true,
@@ -143,6 +142,25 @@ export async function resetDemoWorkspace(
   return { id: data.id, slug: data.slug, deleted: deleted.length };
 }
 
+/**
+ * The demo workspace the last `npm run demo:seed` built, or null when there is none: no demo
+ * account, an account with the demo email that the seed did not create, or no workspace yet.
+ */
+export async function findDemoWorkspace(admin: Admin): Promise<(DemoWorkspace & { name: string }) | null> {
+  const user = await findUserByEmail(admin, DEMO_USER_EMAIL);
+  if (user === null || !isDemoAccount(user.app_metadata)) return null;
+  const { data, error } = await admin
+    .from("workspaces")
+    .select("id, slug, name")
+    .eq("created_by", user.id)
+    .eq("is_personal", false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(`Reading the demo workspace failed (code ${error.code}).`);
+  return data;
+}
+
 export type DemoConnection = Readonly<{ id: string; provider: ProviderId }>;
 
 /**
@@ -174,6 +192,51 @@ export async function connectSimulatedProviders(input: Readonly<{
     });
     connections.push({ id: connectionId, provider: adapter.id });
   }
+  return connections;
+}
+
+/** The timeline's search param, set to "added" right after sample data was added. */
+export const SAMPLE_DATA_ADDED_PARAM = "sample";
+
+/**
+ * Why sample data (#257) cannot be added to a workspace, or null when it can. Only with provider
+ * simulation on, the same switch that offers simulated providers in the catalog, and only to a
+ * workspace with no connections, so made-up data never sits beside real data.
+ */
+export function sampleDataRefusal(input: Readonly<{ simulationEnabled: boolean; connectionCount: number }>): string | null {
+  if (!input.simulationEnabled) return "Sample data is only available while provider simulation is on.";
+  if (input.connectionCount > 0) {
+    return "This workspace already has connections. Sample data is only added to a workspace with none, so it never mixes with real data.";
+  }
+  return null;
+}
+
+/**
+ * Sample data for an empty workspace (#257): every simulated provider connected as the demo seed
+ * connects them, then the current week and the day before it replayed through the same jobs a
+ * tick runs, ending at the present (`headlineWeekDays`), so the timeline, the billing period cards,
+ * and the dashboard headline's week to date all have figures in one action. At most nine steps (a
+ * summer Sunday night, already Monday in London), against the seed's 90 days, so it fits in a
+ * request. Replayed alerts count as already sent, as the seed's do. The caller authorizes the user
+ * as an owner or admin of the workspace and checks `sampleDataRefusal` first.
+ */
+export async function addSampleData(input: Readonly<{ workspaceId: string; userId: string; now: Date }>): Promise<DemoConnection[]> {
+  const steps = historySteps(input.now, headlineWeekDays(input.now));
+  const [first] = steps;
+  if (first === undefined) throw new Error("The sample data history has no steps.");
+  const connections = await connectSimulatedProviders({
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    seed: input.workspaceId,
+    now: first.at,
+  });
+  await replayHistory({
+    ...replayClock(createJobDeps(), first.at),
+    workspaceId: input.workspaceId,
+    connectionIds: connections.map((connection) => connection.id),
+    steps,
+  });
+  await markDemoAlertsSent(createAdminClient(), { workspaceId: input.workspaceId, at: input.now });
   return connections;
 }
 
@@ -222,8 +285,9 @@ export async function assignDemoProjects(
 
 // A month of simulated Vercel spend runs to about $760 with its launch day
 // (src/lib/adapters/simulated/vercel.ts), so this budget's 90 percent threshold ($540) is crossed
-// in the third week of each full month of the history.
-const VERCEL_BUDGET = { name: "Vercel monthly", amount: "600", currency: "USD" } as const;
+// in the third week of each full month of the history. Exported because the simulated providers'
+// scale is pinned against it (#264): a month of their revenue and spend stays within ten times it.
+export const DEMO_VERCEL_BUDGET = { name: "Vercel monthly", amount: "600", currency: "USD" } as const;
 // The simulated Resend team sends about 97 percent of its 3,000 emails a month
 // (src/lib/adapters/simulated/resend.ts), so this quota alert fires in the last days of a month.
 const RESEND_MONTHLY_QUOTA = "resend.emails.monthly";
@@ -236,7 +300,7 @@ const DEMO_THRESHOLD_PERCENT = "90";
  */
 export async function createDemoAlerts(admin: Admin, input: Readonly<{ workspaceId: string; userId: string }>): Promise<void> {
   const audit = { workspace_id: input.workspaceId, created_by: input.userId, updated_by: input.userId };
-  const budget = budgetInputSchema.parse({ ...VERCEL_BUDGET, scope: "provider", provider: "vercel" });
+  const budget = budgetInputSchema.parse({ ...DEMO_VERCEL_BUDGET, scope: "provider", provider: "vercel" });
   const { data, error } = await admin.from("budgets").insert({ ...budget, ...audit }).select("id").single();
   if (error) throw new Error(`Creating the demo budget failed (code ${error.code}).`);
   const rules = [
@@ -265,7 +329,7 @@ const DEMO_PAGE_SLUG = "storefront";
 
 /** Every metric the providers connected to a project can count, in definition order. */
 export function demoPublicMetricIds(providers: readonly ProviderId[]): PublicMetricId[] {
-  return PUBLIC_METRICS.filter((definition) => providers.includes(definition.provider)).map((definition) => definition.id);
+  return PUBLIC_METRICS.filter((definition) => providers.some((provider) => countsProvider(definition, provider))).map((definition) => definition.id);
 }
 
 /**
@@ -317,7 +381,8 @@ export async function publishDemoProjectPage(
   });
   if (pageError) throw new Error(`Turning on the demo project page failed (code ${pageError.code}).`);
   if (saved !== "enabled") throw new Error(`Turning on the demo project page answered ${saved}.`);
-  return projectPagePath(input.workspaceSlug, DEMO_PAGE_SLUG);
+  // The seed builds a fresh workspace each run, and a fresh workspace has no handle.
+  return projectPagePath({ slug: input.workspaceSlug, handle: null }, DEMO_PAGE_SLUG);
 }
 
 /**

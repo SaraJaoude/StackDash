@@ -6,6 +6,7 @@ import { DAY_MS, isLaunchDay, SLOT_MS, slotOf } from "@/lib/adapters/simulated/s
 import { Secret, type OAuthClient, type OAuthCredential, type ProviderAdapter } from "@/lib/adapters/types";
 import { TOTAL_METRIC_KEY } from "@/lib/adapters/vercel";
 import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
+import { headlineWindows } from "@/lib/dashboard/headline";
 import { buildTrends, TREND_DAYS, type TrendConnection, type TrendRow } from "@/lib/dashboard/trends";
 import { DAILY_SUMMARY_TYPE_ID } from "@/lib/jobs/daily-summary";
 import { utcDate } from "@/lib/jobs/ingest";
@@ -15,7 +16,15 @@ import type { Logger } from "@/lib/log/logger";
 import { memoryNotificationDeps } from "@/lib/notifications/memory-store";
 import { groupEventsByDay, londonDate } from "@/lib/timeline/days";
 
-import { DEMO_HISTORY_DAYS, demoAccountSeed, demoSeedRefusal, historySteps, replayHistory } from "./history";
+import {
+  DEMO_HISTORY_DAYS,
+  demoAccountSeed,
+  demoCommandRefusal,
+  headlineWeekDays,
+  historySteps,
+  replayClock,
+  replayHistory,
+} from "./history";
 
 const WORKSPACE_ID = "16616616-6166-4166-8166-166166166166";
 // Mid afternoon, so subtracting whole days never crosses a London midnight on a clock change.
@@ -24,15 +33,15 @@ const silent: Logger = { info: () => {}, warn: () => {}, error: () => {} };
 const client: OAuthClient = { clientId: "simulated", clientSecret: new Secret("simulated"), extra: {} };
 const LONDON_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
 
-describe("demoSeedRefusal", () => {
+describe("demoCommandRefusal", () => {
   const local = "http://127.0.0.1:56421";
 
   it("allows the local stack with simulation on", () => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl: local })).toBeNull();
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl: local })).toBeNull();
   });
 
   it("refuses with simulation off, even against the local stack", () => {
-    expect(demoSeedRefusal({ simulationEnabled: false, supabaseUrl: local })).toMatch(/simulation is off/);
+    expect(demoCommandRefusal({ simulationEnabled: false, supabaseUrl: local })).toMatch(/simulation is off/);
   });
 
   it.each([
@@ -40,7 +49,7 @@ describe("demoSeedRefusal", () => {
     ["empty", ""],
     ["whitespace", "  "],
   ])("refuses when the Supabase URL is %s", (_title, supabaseUrl) => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not set/);
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not set/);
   });
 
   it.each([
@@ -48,7 +57,7 @@ describe("demoSeedRefusal", () => {
     ["a private network address", "http://10.0.0.5:54321"],
     ["every interface", "http://0.0.0.0:54321"],
   ])("refuses %s", (_title, supabaseUrl) => {
-    expect(demoSeedRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not a Supabase stack on this computer/);
+    expect(demoCommandRefusal({ simulationEnabled: true, supabaseUrl })).toMatch(/not a Supabase stack on this computer/);
   });
 });
 
@@ -117,6 +126,58 @@ describe("historySteps", () => {
 
   it("is only now for zero days", () => {
     expect(historySteps(NOW, 0)).toEqual([{ at: NOW, summaryDate: null }]);
+  });
+});
+
+describe("headlineWeekDays", () => {
+  it.each([
+    ["a Monday (only the Sunday before)", "2026-11-09T12:00:00.000Z", 1],
+    ["a Tuesday", "2026-11-10T12:00:00.000Z", 2],
+    ["a Sunday (the most in winter)", "2026-11-15T12:00:00.000Z", 7],
+    ["a summer Sunday 23:30 UTC, already Monday in London (boundary)", "2026-07-05T23:30:00.000Z", 8],
+    ["a summer Monday 23:30 UTC, already Tuesday in London", "2026-07-06T23:30:00.000Z", 2],
+  ])("counts the days back for %s", (_title, at, expected) => {
+    expect(headlineWeekDays(new Date(at))).toBe(expected);
+  });
+
+  it.each(["2026-11-09T00:00:00.000Z", "2026-11-12T08:00:00.000Z", "2026-11-15T23:59:59.000Z", "2026-07-05T23:30:00.000Z"])(
+    "replays a reading for the day before the headline week and every day of it to date at %s",
+    (at) => {
+      const now = new Date(at);
+      const { current } = headlineWindows("week", now);
+      const dates = historySteps(now, headlineWeekDays(now)).map((step) => utcDate(step.at));
+      const needed: string[] = [];
+      for (let day = Date.parse(`${current.start}T00:00:00Z`) - DAY_MS; utcDate(new Date(day)) <= current.end; day += DAY_MS) {
+        needed.push(utcDate(new Date(day)));
+      }
+      expect(dates).toEqual(expect.arrayContaining(needed));
+    },
+  );
+});
+
+describe("replayClock", () => {
+  it("moves the jobs' clock and every adapter context's clock together, from the start", () => {
+    const live: SyncDeps = {
+      store: new MemoryJobStore(() => NOW),
+      getAdapter: () => simulatedAdapters.vercel,
+      loadOAuthClient: () => client,
+      createOAuthContext: (oauthClient) => ({ client: oauthClient, fetch: vi.fn(), now: () => NOW, timeoutMs: 1000, logger: silent }),
+      now: () => NOW,
+      random: () => 0.5,
+      logError: () => "REF-TEST0000",
+      log: silent,
+      evaluateAlerts: async () => {},
+      notifications: () => memoryNotificationDeps(),
+    };
+    const start = new Date("2026-11-02T23:59:50.000Z");
+    const { deps, setNow } = replayClock(live, start);
+    expect(deps.store).toBe(live.store);
+    expect(deps.now()).toEqual(start);
+    expect(deps.createOAuthContext(client).now()).toEqual(start);
+
+    setNow(NOW);
+    expect(deps.now()).toEqual(NOW);
+    expect(deps.createOAuthContext(client).now()).toEqual(NOW);
   });
 });
 

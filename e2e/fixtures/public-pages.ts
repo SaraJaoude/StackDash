@@ -173,3 +173,14 @@ export async function turnOffPage(workspace: TestWorkspace, projectId: string): 
   if (error) throw new Error(`Turning the page off failed (code ${error.code}).`);
   if (data !== "disabled") throw new Error(`Turning the page off answered ${data}.`);
 }
+
+/** Claims `handle` for the workspace as its owner. */
+export async function claimHandle(workspace: TestWorkspace, handle: string): Promise<void> {
+  const { data, error } = await adminClient().rpc("set_workspace_handle", {
+    p_workspace_id: workspace.id,
+    p_actor_id: workspace.ownerId,
+    p_handle: handle,
+  });
+  if (error) throw new Error(`Claiming the handle failed (code ${error.code}).`);
+  if (data !== "saved") throw new Error(`Claiming the handle answered ${data}.`);
+}

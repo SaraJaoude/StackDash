@@ -40,7 +40,11 @@ import {
   updateDestinationHealth,
 } from "@/lib/data/notification-destinations";
 import { saveEmailFrequency } from "@/lib/data/notification-preferences";
-import { acknowledgeTriggeredAlert } from "@/lib/data/triggered-alerts";
+import {
+  acknowledgeAllTriggeredAlerts,
+  acknowledgeTriggeredAlert,
+  countUnacknowledgedAlerts,
+} from "@/lib/data/triggered-alerts";
 import { logError } from "@/lib/log/logger";
 import {
   channelRequest,
@@ -68,7 +72,12 @@ import { actionDeniedReason, ForbiddenError } from "@/lib/workspaces/permissions
 export type AlertActionResult =
   // signingSecret: a new generic webhook's secret, shown once and never stored in the clear.
   | { ok: true; signingSecret?: string }
-  | { ok: false; fieldErrors?: Record<string, string>; message: string; referenceId?: string };
+  | AlertActionFailure;
+
+export type AlertActionFailure = { ok: false; fieldErrors?: Record<string, string>; message: string; referenceId?: string };
+
+/** How many alerts "Acknowledge all" acknowledged, and how many are still unacknowledged after it. */
+export type AcknowledgeAllResult = { ok: true; acknowledged: number; remaining: number } | AlertActionFailure;
 
 const OUT_OF_DATE = "This form is out of date. Reload the page and try again.";
 const RULE_GONE = "This alert rule no longer exists. Reload the page to see the current rules.";
@@ -111,12 +120,12 @@ function validationFailure(subject: string, error: z.ZodError, fields: readonly 
  * Runs an authorized write. Expected outcomes come back as results; a role that changed since the
  * page loaded returns the matrix reason; anything else is logged and returned as a reference id.
  */
-async function guarded(
+async function guarded<Success extends { ok: true }>(
   event: string,
   failureMessage: string,
-  run: () => Promise<AlertActionResult>,
-): Promise<AlertActionResult> {
-  let result: AlertActionResult;
+  run: () => Promise<Success | AlertActionFailure>,
+): Promise<Success | AlertActionFailure> {
+  let result: Success | AlertActionFailure;
   try {
     result = await run();
   } catch (error) {
@@ -277,6 +286,28 @@ export async function acknowledgeAlert(
   });
 }
 
+const acknowledgeAllSchema = z.object({ workspace: workspaceField }).strict();
+
+/**
+ * Acknowledges the workspace's unacknowledged alerts in the caller's name (`acknowledge_alert`:
+ * owners and admins), at most `ACKNOWLEDGE_ALL_LIMIT` per call. Reports how many this call
+ * acknowledged and how many are left, so the page can say both.
+ */
+export async function acknowledgeAllAlerts(
+  _previous: AcknowledgeAllResult | null,
+  formData: FormData,
+): Promise<AcknowledgeAllResult> {
+  const parsed = acknowledgeAllSchema.safeParse(pickFormFields(formData, ["workspace"]));
+  if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
+
+  return guarded("alerts.acknowledge_all_failed", "The alerts could not be acknowledged. Try again in a moment.", async () => {
+    const { workspace, user } = await requireWorkspaceAction(parsed.data.workspace, "acknowledge_alert");
+    const acknowledged = await acknowledgeAllTriggeredAlerts(workspace.id, user.id);
+    const remaining = await countUnacknowledgedAlerts(workspace.id);
+    return { ok: true, acknowledged, remaining };
+  });
+}
+
 // ── Anomaly detection (#169) ────────────────────────────────────────────────────────────────────
 
 const anomalyToggleSchema = z.object({ workspace: workspaceField, enabled: z.enum(["true", "false"]) }).strict();
@@ -304,7 +335,7 @@ export async function setAnomalyDetection(
   if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
   const { workspace: slug, enabled } = parsed.data;
 
-  return guarded("alerts.anomaly_toggle_failed", "Anomaly detection could not be changed. Try again in a moment.", async () => {
+  return guarded("alerts.anomaly_toggle_failed", "Unusual spend and usage checks could not be changed. Try again in a moment.", async () => {
     const { workspace } = await requireWorkspaceAction(slug, "manage_budgets");
     if (!(await setAnomalyDetectionEnabled(workspace.id, enabled === "true"))) {
       throw new ForbiddenError("admin", actionDeniedReason("manage_budgets"));

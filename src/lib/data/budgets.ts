@@ -27,8 +27,8 @@ const BUDGET_COLUMNS =
 export const BUDGETS_PAGE_SIZE = 50;
 // The budget picker on the rule form; a workspace keeps a few budgets, not hundreds.
 const BUDGET_OPTION_LIMIT = 200;
-// Recent money snapshot rows scanned for the currencies this workspace already sees.
-const CURRENCY_SCAN_LIMIT = 1000;
+// One row per currency the workspace reports money in: a handful, never hundreds.
+const CURRENCY_LIMIT = 200;
 
 /** One page of the workspace's budgets, oldest first. */
 export const listBudgets = cache(async (workspaceId: string, after: string | null): Promise<Page<Budget>> => {
@@ -63,21 +63,20 @@ export const listBudgetOptions = cache(async (workspaceId: string): Promise<Budg
   return data;
 });
 
-/** ISO 4217 codes that appear in this workspace's recent money snapshots, sorted. */
+/**
+ * ISO 4217 codes of the workspace's money snapshots, sorted: the currency of each series' newest
+ * snapshot, read in the database (`snapshot_currencies`), so a currency last reported long before
+ * the others is still offered, and a non-member gets none.
+ */
 export const listSnapshotCurrencies = cache(async (workspaceId: string): Promise<string[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("usage_snapshots")
+    .rpc("snapshot_currencies", { p_workspace_id: workspaceId })
     .select("currency")
-    .eq("workspace_id", workspaceId)
-    .not("currency", "is", null)
-    .order("snapshot_date", { ascending: false })
-    .order("id", { ascending: true })
-    .limit(CURRENCY_SCAN_LIMIT);
+    .order("currency", { ascending: true })
+    .limit(CURRENCY_LIMIT);
   if (error) throw new Error("Failed to list snapshot currencies", { cause: error });
-  const currencies = new Set<string>();
-  for (const row of data) if (row.currency !== null) currencies.add(row.currency);
-  return [...currencies].sort();
+  return data.map((row) => row.currency);
 });
 
 /**
@@ -89,7 +88,7 @@ export const listSnapshotCurrencies = cache(async (workspaceId: string): Promise
 export async function getBudgetSpendRows(workspaceId: string, now: Date): Promise<AlertSnapshotInput[]> {
   const [scope, snapshots] = await Promise.all([
     getWorkspaceScope(workspaceId),
-    loadSnapshots(workspaceId, snapshotWindowStart(now), "budget projections", ["verified_spend", "estimated_spend"]),
+    loadSnapshots(workspaceId, snapshotWindowStart(now), "budget projections", { kinds: ["verified_spend", "estimated_spend"] }),
   ]);
   return joinAlertSnapshots(snapshots, scope.connections, scope.accounts);
 }

@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { z } from "zod";
 
+import { loadPublicPageOfProject } from "@/lib/data/project-pages";
 import { logError } from "@/lib/log/logger";
 import { cardImageResponse, MetricCard, NoticeCard } from "@/lib/public-metrics/card-image";
 import { loadPublishedMetricCard } from "@/lib/public-metrics/published";
@@ -19,7 +20,8 @@ import { CARD_TREND_DAYS, metricIdFromFile } from "@/lib/public-metrics/share";
  * page (#150). The same rules as the badge route beside it: the value comes from the public engine,
  * an unknown or unpublished metric gets a neutral "Unpublished" card (the badge's word) with a 200
  * (so a preview never breaks and never tells which projects exist), the same one minute cache and
- * per IP rate limit, and no session or cookie.
+ * per IP rate limit, and no session or cookie. While the project's page is public (#150), the card
+ * names the project, which that page already shows to anyone (#255); otherwise it names nothing.
  *
  * A Route Handler rather than the opengraph-image file convention: the convention attaches an
  * image to a page segment, and this card has no page of its own. Rendered at request time
@@ -53,8 +55,11 @@ export async function GET(request: Request, ctx: RouteContext<"/card/[projectId]
     if (card === null) {
       return cardImageResponse(<NoticeCard title="Unpublished" body="This metric is not public on DevMacro." />, { headers });
     }
+    // Read after the card, not beside it: an unknown or unpublished metric costs no page read, and a
+    // failing page read can never turn the cached Unpublished card into a 503.
+    const page = await loadPublicPageOfProject(projectId);
     countViewAfterResponse(projectId, card.metric.metricId, "card");
-    return cardImageResponse(<MetricCard card={card} />, { headers });
+    return cardImageResponse(<MetricCard card={card} projectName={page?.projectName ?? null} />, { headers });
   } catch (error) {
     logError("public_metrics.card_failed", error);
     return cardImageResponse(<NoticeCard title="Temporarily unavailable" body="Try again in a moment." />, {

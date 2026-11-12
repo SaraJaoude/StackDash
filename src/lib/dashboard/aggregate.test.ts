@@ -22,7 +22,10 @@ import {
   isStale,
   latestSnapshots,
   percentUsed,
+  providerCardFields,
   spendToCount,
+  staleNoticeText,
+  withStaleNotice,
   type AccountInput,
   type ConnectionInput,
   type CurrencyAmounts,
@@ -41,6 +44,7 @@ const connection: ConnectionInput = {
   display_name: "Fake account",
   status: "active",
   last_synced_at: "2026-10-15T11:30:00.000Z",
+  last_sync_requested_at: null,
   poll_interval_seconds: HOUR,
   granted_scopes: ["usage:read"],
 };
@@ -295,10 +299,9 @@ describe("aggregateDashboard PostHog spend (#204)", () => {
 
   /** What one sync at `at` stores: the adapter's own `billingMetrics` through the sync's `toSnapshotRow`. */
   function synced(at: string, account = "a1"): SnapshotInput[] {
-    return postHogBillingMetrics(BillingResponseSchema.parse(billing), account, new Date(at), "us").map((metric) => ({
-      ...money({ metric_key: metric.metricKey, amount_minor: null, currency: null }),
-      ...toSnapshotRow(metric, { id: "c1", workspace_id: "w1" }, { id: account }),
-    }));
+    return postHogBillingMetrics(BillingResponseSchema.parse(billing), account, new Date(at), "us").map((metric) =>
+      toSnapshotRow(metric, { id: "c1", workspace_id: "w1" }, { id: account }),
+    );
   }
 
   /** The same sync as PostHog's rows were stored before #204: each product's spend as `posthog.<type>.spend`. */
@@ -395,26 +398,9 @@ describe("aggregateDashboard declared projections (#223)", () => {
   const posthog: ConnectionInput = { ...connection, id: "c-posthog", provider: "posthog", display_name: "PostHog (Example organization)" };
   const railway: ConnectionInput = { ...connection, id: "c-railway", provider: "railway", display_name: "Railway (Example workspace)" };
 
-  /**
-   * What one sync stores, through the adapter's own billing metrics and the sync's `toSnapshotRow`,
-   * read back with every nullable column present, as the stores read it.
-   */
+  /** What one sync stores, through the adapter's own billing metrics and the sync's `toSnapshotRow`. */
   function synced(owner: ConnectionInput, metrics: readonly AdapterMetric[]): SnapshotInput[] {
-    return metrics.map((metric) => {
-      const row = toSnapshotRow(metric, { id: owner.id, workspace_id: "w1" }, { id: `a-${owner.provider}` });
-      return {
-        ...row,
-        value: row.value ?? null,
-        unit: row.unit ?? null,
-        amount_minor: row.amount_minor ?? null,
-        currency: row.currency ?? null,
-        period_start: row.period_start ?? null,
-        period_end: row.period_end ?? null,
-        point_at: row.point_at ?? null,
-        resets_at: row.resets_at ?? null,
-        pricing_source: row.pricing_source ?? null,
-      };
-    });
+    return metrics.map((metric) => toSnapshotRow(metric, { id: owner.id, workspace_id: "w1" }, { id: `a-${owner.provider}` }));
   }
 
   // The demo seed on 2026-11-05: PostHog has billed nothing yet and projects $29.86 for the period;
@@ -524,6 +510,49 @@ describe("aggregateDashboard simulated sources (#131)", () => {
   });
 });
 
+describe("providerCardFields (#269)", () => {
+  const summaryOf = (snapshots: SnapshotInput[]) => {
+    const summary = aggregateDashboard(input(snapshots)).byProvider[0];
+    if (summary === undefined) throw new Error("expected one provider card");
+    return summary;
+  };
+  const spend = money({ metric_key: "fake.spend.month", amount_minor: 1_000, currency: "USD" });
+  const credit = money({ metric_key: "fake.credit", kind: "credit_balance", amount_minor: 500, currency: "USD" });
+  const reset = quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests" });
+
+  it("keeps every row a provider declares, even before it has a value", () => {
+    expect(providerCardFields(summaryOf([]), { spending: true, credits: true })).toEqual({
+      billingPeriod: true,
+      resetsAt: false,
+      spend: true,
+      credits: true,
+    });
+  });
+
+  it("drops every row a provider that reports no money never fills, as for Sentry", () => {
+    expect(providerCardFields(summaryOf([]), { spending: false, credits: false })).toEqual({
+      billingPeriod: false,
+      resetsAt: false,
+      spend: false,
+      credits: false,
+    });
+  });
+
+  it("never hides a value that is there, whatever the provider declares", () => {
+    expect(providerCardFields(summaryOf([spend, credit, reset]), { spending: false, credits: false })).toEqual({
+      billingPeriod: true,
+      resetsAt: true,
+      spend: true,
+      credits: true,
+    });
+  });
+
+  it("shows a reset only when a reading carries one in the future", () => {
+    const past = quantity({ ...reset, resets_at: "2026-10-15T00:00:00.000Z" });
+    expect(providerCardFields(summaryOf([past]), { spending: true, credits: false }).resetsAt).toBe(false);
+  });
+});
+
 describe("aggregateDashboard allowances", () => {
   const included = quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests", label: "Requests included" });
   const used = quantity({ metric_key: "fake.requests.month", kind: "usage", value: 250, unit: "requests" });
@@ -591,6 +620,128 @@ describe("isStale", () => {
     );
     expect(view.totals[0]?.verified?.stale).toBe(true);
     expect(view.totals[0]?.verified?.retrievedAt).toBe("2026-10-15T09:59:59.000Z");
+  });
+});
+
+describe("withStaleNotice (#267)", () => {
+  const threeDaysAgo = "2026-10-12T09:00:00.000Z";
+  const twoDaysAgo = "2026-10-13T09:00:00.000Z";
+  const second: ConnectionInput = { ...connection, id: "c2", provider: "github", display_name: "GitHub org" };
+  const third: ConnectionInput = { ...connection, id: "c3", provider: "vercel", display_name: "Vercel team" };
+  const secondAccount: AccountInput = { id: "a3", connection_id: "c2", display_name: "Org", project_id: null };
+  const thirdAccount: AccountInput = { id: "a4", connection_id: "c3", display_name: "Team", project_id: null };
+
+  function view(connections: readonly ConnectionInput[]) {
+    return aggregateDashboard(
+      input(
+        [
+          money({ metric_key: "fake.spend.usd", amount_minor: 100, currency: "USD", retrieved_at: threeDaysAgo }),
+          money({ connection_id: "c2", external_account_id: "a3", metric_key: "github.spend.month", amount_minor: 50, currency: "USD", retrieved_at: twoDaysAgo }),
+          quantity({ metric_key: "fake.requests.included", kind: "included_allowance", value: 1_000, unit: "requests", retrieved_at: threeDaysAgo }),
+          quantity({ metric_key: "fake.requests.month", kind: "usage", value: 250, unit: "requests", retrieved_at: threeDaysAgo }),
+          // A fresh connection's metric that was last read three days ago: its own stale value.
+          money({ connection_id: "c3", external_account_id: "a4", metric_key: "vercel.spend.month", amount_minor: 70, currency: "EUR", retrieved_at: threeDaysAgo }),
+        ],
+        { connections, accounts: [...accounts, secondAccount, thirdAccount] },
+      ),
+    );
+  }
+
+  it("shows one notice naming every stale connection and the newest of their syncs when all are stale, and drops each value's stale mark", () => {
+    const { notice, view: shown } = withStaleNotice(
+      view([
+        { ...connection, last_synced_at: threeDaysAgo },
+        { ...second, last_synced_at: twoDaysAgo },
+      ]),
+    );
+    expect(notice).toEqual({
+      connections: [
+        { connectionId: "c1", name: "Fake account" },
+        { connectionId: "c2", name: "GitHub org" },
+      ],
+      total: 2,
+      lastSyncedAt: twoDaysAgo,
+      syncRequestedAt: null,
+    });
+    const stale = [
+      ...shown.totals.flatMap((amounts) => [amounts.verified, amounts.estimated]),
+      ...shown.byProvider.flatMap((summary) => [
+        summary,
+        ...summary.spend.flatMap((amounts) => [amounts.verified, amounts.estimated]),
+        ...summary.allowances.flatMap((allowance) => [allowance.included, allowance.used, allowance.remaining]),
+      ]),
+      ...shown.byProject.flatMap((project) => project.spend.flatMap((amounts) => [amounts.verified, amounts.estimated])),
+    ].filter((value) => value?.stale === true);
+    expect(stale).toEqual([]);
+    // Each value still says when it was read; only the warning moved to the notice.
+    expect(shown.totals[0]?.verified?.retrievedAt).toBe(threeDaysAgo);
+    expect(shown.byProvider[0]?.lastSyncedAt).toBe(threeDaysAgo);
+  });
+
+  it("shows the notice when most connections are stale: two of three, and a connection it does not name keeps its own stale value", () => {
+    const { notice, view: shown } = withStaleNotice(
+      view([{ ...connection, last_synced_at: threeDaysAgo }, { ...second, last_synced_at: twoDaysAgo }, third]),
+    );
+    expect(notice).toMatchObject({ total: 3, connections: [{ connectionId: "c1" }, { connectionId: "c2" }] });
+    const vercelCard = shown.byProvider.find((summary) => summary.connectionId === "c3");
+    expect(vercelCard?.spend[0]?.verified?.stale).toBe(true);
+    expect(shown.byProvider.find((summary) => summary.connectionId === "c1")?.spend[0]?.verified?.stale).toBe(false);
+  });
+
+  it("waits out the Sync now cooldown only while every stale connection is in it (#161)", () => {
+    const asked = (owner: ConnectionInput, at: string | null) => ({ ...owner, last_synced_at: threeDaysAgo, last_sync_requested_at: at });
+    const early = "2026-10-15T11:56:00.000Z";
+    const late = "2026-10-15T11:58:00.000Z";
+    expect(withStaleNotice(view([asked(connection, late), asked(second, early)])).notice?.syncRequestedAt).toBe(early);
+    // One never asked: it can sync now, so there is no cooldown to wait out.
+    expect(withStaleNotice(view([asked(connection, late), asked(second, null)])).notice?.syncRequestedAt).toBeNull();
+  });
+
+  it.each([
+    ["one stale and the rest fresh", [{ ...connection, last_synced_at: threeDaysAgo }, second, third]],
+    ["exactly half stale", [{ ...connection, last_synced_at: threeDaysAgo }, second]],
+    ["nothing stale", [connection, second]],
+    ["no connection synced yet", [{ ...connection, last_synced_at: null }]],
+    ["no connections", []],
+  ] as const)("keeps each value's own stale mark and shows no notice (boundary: %s)", (_name, connections) => {
+    const before = view(connections);
+    const { notice, view: shown } = withStaleNotice(before);
+    expect(notice).toBeNull();
+    expect(shown).toBe(before);
+  });
+
+  it("is fresh at exactly two poll intervals, as every stale mark is (boundary: two intervals)", () => {
+    const exactlyTwo = "2026-10-15T10:00:00.000Z";
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: exactlyTwo }])).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: "2026-10-15T09:59:59.999Z" }])).notice).not.toBeNull();
+  });
+
+  it("leaves out a disconnected connection, which no sync can bring up to date, and one never synced", () => {
+    const revoked = { ...second, status: "revoked" as const, last_synced_at: threeDaysAgo };
+    const neverSynced = { ...third, last_synced_at: null };
+    expect(withStaleNotice(view([connection, revoked, neverSynced])).notice).toBeNull();
+    expect(withStaleNotice(view([{ ...connection, last_synced_at: threeDaysAgo }, revoked])).notice).toMatchObject({
+      total: 1,
+      connections: [{ connectionId: "c1" }],
+    });
+  });
+
+  it("says since when in words, naming the stale connections only when some are fresh", () => {
+    const one = { connectionId: "c1", name: "Fake account" };
+    const two = { connectionId: "c2", name: "GitHub org" };
+    const all = staleNoticeText({ connections: [one, two], total: 2, lastSyncedAt: twoDaysAgo, syncRequestedAt: null }, NOW);
+    expect(all).toEqual({
+      title: "Data last synced 2 days ago",
+      body: "None of the 2 connections in view has synced since 2026-10-13 10:00 BST, so every figure on this page is from then or earlier.",
+    });
+    expect(staleNoticeText({ connections: [one], total: 1, lastSyncedAt: threeDaysAgo, syncRequestedAt: null }, NOW).body).toBe(
+      "The only connection in view has not synced since 2026-10-12 10:00 BST, so every figure on this page is from then or earlier.",
+    );
+    const most = staleNoticeText({ connections: [one, two], total: 3, lastSyncedAt: twoDaysAgo, syncRequestedAt: null }, NOW);
+    expect(most.body).toBe(
+      "2 of 3 connections in view have not synced since 2026-10-13 10:00 BST: Fake account and GitHub org. Their figures on this page are from then or earlier.",
+    );
+    for (const text of [all.title, all.body, most.body]) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });
 });
 

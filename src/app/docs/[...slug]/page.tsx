@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { DocMarkdown } from "@/components/docs/doc-markdown";
 import { DocsNav } from "@/components/docs/docs-nav";
 import { getDoc, groupDocs, listDocs } from "@/lib/docs";
+import { socialMetadata } from "@/lib/site-metadata";
 
 // Every doc is prerendered from the repository at build time. 'navigation' makes the build fail if
 // the route ever needs request-time rendering, and makes a slug that was not prerendered wait for
@@ -26,7 +27,13 @@ export function generateStaticParams() {
 export async function generateMetadata({ params }: PageProps<"/docs/[...slug]">): Promise<Metadata> {
   const { slug } = await params;
   const doc = getDoc(slug);
-  return doc ? { title: doc.title, description: doc.description } : {};
+  return doc
+    ? {
+        title: doc.title,
+        description: doc.description,
+        ...socialMetadata({ title: doc.title, description: doc.description, path: doc.href }),
+      }
+    : {};
 }
 
 export default async function DocRoute({ params }: PageProps<"/docs/[...slug]">) {

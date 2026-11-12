@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { buttonClass } from "@/components/ui/button";
+
 // Shown for any /docs address with no doc behind it, inside the docs layout.
 export default function DocNotFound() {
   return (
@@ -14,7 +16,7 @@ export default function DocNotFound() {
         <div className="mt-6">
           <Link
             href="/docs"
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary")}
           >
             Browse all docs
           </Link>

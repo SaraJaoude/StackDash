@@ -32,6 +32,17 @@ export type SimulatedProfile = Readonly<{
   eventsInSlot: (accountId: string, slot: number) => ActivityEvent[];
 }>;
 
+/**
+ * One thing made to happen on cue by `npm run demo:event` (#256), on top of what the profile makes
+ * up. Its events are added to the sync it is built into, whatever slots that sync covers, and
+ * its metrics, when given, are read instead of the profile's.
+ */
+export type SimulatedIncident = Readonly<{
+  /** Events at `at`, the sync's clock. */
+  events: (accountId: string, at: Date) => ActivityEvent[];
+  metrics?: SimulatedProfile["metrics"];
+}>;
+
 /** 32-bit FNV-1a over the parts, then the murmur3 finalizer so nearby inputs spread apart. */
 function hash32(parts: readonly (string | number)[]): number {
   let hash = 0x811c9dc5;
@@ -104,6 +115,23 @@ export function isWeekend(ms: number): boolean {
 export function isLaunchDay(accountId: string, ms: number): boolean {
   const day = Math.floor(ms / DAY_MS);
   return (day + between(0, TREND_DAYS - 1, accountId, "launch-day")) % TREND_DAYS === 0;
+}
+
+/**
+ * How many of a UTC day's `between(min, max)` occurrences land in the hour starting at `hourMs`,
+ * each at a stable hour of its day. Unlike independent hourly chances, the day's total is bounded,
+ * so a small product's few payments a day never add up to a spend spike by chance alone (#264),
+ * which anomaly detection (#169) would flag.
+ */
+export function dailyCountInHour(min: number, max: number, hourMs: number, ...parts: readonly (string | number)[]): number {
+  const dayMs = utcDayStart(hourMs);
+  const hour = new Date(hourMs).getUTCHours();
+  const count = between(min, max, ...parts, dayMs, "count");
+  let inHour = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (between(0, 23, ...parts, dayMs, index, "hour") === hour) inHour += 1;
+  }
+  return inHour;
 }
 
 /**

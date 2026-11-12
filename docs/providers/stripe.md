@@ -1,8 +1,8 @@
 # Stripe
 
-Provider id: `stripe`. Issues: #111 (adapter), #11 (research), #88 (app registration), #57 (self-hosted setup), #28 (webhooks, Post-MVP), #44 (sync scheduling).
+Provider id: `stripe`. Verification: documentation only.
 
-DevMacro reads a user's own Stripe account to show revenue, Stripe fees, payouts, subscriptions, and payment and customer events next to their costs. It never writes to Stripe. This is separate from DevMacro billing its own customers (#76, #82).
+DevMacro reads your Stripe revenue, Stripe fees, payouts, subscriptions, and payment and customer events, to show them next to your costs. It installs as a Stripe App with seven read-only permissions and never writes to Stripe. This is separate from DevMacro billing its own customers.
 
 All facts below come from Stripe's documentation, checked 2026-10-31. Anything not confirmed by a doc is in [Unverified](#unverified).
 
@@ -22,7 +22,7 @@ All facts below come from Stripe's documentation, checked 2026-10-31. Anything n
 | Events history | `GET /v1/events` goes back up to 30 days |
 | Rate limits | 100 requests per second per account in live mode, 25 in sandboxes, 25 per endpoint by default |
 | Before review | Up to 25 external testers per app |
-| Webhooks | Post-MVP (#28). The MVP polls |
+| Webhooks | Post-MVP. The MVP polls |
 
 ## Connection
 
@@ -106,7 +106,7 @@ curl -X POST https://api.stripe.com/v1/oauth/token \
 
 - Access tokens expire after 1 hour. Refresh tokens expire after 1 year.
 - Every refresh returns a new refresh token and the previous one expires. The new one is valid for a year from then, so a connection that syncs at least once a year never hits refresh token expiry.
-- Because the old refresh token dies on use, **refreshes for one connection must be serialized** (#44). Two workers refreshing at once means one of them uses a dead token and the connection looks revoked. Take a per-connection lock, re-read the stored tokens inside the lock, refresh only if still needed, and write the new access token, refresh token, and expiry in one transaction before releasing the lock.
+- Because the old refresh token dies on use, **refreshes for one connection must be serialized**. Two workers refreshing at once means one of them uses a dead token and the connection looks revoked. Take a per-connection lock, re-read the stored tokens inside the lock, refresh only if still needed, and write the new access token, refresh token, and expiry in one transaction before releasing the lock.
 - If the write after a successful refresh fails, the stored refresh token is already dead. Treat that as a reconnect-needed state rather than retrying with the old token.
 - Use the same environment's secret key that was used for the original exchange.
 
@@ -271,6 +271,8 @@ All list endpoints share cursor pagination: `limit` (1 to 100, default 10), `sta
 | `customer.subscription.deleted` | Subscription ended | `id`, `status`, `currency`, `canceled_at`, `ended_at` |
 | `charge.refunded` | Refund, full or partial | `id`, `amount`, `amount_refunded`, `currency`, `refunded`, `created` |
 
+The adapter polls `charge.succeeded`, `charge.failed`, and `charge.refunded` for payments (Unverified item 1), reading `amount`, `amount_refunded`, `currency`, `refunded`, and `failure_code` from the charge. Payment titles carry the amount and its currency, formatted with the currency's own number of minor digits, one payment at a time and never summed: "Payment succeeded: $49.00", "Payment failed: ¥1,900", "Payment refunded: €49.00", and "Payment partially refunded: $9.00 of $49.00 so far". Stripe sends `charge.refunded` for every refund of a charge and `amount_refunded` is the running total, so a partial refund's title says "so far". A charge without an amount or currency gets the title alone. A failed payment's body is its `failure_code` as a plain sentence ("The card issuer declined the payment."); a code DevMacro does not list reads "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it." The code itself is never shown.
+
 Polling algorithm:
 
 1. First sync: `created[gte]` = now minus 30 days, `limit=100`, page with `starting_after` = last id of the previous page until `has_more` is `false`.
@@ -314,11 +316,11 @@ Never store, never log:
 - Raw event payloads and raw API responses.
 - `exchange_rate` (a float, and not needed).
 
-A unit test asserts that the stored row types for this adapter contain none of the forbidden field names, and that parsing a fixture full of personal data yields rows without it (#111 acceptance criteria).
+A unit test asserts that the stored row types for this adapter contain none of the forbidden field names, and that parsing a fixture full of personal data yields rows without it.
 
 ## Webhooks (Post-MVP)
 
-Not in the MVP (#28). For later:
+Not in the MVP. For later:
 
 - Register a webhook endpoint with **Listen to events on Connected accounts**. Events from installs arrive with `account` set to the installing account.
 - Verify the `Stripe-Signature` header: `t=<timestamp>,v1=<signature>`. The signature is HMAC SHA-256 of `<t>.<raw body>` keyed with the endpoint's `whsec_` signing secret. Ignore schemes other than `v1`, compare in constant time, and reject timestamps outside a tolerance (Stripe's libraries default to 5 minutes; never use 0). Verify against the raw request body.

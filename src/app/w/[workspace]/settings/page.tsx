@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import Link from "next/link";
 import { Suspense } from "react";
 
@@ -7,16 +6,18 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
 import { LockIcon, MailIcon } from "@/components/icons";
-import { connectOrigin } from "@/lib/connections/oauth-state";
-import { API_KEYS_LIST_LIMIT, listApiKeys } from "@/lib/data/api-keys";
+import { requestPublicOrigin } from "@/lib/connections/oauth-state";
+import { API_KEYS_LIST_LIMIT, listApiKeys, MAX_ACTIVE_API_KEYS } from "@/lib/data/api-keys";
 import { formatDateTime } from "@/lib/format";
 import { mcpEndpointUrl } from "@/lib/mcp/setup";
+import { workspaceAddress } from "@/lib/public-metrics/project-page";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { actionDeniedReason, canPerform, roleLabel } from "@/lib/workspaces/permissions";
 
 import { ApiKeysManager, type ApiKeyItem } from "./api-keys";
 import { AssistantSetup } from "./assistant-setup";
 import { RenameWorkspaceForm } from "./rename-workspace-form";
+import { WorkspaceHandleForm } from "./workspace-handle-form";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -24,7 +25,7 @@ export const metadata: Metadata = { title: "Settings" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function SettingsPage(props: PageProps<"/w/[workspace]/settings">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading settings" />}>
       <SettingsContent {...props} />
     </Suspense>
   );
@@ -34,6 +35,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
   const { workspace: slug } = await params;
   const { user, workspace, role } = await requireWorkspace(slug, "viewer");
   const canRename = canPerform(role, "rename_workspace");
+  const canSetHandle = canPerform(role, "set_workspace_handle");
   const canManageKeys = canPerform(role, "manage_api_keys");
   // Row level security shows keys to owners and admins only, so viewers are not asked to load them.
   const apiKeys = canManageKeys ? await listApiKeys(workspace.id) : null;
@@ -50,10 +52,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
     })) ?? [];
   // The MCP URL users paste into an assistant: NEXT_PUBLIC_SITE_URL when set, otherwise this
   // request's own origin, as the sitemap does.
-  const requestHeaders = await headers();
-  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
-  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
-  const endpointUrl = mcpEndpointUrl(connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL));
+  const endpointUrl = mcpEndpointUrl(await requestPublicOrigin());
 
   return (
     <>
@@ -71,6 +70,27 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
             <p className="mt-3 flex items-center gap-2 text-muted">
               <LockIcon className="shrink-0" />
               <span>{actionDeniedReason("rename_workspace")}</span>
+            </p>
+          </div>
+        )}
+      </section>
+
+      <section aria-labelledby="workspace-handle-title" className="mt-6 rounded-xl border border-line bg-panel">
+        <h2 id="workspace-handle-title" className="border-b border-line px-6 py-4 text-sm font-semibold">
+          Public handle
+        </h2>
+        {canSetHandle ? (
+          <WorkspaceHandleForm workspaceSlug={workspace.slug} currentHandle={workspace.handle} />
+        ) : (
+          <div className="px-6 py-5 text-sm">
+            <p>
+              {workspace.handle === null ? "No handle yet. " : null}
+              Public project pages open at{" "}
+              <span className="font-mono break-words">/@{workspaceAddress(workspace)}/</span> followed by the page address.
+            </p>
+            <p className="mt-3 flex items-center gap-2 text-muted">
+              <LockIcon className="shrink-0" />
+              <span>{actionDeniedReason("set_workspace_handle")}</span>
             </p>
           </div>
         )}
@@ -124,13 +144,18 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
         )}
       </section>
 
-      <AssistantSetup endpointUrl={endpointUrl} canManageKeys={canManageKeys} />
+      <AssistantSetup
+        workspaceSlug={workspace.slug}
+        endpointUrl={endpointUrl}
+        canManageKeys={canManageKeys}
+        maxKeys={MAX_ACTIVE_API_KEYS}
+      />
 
       {/* No action: inviting teammates is not built yet, and there is nothing to link to. */}
       <EmptyState
         icon={<MailIcon width={20} height={20} />}
         title="No teammates invited"
-        description="Inviting teammates comes after the MVP. For now, each workspace is used by the people already in it."
+        description="DevMacro does not invite teammates by email yet. Each workspace is used by the people already in it."
       />
     </>
   );

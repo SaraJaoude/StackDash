@@ -673,14 +673,14 @@ isOneToOne: false
                   ]
                 },"workspaces": {
                   Row: {
-                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
+                    "anomaly_detection_enabled": boolean,"created_at": string,"created_by": string | null,"handle": string | null,"id": string,"is_personal": boolean,"name": string,"slug": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"handle"?: string | null,"id"?: string,"is_personal"?: boolean,"name": string,"slug"?: string,"updated_at"?: string
                   }
                   Update: {
-                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
+                    "anomaly_detection_enabled"?: boolean,"created_at"?: string,"created_by"?: string | null,"handle"?: string | null,"id"?: string,"is_personal"?: boolean,"name"?: string,"slug"?: string,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -789,11 +789,6 @@ isOneToOne: false
         isOneToOne: false
         isSetofReturn: true
       } },
-"count_activity_events":
-{ Args: { "p_account_ids": (string)[],"p_from": string,"p_type_ids": (string)[],"p_until": string,"p_workspace_id": string }; Returns: {
-              "connection_id": string,"events": number,"type_id": string
-            }[]
-                           },
 "create_notification_destination":
 { Args: { "p_all_rules": boolean,"p_auth_tag": string,"p_ciphertext": string,"p_created_by": string,"p_digest": Database["public"]['Enums']["digest_frequency"],"p_id": string,"p_iv": string,"p_key_id": string,"p_kind": Database["public"]['Enums']["destination_kind"],"p_name": string,"p_rule_ids": (string)[],"p_url_host": string,"p_workspace_id": string }; Returns: undefined
                            },
@@ -802,6 +797,7 @@ isOneToOne: false
               "anomaly_detection_enabled": boolean,
 "created_at": string,
 "created_by": string | null,
+"handle": string | null,
 "id": string,
 "is_personal": boolean,
 "name": string,
@@ -814,6 +810,9 @@ isOneToOne: false
         isOneToOne: true
         isSetofReturn: false
       } },
+"current_user_workspace_ids":
+{ Args: { "p_min_role": Database["public"]['Enums']["workspace_role"] }; Returns: string[]
+                           },
 "disable_project_page":
 { Args: { "p_actor_id": string,"p_project_id": string,"p_workspace_id": string }; Returns: string
                            },
@@ -838,6 +837,16 @@ isOneToOne: false
 "has_workspace_role":
 { Args: { "p_min_role": Database["public"]['Enums']["workspace_role"],"p_workspace_id": string }; Returns: boolean
                            },
+"headline_event_counts":
+{ Args: { "p_account_ids": (string)[],"p_end": string,"p_start": string,"p_type_ids": (string)[],"p_workspace_id": string }; Returns: {
+              "connection_id": string,"events": number,"type_id": string
+            }[]
+                           },
+"headline_first_readings":
+{ Args: { "p_account_ids": (string)[],"p_on_or_before": string,"p_workspace_id": string }; Returns: {
+              "connection_id": string,"snapshot_date": string
+            }[]
+                           },
 "hook_before_user_created":
 { Args: { "event": Json }; Returns: Json
                            },
@@ -853,12 +862,12 @@ isOneToOne: false
                            },
 "public_project_page":
 { Args: { "p_page_slug": string,"p_workspace_slug": string }; Returns: {
-              "indexable": boolean,"project_id": string,"project_name": string,"workspace_id": string
+              "indexable": boolean,"project_id": string,"project_name": string,"workspace_handle": string,"workspace_id": string,"workspace_slug": string
             }[]
                            },
 "public_project_page_sitemap":
 { Args: { "p_limit": number }; Returns: {
-              "page_slug": string,"updated_at": string,"workspace_slug": string
+              "page_slug": string,"updated_at": string,"workspace_handle": string,"workspace_slug": string
             }[]
                            },
 "public_published_metrics":
@@ -902,18 +911,47 @@ isOneToOne: false
 "record_published_metric_view":
 { Args: { "p_metric_id": Database["public"]['Enums']["public_metric_id"],"p_project_id": string,"p_surface": Database["public"]['Enums']["share_surface"] }; Returns: undefined
                            },
+"remove_workspace_handle":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: string
+                           },
 "request_manual_sync":
 { Args: { "p_connection_id": string,"p_cooldown_seconds": number,"p_workspace_id": string }; Returns: string
                            },
 "require_published_metrics_admin":
 { Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
                            },
+"require_workspace_handle_admin":
+{ Args: { "p_actor_id": string,"p_workspace_id": string }; Returns: undefined
+                           },
 "save_project_page":
 { Args: { "p_actor_id": string,"p_indexable": boolean,"p_project_id": string,"p_slug": string,"p_workspace_id": string }; Returns: string
                            },
+"set_workspace_handle":
+{ Args: { "p_actor_id": string,"p_handle": string,"p_workspace_id": string }; Returns: string
+                           },
+"snapshot_currencies":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "currency": string
+            }[]
+                           },
+"snapshot_metric_options":
+{ Args: { "p_kinds": (Database["public"]['Enums']["metric_kind"])[],"p_workspace_id": string }; Returns: {
+              "connection_ids": (string)[],"label": string,"metric_key": string
+            }[]
+                           },
+"snapshot_series_day_rows":
+{ Args: { "p_kinds": (Database["public"]['Enums']["metric_kind"])[],"p_workspace_id": string }; Returns: {
+              "amount_minor": number,"connection_id": string,"currency": string,"external_account_id": string,"id": string,"kind": Database["public"]['Enums']["metric_kind"],"label": string,"metric_key": string,"period_end": string,"period_start": string,"point_at": string,"pricing_source": string,"provenance_source": string,"provider": Database["public"]['Enums']["provider_id"],"resets_at": string,"retrieved_at": string,"snapshot_date": string,"unit": string,"value": number
+            }[]
+                           },
 "timeline_connection_event_counts":
-{ Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
+{ Args: { "p_account_ids"?: (string)[],"p_from"?: string,"p_hidden_type_ids"?: (string)[],"p_providers"?: (Database["public"]['Enums']["provider_id"])[],"p_severities"?: (Database["public"]['Enums']["event_severity"])[],"p_title_pattern"?: string,"p_type_ids"?: (string)[],"p_until"?: string,"p_workspace_id": string }; Returns: {
               "connection_id": string,"display_name": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
+"timeline_type_ids":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "type_id": string
             }[]
                            },
 "unpublish_all_metrics":
@@ -922,8 +960,78 @@ isOneToOne: false
 "unpublish_metric":
 { Args: { "p_actor_id": string,"p_published_metric_id": string,"p_title": string,"p_workspace_id": string }; Returns: string
                            },
+"usage_snapshot_monthly_latest":
+{ Args: { "p_since": string,"p_workspace_id": string }; Returns: {
+              "amount_minor": number | null,
+"connection_id": string,
+"created_at": string,
+"currency": string | null,
+"external_account_id": string,
+"id": string,
+"kind": Database["public"]['Enums']["metric_kind"],
+"label": string,
+"metric_key": string,
+"period_end": string | null,
+"period_start": string | null,
+"point_at": string | null,
+"pricing_source": string | null,
+"provenance_endpoint": string | null,
+"provenance_source": string,
+"resets_at": string | null,
+"retrieved_at": string,
+"snapshot_date": string,
+"unit": string | null,
+"updated_at": string,
+"value": number | null,
+"workspace_id": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "usage_snapshots"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
+"usage_snapshot_series_heads":
+{ Args: { "p_workspace_id": string }; Returns: {
+              "amount_minor": number | null,
+"connection_id": string,
+"created_at": string,
+"currency": string | null,
+"external_account_id": string,
+"id": string,
+"kind": Database["public"]['Enums']["metric_kind"],
+"label": string,
+"metric_key": string,
+"period_end": string | null,
+"period_start": string | null,
+"point_at": string | null,
+"pricing_source": string | null,
+"provenance_endpoint": string | null,
+"provenance_source": string,
+"resets_at": string | null,
+"retrieved_at": string,
+"snapshot_date": string,
+"unit": string | null,
+"updated_at": string,
+"value": number | null,
+"workspace_id": string
+            }[]
+                          SetofOptions: {
+        from: "*"
+        to: "usage_snapshots"
+        isOneToOne: false
+        isSetofReturn: true
+      } },
 "workspace_role_rank":
 { Args: { "p_role": Database["public"]['Enums']["workspace_role"] }; Returns: number
+                           },
+"year_review_event_counts":
+{ Args: { "p_account_ids": (string)[],"p_excluded_type_ids": (string)[],"p_from": string,"p_until": string,"p_workspace_id": string }; Returns: {
+              "bucket": string,"day": string,"events": number,"provider": Database["public"]['Enums']["provider_id"]
+            }[]
+                           },
+"year_review_longest_run":
+{ Args: { "p_account_ids": (string)[],"p_failure_type_id": string,"p_from": string,"p_success_type_id": string,"p_until": string,"p_workspace_id": string }; Returns: number
                            }
           }
           Enums: {

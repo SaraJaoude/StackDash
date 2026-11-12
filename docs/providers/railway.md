@@ -1,6 +1,8 @@
 # Railway
 
-Provider id: `railway`. Issues: #113 (adapter), #11 (research), #141 (registering real apps, deferred). Docs checked 2026-11-05.
+Provider id: `railway`. Verification: documentation only. Docs checked 2026-11-05.
+
+DevMacro reads the Railway workspaces you pick, their projects and deployments, and their billing when Railway allows it. It asks for viewer access to those workspaces and your Railway sign-in.
 
 ## Go or no-go
 
@@ -70,7 +72,7 @@ All requested scopes are read only. Railway scopes cap the access level: a `work
 | `offline_access` | Refresh tokens, so hourly syncs keep working after the one hour access token expires |
 | `workspace:viewer` | Viewer access to the workspaces the user picks: projects, deployments, usage, and billing where viewer access allows it |
 
-The issue listed `openid offline_access workspace:viewer`. Adding `email profile` follows Railway's documented requirement for listing workspaces; the options and the decision are on [#113](https://github.com/eddiejaoude/DevMacro/issues/113#issuecomment-6646072026).
+Railway documents `email profile` as required for listing workspaces, so the request adds them to `openid offline_access workspace:viewer`.
 
 Not requested: `workspace:member` and `workspace:admin` (they can deploy, change variables, and delete services), `project:viewer` and `project:member` (they cover single projects, not workspace billing), `notifications`, and `ssh_keys`. Every event type below is readable with `workspace:viewer`, so none was left out for needing a write scope.
 
@@ -118,7 +120,7 @@ Measurements: `CPU_USAGE`, `MEMORY_USAGE_GB`, `NETWORK_TX_GB`, `DISK_USAGE_GB`. 
 | `railway.usage.network_egress` | usage, GB, billing period | `usage`, `NETWORK_TX_GB` |
 | `railway.usage.volume` | usage, GB-minutes, billing period | `usage`, `DISK_USAGE_GB` |
 | `railway.spend.usage` | verified spend, USD, billing period | `customer.currentUsage` ("cached and may not be up to date") |
-| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, anomaly detection, or the dashboard's own projections (#173, #223) |
+| `railway.estimate.bill` | estimated spend, USD, billing period | Subscription fee plus estimated usage beyond the included usage; `estimatedUsage` quantities times the pricing page's unit prices. Declared as projected spend (`projectedSpend`), so no reading of spend counts it as money spent: not the dashboard's totals, cards, or headline, the daily summary, digests, alerts, unusual spend and usage checks, or the dashboard's own projections |
 | `railway.credits.balance` | credit balance, USD, at sync time | `customer.creditBalance` |
 | `railway.plan.memory_per_service`, `vcpu_per_service`, `replicas_per_service`, `volume_per_service` | included allowance, at sync time | `workspace.plan` and the pricing page's default plan resources |
 
@@ -128,7 +130,7 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 
 - Money: `currentUsage` and `creditBalance` are JSON numbers, read as US dollars (see Unverified). Each is read at 12 decimal places, converted exactly, and rounded once to cents, half to even (`src/lib/money.ts`).
 - Estimate: Railway's `estimatedUsage` is described as "the estimated total cost of the project at the end of the current billing cycle" but returns one quantity per measurement and project. DevMacro multiplies each by the unit price and rounds the sum once. Unit prices from the [pricing page](https://docs.railway.com/pricing/plans) (checked 2026-11-05): CPU $0.000463 per vCPU per minute, memory $0.000231 per GB per minute, egress $0.05 per GB, volume storage $0.000003472222222 per GB per minute. Builds are free and not measured.
-- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, and it is declared a projection for the whole period, so no reading of spend counts it as money spent so far (#223).
+- Bill: Hobby is $5 a month and includes $5 of usage; Pro is $20 and includes $20. The estimated bill is the fee plus estimated usage beyond the included amount, before credits. Free is always $0: it stops workloads when its $1 credit runs out instead of billing more. Enterprise is custom, but `Workspace.plan` is `Plan!` and the enum holds only `FREE`, `HOBBY`, and `PRO`, so an Enterprise workspace reports one of those (most likely `PRO`) and its estimated bill and plan limits then use that plan's figures, a Pro bill for a custom contract. Both are unverified for Enterprise. It is the only estimated spend metric, and it is declared a projection for the whole period, so no reading of spend counts it as money spent so far.
 - Reset: every billing period metric carries the period end as its reset time.
 - Quantities: CPU and memory are priced per minute, so their measurements are read as vCPU-minutes and GB-minutes; egress is in GB.
 - Plan limits per service, replicas included (pricing page, "Default plan resources"): Free 0.5 GB memory, 1 vCPU, 1 replica, 0.5 GB volume; Hobby 48 GB, 48 vCPU, 6 replicas, 5 GB volume; Pro 1 TB (stored as 1,000 GB), 1,000 vCPU, 42 replicas, 1 TB volume.
@@ -143,9 +145,9 @@ Every billing period metric uses `customer.billingPeriod` (`start` to `end`), so
 | `railway.deployment.crashed` | Status `CRASHED` | Same |
 | `railway.deployment.removed` | Status `REMOVING` or `REMOVED`; usually a newer deployment replaced it. With `canRollback: true` the title says it succeeded first | Same |
 
-`QUEUED`, `WAITING`, `INITIALIZING`, `NEEDS_APPROVAL`, and `SKIPPED` produce no event. All five event types are shown by default, like every other adapter's; hiding types per workspace is #119.
+`QUEUED`, `WAITING`, `INITIALIZING`, `NEEDS_APPROVAL`, and `SKIPPED` produce no event. All five event types are shown by default, like every other adapter's.
 
-The dashboard headline's deploys (#173) count `railway.deployment.deployed` as a success and `railway.deployment.failed` as a failure. Building, crashed, and removed events have no category: a build starting says nothing about how the deployment ended, and a crash or removal usually follows a deployment a poll already saw deployed, so counting either would count it twice. A deployment that succeeded and was replaced before any poll saw it reaches the timeline only as removed (see [Limitations](#limitations)), so the headline does not count it.
+The dashboard headline's deploys count `railway.deployment.deployed` as a success and `railway.deployment.failed` as a failure. Building, crashed, and removed events have no category: a build starting says nothing about how the deployment ended, and a crash or removal usually follows a deployment a poll already saw deployed, so counting either would count it twice. A deployment that succeeded and was replaced before any poll saw it reaches the timeline only as removed (see [Limitations](#limitations)), so the headline does not count it.
 
 Titles name the service and environment (`Deployment of api to production failed`, `Deployment of web to production succeeded, then was removed`), the body names the project. A failure or crash in an environment named `production` (Railway's name for a new project's first environment, any letter case) is critical; elsewhere it is a warning. Dedupe keys are `railway.deployment:<id>:<kind>`, so a re-read or a later status never duplicates an event. Events carry no link: Railway documents no dashboard URL for a deployment.
 
@@ -160,7 +162,7 @@ The first sync looks back 7 days. The cursor is the latest status time seen; eac
 | CPU, memory, egress, and volume used this billing period | Verified quantities; units unverified |
 | Usage cost so far (`currentUsage`) | Verified, but cached by Railway and possibly behind |
 | Credit balance and billing period | Verified |
-| Bill for the whole period | Estimated (DevMacro: Railway's quantity estimate times published prices, plus the plan fee). Stored, but never shown or counted as spend this billing period (#223) |
+| Bill for the whole period | Estimated (DevMacro: Railway's quantity estimate times published prices, plus the plan fee). Stored, but never shown or counted as spend this billing period |
 | Plan limits per service | Estimated (from the plan and the pricing page) |
 | Any billing value when Railway refuses viewer access to billing | Unavailable; deployments still sync |
 | Invoices, payment methods, usage limits | Not collected |
@@ -174,7 +176,7 @@ Budget per workspace per sync: one projects request, one deployments request per
 
 ## Webhooks
 
-Not used. Railway's notification webhooks are not signed, so DevMacro cannot tell a real delivery from a forged one (#113). Deployments are polled.
+Not used. Railway's notification webhooks are not signed, so DevMacro cannot tell a real delivery from a forged one. Deployments are polled.
 
 ## Permission risks
 
@@ -187,7 +189,7 @@ Disclosed on the connect screen before redirecting:
 
 ## Limitations
 
-- Billing may be unreadable with viewer access. When Railway answers `Not Authorized`, the connection syncs deployments, shows billing as unavailable, and lists `workspace:viewer` under missing permissions although the user granted it: it is the permission billing is read through, and reconnecting does not help, because only a workspace admin can read billing in Railway's dashboard. The options and the decision are on [#113](https://github.com/eddiejaoude/DevMacro/issues/113#issuecomment-6647333803).
+- Billing may be unreadable with viewer access. When Railway answers `Not Authorized`, the connection syncs deployments, shows billing as unavailable, and lists `workspace:viewer` under missing permissions although the user granted it: it is the permission billing is read through, and reconnecting does not help, because only a workspace admin can read billing in Railway's dashboard.
 - At most 50 projects per workspace, and per project the deployments created in the sync window up to five pages of 50; past that the sync logs `railway.deployments.page_cap_reached` and older deployments in the window are skipped.
 - Enterprise workspaces report `FREE`, `HOBBY`, or `PRO` (the schema has no other plan value), so their estimated bill and plan limits use that plan's published figures, not the custom contract. Unverified.
 - DevMacro polls hourly, and Railway reports only each deployment's latest status with the time it entered it. A status that changed and changed again between two polls shows only the latest one, apart from the building event. In particular, a deployment that succeeded and was replaced before a poll saw it is first seen as removed: it reaches the timeline as "started building" and "succeeded, then was removed", never as a separate "succeeded" event, because nothing dates the success. On a service that deploys several times an hour, most successful deployments arrive this way. Telling that a removed deployment succeeded relies on `canRollback`, which turns false once the plan's image retention ends (24 hours on Free), so after a longer sync outage replaced deployments show as removed only.
@@ -293,7 +295,7 @@ A denied query (from "Public API, Errors", with Railway's documented denial mess
 
 ## Unverified
 
-Confirm with a test account (#141) before relying on these:
+Confirm with a test account before relying on these:
 
 1. Whether a `workspace:viewer` token can read `workspace.customer`, `usage`, and `estimatedUsage`. The dashboard limits billing settings to admins; a `Not Authorized` answer leaves billing unavailable.
 2. Whether `me { workspaces }` really needs `email` and `profile`, as documented, or also answers without them.

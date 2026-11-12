@@ -18,6 +18,7 @@ import { supabaseAdapter } from "./supabase";
 import {
   liveProviderIds,
   Secret,
+  type AdapterCapabilities,
   type AdapterContext,
   type LiveProviderId,
   type OAuthClient,
@@ -28,8 +29,12 @@ import {
 import { vercelAdapter } from "./vercel";
 
 /**
- * The one place that maps a provider id to its adapter. Everything else (routes, pages, the sync
- * runner) asks the registry, so adding a provider is one entry here plus its adapter.
+ * The one place that maps a provider id to its adapter: routes, pages, and the sync runner ask the
+ * registry and never import an adapter themselves. Adding a provider is still far more than an
+ * entry here: the id, its database enum value, names and brand mark, simulated twin, docs,
+ * environment variables, landing page, and tests touch 24 files outside the adapter's folder, and
+ * a few more when it reports deployments. docs/adapters.md, "Register the provider", lists every
+ * one, checked against the GitLab adapter.
  */
 
 const ADAPTER_TIMEOUT_MS = 15_000;
@@ -85,8 +90,8 @@ export function availableProviders(): ProviderAdapter[] {
 /**
  * What adapters declare for figures across providers: every event type, every usage metric that
  * is a daily signup total, every estimated spend metric that is a projection, and the providers
- * that report revenue. The fake provider's are included whatever the flag says, because its
- * stored data outlives the flag; simulated twins declare the live adapters' own.
+ * that report revenue or spend. The fake provider's are included whatever the flag says, because
+ * its stored data outlives the flag; simulated twins declare the live adapters' own.
  */
 const declaringAdapters: readonly ProviderAdapter[] = [...Object.values(liveAdapters), fakeAdapter];
 export const declaredEventTypes: readonly EventType[] = declaringAdapters.flatMap((adapter) => adapter.eventTypes);
@@ -95,6 +100,18 @@ export const declaredProjectedSpend: readonly string[] = declaringAdapters.flatM
 export const revenueProviderIds: readonly ProviderId[] = declaringAdapters
   .filter((adapter) => adapter.capabilities.revenue)
   .map((adapter) => adapter.id);
+export const spendProviderIds: readonly ProviderId[] = declaringAdapters
+  .filter((adapter) => adapter.capabilities.spending)
+  .map((adapter) => adapter.id);
+
+/**
+ * What the adapter for `provider` declares it reports, whatever the flags say: a simulated twin
+ * declares its live adapter's, and stored fake provider data outlives its flag. The dashboard's
+ * provider cards leave out what a provider never reports (#269).
+ */
+export function declaredCapabilities(provider: ProviderId): AdapterCapabilities {
+  return provider === "fake" ? fakeAdapter.capabilities : liveAdapters[provider].capabilities;
+}
 
 function readEnv(name: string): string | undefined {
   const value = process.env[name];
@@ -131,8 +148,8 @@ export function missingOAuthEnv(adapter: ProviderAdapter): string[] {
  * `optionalExtraKeys` are passed through only when set and never make the provider unavailable.
  */
 export function loadOAuthClient(adapter: ProviderAdapter): OAuthClient | null {
-  // Identity, not id: only the registry's own simulated adapters get the local client, and only
-  // while simulation is on, so a simulated adapter can never sync once the flag is gone.
+  // Identity, not id: only adapters the simulator built get the local client, and only while
+  // simulation is on, so a simulated adapter can never sync once the flag is gone.
   if (isSimulatedAdapter(adapter)) {
     return isProviderSimulationEnabled() ? SIMULATED_CLIENT : null;
   }

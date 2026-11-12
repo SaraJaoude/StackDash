@@ -20,11 +20,11 @@ import {
   rememberWorkspace,
   type WorkspaceMembership,
 } from "@/lib/data/workspaces";
-import { buildScopeOptions, EMPTY_SCOPE, type ScopeOptions } from "@/lib/filters/scope";
 import { logError } from "@/lib/log/logger";
-import { buildPaletteCommands } from "@/lib/palette/commands";
+import { buildPaletteCommands, type PaletteScope } from "@/lib/palette/commands";
+import { latestCardYear } from "@/lib/public-metrics/yearly";
 import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
-import { canPerform, roleLabel } from "@/lib/workspaces/permissions";
+import { roleLabel } from "@/lib/workspaces/permissions";
 
 type WorkspaceParams = LayoutProps<"/w/[workspace]">["params"];
 
@@ -118,40 +118,57 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
   );
 }
 
-const NO_SCOPE_OPTIONS: ScopeOptions = { providers: [], projects: [], accounts: [] };
-
 /**
- * The command palette (#170), built from what the shell can read without a query per keystroke:
- * the scope filter's options (`getWorkspaceScope` is request-cached, so the dashboard and timeline
- * share the read with this) and the event types the connected providers' adapters declare. If the
- * scope read fails, the palette still offers every page and says what is missing.
+ * The command palette (#170, #265), built from what the shell can read without a query per
+ * keystroke: the workspace's connections, accounts, and projects (`getWorkspaceScope` is
+ * request-cached, so the dashboard and timeline share the read with this), the event types the
+ * connected providers' adapters declare, and the member's workspaces (request-cached, shared with
+ * the switcher). If a read fails, the palette still offers everything else and says what is missing.
  */
 async function HeaderPalette({ membership }: { membership: WorkspaceMembership }) {
   const { workspace, role } = membership;
-  let scopeOptions = NO_SCOPE_OPTIONS;
-  let notice: string | null = null;
-  try {
-    scopeOptions = buildScopeOptions(await getWorkspaceScope(workspace.id), EMPTY_SCOPE);
-  } catch (error) {
+  const [scopeRead, workspacesRead] = await Promise.allSettled([getWorkspaceScope(workspace.id), listMyWorkspaces()]);
+  const missing: string[] = [];
+  const references: string[] = [];
+  let scope: PaletteScope | null = null;
+  if (scopeRead.status === "fulfilled") {
+    scope = scopeRead.value;
+  } else {
     // notFound(), redirect(), and a postponed request-time read signal through throws; let Next.js handle them.
-    unstable_rethrow(error);
-    const referenceId = logError("palette.scope_load_failed", error, { workspaceId: workspace.id });
-    notice = `Providers, projects, and accounts could not be loaded, so only pages are listed. Reload the page to try again, and quote reference ${referenceId} if it keeps happening.`;
+    unstable_rethrow(scopeRead.reason);
+    missing.push("Providers, projects, and accounts could not be loaded, so they are not listed.");
+    references.push(logError("palette.scope_load_failed", scopeRead.reason, { workspaceId: workspace.id }));
   }
+  let workspaces: { slug: string; name: string }[] = [];
+  if (workspacesRead.status === "fulfilled") {
+    workspaces = workspacesRead.value.filter((item) => isWorkspaceSlug(item.slug)).map(({ slug, name }) => ({ slug, name }));
+  } else {
+    unstable_rethrow(workspacesRead.reason);
+    missing.push("Your other workspaces could not be loaded, so they are not listed.");
+    references.push(logError("palette.workspaces_load_failed", workspacesRead.reason, { workspaceId: workspace.id }));
+  }
+  const notice =
+    missing.length === 0
+      ? null
+      : `${missing.join(" ")} Reload the page to try again, and quote reference ${references.join(" and ")} if it keeps happening.`;
 
   const catalog = availableProviders();
-  const connected = new Set(scopeOptions.providers.map((option) => option.value));
+  const connected = new Set(scope?.connections.map((connection) => connection.provider));
   const commands = buildPaletteCommands({
     workspaceSlug: workspace.slug,
-    scopeOptions,
+    role,
+    scope,
     eventTypeIds: catalog
       .filter((adapter) => connected.has(adapter.id))
       .flatMap((adapter) => adapter.eventTypes.map((eventType) => eventType.id)),
-    connectable: canPerform(role, "manage_connections")
-      ? catalog.filter(isProviderConfigured).map((adapter) => ({ id: adapter.id, displayName: adapter.displayName }))
-      : [],
+    configuredProviders: catalog
+      .filter(isProviderConfigured)
+      .map((adapter) => ({ id: adapter.id, displayName: adapter.displayName })),
+    workspaces,
+    // Read after the membership above, so the clock never runs during prerendering.
+    reviewYear: latestCardYear(new Date()),
   });
-  return <CommandPalette commands={commands} notice={notice} />;
+  return <CommandPalette workspaceSlug={workspace.slug} commands={commands} notice={notice} />;
 }
 
 async function HeaderNav({ params }: { params: WorkspaceParams }) {

@@ -1,25 +1,23 @@
 "use client";
 
-import { useActionState, useEffect, useId, useRef, type ReactNode } from "react";
+import { useActionState, useId, useState, type ReactNode } from "react";
 
 import {
   assignAccountProject,
   deleteConnection,
   disconnect,
+  exploreWithSampleData,
   setAccountIncluded,
   syncNow,
   type ConnectionActionResult,
 } from "@/app/w/[workspace]/connections/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
+import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
-
-const PRIMARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
-const SECONDARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm transition-colors hover:border-foreground aria-disabled:opacity-60";
-const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 aria-disabled:opacity-60";
 
 // The account forms sit side by side in the page's three-row grid (label, controls, status) from
 // `sm` up and take those rows as a subgrid, so their controls share a row.
@@ -28,21 +26,10 @@ const ACCOUNT_FORM = "flex flex-col gap-2 sm:row-span-3 sm:grid sm:grid-rows-sub
 /** Always mounted, so screen readers announce every change. */
 function ActionStatus({ state, pending }: { state: ConnectionActionResult | null; pending: boolean }) {
   return (
-    <div role="status" aria-live="polite" className="text-sm">
-      {pending || state === null ? null : state.ok ? (
-        state.message === undefined ? null : <p className="text-success">{state.message}</p>
-      ) : (
-        <p className="text-danger">
-          {state.message}
-          {state.referenceId === undefined ? null : (
-            <>
-              {" "}
-              Reference <code className="font-mono text-xs text-foreground">{state.referenceId}</code>.
-            </>
-          )}
-        </p>
-      )}
-    </div>
+    <OutcomeAnnouncement
+      outcome={outcomeOf(pending ? null : state, state?.ok === true ? state.message : null)}
+      className="text-sm"
+    />
   );
 }
 
@@ -95,7 +82,7 @@ export function AccountProjectForm({
             </option>
           ))}
         </select>
-        <GuardedButton type="submit" unavailable={pending} className={SECONDARY}>
+        <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("outline")}`}>
           {pending ? "Saving" : "Save project"}
         </GuardedButton>
       </div>
@@ -133,7 +120,7 @@ export function AccountIncludedForm({
         type="submit"
         unavailable={pending}
         aria-label={included ? `Exclude ${accountName}` : `Include ${accountName}`}
-        className={`${SECONDARY} self-start sm:row-start-2 sm:justify-self-start`}
+        className={`shrink-0 self-start sm:row-start-2 sm:justify-self-start ${buttonClass("outline")}`}
       >
         {included ? "Exclude" : "Include"}
       </GuardedButton>
@@ -147,11 +134,12 @@ export function AccountIncludedForm({
 
 export function SyncNowForm({
   workspaceSlug,
-  connectionId,
+  connectionIds,
   cooldownNotice,
 }: {
   workspaceSlug: string;
-  connectionId: string;
+  /** One connection on its page; every stale one in the dashboard's notice (#267). */
+  connectionIds: readonly string[];
   // Set while the manual sync cooldown runs, e.g. "Available again in 4 minutes."
   cooldownNotice: string | null;
 }) {
@@ -160,14 +148,16 @@ export function SyncNowForm({
   return (
     <form action={formAction} className="flex flex-col gap-2">
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <input type="hidden" name="connectionId" value={connectionId} />
+      {connectionIds.map((connectionId) => (
+        <input key={connectionId} type="hidden" name="connectionId" value={connectionId} />
+      ))}
       {/* Unavailable rather than disabled during the cooldown too: a sync that starts one leaves
           focus on the button instead of dropping it to the page (#161). */}
       <GuardedButton
         type="submit"
         unavailable={pending || cooldownNotice !== null}
         aria-describedby={cooldownNotice === null ? undefined : hintId}
-        className={PRIMARY}
+        className={`shrink-0 ${buttonClass("primary")}`}
       >
         {pending ? "Queueing sync" : "Sync now"}
       </GuardedButton>
@@ -181,9 +171,25 @@ export function SyncNowForm({
   );
 }
 
+/** "Explore with sample data" in an empty workspace's timeline (#257); success opens the timeline. */
+export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
+  const [state, formAction, pending] = useConnectionAction(exploreWithSampleData);
+  return (
+    <form action={formAction} className="flex flex-col items-center gap-2">
+      <input type="hidden" name="workspace" value={workspaceSlug} />
+      <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("outline")}`}>
+        {pending ? "Adding sample data" : "Explore with sample data"}
+      </GuardedButton>
+      <ActionStatus state={state} pending={pending} />
+    </form>
+  );
+}
+
 /**
- * Native modal dialog: the browser traps focus, closes on Escape, and returns focus to the
- * opener. The body lists exactly what confirming does.
+ * A `ModalDialog` whose body lists exactly what confirming does. A failure keeps the dialog open
+ * and shows inside it, where it can be seen and heard; a success closes it and shows beside the
+ * opener. The confirmation remounts on every open, so it starts without a previous attempt's
+ * error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -205,44 +211,75 @@ function ConfirmDialog({
   connectionId: string;
   children: ReactNode;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const [state, formAction, pending] = useConnectionAction(action);
-  const titleId = useId();
-
-  useEffect(() => {
-    if (state?.ok === true) dialogRef.current?.close();
-  }, [state]);
+  const dialog = useModalDialog();
+  // Held here rather than in the confirmation, so a success outlives the dialog closing.
+  const [succeeded, setSucceeded] = useState<ConnectionActionResult | null>(null);
 
   return (
     <div className="flex flex-col gap-2">
       {hideOpener ? null : (
-        <button type="button" className={DANGER} onClick={() => dialogRef.current?.showModal()}>
+        <button
+          type="button"
+          className={`shrink-0 ${buttonClass("danger-outline")}`}
+          onClick={(event) => {
+            setSucceeded(null);
+            dialog.open(event.currentTarget);
+          }}
+        >
           {openLabel}
         </button>
       )}
-      {/* Outside the dialog so the result stays readable after it closes. */}
-      <ActionStatus state={state} pending={pending} />
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        className="m-auto w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-line-strong bg-panel p-6 text-foreground backdrop:bg-black/70"
-      >
-        <h2 id={titleId} className="text-lg font-semibold tracking-tight">
-          {title}
-        </h2>
-        <div className="mt-3 text-sm leading-6 text-muted">{children}</div>
-        <form action={formAction} className="mt-6 flex flex-wrap justify-end gap-3">
-          <input type="hidden" name="workspace" value={workspaceSlug} />
-          <input type="hidden" name="connectionId" value={connectionId} />
-          <button type="button" className={SECONDARY} onClick={() => dialogRef.current?.close()}>
-            Cancel
-          </button>
-          <GuardedButton type="submit" unavailable={pending} className={DANGER}>
+      {/* Outside the dialog so a success stays readable after it closes. */}
+      <ActionStatus state={succeeded} pending={false} />
+      <ModalDialog dialog={dialog} title={title} description={children}>
+        <ConfirmForm
+          confirmLabel={confirmLabel}
+          action={action}
+          workspaceSlug={workspaceSlug}
+          connectionId={connectionId}
+          onSucceeded={(result) => {
+            setSucceeded(result);
+            dialog.close("completed");
+          }}
+        />
+      </ModalDialog>
+    </div>
+  );
+}
+
+function ConfirmForm({
+  confirmLabel,
+  action,
+  workspaceSlug,
+  connectionId,
+  onSucceeded,
+}: {
+  confirmLabel: string;
+  action: Action;
+  workspaceSlug: string;
+  connectionId: string;
+  onSucceeded: (result: ConnectionActionResult) => void;
+}) {
+  const [state, formAction, pending] = useConnectionAction(async (previous, formData) => {
+    const result = await action(previous, formData);
+    if (result.ok) onSucceeded(result);
+    return result;
+  });
+
+  return (
+    <>
+      <DialogError failure={state?.ok === false ? state : null} />
+      <form action={formAction}>
+        <input type="hidden" name="workspace" value={workspaceSlug} />
+        <input type="hidden" name="connectionId" value={connectionId} />
+        <DialogActions>
+          <DialogCloseButton className={`shrink-0 ${buttonClass("outline")}`} />
+          <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("danger-outline")}`}>
             {pending ? "Working" : confirmLabel}
           </GuardedButton>
-        </form>
-      </dialog>
-    </div>
+        </DialogActions>
+      </form>
+    </>
   );
 }
 

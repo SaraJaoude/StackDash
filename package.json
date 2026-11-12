@@ -2,6 +2,9 @@
   "name": "devmacro",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^22.13.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -16,7 +19,9 @@
     "keys:rotate": "tsx --conditions=react-server scripts/rotate-encryption-key.ts",
     "invite": "tsx --conditions=react-server scripts/invite.ts",
     "jobs:tick": "tsx --conditions=react-server scripts/tick.ts",
+    "demo": "tsx --conditions=react-server scripts/demo.ts",
     "demo:seed": "tsx --conditions=react-server scripts/demo-seed.ts",
+    "demo:event": "tsx --conditions=react-server scripts/demo-event.ts",
     "email:fake": "tsx scripts/fake-resend-api.ts"
   },
   "dependencies": {
@@ -46,5 +51,10 @@
     "tsx": "^4.23.15",
     "typescript": "^5",
     "vitest": "^4.1.12"
+  },
+  "allowScripts": {
+    "esbuild": false,
+    "fsevents": false,
+    "unrs-resolver": false
   }
 }

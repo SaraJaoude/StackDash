@@ -1,12 +1,14 @@
 # DigitalOcean
 
-Provider id: `digitalocean`. Issues: #116 (adapter), #11 (research), #141 (registering real apps). Docs checked 2026-11-05.
+Provider id: `digitalocean`. Verification: documentation only. Docs checked 2026-11-05.
 
-**Nothing on this page has been tried against a real DigitalOcean account yet.** Registering apps on real platforms is deferred to #141, so the adapter is built from the official API reference and the OpenAPI specification, and its tests run on samples taken from them. Every claim that only a real account can confirm is listed under [Unverified](#unverified).
+DevMacro reads your DigitalOcean balance, month-to-date usage, invoices, daily spend, Droplet actions, and App Platform deployments. It asks for five read-only scopes, one connection per team, and nothing that can write.
+
+**Nothing on this page has been tried against a real DigitalOcean account yet.** Registering apps on real platforms is deferred, so the adapter is built from the official API reference and the OpenAPI specification, and its tests run on samples taken from them. Every claim that only a real account can confirm is listed under [Unverified](#unverified).
 
 ## Go or no-go
 
-**Go, after the checks under Unverified.** A DigitalOcean OAuth app with five read-only scopes covers everything #116 asks for: the account balance and month-to-date usage, invoices with line items, daily spend by SKU from Billing Insights, Droplet actions, and App Platform deployments. Nothing needs a write scope. One grant covers one DigitalOcean team, so a person with several teams makes several connections.
+**Go, after the checks under Unverified.** A DigitalOcean OAuth app with five read-only scopes covers everything DevMacro reads: the account balance and month-to-date usage, invoices with line items, daily spend by SKU from Billing Insights, Droplet actions, and App Platform deployments. Nothing needs a write scope. One grant covers one DigitalOcean team, so a person with several teams makes several connections.
 
 ## Connection
 
@@ -68,7 +70,7 @@ All read-only. Nothing in this list can create, change, or delete anything.
 
 Not requested: anything ending in `:create`, `:update`, `:delete`, `:admin`, or `:access_console`, and the `api:read` alias, which grows to cover every new read endpoint DigitalOcean adds.
 
-Every event type #116's scope comment asks for is readable with these scopes. No event type was left out for needing a write scope.
+Every event type DevMacro reads is readable with these scopes. No event type was left out for needing a write scope.
 
 ## Data
 
@@ -83,7 +85,7 @@ Fields: `month_to_date_usage`, `account_balance`, `month_to_date_balance` (the d
 
 Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `amount`, and `invoice_period` (`YYYY-MM`), plus an `invoice_preview` for the current month, which DevMacro does not read (the balance has the same figure). Line items have `product`, `amount`, `description`, `resource_id`, `project_name`, and more; DevMacro reads only `product` and `amount`.
 
-- `digitalocean.invoice.latest`: verified spend, the latest invoice's total, for its billing month. That month has ended by the time it is read, so the invoice is never counted as current spend: spend totals, alerts, projections, and the daily summary (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`, #215) and the headline strip (#173) count the month to date usage instead.
+- `digitalocean.invoice.latest`: verified spend, the latest invoice's total, for its billing month. That month has ended by the time it is read, so the invoice is never counted as current spend: spend totals, alerts, projections, and the daily summary (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`) and the headline strip count the month to date usage instead.
 - `digitalocean.invoice.issued` event for each new invoice, dated the 1st of the following month, with the five largest products in the body. A first sync announces only the latest invoice. A later sync announces at most the 3 newest unannounced invoices and moves the cursor past the rest, so after a long outage the older ones never appear; it logs `digitalocean.invoices.new_cap_reached` with the number skipped.
 
 ### Daily spend by SKU: `GET /v2/billing/{account_urn}/insights/{start_date}/{end_date}`
@@ -92,7 +94,7 @@ Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `a
 
 Each sync reads the last three whole UTC days and keeps the latest day present. Points for another team are skipped.
 
-- `digitalocean.daily_spend.sku_<sku>`: **estimated** spend per SKU for that day (the SKU lowercased, other characters as `_`). The provenance names Billing Insights as the source of the estimate. At most 50 SKUs per sync, largest first; a SKU that nets below zero (a credit) has no metric. A SKU's day is read after it ends, so it never counts as current spend: the card, alerts, and the daily summary leave it out (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`, #215). It feeds the trend charts and anomaly detection, which checks a SKU's day on the day before (`docs/operations/jobs.md`).
+- `digitalocean.daily_spend.sku_<sku>`: **estimated** spend per SKU for that day (the SKU lowercased, other characters as `_`). The provenance names Billing Insights as the source of the estimate. At most 50 SKUs per sync, largest first; a SKU that nets below zero (a credit) has no metric. A SKU's day is read after it ends, so it never counts as current spend: the card, alerts, and the daily summary leave it out (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`). It feeds the trend charts and the unusual spend and usage checks, which check a SKU's day on the day before (`docs/operations/jobs.md`).
 
 Billing Insights only hold spend from 2025-12-01 onward. A `404` from this endpoint is recorded as a gap on the connection, not a failed sync.
 
@@ -178,7 +180,7 @@ Disclosed on the connect screen before redirecting:
 
 ## Self-hosted registration
 
-Each deployment registers its own OAuth app, because the callback URL and client secret belong to one deployment. Field names below are from the OAuth page and are unverified until #141.
+Each deployment registers its own OAuth app, because the callback URL and client secret belong to one deployment. Field names below are from the OAuth page and are unverified until a real app is registered.
 
 1. Sign in to the DigitalOcean control panel with the team that should own the app, open **API**, then **OAuth Applications**, and choose **Register OAuth application** ([direct link](https://cloud.digitalocean.com/account/api/applications/new)).
 2. **Name**: for example `DevMacro (your name)`. **Homepage URL**: `<SITE_URL>`. **Description**: what the app reads.
@@ -306,7 +308,7 @@ From documentation, not recorded: the OAuth page and the OpenAPI examples, trimm
 
 ## Unverified
 
-Confirm with a test team (#141) before the adapter is offered to users:
+Confirm with a test team before the adapter is offered to users:
 
 1. That the code exchange accepts its parameters as a form body, as the refresh example does, not only in the query string.
 2. That a refresh with `client_id` and `client_secret` in the body succeeds (the example sends neither), and that a spent refresh token returns the `invalid_grant` body the troubleshooting page shows for a spent code. The page gives no HTTP status, so `400` is assumed from RFC 6749 section 5.2 (`invalid_grant` is treated as revoked with `400` or `401`; `invalid_client` and `invalid_request` are not).

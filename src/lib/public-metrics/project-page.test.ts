@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { HANDLE_MAX } from "@/lib/workspaces/handles";
+
 import { isPageSlug, PAGE_SLUG_MAX, pageSlugSchema, parseProjectPagePath, projectPagePath, suggestPageSlug } from "./project-page";
 
 describe("pageSlugSchema", () => {
@@ -53,29 +55,42 @@ describe("suggestPageSlug", () => {
 });
 
 describe("projectPagePath", () => {
-  it("builds the public address", () => {
-    expect(projectPagePath("k3j4h5g6f7", "acme-web")).toBe("/@k3j4h5g6f7/acme-web");
+  it("builds the public address from the workspace slug while there is no handle", () => {
+    expect(projectPagePath({ slug: "k3j4h5g6f7", handle: null }, "acme-web")).toBe("/@k3j4h5g6f7/acme-web");
+  });
+
+  it("builds the public address from the handle once one is set", () => {
+    expect(projectPagePath({ slug: "k3j4h5g6f7", handle: "acme-labs" }, "acme-web")).toBe("/@acme-labs/acme-web");
   });
 });
 
 describe("parseProjectPagePath", () => {
-  it("reads the slugs of a public address", () => {
-    expect(parseProjectPagePath("/@k3j4h5g6f7/acme-web")).toEqual({ workspaceSlug: "k3j4h5g6f7", pageSlug: "acme-web" });
-    expect(parseProjectPagePath(projectPagePath("k3j4h5g6f7", "a".repeat(PAGE_SLUG_MAX)))).toEqual({
-      workspaceSlug: "k3j4h5g6f7",
+  it("reads the workspace segment and page slug of a public address", () => {
+    expect(parseProjectPagePath("/@k3j4h5g6f7/acme-web")).toEqual({ workspaceAddress: "k3j4h5g6f7", pageSlug: "acme-web" });
+    expect(parseProjectPagePath("/@acme-labs/acme-web")).toEqual({ workspaceAddress: "acme-labs", pageSlug: "acme-web" });
+    expect(parseProjectPagePath(projectPagePath({ slug: "k3j4h5g6f7", handle: null }, "a".repeat(PAGE_SLUG_MAX)))).toEqual({
+      workspaceAddress: "k3j4h5g6f7",
       pageSlug: "a".repeat(PAGE_SLUG_MAX),
+    });
+    expect(parseProjectPagePath(`/@${"a".repeat(HANDLE_MAX - 2)}-b/acme-web`)).toEqual({
+      workspaceAddress: `${"a".repeat(HANDLE_MAX - 2)}-b`,
+      pageSlug: "acme-web",
     });
   });
 
   it.each([
     ["a page slug one character too long", `/@k3j4h5g6f7/${"a".repeat(PAGE_SLUG_MAX + 1)}`],
     ["a workspace slug one character too long", `/@${"a".repeat(65)}/acme-web`],
+    ["a hyphenated handle one character too long", `/@${"a".repeat(HANDLE_MAX - 1)}-b/acme-web`],
     ["no page slug", "/@k3j4h5g6f7"],
     ["an empty page slug", "/@k3j4h5g6f7/"],
-    ["an empty workspace slug", "/@/acme-web"],
+    ["an empty workspace segment", "/@/acme-web"],
     ["an extra segment", "/@k3j4h5g6f7/acme-web/more"],
-    ["capitals", "/@k3j4h5g6f7/Acme-web"],
-    ["a double hyphen", "/@k3j4h5g6f7/acme--web"],
+    ["capitals in the page slug", "/@k3j4h5g6f7/Acme-web"],
+    ["capitals in the handle", "/@Acme-labs/acme-web"],
+    ["a double hyphen in the page slug", "/@k3j4h5g6f7/acme--web"],
+    ["a double hyphen in the handle", "/@acme--labs/acme-web"],
+    ["a leading hyphen in the handle", "/@-acme/acme-web"],
     ["the route path", "/p/k3j4h5g6f7/acme-web"],
   ])("refuses %s (boundary)", (_case, pathname) => {
     expect(parseProjectPagePath(pathname)).toBeNull();

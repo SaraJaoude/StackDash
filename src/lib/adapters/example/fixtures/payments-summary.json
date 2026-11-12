@@ -1,0 +1,11 @@
+{
+  "account_id": "acct_1001",
+  "period": {
+    "start": "2026-11-01T00:00:00Z",
+    "end": "2026-12-01T00:00:00Z"
+  },
+  "currency": "USD",
+  "net_revenue_minor": 128900,
+  "mrr_minor": 45000,
+  "payment_count": 31
+}

@@ -13,11 +13,12 @@ import {
   SyncNowForm,
 } from "@/components/connections/connection-controls";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
-import { cooldownRemainingSeconds } from "@/components/connections/cooldown";
+import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { availableProviders } from "@/lib/adapters/registry";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
@@ -34,7 +35,7 @@ export const metadata: Metadata = { title: "Connection" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionPage(props: PageProps<"/w/[workspace]/connections/[connectionId]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the connection" />}>
       <ConnectionContent {...props} />
     </Suspense>
   );
@@ -69,8 +70,7 @@ async function ConnectionContent({
     MANUAL_SYNC_COOLDOWN_SECONDS,
     now,
   );
-  const cooldownNotice =
-    remaining > 0 ? `Sync now is available again in ${Math.ceil(remaining / 60)} minute${remaining > 60 ? "s" : ""}.` : null;
+  const cooldownNotice = syncCooldownNotice(remaining);
   const projectNames = new Map(projects.map((project) => [project.id, project.name]));
   const revoked = connection.status === "revoked";
 
@@ -93,7 +93,18 @@ async function ConnectionContent({
       {query.connected === "1" ? (
         connection.status === "needs_attention" ? null : (
           <FeedbackBanner tone="success" title={`${providerName} connected`}>
-            <p>The first sync is queued. Numbers appear within a few minutes.</p>
+            <p>
+              The first sync is queued. Its events appear on the timeline as they arrive, and its numbers on the dashboard
+              within a few minutes.
+            </p>
+            <p className="mt-2">
+              <Link
+                href={workspacePath(workspace.slug, "timeline")}
+                className="font-medium text-foreground underline underline-offset-4"
+              >
+                Open the timeline
+              </Link>
+            </p>
           </FeedbackBanner>
         )
       ) : null}
@@ -111,7 +122,7 @@ async function ConnectionContent({
             data that needs it cannot sync until you reconnect and approve it.
           </p>
           {canManage ? (
-            <Link href={reconnectHref} className="mt-3 inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background">
+            <Link href={reconnectHref} className={`mt-3 ${buttonClass("primary")}`}>
               Reconnect {providerName}
             </Link>
           ) : null}
@@ -204,9 +215,9 @@ async function ConnectionContent({
         {canManage ? (
           <div className="mt-4 flex flex-wrap items-start gap-4">
             {revoked ? null : (
-              <SyncNowForm workspaceSlug={workspace.slug} connectionId={connection.id} cooldownNotice={cooldownNotice} />
+              <SyncNowForm workspaceSlug={workspace.slug} connectionIds={[connection.id]} cooldownNotice={cooldownNotice} />
             )}
-            <Link href={reconnectHref} className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm">
+            <Link href={reconnectHref} className={buttonClass("outline")}>
               Reconnect
             </Link>
             <DisconnectDialog

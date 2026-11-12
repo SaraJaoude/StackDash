@@ -1,21 +1,22 @@
 "use client";
 
-import { useActionState, useId, useRef } from "react";
+import { useActionState } from "react";
 
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { DialogError } from "@/components/ui/dialog-error";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
 
-import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
-
-const dangerButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
+import { failureOf } from "./form-controls";
 
 type Action = (previous: AlertActionResult | null, formData: FormData) => Promise<AlertActionResult>;
 
 /**
- * A delete button that asks first, in a modal `<dialog>`: focus moves into it, Escape closes it,
- * and focus returns to the button. After a delete the row is gone, so focus moves to
- * `afterDeleteFocusId` (the section heading) instead.
+ * A delete button that asks first, in a `ModalDialog`. Escape or Cancel returns focus to the
+ * button; after a delete the row is gone, so focus moves to `afterDeleteFocusId` (the section
+ * heading) instead. The confirmation remounts on every open, so it starts without a previous
+ * attempt's error.
  */
 export function ConfirmDelete({
   label,
@@ -37,78 +38,64 @@ export function ConfirmDelete({
   fields: Record<string, string>;
   afterDeleteFocusId: string;
 }) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const deletedRef = useRef(false);
-  const titleId = useId();
-  const descriptionId = useId();
-  const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
-    async (previous, formData) => {
-      const result = await action(previous, formData);
-      if (result.ok) {
-        deletedRef.current = true;
-        dialogRef.current?.close();
-        document.getElementById(afterDeleteFocusId)?.focus();
-      }
-      return result;
-    },
-    null,
-  );
-  const failure = failureOf(state);
+  const dialog = useModalDialog({ fallbackFocusId: afterDeleteFocusId });
 
   return (
     <>
       <button
-        ref={triggerRef}
         type="button"
-        onClick={() => dialogRef.current?.showModal()}
-        className={`${smallButtonClass} text-danger`}
+        onClick={(event) => dialog.open(event.currentTarget)}
+        className={buttonClass("raised", "xs")}
       >
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
       </button>
-      <dialog
-        ref={dialogRef}
-        aria-labelledby={titleId}
-        aria-describedby={descriptionId}
-        onClose={() => {
-          if (!deletedRef.current) triggerRef.current?.focus();
-        }}
-        className="m-auto w-full max-w-md rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
-      >
-        <h3 id={titleId} className="text-lg font-semibold tracking-tight">
-          {title}
-        </h3>
-        <p id={descriptionId} className="mt-2 text-sm leading-6 text-muted">
-          {description}
-        </p>
-        <form action={formAction} className="mt-6">
-          {Object.entries(fields).map(([name, value]) => (
-            <input key={name} type="hidden" name={name} value={value} />
-          ))}
-          <div role="status" aria-live="polite" className="text-sm">
-            {failure === null ? null : (
-              <p className="mb-4 text-danger">
-                {failure.message}
-                {failure.referenceId === undefined ? null : (
-                  <>
-                    {" "}
-                    Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-                  </>
-                )}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap justify-end gap-3">
-            <button type="button" onClick={() => dialogRef.current?.close()} className={secondaryButtonClass}>
-              Cancel
-            </button>
-            <GuardedButton type="submit" unavailable={pending} className={dangerButtonClass}>
-              {pending ? "Deleting" : confirmLabel}
-            </GuardedButton>
-          </div>
-        </form>
-      </dialog>
+      <ModalDialog dialog={dialog} title={title} description={description} size="sm">
+        <ConfirmDeleteForm
+          confirmLabel={confirmLabel}
+          action={action}
+          fields={fields}
+          onDeleted={() => dialog.close("completed")}
+        />
+      </ModalDialog>
+    </>
+  );
+}
+
+function ConfirmDeleteForm({
+  confirmLabel,
+  action,
+  fields,
+  onDeleted,
+}: {
+  confirmLabel: string;
+  action: Action;
+  fields: Record<string, string>;
+  onDeleted: () => void;
+}) {
+  const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
+    async (previous, formData) => {
+      const result = await action(previous, formData);
+      if (result.ok) onDeleted();
+      return result;
+    },
+    null,
+  );
+
+  return (
+    <>
+      <DialogError failure={failureOf(state)} />
+      <form action={formAction}>
+        {Object.entries(fields).map(([name, value]) => (
+          <input key={name} type="hidden" name={name} value={value} />
+        ))}
+        <DialogActions>
+          <DialogCloseButton className={buttonClass("raised")} />
+          <GuardedButton type="submit" unavailable={pending} className={buttonClass("danger")}>
+            {pending ? "Deleting" : confirmLabel}
+          </GuardedButton>
+        </DialogActions>
+      </form>
     </>
   );
 }

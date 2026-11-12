@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const requestHeaders = vi.hoisted(() => ({ current: new Headers() }));
+vi.mock("next/headers", () => ({ headers: async () => requestHeaders.current }));
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
@@ -18,6 +21,7 @@ import {
   OAUTH_STATE_TTL_SECONDS,
   pkceChallenge,
   reconnectMismatch,
+  requestPublicOrigin,
   stateExpiresAt,
 } from "./oauth-state";
 
@@ -48,6 +52,37 @@ describe("connectOrigin and callbackRedirectUri", () => {
     expect(callbackRedirectUri("https://devmacro.example.com", "resend")).toBe(
       "https://devmacro.example.com/api/connections/resend/callback",
     );
+  });
+});
+
+describe("requestPublicOrigin", () => {
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("uses the forwarded host and protocol a proxy sets", async () => {
+    requestHeaders.current = new Headers({ host: "10.0.0.5:3000", "x-forwarded-host": "devmacro.example.com", "x-forwarded-proto": "https" });
+    expect(await requestPublicOrigin()).toBe("https://devmacro.example.com");
+  });
+
+  it("uses the Host header over http without a proxy", async () => {
+    requestHeaders.current = new Headers({ host: "localhost:3100" });
+    expect(await requestPublicOrigin()).toBe("http://localhost:3100");
+  });
+
+  it("falls back to localhost with no Host header at all", async () => {
+    requestHeaders.current = new Headers();
+    expect(await requestPublicOrigin()).toBe("http://localhost");
+  });
+
+  it("prefers NEXT_PUBLIC_SITE_URL, without its trailing slash, over the request", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://devmacro.example.com/");
+    requestHeaders.current = new Headers({ host: "10.0.0.5:3000" });
+    expect(await requestPublicOrigin()).toBe("https://devmacro.example.com");
   });
 });
 

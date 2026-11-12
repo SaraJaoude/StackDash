@@ -1,11 +1,34 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-import { groupDocs, listDocs } from "@/lib/docs";
+import { DOCS_ROUTE, groupDocs, listDocs, type DocVerification } from "@/lib/docs";
+import { socialMetadata } from "@/lib/site-metadata";
 
 const intro = "How DevMacro connects to each provider, how to deploy and run it, and how its data is stored.";
 
-export const metadata: Metadata = { title: "Docs", description: intro };
+export const metadata: Metadata = {
+  title: "Docs",
+  description: intro,
+  // The preview title is the page's heading.
+  ...socialMetadata({ title: "Documentation", description: intro, path: DOCS_ROUTE }),
+};
+
+const VERIFICATION_BADGES: Record<DocVerification, { text: string; className: string }> = {
+  documentation: { text: "Not yet tested with a real account", className: "border-warning/40 text-warning" },
+  "real-account": { text: "Tested with a real account", className: "border-success/40 text-success" },
+};
+
+/** How far a provider page's claims have been checked. Words, not color alone, like `SimulatedBadge`. */
+function VerificationBadge({ verification }: { verification: DocVerification }) {
+  const badge = VERIFICATION_BADGES[verification];
+  return (
+    <span
+      className={`mt-3 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${badge.className}`}
+    >
+      {badge.text}
+    </span>
+  );
+}
 
 // Fully static: the docs are read from the repository at build time.
 export default function DocsIndexPage() {
@@ -35,6 +58,7 @@ export default function DocsIndexPage() {
                     </Link>
                   </h3>
                   <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">{doc.description}</p>
+                  {doc.verification ? <VerificationBadge verification={doc.verification} /> : null}
                 </li>
               ))}
             </ul>

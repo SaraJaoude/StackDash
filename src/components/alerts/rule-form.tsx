@@ -4,6 +4,8 @@ import { useActionState, useId, useState } from "react";
 
 import { saveAlertRule, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { AMOUNT_PRESETS, PERCENT_MAX, PERCENT_MIN, PERCENT_PRESETS } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -11,9 +13,7 @@ import {
   ErrorSummary,
   failureOf,
   PresetField,
-  primaryButtonClass,
   ScopeFields,
-  secondaryButtonClass,
   SelectField,
 } from "./form-controls";
 import { formatMajorAmount, KIND_LABELS, type AlertFormOptions, type RuleFormValues } from "./labels";
@@ -209,20 +209,20 @@ export function RuleForm({
       <ScopeFields idPrefix={id} values={values} onChange={update} errors={errors} options={options} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add alert rule"}
         </GuardedButton>
         {onCancel === undefined ? null : (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
         )}
       </div>
 
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true && !isEdit ? <p className="text-success">Alert rule added.</p> : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }

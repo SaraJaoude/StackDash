@@ -1,4 +1,4 @@
-import { publicMetricDefinition, type PublicMetricId } from "./definitions";
+import { countsProvider, publicMetricDefinition, type PublicMetricId } from "./definitions";
 import {
   computePublicMetrics,
   snapshotsWholeFrom,
@@ -108,7 +108,7 @@ export async function computeTrend(store: PublicMetricStore, metricId: PublicMet
   const last = new Date(Math.max(...moments.map((moment) => moment.getTime())));
   const definition = publicMetricDefinition(metricId);
   const accounts = await store.accounts();
-  const accountIds = accounts.filter((account) => account.provider === definition.provider).map((account) => account.accountId);
+  const accountIds = accounts.filter((account) => countsProvider(definition, account.provider)).map((account) => account.accountId);
   // Where the oldest moment's window starts.
   const windowStart = new Date(first - definition.windowDays * DAY_MS);
 

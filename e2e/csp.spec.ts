@@ -1,7 +1,9 @@
 import { test, type Page } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
+import { BASELINE_CSP } from "./fixtures/csp";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { expectHydrated } from "./fixtures/hydration";
 import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
 
 // Content security policy (#125). App routes enforce a per-request nonce policy (src/proxy.ts) and
@@ -11,9 +13,6 @@ import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from ".
 // prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
 // against the production build, where a prerendered page under the nonce policy would carry
 // unnonced inline scripts and never hydrate.
-
-// The enforced policy of the landing page (next.config.ts).
-const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
 // The server under test is a production build when CI is set and the dev server otherwise, the same
 // switch as the webServer command in playwright.config.ts.
@@ -77,11 +76,6 @@ async function watchViolations(page: Page): Promise<string[]> {
     if (message.text().includes("Content Security Policy")) violations.push(message.text());
   });
   return violations;
-}
-
-/** Next.js mounts its route announcer from an effect, so it exists only once the page hydrated. */
-async function expectHydrated(page: Page): Promise<void> {
-  await expect(page.locator("next-route-announcer")).toBeAttached();
 }
 
 /**
@@ -232,7 +226,8 @@ ownerTest.describe("signed in", () => {
         `/w/${workspace.slug}/connections/new/fake`,
         `/w/${workspace.slug}/alerts`,
         `/w/${workspace.slug}/settings`,
-        // The yearly card (#151): its image loads from this origin under img-src 'self'.
+        // The year in review (#151, slides #262): its slides hydrate under the nonce policy, and a
+        // slide's image loads from this origin under img-src 'self' once its share dialog opens.
         `/w/${workspace.slug}/year/${new Date().getUTCFullYear()}`,
       ];
 

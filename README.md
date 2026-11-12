@@ -8,12 +8,14 @@ Railway, and GitLab over OAuth (never with pasted provider keys), and DevMacro s
 deploys, stars, signups, payments, and errors land in one feed per workspace and project. Alerts
 reach you by email, Slack, Discord, or webhook before a limit or budget becomes a problem, with
 daily or weekly digests on the same channels. Unusual daily spend and usage is flagged on the
-timeline with no setup. The dashboard opens with revenue against spend, signups, cost per signup,
-and deploys for the week or month so far, marks deploys, payments, signups, stars, and alerts on
-its trend charts, and projects spend and quotas to the end of the period, labeled as estimates.
-Publish the stats you choose as a project page, README badges, and cards, read a workspace from
-your own scripts through a read-only REST API or from an AI assistant through a read-only MCP
-server, and see spend and allowances where each provider reports them.
+timeline with no setup. The dashboard opens with up to three sentences on what was unusual in the
+last week and the deploys, payments, signups, and stars of the same day, then revenue against
+spend, signups, cost per signup, and deploys for the week or month so far, marks deploys,
+payments, signups, stars, and alerts on its trend charts, and projects spend and quotas to the
+end of the period, labeled as estimates. Publish the stats you choose as a project page, README
+badges, and cards, read a workspace from your own scripts through a read-only REST API or from
+an AI assistant through a read-only MCP server, and see spend and allowances where each provider
+reports them.
 
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
@@ -35,11 +37,19 @@ install it; self-hosters register their own ([Sentry provider page](docs/provide
 
 ## Run it locally
 
-Follow these steps in order from a fresh clone. Every command runs from the repository root.
+Follow these steps in order from a fresh clone. Every command runs from the repository root. Steps
+1 to 6 end in a demo workspace with 90 days of simulated history, signed in, without registering any
+OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and email.
 
 ### 1. Prerequisites
 
-- Node.js 20.9 or later and npm (CI uses Node.js 22).
+- Node.js 22.13 or later in the 22 line, and npm. CI and the hosted app on Vercel both use Node.js
+  22, and `.nvmrc` says the same, so `nvm install` installs the latest 22 and selects it. The floor
+  comes from `package-lock.json`: `@supabase/supabase-js` and its packages need Node.js 22, Vite and
+  Rolldown (used by Vitest) and `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used
+  by typescript-eslint) needs 22.13. The `engines` field in `package.json` holds the same range,
+  `^22.13.0`: Vercel reads it to choose the Node.js version it deploys, so it stays on the version CI
+  tests. On Node.js 24 or later, `npm ci` warns `EBADENGINE` and carries on.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
   version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
@@ -49,7 +59,7 @@ Follow these steps in order from a fresh clone. Every command runs from the repo
 ### 2. Clone and install
 
 ```bash
-git clone git@github.com:eddiejaoude/DevMacro.git
+git clone https://github.com/eddiejaoude/DevMacro.git
 cd DevMacro
 npm ci
 ```
@@ -66,15 +76,14 @@ export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=local-placeholder
 supabase start
 ```
 
-Placeholders are enough for everything except signing in with GitHub in the browser (the checks
-and the end-to-end suite never sign in through GitHub). To sign in locally, register a separate
-GitHub OAuth app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
-[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in),
-export its real client ID and secret instead (or put both lines in `supabase/.env.local`, which is
-git ignored), and run `supabase stop` then `supabase start` again.
+Placeholders are enough for everything except signing in with your own GitHub account: the demo in
+step 6 signs you in as the demo account without GitHub, and the checks and the end-to-end suite
+never sign in through GitHub. Step 7 sets up real GitHub sign-in.
 
 The first start downloads the images, applies every migration in `supabase/migrations/`, and loads
-`supabase/seed.sql`. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
+`supabase/seed.sql`. If the stack is already running, for example from another clone of this
+repository (they share the project id `devmacro`), `supabase start` says so and changes nothing:
+carry on with step 4. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
 projects:
 
 | Service | Address |
@@ -85,6 +94,12 @@ projects:
 | Email inbox (sign-in emails from the local stack) | <http://localhost:55424> |
 
 Stop the stack with `supabase stop`; your data is kept for the next `supabase start`.
+
+Sessions are verified inside the app, without a call to Auth per request: the CLI signs access
+tokens with its built-in ES256 key and publishes the public half at
+`http://127.0.0.1:55421/auth/v1/.well-known/jwks.json`, which `supabase.auth.getClaims()` checks
+them against. There is no key file to create and nothing to add to `.env.local`. A hosted project
+needs one dashboard step instead: [Deploy, JWT signing keys](docs/operations/deploy.md#jwt-signing-keys).
 
 ### 4. Create `.env.local`
 
@@ -108,10 +123,17 @@ openssl rand -base64 32   # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, ba
 openssl rand -hex 32      # CRON_SECRET: 64 hex characters
 ```
 
-Leave the provider variables empty for now; step 8 turns on the fake provider instead. Every
-variable is described in [Environment variables](#environment-variables) and in `.env.example`.
+Turn on the simulated providers, which the demo in step 6 connects instead of real ones (step 10
+says what they are). Set this line in `.env.local`:
 
-### 5. Apply migrations
+```bash
+DEVMACRO_SIMULATE_PROVIDERS=1
+```
+
+Leave the provider variables empty. Every variable is described in
+[Environment variables](#environment-variables) and in `.env.example`.
+
+### 5. Apply migrations and seed data
 
 ```bash
 supabase migration up
@@ -121,8 +143,6 @@ After a fresh `supabase start` this has nothing to do; run it after every pull t
 migrations without touching your data. Migrations are forward only: add one with
 `supabase migration new <name>`, never edit a merged one, and regenerate the types after any schema
 change with `npm run db:types` (writes `src/lib/supabase/database.types.ts`, commit it).
-
-### 6. Seed data
 
 `supabase/seed.sql` holds synthetic data (the users `owner@example.com` and `viewer@example.com`,
 the workspace Acme, one project, one fake connection, three days of snapshots, a few events). The
@@ -139,19 +159,63 @@ psql "postgresql://postgres:postgres@127.0.0.1:55422/postgres" -f supabase/seed.
 The seed uses fixed ids, so it fails on a database that already holds them. Seed users have no
 password; they exist for tests and for browsing data in Studio.
 
-### 7. Invite yourself and sign in
+### 6. Open the demo workspace
+
+Start the app in one terminal and leave it running:
+
+```bash
+npm run dev
+```
+
+Build the demo workspace in a second terminal:
+
+```bash
+npm run demo
+```
+
+It creates the account `demo@example.com` and a workspace called **Demo workspace** with every
+simulated provider connected and 90 days of history, then prints the dashboard, timeline, and
+public page links and a one-time sign-in link. Open the sign-in link in the browser: you land on
+the demo workspace's dashboard, signed in as the demo account. The landing page at
+<http://localhost:3000> works without signing in. Leave `npm run demo` running to keep data
+arriving live, and press Ctrl+C to stop it. The link works once and expires after an hour; run the
+command again for a new one, which deletes the demo workspace and builds it again from scratch, so
+anything you added to it is gone. Step 11 describes what the command builds and its options.
+
+The links assume the app is on port 3000. If 3000 is taken, do not use the port `npm run dev`
+moves to: local Auth returns a GitHub sign-in (step 7) only to port 3000 or a port from 3100 to 3199
+(`additional_redirect_urls` in `supabase/config.toml`). Pick a port from 3102 to 3199 (Playwright
+uses 3100 and 3101 by default), set `NEXT_PUBLIC_SITE_URL=http://localhost:<port>` in `.env.local`,
+start the app with `npm run dev -- --port <port>`, and run `npm run demo` again so the printed links
+point at it.
+
+### 7. Sign in with your own GitHub account
+
+Sign-in for real accounts is GitHub only. Register a separate GitHub OAuth app for your local stack
+with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
+[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in).
+Export its real client ID and secret instead of the placeholders from step 3 (or put both lines in
+`supabase/.env.local`, which is git ignored), and restart the stack so Auth reads them:
+
+```bash
+export SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=<client-id>
+export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=<client-secret>
+supabase stop
+supabase start
+```
 
 Sign-up is invite only: the `before_user_created` auth hook lets Supabase create a user only when
 the email is in `public.access_invites`. Invite the primary verified email of your GitHub account:
 
 ```bash
 npm run invite -- you@example.com
-npm run dev
 ```
 
-Open <http://localhost:3000/sign-in> and continue with GitHub. This needs the real GitHub OAuth app
-from step 3. After sign-in you land on your personal workspace timeline. The landing page at
-<http://localhost:3000> works without signing in.
+Step 6 left the browser signed in as the demo account, and the sign-in page sends a signed-in
+visitor straight back to the app. Choose **Sign out** in the header first. Then, with `npm run dev`
+running, open <http://localhost:3000/sign-in> (or `http://localhost:<port>/sign-in` if step 6 moved
+the app to another port) and continue with GitHub. After sign-in you land on your personal
+workspace timeline.
 
 ### 8. Connect the fake provider
 
@@ -190,12 +254,15 @@ Simulated providers let you try DevMacro with Vercel, GitHub, Resend, Stripe, Su
 without registering a single OAuth app. Each one has the real adapter's metric keys and event
 types, makes up plausible data on your machine, and runs through the real sync, validation,
 alerts, and live updates. Nothing is sent to or read from any provider. Each simulated connection
-is marked as simulated when it is made, so it and its data are labeled **Simulated** on the
-connection pages, the dashboard, and the timeline whether the flag is on or off, and a real
-connection never is. While the flag is on the catalog labels every provider **Simulated** too.
+is marked as simulated when it is made and keeps that mark whether the flag is later on or off, and
+a real connection never has it. The connection pages label it **Simulated**. The dashboard and the
+timeline say **Simulated** once per page while every connection in view is simulated, and on each
+simulated item in a workspace that mixes real and simulated connections. While the flag is on the
+catalog labels every provider **Simulated** too.
 It is for local use only: the app refuses it on a Vercel production deployment.
 
-1. Add the flag to `.env.local` and restart `npm run dev`:
+1. Check that `.env.local` has the flag from step 4, and restart `npm run dev` if you just added
+   it:
 
    ```bash
    DEVMACRO_SIMULATE_PROVIDERS=1
@@ -203,6 +270,10 @@ It is for local use only: the app refuses it on a Vercel production deployment.
 
 2. In your workspace, open **Connections** and connect several providers from the catalog, for
    example Vercel, Stripe, and Resend. Each one approves at once and fills the last 30 minutes.
+   Or, in a workspace with nothing connected, select **Explore with sample data** on the empty
+   timeline: it connects every simulated provider to that workspace and replays the current week
+   and the day before it in one step, so the timeline and dashboard have data at once.
+   Only owners and admins see it, and only while the flag is on.
 3. Keep the data coming:
 
    ```bash
@@ -241,14 +312,12 @@ removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_P
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
 
-### 11. Seed a demo workspace with 90 days of history (optional)
+### 11. What the demo command builds (optional)
 
-For a demo that is not mostly empty charts, one command builds a whole workspace on your local
-stack with every simulated provider connected and 90 days behind it:
-
-```bash
-npm run demo:seed -- --member you@example.com
-```
+`npm run demo` from step 6 builds a whole workspace on your local stack with every simulated
+provider connected and 90 days behind it, signs you in to it, and keeps it updating live, so a demo
+is not mostly empty charts. No GitHub OAuth app is needed. It needs the stack from step 3,
+`.env.local` from step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1`, and `npm run dev` running.
 
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
   by it, connects every simulated provider through the same code as the connect flow, spreads their
@@ -262,20 +331,53 @@ npm run demo:seed -- --member you@example.com
   limit, and the budget alert triggers in the third week of each full month. The alerts the replay
   triggers count as already sent, so the first tick afterwards emails and posts none of them;
   alerts that trigger once the history runs live are delivered as usual.
-- `--member` adds an account that has already signed in with GitHub (step 7) as an admin of the
-  demo workspace; repeat it for more people (an email given twice counts once, and
-  `demo@example.com` is refused because it already owns the workspace). The demo account has no
-  sign-in of its own, because sign-in is GitHub only. `--seed <text>` picks different simulated
-  accounts; the same seed rehearses the same demo (default `devmacro-demo`).
+- It prints the dashboard, timeline, and public page links, and a one-time sign-in link for
+  `demo@example.com`. Open that link in the browser to sign in as the demo account and land on the
+  dashboard. The link works once and expires after an hour (`otp_expiry` in
+  `supabase/config.toml`); run the command again for a new one. The link only works while
+  `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL` points at this computer,
+  and only for the demo account: anywhere else, `/auth/confirm` answers every link as expired.
+- It then runs `npm run jobs:tick -- --watch` itself, carrying on from the replay's last sync
+  without a gap or a repeat. Press Ctrl+C to stop it after the tick in progress.
+- `--member you@example.com` also adds an account that has already signed in with GitHub (step 7)
+  as an admin of the demo workspace; repeat it for more people (an email given twice counts once,
+  and `demo@example.com` is refused because it already owns the workspace). `--seed <text>` picks
+  different simulated accounts; the same seed rehearses the same demo (default `devmacro-demo`).
 - Running it again deletes the demo workspace and builds a new one, so there is only ever one. It
   changes nothing outside the demo account's workspaces.
-- It refuses to run unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and `NEXT_PUBLIC_SUPABASE_URL`
-  points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it can never write to a
-  hosted project.
+- It refuses to run, and writes nothing, unless `DEVMACRO_SIMULATE_PROVIDERS=1` is set and
+  `NEXT_PUBLIC_SUPABASE_URL` points at this computer (`localhost`, `127.x.x.x`, or `[::1]`), so it
+  can never write to a hosted project.
 
-It prints the dashboard and timeline links when it finishes, which takes seconds (7 on a local
-stack). Stop `npm run jobs:tick -- --watch` while it runs, and start it again straight after: it
-carries on from the replay's last sync without a gap or a repeat.
+Building the workspace takes seconds (7 on a local stack). Stop any other
+`npm run jobs:tick -- --watch` before you run it. To build the workspace without starting a
+watcher, run `npm run demo:seed` with the same options. It prints the same links, sign-in link
+included; start `npm run jobs:tick -- --watch` yourself straight after it finishes.
+
+To show an alert firing on cue during the demo, instead of waiting for the simulation to produce
+one, make one incident happen now:
+
+```bash
+npm run demo:event -- --type failed-deployment
+npm run demo:event -- --type budget-crossing
+```
+
+- `failed-deployment` adds a failed production deployment of `web` to the simulated Vercel team.
+- `budget-crossing` raises this month's simulated Vercel spend to the highest threshold of every
+  budget alert that covers Vercel (the seed's **Vercel monthly** budget alert at 90 percent of
+  $600, so $540), which triggers those alerts. A budget alert triggers once per billing period:
+  if every one of them already did this month (the replay crosses the seed's in the third week),
+  the command says so and writes nothing. The next sync reads the usual spend again; the alert
+  stays.
+- Either way the demo workspace's simulated Vercel connection syncs once through the real sync,
+  validation, and alert checks, so a timeline open in the browser shows the event without a
+  reload. A triggered alert is emailed and posted like any other by the next tick: keep
+  `npm run jobs:tick -- --watch` running, or run `npm run jobs:tick`. With the fake Resend API
+  from step 12 running, the email prints there, and a channel added on the alerts page gets the
+  post.
+- `--workspace <slug>` targets another workspace on your stack that has a simulated Vercel
+  connection, instead of the demo workspace. It writes nothing outside that one workspace, and it
+  refuses to run under the same conditions as the seed.
 
 ### 12. Send alert and digest emails locally (optional)
 
@@ -360,10 +462,13 @@ the simulator.
 the fake Resend API. Playwright starts the fake itself (`npm run email:fake`, on the app's port
 plus one, 3101 by default, or `E2E_RESEND_PORT`) and gives its dev server the fake's URL, a dummy
 key, and a sender, which take precedence over `.env.local`, so the spec needs no email settings
-and never reaches Resend. CI also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and
-`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`, because it runs a production build, which sends no alert
-message without the first and refuses to post to `e2e/alert-channels.spec.ts`'s receiver on
-127.0.0.1 without the second. The dev server needs neither.
+and never reaches Resend. Playwright also sets `NEXT_PUBLIC_SITE_URL` to the app server's own
+origin, locally and in CI, and that too takes precedence over `.env.local`:
+`e2e/social-metadata.spec.ts` reads absolute canonical and preview image addresses from it, and
+CI's production build sends no alert message without it. CI also writes
+`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
+post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without it. A local run on the dev
+server needs neither in `.env.local`.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
@@ -390,7 +495,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (including a project page's canonical address and preview image), provider callback URLs, the sitemap, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, the privacy policy and terms of use, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
@@ -402,7 +507,10 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 | `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
 | `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
-| `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
+| `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes and public project pages reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
+| `DEVMACRO_OPERATOR_NAME` | Who runs this instance, named as responsible for its data on `/privacy` and `/terms`. Set all three operator variables or none: with none, both pages answer 404 and the sign-in page, footer, and sitemap do not link to them. The policy names Vercel as a processor only on Vercel (`VERCEL=1`), Resend only when alert email goes to Resend's own API (`DEVMACRO_RESEND_API_KEY` set, `DEVMACRO_RESEND_API_URL` unset or `https://api.resend.com`), and a generic email service when `DEVMACRO_RESEND_API_URL` names another server. Read at build time by the prerendered pages, together with `VERCEL` and the email variables, so rebuild after changing any of them; a half-set email configuration then fails the build | Server only | Optional (required to publish the privacy policy and terms) |
+| `DEVMACRO_OPERATOR_EMAIL` | One email address for privacy and data requests, shown on both pages | Server only | With `DEVMACRO_OPERATOR_NAME` |
+| `DEVMACRO_GOVERNING_LAW` | The law the terms of use are governed by, as it reads after "the law of", such as `England and Wales` | Server only | With `DEVMACRO_OPERATOR_NAME` |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -451,12 +559,15 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
-  eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+  11 provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 - [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
 - [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to
   a workspace with an API key, and the read-only tools it can call.
+- [Write a provider adapter](docs/adapters.md): the adapter contract, the example adapter to
+  copy, the test harness, every file a new provider touches, the provider page template, and how
+  adapters are reviewed. Ask for a new provider with the **Adapter request** issue template.
 
 ### Invite testers
 
@@ -510,13 +621,17 @@ src/
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
-    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
+    sitemap.ts                 /sitemap.xml: the landing page, /docs and every docs page, the legal pages, and indexable
+                               public project pages
+    robots.ts                  /robots.txt: public pages allowed, signed-in and API paths disallowed, the sitemap named
+    opengraph-image.tsx        /opengraph-image: the site's 1200 by 630 link preview image
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
     fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
     docs/                      the Markdown in docs/ published at /docs, one page per file
+    privacy/, terms/           privacy policy and terms of use, published only when the operator variables are set
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace; app/admin/ is the super admin instance overview
     account/                   account page, delete account action, signed-out "account deleted" page
@@ -536,16 +651,20 @@ src/
     app/                       app shell: navigation, workspace switcher, command palette, page states
     account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
-    connections/               connection status, controls, provider marks
+    connections/               connection status and controls
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
     admin/                     instance overview tables and status pills
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
+    legal/                     the privacy policy and terms of use layout, and the line beside the sign-in button
+    ui/                        shared primitives, used instead of writing your own: ProviderMark,
+                               ModalDialog (the only <dialog>), buttonClass, LiveRegion and the
+                               status and error announcements, DialogError
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated), registry, the unregistered example adapter, and the contract test harness
     api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     mcp/                       MCP server: the read-only tools and provider page resources, client setup snippets
     connections/               connect, OAuth state, revoke
@@ -560,10 +679,11 @@ src/
     crypto/                    credential encryption and key ids
     auth/, workspaces/, account/  session, redirects, super admins, roles and permissions, account deletion
     admin/                     instance overview: configuration checks, deployment and migration state
-    demo/                      the demo workspace and its replayed history (npm run demo:seed)
+    demo/                      the demo workspace, its replayed history, its one-time sign-in link, incidents on cue (npm run demo, demo:seed, demo:event), and in-app sample data
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
+    legal.ts                   whether this instance names an operator, and the links to the legal pages
     docs.ts                    reads docs/ for /docs: the page list, titles, and link rewriting
   types/                       ambient type declarations
 supabase/
@@ -571,9 +691,10 @@ supabase/
   migrations/                  forward-only SQL migrations
   seed.sql                     synthetic local data
   tests/database/              pgTAP tests (row level security, roles, sync engine)
-scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo-seed.ts, fake-resend-api.ts
+scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
@@ -581,6 +702,15 @@ docs/
   operations/                  deploy, OAuth apps, jobs
   providers/                   one page per provider: app setup, permissions, data read
 ```
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request: it covers the
+issue templates, setup and checks, branch and commit conventions, the review process, and the
+rules changes are reviewed against. The license and the contribution terms are not decided yet;
+CONTRIBUTING.md says what that means for you. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md). Report security vulnerabilities privately, as
+[SECURITY.md](SECURITY.md) describes, never in a public issue.
 
 ## Third-party marks
 

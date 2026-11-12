@@ -1,13 +1,28 @@
+import { expect, request as playwrightRequest, type APIRequestContext } from "@playwright/test";
+
 import { Constants, type Database } from "../../src/lib/supabase/database.types";
 
 import { adminClient, type TestWorkspace } from "./db";
 
 /*
- * Synthetic data for the badge, card, and yearly card specs (#149, #151): one project with a real
- * (not simulated) GitHub, Vercel, Supabase, Resend, and Stripe connection, 36 days of history, and
- * a fresh sync, so every metric in the public metric engine has a value. Seeds only inside the given
- * workspace, which deleting the workspace removes.
+ * Synthetic data for the badge, card, and year in review specs (#149, #151, #262): one project with
+ * a real (not simulated) GitHub, Vercel, Supabase, Resend, and Stripe connection, 36 days of
+ * history, and a fresh sync, so every metric in the public metric engine has a value. Seeds only
+ * inside the given workspace, which deleting the workspace removes. Also the helpers those specs
+ * share for reading the images.
  */
+
+/** A context with no session, as a README, a social network, or a stranger reads the routes. */
+export async function anonymous(baseURL: string | undefined): Promise<APIRequestContext> {
+  if (baseURL === undefined) throw new Error("baseURL is not configured");
+  return playwrightRequest.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
+}
+
+/** Width and height from a PNG's IHDR chunk (PNG specification, section 11.2.2). */
+export function pngSize(body: Buffer): { width: number; height: number } {
+  expect(body.subarray(1, 4).toString("latin1")).toBe("PNG");
+  return { width: body.readUInt32BE(16), height: body.readUInt32BE(20) };
+}
 
 type ProviderId = Database["public"]["Enums"]["provider_id"];
 export type PublicMetricId = Database["public"]["Enums"]["public_metric_id"];

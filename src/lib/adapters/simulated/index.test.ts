@@ -23,18 +23,25 @@ import {
   type SyncResult,
 } from "@/lib/adapters/types";
 import { spendCategories, TOTAL_METRIC_KEY, vercelAdapter } from "@/lib/adapters/vercel";
-import { utcDate } from "@/lib/jobs/ingest";
+import { aggregateDashboard, type AccountInput, type ConnectionInput, type CurrencyAmounts, type SnapshotInput } from "@/lib/dashboard/aggregate";
+import { DEMO_SEED_TEXT, demoAccountSeed, historySteps } from "@/lib/demo/history";
+import { DEMO_VERCEL_BUDGET } from "@/lib/demo/workspace";
+import { toSnapshotRow, utcDate } from "@/lib/jobs/ingest";
 import { londonDayStart } from "@/lib/timeline/query";
 
 import {
+  createSimulatedAdapter,
   isProviderSimulationEnabled,
   isSimulatedAdapter,
   SIMULATED_BACKFILL_MS,
   SIMULATED_CODE_PREFIX,
+  SIMULATED_POLL_INTERVAL_SECONDS,
   simulatedAdapters,
 } from "./index";
-import { isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
-import { DAY_MS, isLaunchDay, isWeekend } from "./simulation";
+import { everySimulated, isSimulatedConnection, isSimulatedCredential, SIMULATED_SCOPE } from "./marker";
+import { DAY_MS, isLaunchDay, isWeekend, type SimulatedIncident } from "./simulation";
+import { NEW_CUSTOMERS_PER_DAY } from "./stripe";
+import { vercelFailedDeployment, vercelProfile, vercelSpendSurge } from "./vercel";
 
 const REAL: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
   vercel: vercelAdapter,
@@ -72,13 +79,13 @@ function at(minutesAfterStart: number, seconds = 0): Date {
   return new Date(SPAN_START.getTime() + minutesAfterStart * MINUTE_MS + seconds * 1000);
 }
 
-/** A credential minted by the simulator, with the fixed test seed instead of a random one. */
-async function connect(adapter: ProviderAdapter): Promise<OAuthCredential> {
+/** A credential minted by the simulator, with a fixed seed (the test's, by default) instead of a random one. */
+async function connect(adapter: ProviderAdapter, seed: string = SEED): Promise<OAuthCredential> {
   const credential = await adapter.exchangeCode(
     { code: `${SIMULATED_CODE_PREFIX}code`, redirectUri: "http://localhost:3000/cb", callbackParams: {} },
     makeCtx(SPAN_START),
   );
-  return { ...credential, metadata: { ...credential.metadata, seed: SEED } };
+  return { ...credential, metadata: { ...credential.metadata, seed } };
 }
 
 type SpanSync = { accountId: string; backfill: boolean; result: SyncResult };
@@ -285,6 +292,115 @@ describe("simulated markers", () => {
       expect(isSimulatedAdapter({ ...simulatedAdapters[id] })).toBe(false);
     }
   });
+
+  it.each([
+    ["one simulated item", [true], true],
+    ["many simulated items", [true, true, true], true],
+    ["nothing in view", [], false],
+    ["one real item", [false], false],
+    ["a mix, real last", [true, true, false], false],
+    ["a mix, real first", [false, true], false],
+  ])("says the whole page is simulated (#269) only when all of it is: %s", (_title, flags, expected) => {
+    expect(everySimulated(flags.map((simulated) => ({ simulated })))).toBe(expected);
+  });
+});
+
+describe("a simulated adapter with an incident (#256)", () => {
+  // Mid slot, with the cursor at the slot before: a usual sync here covers no new slot.
+  const now = new Date("2026-11-10T14:00:03.000Z");
+  const cursor = new Date(Math.floor(now.getTime() / SLOT_MS) * SLOT_MS - SLOT_MS).toISOString();
+
+  async function syncBoth(incident: SimulatedIncident): Promise<{ usual: SyncResult; withIncident: SyncResult; accountId: string }> {
+    const adapter = createSimulatedAdapter(vercelProfile, "vercel", incident);
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(now));
+    if (account === undefined) throw new Error("simulated Vercel has an account");
+    const input = { credential, externalAccountId: account.externalId, cursor };
+    return {
+      usual: await simulatedAdapters.vercel.sync(input, makeCtx(now)),
+      withIncident: await adapter.sync(input, makeCtx(now)),
+      accountId: account.externalId,
+    };
+  }
+
+  it("is simulated, so it gets the local client and syncs simulated credentials", () => {
+    expect(isSimulatedAdapter(createSimulatedAdapter(vercelProfile, "vercel", { events: () => [] }))).toBe(true);
+  });
+
+  it("adds the incident's events at the sync's clock, even to a sync that covers no new slot", async () => {
+    const { usual, withIncident, accountId } = await syncBoth({ events: (id, at) => [vercelFailedDeployment(id, at)] });
+    expect(usual.events).toEqual([]);
+    expect(withIncident.events).toEqual([vercelFailedDeployment(accountId, now)]);
+    expect(withIncident.metrics).toEqual(usual.metrics);
+    expect(withIncident.cursor).toBe(usual.cursor);
+  });
+
+  it("reads the incident's metrics instead of the profile's, at the slot's start", async () => {
+    const { usual, withIncident, accountId } = await syncBoth({ events: () => [], metrics: (id, at) => vercelSpendSurge(id, at, 100_000) });
+    const slotStart = new Date(Math.floor(now.getTime() / SLOT_MS) * SLOT_MS);
+    expect(withIncident.metrics).toEqual(vercelSpendSurge(accountId, slotStart, 100_000));
+    expect(withIncident.metrics).not.toEqual(usual.metrics);
+    expect(withIncident.events).toEqual(usual.events);
+  });
+});
+
+describe("vercelFailedDeployment", () => {
+  const at = new Date("2026-11-10T14:00:03.000Z");
+
+  it("is a failed production deployment of web at the instant, as the real adapter reports one", () => {
+    const event = vercelFailedDeployment("team_sim5eed0a11", at);
+    expect(event).toMatchObject({
+      typeId: "vercel.deployment.failed",
+      severity: "critical",
+      title: "Production deployment of web failed",
+      body: "Error code: BUILD_FAILED",
+      occurredAt: at,
+      externalAccountId: "team_sim5eed0a11",
+    });
+    expect(event.url).toBeUndefined();
+    expect(validateAdapterEvents(vercelAdapter.eventTypes, [event]).ok).toBe(true);
+  });
+
+  it("is the same deployment at the same instant and a new one a millisecond later", () => {
+    const first = vercelFailedDeployment("team_sim5eed0a11", at).dedupeKey;
+    expect(vercelFailedDeployment("team_sim5eed0a11", new Date(at.getTime())).dedupeKey).toBe(first);
+    expect(vercelFailedDeployment("team_sim5eed0a11", new Date(at.getTime() + 1)).dedupeKey).not.toBe(first);
+  });
+});
+
+describe("vercelSpendSurge", () => {
+  // Early in the month, when the usual total is a few hundred dollars.
+  const at = new Date("2026-11-10T14:00:00.000Z");
+  const accountId = "team_sim5eed0a11";
+  const amount = (metrics: readonly AdapterMetric[], key: string) => {
+    const metric = metrics.find((candidate) => candidate.metricKey === key);
+    return metric !== undefined && "amountMinor" in metric ? metric.amountMinor : undefined;
+  };
+  const usualTotal = amount(vercelProfile.metrics(accountId, at, makeCtx(at)), TOTAL_METRIC_KEY) ?? 0;
+
+  // Usage plus the $20 purchase, then 20 percent tax rounded down: the least usage that reaches the target.
+  it.each([
+    [60_000, 48_000, 60_000],
+    [60_001, 48_001, 60_001],
+    [60_005, 48_005, 60_006],
+    [60_006, 48_005, 60_006],
+  ])("reaches a total of %i with usage of %i (total %i), one cent less would fall short", (target, usage, total) => {
+    const metrics = vercelSpendSurge(accountId, at, target);
+    expect(amount(metrics, "vercel.spend.usage")).toBe(usage);
+    expect(amount(metrics, TOTAL_METRIC_KEY)).toBe(total);
+    const categories = spendCategories.map(({ metricKey }) => amount(metrics, metricKey) ?? 0);
+    expect(categories.reduce((sum, value) => sum + value, 0)).toBe(total);
+    expect(validateAdapterMetrics("vercel", metrics).ok).toBe(true);
+  });
+
+  it.each([
+    ["zero", 0],
+    ["below the purchase and its tax", 100],
+    ["one cent below the usual total", usualTotal - 1],
+    ["the usual total", usualTotal],
+  ])("reads as usual for a target of %s", (_title, target) => {
+    expect(vercelSpendSurge(accountId, at, target)).toEqual(vercelProfile.metrics(accountId, at, makeCtx(at)));
+  });
 });
 
 describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
@@ -340,30 +456,31 @@ describe.each(liveProviderIds)("simulated %s over a two hour span", (id) => {
     const keys = allEvents.map((event) => event.dedupeKey);
     expect(new Set(keys).size).toBe(keys.length);
     // The group test's per-tick cap, so no single provider is allowed a burst the group would reject.
-    // The most any provider writes in one tick on the seed is 4 (Stripe).
+    // The most any provider writes in one tick on the seed is 3 (GitHub's daily stars at midnight).
     for (const { result } of ticks) expect(result.events.length).toBeLessThanOrEqual(10);
   });
 
   it("keeps events coming after the backfill on every account across a UTC day of chained syncs", () => {
     // The silence check, bounded per account, so adding a provider never moves another's bound and a
-    // busy account cannot hide a silent sibling (Supabase's two projects write 3668 and 82). A day and
+    // busy account cannot hide a silent sibling (Supabase's two projects write 52 and 6). A day and
     // not the two hour span: the sparsest profiles write a few events a day, so two hours leaves them
-    // one or two (Resend 1, PostHog 2 on the seed). Over the day the seed gives PostHog 5, Resend 13,
-    // and every other account 50 or more. A 0 here means that account's syncs after the backfill
-    // stopped writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
+    // one or two (Resend 1, Polar 1, PostHog 2 on the seed). Over the day the seed gives Polar 3,
+    // PostHog 5, Supabase staging 6, Resend 13, Stripe 63 (60 of them new customers), and every
+    // other account 50 or more. A 0 here means that account's syncs after the backfill stopped
+    // writing, or a simulator's random keying changed: check its `eventsInSlot` before watch mode.
     const accounts = byAccount(dayTicks);
     expect(accounts.size).toBeGreaterThan(0);
     for (const [accountId, syncs] of accounts) expect(eventCount(syncs), accountId).toBeGreaterThan(0);
   });
 
-  it("writes under one event a tick on average on every account as watch mode ticks every 10 seconds", () => {
+  it("writes under one event in ten ticks on average on every account as watch mode ticks every 10 seconds", () => {
     // The flood check, bounded per account like the silence check, because one account's
     // `eventsInSlot` is what floods and a provider-wide mean would dilute it with quiet siblings.
-    // Stripe, the busiest profile, writes about 0.7 a tick on the seed (497 over 720 ticks, all its
-    // event types together), so this ceiling is 1.45 times its whole stream: tuning any profile past
-    // that fails here.
+    // The busiest accounts on the seed are Sentry's ios project, Railway, and GitLab, at about 0.02
+    // a tick (12 to 14 over 720 ticks), so this ceiling is five times them: a small product's pace
+    // (#264), where Stripe alone wrote 0.7 a tick before. Tuning any profile past it fails here.
     for (const [accountId, syncs] of byAccount(ticks)) {
-      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(1);
+      expect(eventCount(syncs) / syncs.length, accountId).toBeLessThan(0.1);
     }
   });
 
@@ -459,7 +576,7 @@ describe("simulated sync boundaries", () => {
 const WATCH_GROUP = ["vercel", "github", "resend", "stripe", "supabase"] as const satisfies readonly LiveProviderId[];
 
 describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch` does", () => {
-  it("bring new events on most ticks across the #131 providers, and keep Stripe revenue moving", async () => {
+  it("bring events at a small product's pace (#264) across the #131 providers, never in a burst, and keep Vercel spend moving", async () => {
     const connections = await Promise.all(
       WATCH_GROUP.map(async (id) => {
         const adapter = simulatedAdapters[id];
@@ -470,7 +587,7 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
       }),
     );
     const perTick: number[] = [];
-    const revenue: number[] = [];
+    const spend: number[] = [];
     for (let tick = 0; tick <= SPAN_SLOTS; tick += 1) {
       const now = new Date(SPAN_START.getTime() + tick * SLOT_MS + 3000);
       let written = 0;
@@ -480,19 +597,30 @@ describe("simulated providers ticking every 10 seconds, as `jobs:tick -- --watch
         const result = await adapter.sync(input, makeCtx(now));
         connection.cursor = result.cursor;
         written += result.events.length;
-        if (adapter.id === "stripe") revenue.push(amount(metric(result.metrics, "stripe.revenue.month.usd")));
+        if (adapter.id === "vercel") spend.push(amount(metric(result.metrics, TOTAL_METRIC_KEY)));
       }
       // The first tick is the 30 minute backfill.
       if (tick > 0) perTick.push(written);
     }
-    const ticksWithEvents = perTick.filter((count) => count > 0).length;
-    const mean = perTick.reduce((sum, count) => sum + count, 0) / perTick.length;
-    expect(ticksWithEvents / perTick.length).toBeGreaterThan(0.6);
-    expect(mean).toBeGreaterThan(0.8);
-    expect(mean).toBeLessThan(3);
+    // A small product's timeline: 23 events over these 720 ticks on the seed, 3 of them Stripe's
+    // new customers, where Stripe alone wrote 497 before #264. Never a burst, and never silent for
+    // a whole backfill window (the longest quiet run on the seed is 118 ticks).
+    const total = perTick.reduce((sum, count) => sum + count, 0);
+    let quiet = 0;
+    let longestQuiet = 0;
+    for (const count of perTick) {
+      quiet = count > 0 ? 0 : quiet + 1;
+      longestQuiet = Math.max(longestQuiet, quiet);
+    }
+    expect(total).toBeGreaterThan(0);
+    expect(total / perTick.length).toBeLessThan(0.1);
     expect(Math.max(...perTick)).toBeLessThanOrEqual(10);
-    const moved = revenue.slice(1).filter((value, index) => value !== revenue[index]).length;
-    expect(moved / (revenue.length - 1)).toBeGreaterThan(0.8);
+    expect(longestQuiet).toBeLessThan(SIMULATED_BACKFILL_MS / SLOT_MS);
+    // Stripe's few payments a day leave its revenue still for hours at a time (and a refund lowers
+    // it), so what keeps an open dashboard moving is spend accruing by the millisecond: Vercel's
+    // total changes on 142 of the 720 ticks on the seed, overnight in UTC.
+    const moved = spend.slice(1).filter((value, index) => value !== spend[index]).length;
+    expect(moved / (spend.length - 1)).toBeGreaterThan(0.1);
   }, WATCH_TIMEOUT_MS);
 });
 
@@ -900,5 +1028,148 @@ describe("the simulated week (#166)", () => {
     expect(launchDeploys.length).toBeGreaterThan(3 * weekdayDeploys.length);
     expect(weekendDeploys.length).toBeLessThan(weekdayDeploys.length / 2);
     expect(lastHalfHour(launchDeploys, launch)).toBeGreaterThan(5 * Math.max(1, lastHalfHour(weekdayDeploys, weekday)));
+  });
+});
+
+describe("a small product's demo (#264)", () => {
+  const budgetMinor = Number(DEMO_VERCEL_BUDGET.amount) * 100;
+  const total = (amounts: CurrencyAmounts) => (amounts.verified?.amountMinor ?? 0) + (amounts.estimated?.amountMinor ?? 0);
+
+  it.each([
+    ["the test seed", (): string => SEED],
+    ["the demo seed's accounts", (id: LiveProviderId): string => demoAccountSeed(DEMO_SEED_TEXT, id)],
+  ])("keeps a whole month of revenue and spend within ten times the demo's Vercel budget, on %s", async (_title, seedFor) => {
+    // October's last slot, when every month to date reading covers the whole month. Every account of
+    // every provider, reduced by the dashboard's own rules, so each amount is counted as it is shown.
+    const monthEnd = new Date(Date.parse("2026-11-01T00:00:00.000Z") - SLOT_MS);
+    const snapshots: SnapshotInput[] = [];
+    const connections: ConnectionInput[] = [];
+    const accounts: AccountInput[] = [];
+    for (const id of liveProviderIds) {
+      const adapter = simulatedAdapters[id];
+      const credential = await connect(adapter, seedFor(id));
+      connections.push({
+        id,
+        provider: id,
+        display_name: adapter.displayName,
+        status: "active",
+        last_synced_at: monthEnd.toISOString(),
+        last_sync_requested_at: null,
+        poll_interval_seconds: SIMULATED_POLL_INTERVAL_SECONDS,
+        granted_scopes: [SIMULATED_SCOPE],
+      });
+      for (const account of await adapter.listAccounts(credential, makeCtx(monthEnd))) {
+        const accountId = `${id}:${account.externalId}`;
+        accounts.push({ id: accountId, connection_id: id, display_name: account.displayName, project_id: null });
+        const { metrics } = await adapter.sync({ credential, externalAccountId: account.externalId }, makeCtx(monthEnd));
+        snapshots.push(...metrics.map((item) => toSnapshotRow(item, { id, workspace_id: "workspace" }, { id: accountId })));
+      }
+    }
+    const projectedSpend = liveProviderIds.flatMap((id) => simulatedAdapters[id].projectedSpend ?? []);
+    const view = aggregateDashboard({ snapshots, connections, accounts, projects: [], projectedSpend, now: monthEnd });
+
+    // Before #264 a month came to about $4.5 million and €2.1 million of revenue and $166,000 of spend.
+    expect(view.revenue.map(({ currency }) => currency)).toEqual(["EUR", "USD"]);
+    for (const amounts of view.revenue) {
+      expect(total(amounts), `revenue in ${amounts.currency}`).toBeGreaterThanOrEqual(budgetMinor / 10);
+      expect(total(amounts), `revenue in ${amounts.currency}`).toBeLessThanOrEqual(budgetMinor * 10);
+    }
+    // Spend in euros is only Stripe's fees on euro payments, so only the budget's currency has a floor.
+    for (const amounts of view.totals) expect(total(amounts), `spend in ${amounts.currency}`).toBeLessThanOrEqual(budgetMinor * 10);
+    const budgetCurrency = view.totals.find(({ currency }) => currency === DEMO_VERCEL_BUDGET.currency);
+    if (budgetCurrency === undefined) throw new Error(`expected spend in ${DEMO_VERCEL_BUDGET.currency}`);
+    expect(total(budgetCurrency)).toBeGreaterThanOrEqual(budgetMinor / 10);
+  });
+
+  it("keeps payments within ten times Vercel's deployments over the demo seed's 90 days", async () => {
+    // The seed's own replay: one sync per account at each of its steps, cursors chained the way
+    // `replayHistory` runs them, so each day keeps the half hour before London midnight.
+    const steps = historySteps(new Date("2026-11-10T12:00:00.000Z"));
+    const replayed = async (id: LiveProviderId): Promise<ActivityEvent[]> => {
+      const adapter = simulatedAdapters[id];
+      const credential = await connect(adapter, demoAccountSeed(DEMO_SEED_TEXT, id));
+      const events = new Map<string, ActivityEvent>();
+      for (const account of await adapter.listAccounts(credential, makeCtx(SPAN_START))) {
+        let cursor: string | undefined;
+        for (const step of steps) {
+          const input = cursor === undefined ? { credential, externalAccountId: account.externalId } : { credential, externalAccountId: account.externalId, cursor };
+          const result = await adapter.sync(input, makeCtx(step.at));
+          for (const event of result.events) events.set(event.dedupeKey, event);
+          cursor = result.cursor;
+        }
+      }
+      return [...events.values()];
+    };
+    const [stripe = [], polar = [], vercel = []] = await Promise.all((["stripe", "polar", "vercel"] as const).map(replayed));
+    const deployments = vercel.filter((event) => event.typeId.startsWith("vercel.deployment.")).length;
+    const payments = [...stripe, ...polar].filter((event) => event.typeId === "stripe.charge.succeeded" || event.typeId === "polar.order.paid").length;
+    // 168 deployments against 11 Stripe payments and 3 Polar orders. Payments only (#264, decided on
+    // pull request #290): Stripe's other 99 events are almost all new customers, which carry no
+    // money. Before #264 Stripe wrote 8,163 payments, 49 a deployment.
+    expect(deployments).toBeGreaterThan(0);
+    expect(payments).toBeGreaterThan(0);
+    expect(payments).toBeLessThanOrEqual(10 * deployments);
+  });
+
+  it("adds Stripe's new customers at their stated daily rate, and they carry no money", async () => {
+    // The bounds follow NEW_CUSTOMERS_PER_DAY, not a fitted count: a UTC day of chained half hour
+    // syncs holds between half and twice the target (60 on the seed, beside 2 payments), so a
+    // retune of the target moves the test with it and a chance that misses it fails here.
+    const syncs = await syncChain(simulatedAdapters.stripe, await connect(simulatedAdapters.stripe), DAY_CHAIN);
+    const events = syncs.filter(({ backfill }) => !backfill).flatMap(({ result }) => result.events);
+    const customers = events.filter((event) => event.typeId === "stripe.customer.created");
+    expect(customers.length).toBeGreaterThanOrEqual(NEW_CUSTOMERS_PER_DAY / 2);
+    expect(customers.length).toBeLessThanOrEqual(NEW_CUSTOMERS_PER_DAY * 2);
+    expect(events.filter((event) => event.typeId === "stripe.charge.succeeded").length).toBeLessThanOrEqual(5);
+    // "New customer" and nothing else: no amount, no currency, nothing that reads as money.
+    for (const event of customers) {
+      expect(event.title).toBe("New customer");
+      expect(event.body).toBeUndefined();
+      expect(event.severity).toBe("info");
+    }
+  });
+
+  it.each([
+    { id: "stripe", paid: "stripe.charge.succeeded", money: ["stripe.charge.succeeded", "stripe.charge.failed", "stripe.charge.refunded"] },
+    { id: "polar", paid: "polar.order.paid", money: ["polar.order.paid", "polar.refund.succeeded"] },
+  ] as const)("prints the amount and currency on every simulated $id payment and refund (#261)", async ({ id, paid, money }) => {
+    const adapter = simulatedAdapters[id];
+    // The chain's first sync backfills, so this covers weeks of payments, failures, and refunds.
+    const syncs = await syncChain(adapter, await connect(adapter), DAY_CHAIN);
+    const events = syncs.flatMap(({ result }) => result.events).filter((event) => money.some((typeId) => typeId === event.typeId));
+    expect(events.filter((event) => event.typeId === paid).length).toBeGreaterThan(0);
+    for (const event of events) {
+      // One amount in one currency, "$49.00" or "€19.00", and for a partial refund "of" the price "so far".
+      expect(event.title, event.typeId).toMatch(/: [$€]\d+\.\d{2}( of [$€]\d+\.\d{2} so far)?$/);
+      // A failed payment's reason is a sentence, never Stripe's code.
+      if (event.body !== undefined) expect(event.body, event.typeId).not.toMatch(/_/);
+    }
+  });
+
+  it("names the branch each simulated GitLab environment deploys, never main for a review app", async () => {
+    const adapter = simulatedAdapters.gitlab;
+    const credential = await connect(adapter);
+    const [account] = await adapter.listAccounts(credential, makeCtx(SPAN_START));
+    if (account === undefined) throw new Error("expected a GitLab account");
+    // A week of chained half hour syncs: long enough for every environment to deploy.
+    const start = Date.parse("2026-11-02T00:00:00.000Z");
+    const events: ActivityEvent[] = [];
+    let cursor: string | undefined;
+    for (let step = 0; step <= 7 * 48; step += 1) {
+      const input = cursor === undefined ? { credential, externalAccountId: account.externalId } : { credential, externalAccountId: account.externalId, cursor };
+      const result = await adapter.sync(input, makeCtx(new Date(start + step * SIMULATED_BACKFILL_MS)));
+      events.push(...result.events);
+      cursor = result.cursor;
+    }
+    const refOf: Readonly<Record<string, string>> = { production: "main", staging: "main", "review/feature-checkout": "feature/checkout" };
+    const environments = new Set<string>();
+    for (const event of events.filter((item) => item.typeId.startsWith("gitlab.deployment."))) {
+      // As a reader sees it: "Deployment to <environment> succeeded in ...", "Deployment #<iid> of <ref>."
+      const environment = /^Deployment to (\S+) (?:succeeded|failed) in /.exec(event.title)?.[1] ?? "";
+      const ref = /^Deployment #\d+ of (\S+)\.$/.exec(event.body ?? "")?.[1];
+      expect(ref, event.title).toBe(refOf[environment]);
+      environments.add(environment);
+    }
+    expect([...environments].sort()).toEqual(Object.keys(refOf).sort());
   });
 });

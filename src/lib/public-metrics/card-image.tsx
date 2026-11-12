@@ -4,13 +4,14 @@ import { ImageResponse } from "next/og";
 import type { ReactNode } from "react";
 
 import { formatDateTime } from "@/lib/format";
+import { site } from "@/lib/site";
 
 import type { PublishedMetricCard } from "./published";
 import { CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
-import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSummary } from "./yearly";
+import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSlide, type YearSummary } from "./yearly";
 
 /*
- * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card), rendered with Next.js'
+ * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card, #262 year in review slides, #338 site preview image), rendered with Next.js'
  * `ImageResponse` (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/
  * image-response.md): JSX laid out by Satori with flexbox only, no external image service, and the
  * renderer's bundled font, so no font file ships with the route. Colors are the site's tokens
@@ -119,8 +120,12 @@ function Trend({ values }: { values: readonly (number | null)[] }) {
   );
 }
 
-/** The milestone card of one published metric: label, value, provenance, trend, last sync. */
-export function MetricCard({ card }: { card: PublishedMetricCard }) {
+/**
+ * The milestone card of one published metric: the project's name while its page is public (#255),
+ * then label, value, provenance, trend, last sync. `projectName` is null otherwise, since the page
+ * is the only place the name is public.
+ */
+export function MetricCard({ card, projectName }: { card: PublishedMetricCard; projectName: string | null }) {
   const { metric, trend } = card;
   const share = shareableMetric(metric);
   const tag = share.simulated ? (
@@ -134,6 +139,7 @@ export function MetricCard({ card }: { card: PublishedMetricCard }) {
   const synced = share.lastSyncedAt === null ? "Not synced recently" : `Last synced ${formatDateTime(share.lastSyncedAt)}`;
   return (
     <Frame tag={tag} footer={[window, synced]}>
+      {projectName === null ? null : <div style={{ ...line(44), letterSpacing: -1, marginBottom: 4 }}>{projectName}</div>}
       <div style={{ display: "flex", fontSize: 40, color: COLORS.muted }}>{metric.label}</div>
       <div style={{ display: "flex", fontSize: share.available ? 104 : 72, marginTop: 8, marginBottom: 24, letterSpacing: -2 }}>{share.text}</div>
       <Trend values={trend.map((point) => point.value)} />
@@ -151,6 +157,31 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
   );
 }
 
+/** The site-wide link preview (#338): what DevMacro does and who it is for, for the landing page and the docs. */
+export function SiteCard() {
+  return (
+    <Frame tag={<Tag text="Open source" color={COLORS.accent} />} footer={[site.tagline, site.githubUrl.replace(/^https:\/\//, "")]}>
+      <div style={{ display: "flex", fontSize: 68, lineHeight: 1.1, letterSpacing: -2 }}>{site.headline}</div>
+      <div style={{ display: "flex", fontSize: 32, lineHeight: 1.3, marginTop: 28, color: COLORS.muted }}>{`For ${site.audience}.`}</div>
+    </Frame>
+  );
+}
+
+// The yearly card's grid, sized so two rows of figures always fit the 1200 by 630 card (#267):
+// every line is one line high and ends in an ellipsis rather than wrap past its box. The page lists
+// every figure in full beneath the card, and the alt text says them all.
+const FIGURE_GAP_PX = 16;
+const FIGURE_HEIGHT_PX = 152;
+const FIGURE_PADDING_PX = 20;
+const VALUE_LINE_PX = 58;
+/** A count fits at full size; a reason such as "Not connected" is words and drops to a size that fits. */
+const COUNT_CHARS_MAX = 12;
+
+/** One line of card text that ends in an ellipsis instead of wrapping. */
+function line(fontSize: number, color: string = COLORS.foreground) {
+  return { display: "flex", fontSize, lineHeight: 1.2, color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" } as const;
+}
+
 /** The private yearly summary card (#151): a whole past year, or the current year to date. */
 export function YearCard({ summary }: { summary: YearSummary }) {
   const tag = isYearComplete(summary.year, summary.asOf) ? `${summary.year} in review` : "Year to date";
@@ -159,28 +190,57 @@ export function YearCard({ summary }: { summary: YearSummary }) {
       tag={<Tag text={tag} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
       footer={[yearPeriod(summary), yearProvenance(summary)]}
     >
-      <div style={{ display: "flex", fontSize: 56, letterSpacing: -1, marginBottom: 32 }}>{`Your stack in ${yearSummaryLabel(summary)}`}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 24 }}>
+      <div style={{ ...line(52), letterSpacing: -1, marginBottom: 24 }}>{`Your stack in ${yearSummaryLabel(summary)}`}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: FIGURE_GAP_PX }}>
         {yearFigures(summary).map((stat) => (
           <div
             key={stat.label}
             style={{
               display: "flex",
               flexDirection: "column",
-              width: (TREND_WIDTH_PX - 24) / 2,
-              padding: "20px 28px",
+              width: (TREND_WIDTH_PX - FIGURE_GAP_PX) / 2,
+              height: FIGURE_HEIGHT_PX,
+              padding: `16px ${FIGURE_PADDING_PX}px`,
               borderRadius: 16,
               backgroundColor: COLORS.panel,
               border: `2px solid ${COLORS.line}`,
             }}
           >
-            <div style={{ display: "flex", fontSize: 52, letterSpacing: -1 }}>{stat.value}</div>
-            <div style={{ display: "flex", fontSize: 26, color: COLORS.muted }}>
-              {stat.note === null ? stat.label : `${stat.label}, ${stat.note}`}
+            <div style={{ display: "flex", alignItems: "center", height: VALUE_LINE_PX }}>
+              <div style={{ ...line(stat.value.length > COUNT_CHARS_MAX ? 28 : 52), letterSpacing: -1 }}>{stat.value}</div>
             </div>
+            <div style={line(22, COLORS.muted)}>{stat.since === null ? stat.label : `${stat.label}, since ${stat.since}`}</div>
+            {stat.countedUpTo === null ? null : <div style={line(22, COLORS.muted)}>{`counted up to ${stat.countedUpTo}`}</div>}
           </div>
         ))}
       </div>
+    </Frame>
+  );
+}
+
+/**
+ * Value sizes by length, so a value stays on one line: a count at full size, a weekday and date or
+ * "72 in a row on Vercel" smaller, and the longest run value, "1,234 in a row on DigitalOcean",
+ * smaller still, so the provider's name is never cut off.
+ */
+function slideValueSize(value: string): number {
+  if (value.length <= 12) return 104;
+  return value.length <= 24 ? 72 : 56;
+}
+
+/** One slide of the year in review (#262) other than the totals, whose image is `YearCard`. */
+export function YearSlideCard({ summary, slide }: { summary: YearSummary; slide: Exclude<YearSlide, { id: "totals" }> }) {
+  const tag = isYearComplete(summary.year, summary.asOf) ? `${summary.year} in review` : "Year to date";
+  return (
+    <Frame
+      tag={<Tag text={tag} color={summary.simulated ? COLORS.warning : COLORS.accent} />}
+      footer={[yearPeriod(summary), yearProvenance(summary)]}
+    >
+      <div style={line(40, COLORS.muted)}>{`${slide.title}, ${yearSummaryLabel(summary)}`}</div>
+      <div style={{ ...line(slideValueSize(slide.value)), letterSpacing: -2, marginTop: 8, marginBottom: 24 }}>
+        {slide.value}
+      </div>
+      <div style={{ display: "flex", fontSize: 30, lineHeight: 1.3, color: COLORS.muted }}>{slide.detail}</div>
     </Frame>
   );
 }

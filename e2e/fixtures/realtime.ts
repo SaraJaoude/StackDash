@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Page, type Request } from "@playwright/test";
 import { z } from "zod";
 
 // A change reaches an open page within a few seconds: Realtime delivery, the refresh debounce, and
@@ -68,6 +68,21 @@ export async function expectSubscribed(channel: LiveChannel): Promise<void> {
     .toBe(true);
 }
 
+/**
+ * Whether a request is the RSC GET that renders `path` again for a refresh or a navigation to it,
+ * prefetches excluded.
+ */
+export function isRenderRequest(request: Request, path: string): boolean {
+  const headers = request.headers();
+  return (
+    request.method() === "GET" &&
+    headers["rsc"] === "1" &&
+    headers["next-router-prefetch"] === undefined &&
+    headers["next-router-segment-prefetch"] === undefined &&
+    new URL(request.url()).pathname === path
+  );
+}
+
 export type LiveRefreshWatch = Readonly<{
   /**
    * Call before the action. Resolves once the action's change is sure to be delivered, and returns
@@ -100,20 +115,9 @@ export function watchLiveRefresh(page: Page, workspaceId: string): LiveRefreshWa
       // Room in the resource timing buffer (250 entries by default) for the entry awaited below.
       await page.evaluate(() => performance.clearResourceTimings());
       const path = new URL(page.url()).pathname;
-      const refreshed = page.waitForResponse(
-        (response) => {
-          const request = response.request();
-          const headers = request.headers();
-          return (
-            request.method() === "GET" &&
-            headers["rsc"] === "1" &&
-            headers["next-router-prefetch"] === undefined &&
-            headers["next-router-segment-prefetch"] === undefined &&
-            new URL(response.url()).pathname === path
-          );
-        },
-        { timeout: LIVE_TIMEOUT_MS },
-      );
+      const refreshed = page.waitForResponse((response) => isRenderRequest(response.request(), path), {
+        timeout: LIVE_TIMEOUT_MS,
+      });
       // The browser writes a fetch's resource timing entry once its body has arrived. Playwright
       // 1.64's `response.finished()` never settled for this streamed response, although the page
       // read the body to the end within 60 ms.

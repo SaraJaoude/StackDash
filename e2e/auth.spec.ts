@@ -1,6 +1,18 @@
+import { randomUUID } from "node:crypto";
+
 import { test } from "@playwright/test";
 
-import { expect, ownerTest, signOutTest } from "./fixtures/auth";
+import {
+  createSyntheticUser,
+  editedSessionCookies,
+  expect,
+  ownerTest,
+  removeSyntheticUser,
+  signOutTest,
+  STORAGE_STATE,
+  type StoredSession,
+} from "./fixtures/auth";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -32,7 +44,7 @@ test.describe("signed out", () => {
   test("a not-invited error explains what to do next", async ({ page }) => {
     await page.goto("/sign-in?error=not_invited");
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-      "This GitHub account's email has not been invited to the DevMacro test. Ask for an invite, then try again.",
+      "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
     );
   });
 
@@ -49,6 +61,60 @@ test.describe("signed out", () => {
     });
     expect(response.status()).toBe(403);
   });
+});
+
+/** The token with `claims` merged into its payload and its original signature kept. */
+function withClaims(token: string, claims: Record<string, unknown>): string {
+  const [header, payload, signature] = token.split(".");
+  if (header === undefined || payload === undefined || signature === undefined) throw new Error("not a JWT");
+  const decoded: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+  if (typeof decoded !== "object" || decoded === null) throw new Error("not a JWT payload");
+  const edited = Buffer.from(JSON.stringify({ ...decoded, ...claims })).toString("base64url");
+  return `${header}.${edited}.${signature}`;
+}
+
+// Sessions are verified in the app against the stack's public signing key, without asking the
+// Auth server (#318), so the app itself must refuse a session it cannot vouch for. Each case edits
+// a copy of the owner's stored session and never touches the session itself. An edited token no
+// longer matches its signature, so the first two cases prove refusal, not which check fired: a
+// correctly signed expired token would need the stack's private key, which stays out of the repo.
+test.describe("a session the app cannot verify", () => {
+  const cases: [string, (session: StoredSession) => StoredSession][] = [
+    [
+      "a tampered access token whose exp claim is past",
+      (session) => ({
+        ...session,
+        access_token: withClaims(session.access_token, { exp: Math.floor(Date.now() / 1000) - 60 }),
+      }),
+    ],
+    [
+      "an access token claiming another user under the original signature",
+      (session) => ({ ...session, access_token: withClaims(session.access_token, { sub: randomUUID() }) }),
+    ],
+    [
+      // An unknown refresh token, so the refresh fails without rotating the owner's real one.
+      "an expired session whose refresh token Auth refuses",
+      (session) => ({
+        ...session,
+        expires_at: Math.floor(Date.now() / 1000) - 60,
+        refresh_token: "e2e-unknown-refresh-token",
+      }),
+    ],
+  ];
+
+  for (const [title, edit] of cases) {
+    test(`${title} redirects to sign-in`, async ({ browser }) => {
+      const cookies = await editedSessionCookies(STORAGE_STATE.owner, edit);
+      const context = await browser.newContext({ storageState: { cookies, origins: [] } });
+      try {
+        const page = await context.newPage();
+        await page.goto("/w/someworkspace/timeline");
+        await expect(page).toHaveURL(/\/sign-in\?next=%2Fw%2Fsomeworkspace%2Ftimeline$/);
+      } finally {
+        await context.close();
+      }
+    });
+  }
 });
 
 ownerTest("a signed-in user visiting sign-in is sent into the app", async ({ page }) => {
@@ -70,6 +136,42 @@ ownerTest("the app and a workspace root open on the timeline", async ({ page }) 
   await switcher.click();
   await expect(switcher).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("link", { name: /Current$/ })).toHaveAttribute("href", `/w/${slug}/timeline`);
+});
+
+// The last workspace is read with the membership list (#346): a recorded workspace the user still
+// belongs to opens first, and one they have since left gives way to the personal workspace.
+test("the app opens the last workspace while the user is still a member of it", async ({ browser }) => {
+  const admin = adminClient();
+  const user = await createSyntheticUser("last-workspace");
+  const team = await createTestWorkspace("Last workspace");
+  const context = await browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
+  try {
+    const { error: memberError } = await admin
+      .from("workspace_members")
+      .insert({ workspace_id: team.id, user_id: user.id, role: "viewer" });
+    if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
+    const { error: profileError } = await admin.from("profiles").update({ last_workspace_id: team.id }).eq("user_id", user.id);
+    if (profileError) throw new Error(`Recording the last workspace failed (code ${profileError.code}).`);
+    const personal = await personalWorkspace(user.id);
+
+    const page = await context.newPage();
+    await page.goto("/app");
+    await expect(page).toHaveURL(new RegExp(`/w/${team.slug}/timeline$`));
+
+    const { error: leaveError } = await admin
+      .from("workspace_members")
+      .delete()
+      .eq("workspace_id", team.id)
+      .eq("user_id", user.id);
+    if (leaveError) throw new Error(`Removing the member failed (code ${leaveError.code}).`);
+
+    await page.goto("/app");
+    await expect(page).toHaveURL(new RegExp(`/w/${personal.slug}/timeline$`));
+  } finally {
+    await context.close();
+    await deleteTestWorkspace(team);
+    await removeSyntheticUser(user);
+  }
 });
 
 signOutTest("signing out ends the session", async ({ page }) => {

@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import type { EventType } from "@/lib/adapters/events";
 import { billingMetrics, signupMetric } from "@/lib/adapters/posthog";
 import { BillingResponseSchema } from "@/lib/adapters/posthog/schemas";
-import { declaredEventTypes, declaredProjectedSpend, declaredSignupDailyTotals, revenueProviderIds } from "@/lib/adapters/registry";
+import {
+  declaredEventTypes,
+  declaredProjectedSpend,
+  declaredSignupDailyTotals,
+  revenueProviderIds,
+  spendProviderIds,
+} from "@/lib/adapters/registry";
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import { toSnapshotRow } from "@/lib/jobs/ingest";
 import { providerName } from "@/lib/providers";
@@ -11,9 +17,15 @@ import { providerName } from "@/lib/providers";
 import type { ConnectionInput, SnapshotInput } from "./aggregate";
 import {
   buildHeadline,
+  chooseHeadline,
   costPerSignupExplanation,
+  fallbackWindows,
+  hasFigure,
   headlineComparisonText,
+  headlineEmptyNote,
   headlineEventTypes,
+  headlineFallbackNote,
+  headlineTitle,
   headlineWindows,
   moneyFormatter,
   wholeDaysNote,
@@ -22,6 +34,7 @@ import {
   type HeadlineEvents,
   type HeadlineInput,
   type HeadlineWindowKind,
+  type HeadlineWindows,
   type MoneyLine,
 } from "./headline";
 
@@ -37,6 +50,7 @@ function connection(id: string, provider: ConnectionInput["provider"], overrides
     display_name: `${provider} connection`,
     status: "active",
     last_synced_at: "2026-11-05T11:00:00.000Z",
+    last_sync_requested_at: null,
     poll_interval_seconds: 3_600,
     granted_scopes: [],
     ...overrides,
@@ -197,18 +211,7 @@ function postHogSpend(options: Readonly<{ perDay: number; from: string; to: stri
     });
     const account = { id: `${posthog.id}-account` };
     return billingMetrics(billing, account.id, new Date(`${date}T23:00:00.000Z`), "us").map((metric) => {
-      const row: SnapshotInput = {
-        value: null,
-        unit: null,
-        amount_minor: null,
-        currency: null,
-        period_start: null,
-        period_end: null,
-        point_at: null,
-        resets_at: null,
-        pricing_source: null,
-        ...toSnapshotRow(metric, { id: posthog.id, workspace_id: "w1" }, account),
-      };
+      const row: SnapshotInput = toSnapshotRow(metric, { id: posthog.id, workspace_id: "w1" }, account);
       const product = /^posthog\.spend\.current\.([a-z_]+)$/.exec(row.metric_key)?.[1];
       return product === undefined || date >= options.renamedOn ? row : { ...row, metric_key: `posthog.${product}.spend` };
     });
@@ -230,16 +233,22 @@ function firstReadings(snapshots: readonly SnapshotInput[]): Map<string, string>
 
 type HeadlineOverrides = Partial<Omit<HeadlineInput, "events">> &
   Pick<HeadlineInput, "snapshots" | "connections"> &
-  Readonly<{ events?: Pick<HeadlineEvents, "current" | "previous">; firstReadings?: HeadlineEvents["firstReadings"] }>;
+  Readonly<{
+    /** Shorthand for `windows`: the window to date of this kind at `now`. */
+    kind?: HeadlineWindowKind;
+    now?: Date;
+    events?: Pick<HeadlineEvents, "current" | "previous">;
+    firstReadings?: HeadlineEvents["firstReadings"];
+  }>;
 
 /** First readings default to the oldest snapshot passed in, as when the history is not truncated. */
-function headline({ events = NO_EVENTS, firstReadings: readings, ...overrides }: HeadlineOverrides) {
+function headline({ events = NO_EVENTS, firstReadings: readings, kind = "week", now = NOW, ...overrides }: HeadlineOverrides) {
   return buildHeadline({
-    kind: "week",
-    now: NOW,
+    windows: headlineWindows(kind, now),
     eventTypes: EVENT_TYPES,
     projectedSpend: declaredProjectedSpend,
     revenueProviders: revenueProviderIds,
+    spendProviders: spendProviderIds,
     ...overrides,
     events: { ...events, firstReadings: readings ?? firstReadings(overrides.snapshots) },
   });
@@ -330,11 +339,29 @@ describe("buildHeadline money", () => {
     expect(strip.spend.included).toEqual(["Example provider", "Vercel"]);
   });
 
-  it("names a provider that cannot report spend as unavailable and leaves it out of the sum", () => {
-    const strip = headline({ snapshots: [...vercelSpend, allowance(supabase.id, "2026-10-01")], connections: [vercel, supabase] });
+  it("names a provider that reports spend but has none for the window as unavailable and leaves it out of the sum", () => {
+    const strip = headline({ snapshots: [...vercelSpend, allowance(github.id, "2026-10-01")], connections: [vercel, github] });
     expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
-    expect(strip.spend.unavailable).toEqual(["Supabase"]);
+    expect(strip.spend.unavailable).toEqual(["GitHub"]);
     expect(strip.spend.included).toEqual(["Vercel"]);
+  });
+
+  it("leaves out a provider that never reports spend instead of naming it unavailable (#286)", () => {
+    const nonSpending = (["gitlab", "resend", "sentry", "supabase"] as const).map((provider) => connection(`c-${provider}`, provider));
+    const readings = nonSpending.map((owner) => allowance(owner.id, "2026-10-01"));
+    const strip = headline({ snapshots: [...vercelSpend, ...readings], connections: [vercel, ...nonSpending] });
+    expect(strip.spend).toMatchObject({ included: ["Vercel"], unavailable: [], previousUnavailable: [] });
+    expect(strip.costPerSignup).toMatchObject({ spendUnavailable: [] });
+    // Boundary: with only those in view, no provider reports spend, so none is named as failing.
+    expect(headline({ snapshots: readings, connections: nonSpending }).spend).toMatchObject({ lines: null, included: [], unavailable: [] });
+    // Boundary: one that declares spend and has no reading at all is still named.
+    expect(headline({ snapshots: readings, connections: [vercel, ...nonSpending] }).spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
+  });
+
+  it("counts a spend reading from a provider whatever its adapter declares", () => {
+    const strip = headline({ snapshots: vercelSpend, connections: [vercel], spendProviders: [] });
+    expect(strip.spend).toMatchObject({ included: ["Vercel"], unavailable: [] });
+    expect(line(strip.spend.lines, "USD")?.verified?.value).toBe(400);
   });
 
   it("keeps verified and estimated amounts apart in spend, revenue minus spend, and cost per signup", () => {
@@ -507,12 +534,12 @@ describe("buildHeadline counts", () => {
       value: 125,
       comparison: { status: "change", direction: "down", percent: 50, previous: 250 },
     });
-    // Supabase cannot report spend, so its spend is left out while its signups count.
+    // Supabase reports no spend, so it is not named among the spend left out while its signups count.
     expect(strip.costPerSignup).toMatchObject({
       missing: null,
       spendFrom: ["Vercel"],
       signupsFrom: ["Supabase"],
-      spendUnavailable: ["Supabase"],
+      spendUnavailable: [],
       signupsUnavailable: [],
       comparisonGap: null,
     });
@@ -643,7 +670,7 @@ describe("buildHeadline daily signup totals", () => {
     expect(strip.costPerSignup).toMatchObject({
       signupsFrom: ["PostHog", "Supabase"],
       signupsWholeDays: ["PostHog"],
-      spendUnavailable: ["PostHog", "Supabase"],
+      spendUnavailable: ["PostHog"],
     });
   });
 
@@ -692,8 +719,143 @@ describe("buildHeadline daily signup totals", () => {
   });
 });
 
+describe("the last complete window when the window to date has no figure (#267)", () => {
+  // Every connection last synced on Monday 2026-11-02, three days before NOW (Thursday). The last
+  // complete week is 2026-10-26 to 2026-11-01, against 2026-10-19 to 2026-10-25.
+  const syncedAt = "2026-11-02T09:00:00.000Z";
+  const stale = (owner: ConnectionInput) => ({ ...owner, last_synced_at: syncedAt });
+  const untilSync = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 100, from: "2026-10-01", to: "2026-11-02" });
+  const supabaseHistory = [allowance(supabase.id, "2026-10-01")];
+  const connections = [stale(vercel), stale(supabase)];
+
+  /** The strip of the window to date with nothing to read, so it has no figure. */
+  const emptyStrip = (owners: readonly ConnectionInput[], kind: HeadlineWindowKind = "week", now = NOW) =>
+    headline({ snapshots: [], connections: owners, kind, now });
+
+  function lastWeek(): HeadlineWindows {
+    const windows = fallbackWindows(emptyStrip(connections), connections, NOW);
+    if (windows === null) throw new Error("expected a last complete week");
+    return windows;
+  }
+
+  it("reports nothing for the week so far when every connection is three days stale, and the last complete week instead", () => {
+    const current = headline({ snapshots: [...untilSync, ...supabaseHistory], connections });
+    expect(hasFigure(current)).toBe(false);
+    expect(current.spend).toMatchObject({ lines: null, unavailable: ["Vercel"] });
+
+    const windows = fallbackWindows(current, connections, NOW);
+    expect(windows).toEqual({
+      kind: "week",
+      complete: true,
+      current: { start: "2026-10-26", end: "2026-11-01" },
+      previous: { start: "2026-10-19", end: "2026-10-25" },
+    });
+    if (windows === null) throw new Error("expected a last complete week");
+    const fallback = headline({
+      snapshots: [...untilSync, ...supabaseHistory],
+      connections,
+      windows,
+      events: {
+        current: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 6 }],
+        previous: [{ connection_id: supabase.id, type_id: "supabase.auth.signup", events: 3 }],
+      },
+    });
+    // 2026-10-26 to 2026-10-31 at 100 a day, plus November's first reading: every day of the whole
+    // week, against every day of the week before.
+    expect(line(fallback.spend.lines, "USD")?.verified).toEqual({
+      value: 700,
+      comparison: { status: "change", direction: "same", percent: 0, previous: 700 },
+    });
+    expect(fallback.signups).toMatchObject({ value: { value: 6, comparison: { status: "change", direction: "up", percent: 100 } }, unavailable: [] });
+    expect(chooseHeadline(current, fallback)).toEqual({ status: "fallback", strip: fallback, current: current.windows });
+  });
+
+  it("takes the last whole month, and the whole month before it, for the month view", () => {
+    expect(fallbackWindows(emptyStrip(connections, "month"), connections, NOW)).toEqual({
+      kind: "month",
+      complete: true,
+      current: { start: "2026-10-01", end: "2026-10-31" },
+      previous: { start: "2026-09-01", end: "2026-09-30" },
+    });
+    const lastDay = [connection(vercel.id, "vercel", { last_synced_at: "2026-12-01T09:00:00.000Z" })];
+    // Synced on 1 December: November is whole, and compares with all of October.
+    const december = new Date("2026-12-03T12:00:00.000Z");
+    expect(fallbackWindows(emptyStrip(lastDay, "month", december), lastDay, december)).toMatchObject({
+      current: { start: "2026-11-01", end: "2026-11-30" },
+      previous: { start: "2026-10-01", end: "2026-10-31" },
+    });
+  });
+
+  it.each([
+    ["synced exactly 48 hours before now", "2026-11-03T12:00:00.000Z", ["2026-10-26", "2026-11-01"]],
+    ["synced in the first minute of Monday, so Sunday is whole", "2026-11-02T00:01:00.000Z", ["2026-10-26", "2026-11-01"]],
+    ["synced in the last minute of Sunday, so Sunday is not whole", "2026-11-01T23:59:00.000Z", ["2026-10-19", "2026-10-25"]],
+    ["synced one millisecond before Wednesday, the last required day", "2026-11-03T23:59:59.999Z", ["2026-10-26", "2026-11-01"]],
+  ])("boundary: %s", (_name, lastSyncedAt, [start, end]) => {
+    const owners = [connection(vercel.id, "vercel", { last_synced_at: lastSyncedAt })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start, end });
+  });
+
+  it("takes no fallback when no connection is stale: a sync at the start of the last required day (boundary)", () => {
+    const owners = [connection(vercel.id, "vercel", { last_synced_at: "2026-11-04T00:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)).toBeNull();
+  });
+
+  it("keeps a fresh strip's own reasons, with no second read, when its providers report none of the figures (boundary: GitHub only)", () => {
+    const current = headline({ snapshots: [allowance(github.id, "2026-10-01")], connections: [github] });
+    expect(hasFigure(current)).toBe(false);
+    expect(current.spend).toMatchObject({ lines: null, unavailable: ["GitHub"] });
+    expect(fallbackWindows(current, [github], NOW)).toBeNull();
+    expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
+  });
+
+  it("takes no fallback for a disconnected connection, which no sync brings up to date (boundary: revoked)", () => {
+    const revoked = connection(vercel.id, "vercel", { status: "revoked", last_synced_at: "2026-10-20T09:00:00.000Z" });
+    expect(fallbackWindows(emptyStrip([revoked]), [revoked], NOW)).toBeNull();
+    // Beside a connection that is stale and can sync, the window follows that one alone.
+    const owners = [revoked, connection(supabase.id, "supabase", { last_synced_at: "2026-11-02T09:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start: "2026-10-26", end: "2026-11-01" });
+  });
+
+  it("goes by the stale connections only, so a fresh one behind no figure does not keep the window too recent", () => {
+    // GitHub reports nothing the strip counts and synced an hour ago; Vercel last synced on 2026-10-20.
+    const owners = [github, connection(vercel.id, "vercel", { last_synced_at: "2026-10-20T09:00:00.000Z" })];
+    expect(fallbackWindows(emptyStrip(owners), owners, NOW)?.current).toEqual({ start: "2026-10-12", end: "2026-10-18" });
+  });
+
+  it("has no last complete window when nothing in view has synced (boundary: no complete window at all)", () => {
+    const neverSynced = [connection(vercel.id, "vercel", { last_synced_at: null })];
+    expect(fallbackWindows(emptyStrip(neverSynced), neverSynced, NOW)).toBeNull();
+    expect(fallbackWindows(emptyStrip([]), [], NOW)).toBeNull();
+  });
+
+  it("explains once instead of six unavailable figures when the last complete week has none either (boundary: no complete window at all)", () => {
+    // Connected on 2026-10-30, after the last complete week began.
+    const late = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 100, from: "2026-10-30", to: "2026-11-02" });
+    const current = headline({ snapshots: late, connections: [stale(vercel)] });
+    const fallback = headline({ snapshots: late, connections: [stale(vercel)], windows: lastWeek() });
+    expect(hasFigure(fallback)).toBe(false);
+    expect(chooseHeadline(current, fallback)).toEqual({ status: "empty", current: current.windows });
+    // Without a fallback taken, the strip keeps its own reasons.
+    expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
+  });
+
+  it("keeps the week so far when one connection is stale and the rest are fresh (boundary: one stale)", () => {
+    const fakeUntilSync = runningTotal({ connectionId: fake.id, metricKey: "fake.spend.month", perDay: 30, from: "2026-10-01", to: "2026-11-02" });
+    const vercelSpend = runningTotal({ connectionId: vercel.id, metricKey: "vercel.spend.total", perDay: 100, from: "2026-10-01", to: "2026-11-05" });
+    const current = headline({ snapshots: [...vercelSpend, ...fakeUntilSync], connections: [vercel, stale(fake)] });
+    expect(hasFigure(current)).toBe(true);
+    expect(current.spend).toMatchObject({ included: ["Vercel"], unavailable: ["Example provider"] });
+    expect(fallbackWindows(current, [vercel, stale(fake)], NOW)).toBeNull();
+    expect(chooseHeadline(current, null)).toEqual({ status: "current", strip: current });
+  });
+});
+
 describe("headline copy", () => {
   const usd = moneyFormatter("USD");
+  const week = headlineWindows("week", NOW);
+  const month = headlineWindows("month", NOW);
+  const lastWeek = { kind: "week", complete: true } as const;
 
   it.each([
     ["up with a percent", { status: "change", direction: "up", percent: 12.4, previous: 1_000 } as const, "Up 12 percent from $10.00 on the same days last week"],
@@ -702,20 +864,38 @@ describe("headline copy", () => {
     ["no change", { status: "change", direction: "same", percent: 0, previous: 1_000 } as const, "No change from $10.00 on the same days last week"],
     ["no previous value", { status: "unavailable", missing: "previous" } as const, "No comparison: the same days last week are unavailable"],
   ])("comparison text: %s", (_name, comparison, expected) => {
-    expect(headlineComparisonText(comparison, usd, "week")).toBe(expected);
+    expect(headlineComparisonText(comparison, usd, week)).toBe(expected);
   });
 
   it("names the providers that could not report the previous window", () => {
     expect(
-      headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "month", { reason: "providers", names: ["Stripe", "Vercel"] }),
+      headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, month, { reason: "providers", names: ["Stripe", "Vercel"] }),
     ).toBe("No comparison: Stripe and Vercel could not report the same days last month");
-    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, "week", { reason: "no_signups" })).toBe(
+    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, week, { reason: "no_signups" })).toBe(
       "No comparison: there were no signups on the same days last week",
     );
   });
 
+  it("compares a last complete window with the whole one before it", () => {
+    expect(headlineTitle(week)).toBe("This week so far");
+    expect(headlineTitle(lastWeek)).toBe("Last complete week");
+    expect(headlineTitle({ kind: "month", complete: true })).toBe("Last complete month");
+    expect(headlineComparisonText({ status: "change", direction: "up", percent: 50, previous: 1_000 }, usd, lastWeek)).toBe(
+      "Up 50 percent from $10.00 in the week before",
+    );
+    expect(headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, { kind: "month", complete: true })).toBe(
+      "No comparison: the month before is unavailable",
+    );
+    expect(headlineFallbackNote(week)).toBe(
+      "Nothing can be shown for this week so far: no connection in this view has a reading for every day of it yet. These figures are for the last complete week instead.",
+    );
+    expect(headlineEmptyNote(month)).toBe(
+      "Nothing can be shown for this month so far or for the last complete month: each figure needs a reading for every day of its window, and no connection in this view has one. Figures appear once a connection has synced every day of a month.",
+    );
+  });
+
   it("describes the windows as UTC dates, a single day once", () => {
-    expect(windowDescription(headlineWindows("week", NOW))).toBe("2026-11-02 to 2026-11-05 in UTC, compared with 2026-10-26 to 2026-10-29.");
+    expect(windowDescription(week)).toBe("2026-11-02 to 2026-11-05 in UTC, compared with 2026-10-26 to 2026-10-29.");
     expect(windowDescription(headlineWindows("week", new Date("2026-11-02T08:00:00.000Z")))).toBe("2026-11-02 in UTC, compared with 2026-10-26.");
   });
 
@@ -750,10 +930,13 @@ describe("headline copy", () => {
 
   it("never prints a dash or an exclamation mark", () => {
     const texts = [
-      headlineComparisonText({ status: "change", direction: "down", percent: 50, previous: -500 }, usd, "week"),
-      windowDescription(headlineWindows("month", NOW)),
+      headlineComparisonText({ status: "change", direction: "down", percent: 50, previous: -500 }, usd, week),
+      headlineComparisonText({ status: "unavailable", missing: "previous" }, usd, lastWeek),
+      windowDescription(month),
       costPerSignupExplanation({ spendFrom: ["Vercel"], signupsFrom: ["PostHog"], spendUnavailable: [], signupsUnavailable: [], signupsWholeDays: ["PostHog"] }),
       wholeDaysNote(["PostHog"]),
+      headlineFallbackNote(month),
+      headlineEmptyNote(week),
     ];
     for (const text of texts) expect(text).not.toMatch(/[\u2013\u2014!]/);
   });

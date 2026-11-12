@@ -1,33 +1,20 @@
 import type { Metadata, Viewport } from "next";
 import { SkipLink } from "@/components/skip-link";
 import { site } from "@/lib/site";
+import { LANDING_TITLE, siteMetadataBase, socialMetadata } from "@/lib/site-metadata";
 import { documentClassName } from "./fonts";
 import "./globals.css";
 
-// The public origin is configuration, not code: the domain is not registered yet, and
-// self-hosters serve from their own. Unset means no absolute URLs in metadata.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-
-const title = `${site.name} · ${site.tagline}`;
-
 export const metadata: Metadata = {
-  metadataBase: siteUrl ? new URL(siteUrl) : null,
+  // NEXT_PUBLIC_SITE_URL; unset means no absolute URLs in metadata (src/lib/site-metadata.ts).
+  metadataBase: siteMetadataBase(),
   title: {
-    default: title,
+    default: LANDING_TITLE,
     template: `%s · ${site.name}`,
   },
   description: site.description,
-  openGraph: {
-    type: "website",
-    siteName: site.name,
-    title,
-    description: site.description,
-  },
-  twitter: {
-    card: "summary",
-    title,
-    description: site.description,
-  },
+  // The cards a page without its own inherits. No path: a canonical address here would be every page's.
+  ...socialMetadata({ title: LANDING_TITLE, description: site.description }),
 };
 
 export const viewport: Viewport = {
