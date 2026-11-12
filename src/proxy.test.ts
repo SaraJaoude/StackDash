@@ -13,10 +13,11 @@ import { proxy } from "./proxy";
 // super admin page's 404 status (#374), decided from the verified claims.
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { checkPublicRateLimit, findPublicProjectPage, getClaims } = vi.hoisted(() => ({
+const { checkPublicRateLimit, findPublicProjectPage, getClaims, warn } = vi.hoisted(() => ({
   checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
   findPublicProjectPage: vi.fn<(address: string, pageSlug: string) => Promise<PublicPageMatch | null>>(),
   getClaims: vi.fn<() => Promise<{ data: { claims: { sub: string; email?: string } } | null }>>(),
+  warn: vi.fn(),
 }));
 
 vi.mock("@/lib/data/project-pages", () => ({ findPublicProjectPage }));
@@ -25,11 +26,11 @@ vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   checkPublicRateLimit,
 }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth: { getClaims } }) }));
-// Keeps the invalid list case's error line out of the test output.
-vi.mock("@/lib/log/logger", async (importOriginal) => ({
-  ...(await importOriginal<typeof LoggerModule>()),
-  logError: () => "ref-123",
-}));
+// The admin refusal's warning is asserted; the invalid list case's error line stays out of the output.
+vi.mock("@/lib/log/logger", async (importOriginal) => {
+  const original = await importOriginal<typeof LoggerModule>();
+  return { ...original, log: { ...original.log, warn }, logError: () => "ref-123" };
+});
 
 const ADDRESS = "/@acme-labs/acme-web";
 const PAGE: PublicPageMatch = {
@@ -145,8 +146,10 @@ describe("proxy for the super admin page", () => {
     vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com");
   });
 
+  const USER_ID = "10000000-0000-4000-8000-000000000001";
+
   function signedInAs(email: string | undefined): void {
-    const claims = { sub: "10000000-0000-4000-8000-000000000001", ...(email === undefined ? {} : { email }) };
+    const claims = { sub: USER_ID, ...(email === undefined ? {} : { email }) };
     getClaims.mockResolvedValue({ data: { claims } });
   }
 
@@ -160,6 +163,7 @@ describe("proxy for the super admin page", () => {
 
     expect(rewrittenTo(response)).toBe("/app/admin/_");
     expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
   });
 
   it("lets a super admin through to the page, in any case of the address", async () => {

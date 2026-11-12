@@ -207,7 +207,11 @@ export async function proxy(request: NextRequest) {
     const signIn = new URL("/sign-in", request.url);
     signIn.searchParams.set("next", safeNextPath(`${pathname}${search}`));
     response = NextResponse.redirect(signIn);
-  } else if (signedIn && pathname === ADMIN_PATH && refusesAdminBeforeRender(data.claims.email ?? null)) {
+  } else if (
+    signedIn &&
+    pathname === ADMIN_PATH &&
+    refusesAdminBeforeRender({ id: data.claims.sub, email: data.claims.email ?? null })
+  ) {
     response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) =>
       NextResponse.rewrite(new URL(UNKNOWN_ADMIN_PATH, request.url), init),
     );
