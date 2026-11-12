@@ -12,7 +12,9 @@
  * - An account is expected in a bucket from its first row on. One that has stopped reporting (no
  *   row since `snapshotWindowStart(now)`, the dashboard's window) is expected only up to the
  *   bucket of its last row, in both granularities (#308), so a stopped account never makes a
- *   later day or month unavailable, and the daily and monthly views agree about it.
+ *   later day or month unavailable, and the daily and monthly views agree about it. The cost: the
+ *   comparison across that account's last bucket compares a sum that includes it with one that no
+ *   longer does, so it can show a fall that is only the account leaving.
  * - A point is estimated when any row behind it is estimated. A series is simulated when any
  *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
@@ -125,8 +127,7 @@ type SeriesBuilder = {
   measure: TrendMeasure;
   latest: TrendRow;
   /** First and last date each account reported this metric, within the loaded rows. */
-  firstDates: Map<string, string>;
-  lastDates: Map<string, string>;
+  spans: Map<string, { first: string; last: string }>;
   /** Bucket, then account, then that account's latest row in the bucket. */
   cells: Map<string, Map<string, TrendRow>>;
   simulated: boolean;
@@ -171,14 +172,14 @@ export function buildTrends(
     const key = seriesKey(provider, row.metric_key, measure);
     let builder = builders.get(key);
     if (builder === undefined) {
-      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), lastDates: new Map(), cells: new Map(), simulated: false };
+      builder = { provider, metricKey: row.metric_key, measure, latest: row, spans: new Map(), cells: new Map(), simulated: false };
       builders.set(key, builder);
     }
     if (newer(row, builder.latest)) builder.latest = row;
-    const first = builder.firstDates.get(row.external_account_id);
-    if (first === undefined || row.snapshot_date < first) builder.firstDates.set(row.external_account_id, row.snapshot_date);
-    const last = builder.lastDates.get(row.external_account_id);
-    if (last === undefined || row.snapshot_date > last) builder.lastDates.set(row.external_account_id, row.snapshot_date);
+    const span = builder.spans.get(row.external_account_id);
+    if (span === undefined) builder.spans.set(row.external_account_id, { first: row.snapshot_date, last: row.snapshot_date });
+    else if (row.snapshot_date < span.first) span.first = row.snapshot_date;
+    else if (row.snapshot_date > span.last) span.last = row.snapshot_date;
 
     const bucket = granularity === "daily" ? row.snapshot_date : row.snapshot_date.slice(0, 7);
     if (!inWindow.has(bucket)) continue;
@@ -198,11 +199,8 @@ export function buildTrends(
       const bucketStart = granularity === "daily" ? bucket : `${bucket}-01`;
       // "YYYY-MM-31" sorts after every real date in the month, so it stands for the month's end.
       const bucketEnd = granularity === "daily" ? bucket : `${bucket}-31`;
-      const expected = [...builder.firstDates]
-        .filter(([account, first]) => {
-          const last = builder.lastDates.get(account) ?? first;
-          return first <= bucketEnd && (last >= reportingSince || last >= bucketStart);
-        })
+      const expected = [...builder.spans]
+        .filter(([, { first, last }]) => first <= bucketEnd && (last >= reportingSince || last >= bucketStart))
         .map(([account]) => account);
       const cell = builder.cells.get(bucket);
       let value = 0;
