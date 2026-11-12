@@ -25,7 +25,7 @@ export const metadata: Metadata = { title: "Settings" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function SettingsPage(props: PageProps<"/w/[workspace]/settings">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading settings" />}>
       <SettingsContent {...props} />
     </Suspense>
   );
@@ -155,7 +155,7 @@ async function SettingsContent({ params }: PageProps<"/w/[workspace]/settings">)
       <EmptyState
         icon={<MailIcon width={20} height={20} />}
         title="No teammates invited"
-        description="Inviting teammates comes after the MVP. For now, each workspace is used by the people already in it."
+        description="DevMacro does not invite teammates by email yet. Each workspace is used by the people already in it."
       />
     </>
   );

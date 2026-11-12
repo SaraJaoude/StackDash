@@ -202,8 +202,14 @@ export type SyncResult = {
   partialErrors?: PermissionMissingError[];
 };
 
-export interface ProviderAdapter {
-  readonly id: ProviderId;
+/**
+ * `Id` is a registered `ProviderId` everywhere the app reads an adapter. It is wider only for an
+ * adapter `liveProviderIds` does not name yet: the example adapter (`example/index.ts`) and a copy
+ * of it run the contract harness (`harness.ts`) under their own id before any shared file changes
+ * (docs/adapters.md). Registering the id makes `ProviderAdapter<"acme">` a `ProviderAdapter`.
+ */
+export interface ProviderAdapter<Id extends string = ProviderId> {
+  readonly id: Id;
   readonly displayName: string;
   readonly capabilities: AdapterCapabilities;
   readonly permissions: readonly Permission[];

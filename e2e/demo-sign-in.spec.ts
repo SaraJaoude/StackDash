@@ -8,7 +8,7 @@ import { z } from "zod";
 import { DEMO_USER_MARKER, demoSignInLink } from "../src/lib/demo/sign-in";
 
 import { authAdminClient, authEnv, createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
-import { adminClient } from "./fixtures/db";
+import { adminClient, personalWorkspace } from "./fixtures/db";
 
 /*
  * The demo account's one-time sign-in link (#260), end to end on the local stack: minted by
@@ -22,17 +22,6 @@ import { adminClient } from "./fixtures/db";
 const run = promisify(execFile);
 const FAILED_RUN = z.object({ code: z.number(), stdout: z.string(), stderr: z.string() });
 const LINK_INVALID = "This sign-in link has expired or was already used. Run npm run demo again to print a new one.";
-
-async function personalWorkspaceSlug(user: SyntheticUser): Promise<string> {
-  const { data, error } = await adminClient()
-    .from("workspaces")
-    .select("slug")
-    .eq("created_by", user.id)
-    .eq("is_personal", true)
-    .single();
-  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
-  return data.slug;
-}
 
 /** A one-time link for `user` that lands on `next`, relative to the test's base URL. */
 function mintLink(user: SyntheticUser, next: string): Promise<string> {
@@ -55,7 +44,7 @@ test.describe("demo sign-in link", () => {
     const user = await createSyntheticUser("demo-link");
     try {
       await markAsDemoAccount(user);
-      const slug = await personalWorkspaceSlug(user);
+      const { slug } = await personalWorkspace(user.id);
       const link = await mintLink(user, `/w/${slug}/dashboard`);
 
       await page.goto(link);
@@ -87,7 +76,7 @@ test.describe("demo sign-in link", () => {
   test("refuses a link for an account that is not the demo account, and leaves it signed out", async ({ page }) => {
     const user = await createSyntheticUser("not-demo-link");
     try {
-      const slug = await personalWorkspaceSlug(user);
+      const { slug } = await personalWorkspace(user.id);
       await page.goto(await mintLink(user, `/w/${slug}/dashboard`));
       await expectLinkRefused(page);
 

@@ -108,17 +108,19 @@ function collectHydrationErrors(page: Page): () => readonly string[] {
   return () => errors;
 }
 
+// `loading` is the page skeleton's status line, which names what is loading (#345). It shows
+// while the page's boundary is held, so the hold below is also where it is checked.
 const PAGES = [
-  { path: "settings", heading: "Settings" },
-  { path: "alerts", heading: "Alerts" },
-  { path: "alerts/settings", heading: "Alert settings" },
-  { path: "connections", heading: "Connections" },
-  { path: "dashboard", heading: "Dashboard" },
-  { path: "timeline", heading: "Timeline" },
+  { path: "settings", heading: "Settings", loading: "Loading settings" },
+  { path: "alerts", heading: "Alerts", loading: "Loading alerts" },
+  { path: "alerts/settings", heading: "Alert settings", loading: "Loading alert settings" },
+  { path: "connections", heading: "Connections", loading: "Loading connections" },
+  { path: "dashboard", heading: "Dashboard", loading: "Loading the dashboard" },
+  { path: "timeline", heading: "Timeline", loading: "Loading the timeline" },
 ] as const;
 
 ownerTest.describe("streamed workspace pages hydrate once (#211)", () => {
-  for (const { path, heading } of PAGES) {
+  for (const { path, heading, loading } of PAGES) {
     ownerTest(`${path}: the live connection opening before the page is revealed does not render it twice`, async ({
       page,
     }) => {
@@ -144,6 +146,7 @@ ownerTest.describe("streamed workspace pages hydrate once (#211)", () => {
             { message: "the page's content streamed in a boundary that reached the hold" },
           )
           .toBeGreaterThan(0);
+        await expect(page.locator("#main").getByRole("status").filter({ hasText: /^Loading/ })).toHaveText(loading);
 
         const reveals = await page.evaluate(() => {
           const target: RevealWindow = window;

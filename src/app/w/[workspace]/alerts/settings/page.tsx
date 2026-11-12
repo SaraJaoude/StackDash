@@ -23,7 +23,7 @@ const searchSchema = z.object({
 // has an instant shell; access checks and data reads stream in behind it.
 export default function AlertSettingsPage(props: PageProps<"/w/[workspace]/alerts/settings">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading alert settings" />}>
       <AlertSettingsContent {...props} />
     </Suspense>
   );
@@ -66,7 +66,7 @@ async function AlertSettingsContent({ params, searchParams }: PageProps<"/w/[wor
       <Suspense
         fallback={
           <p role="status" className="mt-8 text-sm text-muted">
-            Loading anomaly detection settings
+            Loading unusual spend and usage settings
           </p>
         }
       >

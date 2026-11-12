@@ -52,7 +52,7 @@ export function Faq() {
       <div className="mx-auto max-w-3xl divide-y divide-line rounded-xl border border-line bg-panel">
         {faq.map((item) => (
           <details key={item.question} className="group px-6 py-5">
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-6 cursor-pointer list-none items-center justify-between gap-4 text-sm font-medium marker:hidden [&::-webkit-details-marker]:hidden">
               {item.question}
               <span aria-hidden="true" className="shrink-0 font-mono text-muted transition-transform group-open:rotate-45">
                 +

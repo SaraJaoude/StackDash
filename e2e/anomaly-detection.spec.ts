@@ -3,6 +3,7 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openFilters } from "./fixtures/filters";
 
 // Every test seeds its own workspace with synthetic data from the fake provider only. The
 // detection itself is unit tested (src/lib/alerts/anomaly.test.ts, src/lib/jobs/daily-summary.test.ts);
@@ -91,20 +92,29 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
       await expect(page).toHaveURL(/\/timeline\?type=devmacro\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
+      // The page the link lands on names the type the way the alerts page names the feature (#345).
+      await openFilters(page, "keyboard");
+      const types = page.getByRole("group", { name: "Event type" });
+      await expect(types.getByRole("checkbox", { name: "DevMacro: Unusual spend or usage" })).toBeChecked();
+      await expect(types).not.toContainText(/anomal/i);
+      await expectNoAxeViolations(page);
 
       await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const section = anomalySection(page);
-      await expect(section).toContainText("Anomaly detection is on");
+      await expect(section).toContainText("Unusual spend and usage checks are on");
+      // One name for the feature in the product (#345): the section never says "anomaly".
+      await expect(section).not.toContainText(/anomal/i);
       await expect(section).toContainText("No muted metrics. Every spend and usage metric is checked.");
 
       // Keyboard only: focus the switch and press Enter.
-      const turnOff = section.getByRole("button", { name: "Turn off anomaly detection" });
+      const turnOff = section.getByRole("button", { name: "Turn off unusual spend and usage checks" });
       await turnOff.focus();
       await page.keyboard.press("Enter");
-      await expect(section.getByRole("status").filter({ hasText: "Anomaly detection is off." })).toBeVisible();
+      await expect(section.getByRole("status").filter({ hasText: "Unusual spend and usage checks are off." })).toBeVisible();
       await expect(section).toContainText("No unusual days are flagged.");
-      await section.getByRole("button", { name: "Turn on anomaly detection" }).click();
-      await expect(section.getByRole("status").filter({ hasText: "Anomaly detection is on." })).toBeVisible();
+      await expect(section).not.toContainText(/anomal/i);
+      await section.getByRole("button", { name: "Turn on unusual spend and usage checks" }).click();
+      await expect(section.getByRole("status").filter({ hasText: "Unusual spend and usage checks are on." })).toBeVisible();
 
       // Submitting without a choice explains what to do.
       await section.getByRole("button", { name: "Mute metric" }).click();
@@ -135,7 +145,7 @@ viewerTest.describe("anomaly detection as a viewer", () => {
       await seedAnomaly(workspace);
       await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const section = anomalySection(page);
-      await expect(section).toContainText("Anomaly detection is on");
+      await expect(section).toContainText("Unusual spend and usage checks are on");
       await expect(section).toContainText("Only owners and admins can manage budgets and alert rules.");
       await expect(section.getByRole("button")).toHaveCount(0);
       await expect(section.getByLabel("Metric to mute")).toHaveCount(0);

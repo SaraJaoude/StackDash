@@ -3,7 +3,6 @@ import {
   AdapterScopedKeySchema,
   issuesFromZod,
   type BatchValidation,
-  type ProviderId,
   type ValidationIssue,
 } from "./types";
 
@@ -155,9 +154,11 @@ export type Provenance = z.infer<typeof ProvenanceSchema>;
  * Gate between an adapter's `sync` output and storage. All or nothing: a
  * batch with one malformed metric points at an adapter bug, and storing the
  * rest would show a dashboard that looks complete but is not.
+ * `providerId` is the adapter's id, registered or not (`ProviderAdapter`), so
+ * the contract harness applies the same gate to an adapter before it is registered.
  */
 export function validateAdapterMetrics(
-  providerId: ProviderId,
+  providerId: string,
   candidates: readonly unknown[],
 ): BatchValidation<AdapterMetric> {
   const items: AdapterMetric[] = [];
