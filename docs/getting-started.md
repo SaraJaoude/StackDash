@@ -4,7 +4,7 @@ This guide takes you from signing in to a workspace that shows your stack: conne
 
 ## 1. Sign in
 
-Open your DevMacro site and select **Sign in**, then **Continue with GitHub**, and approve DevMacro on GitHub. DevMacro is invite only during the test: sign in with the GitHub account whose primary email was invited. Any other account is refused with "This GitHub account's email has not been invited to the DevMacro test."
+Open your DevMacro site and select **Sign in**, then **Continue with GitHub**, and approve DevMacro on GitHub. DevMacro is invite only during the test: sign in with the GitHub account whose primary email was invited. Any other account is refused with "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again."
 
 You land on the **Timeline** of your personal workspace. The navigation along the top of every workspace page holds **Timeline**, **Dashboard**, **Connections**, **Alerts**, **Projects**, and **Settings**.
 
