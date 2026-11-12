@@ -4,8 +4,9 @@
  * error pages, `md` the 40px form button, `sm` the 36px row action, `xs` the 32px control in dense
  * lists. Both disabled states share one opacity, because `GuardedButton` marks itself
  * `aria-disabled` and a plain button uses `disabled`. Only `disabled` shows the not-allowed
- * cursor: it refuses until something changes (a confirmation typed), while `aria-disabled` is
- * `GuardedButton` busy with its own action, and the sign-in button shows a wait cursor for that.
+ * cursor. `aria-disabled` covers both a busy button and a refused one (a cooldown, the first
+ * slide), so no single cursor is right for it, and the sign-in button adds its own `cursor-wait`,
+ * which a shared cursor would fight by stylesheet order.
  *
  * Callers add layout only (`mt-3`, `shrink-0`, `gap-2`, `self-start`), never another color or
  * border, so a fix to a variant reaches every button that uses it.
