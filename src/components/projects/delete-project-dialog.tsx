@@ -7,6 +7,7 @@ import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
 import { failureOf } from "@/components/projects/project-form-parts";
 import { deletionConsequences, type ProjectDeletionImpact } from "@/components/projects/project-rules";
+import { buttonClass } from "@/components/ui/button";
 
 type DeletableProject = { id: string; name: string } & ProjectDeletionImpact;
 
@@ -41,7 +42,7 @@ export function DeleteProjectDialog({
           setOpenCount((count) => count + 1);
           dialogRef.current?.showModal();
         }}
-        className="inline-flex min-h-9 items-center rounded-md border border-line-strong px-3 py-1.5 text-sm text-danger transition-colors hover:border-danger"
+        className={buttonClass("danger-quiet", "sm")}
       >
         Delete<span className="sr-only"> {project.name}</span>
       </button>
@@ -122,14 +123,14 @@ function DeleteProjectConfirmation({
           autoFocus
           unavailable={pending}
           onClick={onCancel}
-          className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
+          className={buttonClass("secondary")}
         >
           Cancel
         </GuardedButton>
         <GuardedButton
           type="submit"
           unavailable={pending}
-          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+          className={buttonClass("danger")}
         >
           {pending ? "Deleting" : "Delete project"}
         </GuardedButton>

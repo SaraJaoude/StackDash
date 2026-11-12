@@ -2,6 +2,7 @@
 
 import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
+import { buttonClass } from "@/components/ui/button";
 import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
@@ -38,11 +39,6 @@ const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> =
   creator_left: { label: "Not working", className: "border-warning/50 text-warning" },
   revoked: { label: "Revoked", className: "border-dashed border-line-strong text-muted" },
 };
-
-export const BUTTON_PRIMARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60";
-const BUTTON_SECONDARY =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground disabled:opacity-60";
 
 export function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKeyActionFailure | undefined {
   return state !== null && !state.ok ? state : undefined;
@@ -197,7 +193,7 @@ export function NewKeyPanel({
         />
         <button
           type="button"
-          className={BUTTON_PRIMARY}
+          className={`shrink-0 ${buttonClass("primary")}`}
           onClick={() => {
             navigator.clipboard.writeText(apiKey).then(
               () => onCopied(true),
@@ -208,7 +204,7 @@ export function NewKeyPanel({
           Copy key
         </button>
       </div>
-      <button type="button" onClick={onDismiss} className={`mt-3 ${BUTTON_SECONDARY}`}>
+      <button type="button" onClick={onDismiss} className={`mt-3 ${buttonClass("secondary")}`}>
         Hide key
       </button>
     </section>
@@ -333,7 +329,7 @@ function CreateApiKeyForm({
         )}
       </fieldset>
 
-      <button type="submit" disabled={pending} className={`mt-5 ${BUTTON_PRIMARY}`}>
+      <button type="submit" disabled={pending} className={`mt-5 shrink-0 ${buttonClass("primary")}`}>
         {pending ? "Creating" : "Create key"}
       </button>
       <ErrorSummary failure={failure} />
@@ -411,7 +407,7 @@ function RevokeApiKeyDialog({
           setOpenCount((count) => count + 1);
           dialogRef.current?.showModal();
         }}
-        className="inline-flex min-h-9 shrink-0 items-center self-start rounded-md border border-line-strong px-3 py-1.5 text-sm text-danger transition-colors hover:border-danger"
+        className={`shrink-0 self-start ${buttonClass("danger-quiet", "sm")}`}
       >
         Revoke<span className="sr-only"> {apiKey.name}</span>
       </button>
@@ -488,14 +484,14 @@ function RevokeConfirmation({
           autoFocus
           disabled={pending}
           onClick={onCancel}
-          className={BUTTON_SECONDARY}
+          className={buttonClass("secondary")}
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60"
+          className={buttonClass("danger")}
         >
           {pending ? "Revoking" : "Revoke key"}
         </button>

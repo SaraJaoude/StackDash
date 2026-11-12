@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { buttonClass } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
 import { REFERENCE_ID_PATTERN } from "@/lib/log/reference";
 
@@ -66,13 +67,13 @@ export default async function AuthErrorPage({ searchParams }: PageProps<"/auth/e
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/app"
-            className="inline-flex min-h-11 items-center rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary", "lg")}
           >
             Go to DevMacro
           </Link>
           <Link
             href="/"
-            className="inline-flex min-h-11 items-center rounded-lg border border-line-strong px-5 py-3 text-sm font-medium transition-colors hover:bg-panel-raised"
+            className={buttonClass("outline", "lg")}
           >
             Go to the home page
           </Link>

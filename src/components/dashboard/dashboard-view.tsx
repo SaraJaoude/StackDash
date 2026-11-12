@@ -3,6 +3,7 @@ import { useId, type ReactNode } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ScopeFilter } from "@/components/filters/scope-filter";
+import { buttonClass } from "@/components/ui/button";
 import {
   hasSimulatedSource,
   type CurrencyAmounts,
@@ -190,7 +191,7 @@ export function TrendsSection({ trends, markSimulated }: { trends: DashboardTren
             key={category}
             href={href}
             scroll={false}
-            className="inline-flex min-h-10 items-center gap-2 rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            className={`gap-2 ${buttonClass("secondary")}`}
           >
             <MarkerShape category={category} filled={shown} />
             {`${shown ? "Hide" : "Show"} ${markerCategoryLabel(category).toLowerCase()}`}
@@ -290,7 +291,7 @@ function ProviderTrendsGroup({
               scroll={false}
               aria-expanded={open}
               aria-controls={open ? moreId : undefined}
-              className="mt-3 inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+              className={`mt-3 ${buttonClass("secondary")}`}
             >
               <LinkPendingLabel idle={`${open ? "Hide" : "Show"} ${others}`} pending={`Loading ${others}`} />
             </Link>

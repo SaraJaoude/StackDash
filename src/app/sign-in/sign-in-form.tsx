@@ -4,6 +4,7 @@ import { useFormStatus } from "react-dom";
 
 import { GuardedButton } from "@/components/guarded-button";
 import { GitHubIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
 
 function ContinueButton() {
   // Leaving for GitHub takes a moment; say so, and stop a second click from starting a second flow.
@@ -14,7 +15,7 @@ function ContinueButton() {
         type="submit"
         unavailable={pending}
         aria-describedby="sign-in-status"
-        className="inline-flex min-h-11 w-full items-center justify-center gap-2.5 rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:cursor-wait aria-disabled:opacity-60"
+        className={`${buttonClass("primary", "lg")} w-full gap-2.5 aria-disabled:cursor-wait`}
       >
         <GitHubIcon />
         Continue with GitHub

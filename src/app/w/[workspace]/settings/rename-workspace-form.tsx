@@ -3,6 +3,7 @@
 import { useActionState, useId, useState } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
 import { renameWorkspace, type RenameWorkspaceResult } from "./actions";
 
@@ -58,7 +59,7 @@ export function RenameWorkspaceForm({ workspaceSlug, currentName }: { workspaceS
         <GuardedButton
           type="submit"
           unavailable={pending}
-          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+          className={`shrink-0 ${buttonClass("primary")}`}
         >
           {pending ? "Saving" : "Save name"}
         </GuardedButton>

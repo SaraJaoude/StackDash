@@ -13,6 +13,7 @@ import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
@@ -190,7 +191,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           {showNewestLink ? (
             <Link
               href={timelineHref(basePath, query, null)}
-              className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+              className={buttonClass("secondary")}
             >
               Show newest events
             </Link>
@@ -198,7 +199,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           {page.nextCursor === null ? null : (
             <Link
               href={timelineHref(basePath, query, page.nextCursor)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+              className={`gap-2 ${buttonClass("primary")}`}
             >
               Load older events
               <ArrowRightIcon />

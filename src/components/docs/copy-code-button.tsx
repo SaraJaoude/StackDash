@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { smallButtonClass } from "@/components/alerts/form-controls";
+import { buttonClass } from "@/components/ui/button";
 
 // Long enough to read. Each copy clears the message first, so copying again restarts the wait.
 const STATUS_CLEAR_MS = 4000;
@@ -42,7 +42,7 @@ export function CopyCodeButton({ code, blockName }: { code: string; blockName: s
         {status}
       </span>
       {/* The name starts with the visible text, so speech input users can say "Copy code". */}
-      <button type="button" onClick={copy} aria-label={`Copy code: ${blockName}`} className={smallButtonClass}>
+      <button type="button" onClick={copy} aria-label={`Copy code: ${blockName}`} className={buttonClass("raised", "xs")}>
         Copy code
       </button>
     </>

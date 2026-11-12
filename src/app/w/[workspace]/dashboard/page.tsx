@@ -8,7 +8,6 @@ import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
-import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { AlertsSummary } from "@/components/dashboard/alerts-summary";
 import { DashboardView, renderedSeries, TrendsSection, TrendsSkeleton } from "@/components/dashboard/dashboard-view";
@@ -16,6 +15,7 @@ import { HeadlineStrip } from "@/components/dashboard/headline-strip";
 import { StaleNotice } from "@/components/dashboard/stale-notice";
 import { WhatChanged } from "@/components/dashboard/what-changed";
 import { GaugeIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
 import {
   declaredCapabilities,
   declaredEventTypes,
@@ -155,7 +155,7 @@ async function DashboardPageContent({ params, searchParams }: PageProps<"/w/[wor
         title="Dashboard"
         description="Spend, usage, and allowances across every provider this workspace connects."
         actions={
-          <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={secondaryButtonClass}>
+          <Link href={yearInReviewPath(access.workspace.slug, reviewYear)} className={buttonClass("raised")}>
             {isYearComplete(reviewYear, now) ? `Your ${reviewYear} in review` : `Your ${yearLabel(reviewYear, now)}`}
           </Link>
         }

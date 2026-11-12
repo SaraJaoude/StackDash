@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { buttonClass } from "@/components/ui/button";
+
 // One response for a workspace that does not exist and one the user is not a member of, so the
 // page never confirms which workspace addresses are real.
 export default function WorkspaceNotFound() {
@@ -14,7 +16,7 @@ export default function WorkspaceNotFound() {
       <div className="mt-6">
         <Link
           href="/app"
-          className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+          className={buttonClass("primary")}
         >
           Open your workspaces
         </Link>

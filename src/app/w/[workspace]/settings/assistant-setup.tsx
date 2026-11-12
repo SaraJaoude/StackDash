@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 
+import { buttonClass } from "@/components/ui/button";
 import { API_KEY_SCOPES } from "@/lib/api/scopes";
 import { mcpClientSetups } from "@/lib/mcp/setup";
 
 import { createApiKey, type CreateApiKeyResult } from "./actions";
-import { BUTTON_PRIMARY, ErrorSummary, failureOf, NewKeyPanel } from "./api-keys";
+import { ErrorSummary, failureOf, NewKeyPanel } from "./api-keys";
 
 /** The name of every key made here, so the API keys list says what each one is for. */
 const ASSISTANT_KEY_NAME = "AI assistant";
@@ -160,7 +161,7 @@ function CreateAssistantKeyForm({
         <input key={scope} type="hidden" name="scope" value={scope} />
       ))}
       {/* Back from hiding the key, focus lands here rather than on the page. */}
-      <button type="submit" disabled={pending} autoFocus={focusOnMount} className={BUTTON_PRIMARY}>
+      <button type="submit" disabled={pending} autoFocus={focusOnMount} className={`shrink-0 ${buttonClass("primary")}`}>
         {pending ? "Creating key" : "Create assistant key"}
       </button>
       <ErrorSummary failure={failureOf(state)} />

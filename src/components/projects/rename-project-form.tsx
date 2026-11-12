@@ -5,6 +5,7 @@ import { useActionState, useId, useState, type KeyboardEvent } from "react";
 import { renameProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { FormErrorSummary, ProjectNameField, failureOf } from "@/components/projects/project-form-parts";
+import { buttonClass } from "@/components/ui/button";
 
 /**
  * Inline rename form, opened from a project's Rename button. Escape or Cancel closes it without
@@ -59,7 +60,7 @@ export function RenameProjectForm({
           <GuardedButton
             type="submit"
             unavailable={pending}
-            className="inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+            className={buttonClass("primary")}
           >
             {pending ? "Saving" : "Save name"}
           </GuardedButton>
@@ -67,7 +68,7 @@ export function RenameProjectForm({
             type="button"
             unavailable={pending}
             onClick={() => onClose(null)}
-            className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
+            className={buttonClass("secondary")}
           >
             Cancel
           </GuardedButton>

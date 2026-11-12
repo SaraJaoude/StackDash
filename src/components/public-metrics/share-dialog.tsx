@@ -3,7 +3,10 @@
 import Image from "next/image";
 import { useId, useRef, useState } from "react";
 
-import { inputClass, smallButtonClass } from "@/components/alerts/form-controls";
+import { inputClass } from "@/components/alerts/form-controls";
+import { buttonClass } from "@/components/ui/button";
+
+const SMALL_BUTTON = buttonClass("raised", "xs");
 
 /*
  * The share dialog for milestone cards and badges (#149) and the yearly card (#151). Everything in
@@ -71,7 +74,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
           setStatus("");
           dialogRef.current?.showModal();
         }}
-        className={smallButtonClass}
+        className={SMALL_BUTTON}
       >
         {triggerText}
         <span className="sr-only"> {subject}</span>
@@ -88,7 +91,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
               <h2 id={titleId} className="text-lg font-semibold tracking-tight">
                 {title}
               </h2>
-              <button type="button" autoFocus onClick={() => dialogRef.current?.close()} className={smallButtonClass}>
+              <button type="button" autoFocus onClick={() => dialogRef.current?.close()} className={SMALL_BUTTON}>
                 Close
               </button>
             </div>
@@ -117,7 +120,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
                   value={badge.markdown}
                   className={`${inputClass} border-line-strong font-mono text-xs`}
                 />
-                <button type="button" onClick={() => copy(badge.markdown, "badge Markdown")} className={smallButtonClass}>
+                <button type="button" onClick={() => copy(badge.markdown, "badge Markdown")} className={SMALL_BUTTON}>
                   Copy badge Markdown
                 </button>
               </section>
@@ -142,7 +145,7 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
                     Card URL
                   </label>
                   <input id={`${baseId}-url`} readOnly value={card.publicUrl} className={`${inputClass} border-line-strong`} />
-                  <button type="button" onClick={() => copy(card.publicUrl ?? "", "card URL")} className={smallButtonClass}>
+                  <button type="button" onClick={() => copy(card.publicUrl ?? "", "card URL")} className={SMALL_BUTTON}>
                     Copy card URL
                   </button>
                 </>
@@ -158,11 +161,11 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
                 className={`${inputClass} border-line-strong`}
               />
               <div className="flex flex-wrap gap-3">
-                <button type="button" onClick={() => copy(card.alt, "alt text")} className={smallButtonClass}>
+                <button type="button" onClick={() => copy(card.alt, "alt text")} className={SMALL_BUTTON}>
                   Copy alt text
                 </button>
                 {card.downloadName === undefined ? null : (
-                  <a href={card.src} download={card.downloadName} className={smallButtonClass}>
+                  <a href={card.src} download={card.downloadName} className={SMALL_BUTTON}>
                     Download card
                   </a>
                 )}
@@ -180,15 +183,15 @@ export function ShareDialog({ title, triggerText, subject, card, badge, xIntentU
               )}
               <div className="flex flex-wrap items-center gap-3">
                 {link === undefined ? null : (
-                  <button type="button" onClick={() => copy(link.url, "link")} className={smallButtonClass}>
+                  <button type="button" onClick={() => copy(link.url, "link")} className={SMALL_BUTTON}>
                     Copy link
                   </button>
                 )}
-                <a href={xIntentUrl} target="_blank" rel="noopener noreferrer" className={smallButtonClass}>
+                <a href={xIntentUrl} target="_blank" rel="noopener noreferrer" className={SMALL_BUTTON}>
                   Share to X<span className="sr-only"> (opens in a new tab)</span>
                 </a>
                 {link === undefined ? null : (
-                  <a href={link.linkedInUrl} target="_blank" rel="noopener noreferrer" className={smallButtonClass}>
+                  <a href={link.linkedInUrl} target="_blank" rel="noopener noreferrer" className={SMALL_BUTTON}>
                     Share to LinkedIn<span className="sr-only"> (opens in a new tab)</span>
                   </a>
                 )}

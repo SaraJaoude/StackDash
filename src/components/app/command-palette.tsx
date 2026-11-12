@@ -19,6 +19,7 @@ import { acknowledgeAllAlerts } from "@/app/w/[workspace]/alerts/actions";
 import { syncNow } from "@/app/w/[workspace]/connections/actions";
 import { acknowledgedAllMessage } from "@/components/alerts/labels";
 import { SearchIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
 import {
   isApplePlatform,
   isTypingTarget,
@@ -157,9 +158,6 @@ function ArrowKeys() {
     </>
   );
 }
-
-const SECONDARY_BUTTON =
-  "inline-flex min-h-9 items-center rounded-md border border-line-strong px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground";
 
 /**
  * The workspace command palette (#170): a button in the shell, Cmd+K or Ctrl+K, and `?` for the
@@ -429,7 +427,7 @@ export function CommandPalette({
             onKeyDown={onInputKeyDown}
             className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none"
           />
-          <button type="button" onClick={() => paletteRef.current?.close()} className={SECONDARY_BUTTON}>
+          <button type="button" onClick={() => paletteRef.current?.close()} className={buttonClass("secondary", "sm")}>
             Close
           </button>
         </div>
@@ -541,7 +539,7 @@ export function CommandPalette({
             ref={shortcutsCloseRef}
             type="button"
             onClick={() => shortcutsRef.current?.close()}
-            className={SECONDARY_BUTTON}
+            className={buttonClass("secondary", "sm")}
           >
             Close
           </button>

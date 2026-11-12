@@ -9,6 +9,7 @@ import { CreateProjectForm } from "@/components/projects/create-project-form";
 import { DeleteProjectDialog } from "@/components/projects/delete-project-dialog";
 import { accountCountLabel, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 import { RenameProjectForm } from "@/components/projects/rename-project-form";
+import { buttonClass } from "@/components/ui/button";
 
 export type ProjectItem = { id: string; name: string } & ProjectDeletionImpact;
 
@@ -194,7 +195,7 @@ function ProjectRow({
         {/* Every role: viewers see what is published, owners and admins publish (#148). */}
         <Link
           href={`/w/${workspaceSlug}/projects/${project.id}/public-metrics`}
-          className="inline-flex min-h-9 items-center rounded-md border border-line-strong px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
+          className={buttonClass("secondary", "sm")}
         >
           Public metrics<span className="sr-only"> for {project.name}</span>
         </Link>
@@ -204,7 +205,7 @@ function ProjectRow({
               ref={renameButtonRef}
               type="button"
               onClick={onRename}
-              className="inline-flex min-h-9 items-center rounded-md border border-line-strong px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
+              className={buttonClass("secondary", "sm")}
             >
               Rename<span className="sr-only"> {project.name}</span>
             </button>

@@ -3,14 +3,10 @@
 import { startTransition, useActionState, useId, useRef, useState, type ReactNode, type RefObject } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 import { HANDLE_MAX, HANDLE_MIN, handleSchema } from "@/lib/workspaces/handles";
 
 import { removeWorkspaceHandle, setWorkspaceHandle, type WorkspaceHandleResult } from "./actions";
-
-const SECONDARY =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60";
-const DANGER =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 /**
  * Claims, changes, or removes the workspace's handle, for owners and admins. Controlled, so a
@@ -130,7 +126,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             ref={saveRef}
             type="submit"
             unavailable={pending}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+            className={`shrink-0 ${buttonClass("primary")}`}
           >
             {saving ? "Saving" : "Save handle"}
           </GuardedButton>
@@ -143,7 +139,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             type="button"
             unavailable={pending}
             onClick={() => removeDialogRef.current?.showModal()}
-            className={`mt-3 ${SECONDARY}`}
+            className={`mt-3 ${buttonClass("secondary")}`}
           >
             {removing ? "Removing" : "Remove handle"}
           </GuardedButton>
@@ -254,7 +250,7 @@ function ConfirmHandleDialog({
       </p>
       <div className="mt-6 flex flex-wrap justify-end gap-3">
         {/* First in the dialog, so showModal() focuses it and Enter right after opening never confirms. */}
-        <button type="button" onClick={() => dialogRef.current?.close()} className={SECONDARY}>
+        <button type="button" onClick={() => dialogRef.current?.close()} className={buttonClass("secondary")}>
           Cancel
         </button>
         <button
@@ -263,7 +259,7 @@ function ConfirmHandleDialog({
             confirmingRef.current = true;
             dialogRef.current?.close();
           }}
-          className={DANGER}
+          className={buttonClass("danger")}
         >
           {confirmLabel}
         </button>

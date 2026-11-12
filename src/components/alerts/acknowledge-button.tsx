@@ -9,8 +9,9 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
-import { failureOf, smallButtonClass } from "./form-controls";
+import { failureOf } from "./form-controls";
 import { acknowledgedAllMessage } from "./labels";
 
 /**
@@ -68,7 +69,7 @@ export function AcknowledgeButton({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="alertId" value={alertId} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Acknowledging" : "Acknowledge"}
         <span className="sr-only">: {accessibleSuffix}</span>
       </GuardedButton>
@@ -115,7 +116,7 @@ export function AcknowledgeAllButton({
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Acknowledging all" : "Acknowledge all"}
       </GuardedButton>
       <div role="alert" aria-live="assertive" className="text-sm">

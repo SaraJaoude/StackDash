@@ -3,6 +3,7 @@
 import type { ErrorInfo } from "next/error";
 
 import { digestOf } from "@/components/app/error-panel";
+import { buttonClass } from "@/components/ui/button";
 
 import { UnsubscribeCard } from "./unsubscribe-form";
 
@@ -25,7 +26,7 @@ export default function UnsubscribeError({ error, retry }: Pick<ErrorInfo, "erro
       <button
         type="button"
         onClick={() => retry()}
-        className="mt-6 inline-flex min-h-11 items-center rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85"
+        className={`mt-6 ${buttonClass("primary", "lg")}`}
       >
         Try again
       </button>

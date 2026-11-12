@@ -4,12 +4,10 @@ import Link from "next/link";
 import { useActionState, useEffect, useRef, type ReactNode } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
 
 import { unsubscribeFromEmail, type UnsubscribeResult } from "./actions";
-
-const buttonClass =
-  "inline-flex min-h-11 items-center rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 export function UnsubscribeCard({ children }: { children: ReactNode }) {
   return (
@@ -103,7 +101,7 @@ export function UnsubscribeForm({
       </p>
       <form action={formAction} className="mt-6">
         <input type="hidden" name="token" value={token} />
-        <GuardedButton type="submit" unavailable={pending} className={buttonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary", "lg")}>
           {pending ? "Turning off alert emails" : "Turn off alert emails"}
         </GuardedButton>
       </form>

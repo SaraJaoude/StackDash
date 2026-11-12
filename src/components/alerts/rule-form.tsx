@@ -4,6 +4,7 @@ import { useActionState, useId, useState } from "react";
 
 import { saveAlertRule, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 import { AMOUNT_PRESETS, PERCENT_MAX, PERCENT_MIN, PERCENT_PRESETS } from "@/lib/alerts/rule-schema";
 import { Constants } from "@/lib/supabase/database.types";
 
@@ -11,9 +12,7 @@ import {
   ErrorSummary,
   failureOf,
   PresetField,
-  primaryButtonClass,
   ScopeFields,
-  secondaryButtonClass,
   SelectField,
 } from "./form-controls";
 import { formatMajorAmount, KIND_LABELS, type AlertFormOptions, type RuleFormValues } from "./labels";
@@ -209,11 +208,11 @@ export function RuleForm({
       <ScopeFields idPrefix={id} values={values} onChange={update} errors={errors} options={options} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add alert rule"}
         </GuardedButton>
         {onCancel === undefined ? null : (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
         )}

@@ -8,8 +8,9 @@ import {
   unmuteAnomaly,
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
+import { buttonClass } from "@/components/ui/button";
 
-import { failureOf, secondaryButtonClass, SelectField, smallButtonClass } from "./form-controls";
+import { failureOf, SelectField } from "./form-controls";
 import type { Option } from "./labels";
 
 /**
@@ -41,7 +42,7 @@ export function AnomalyToggle({ workspaceSlug, enabled }: { workspaceSlug: strin
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
-      <button type="submit" disabled={pending} className={secondaryButtonClass}>
+      <button type="submit" disabled={pending} className={buttonClass("raised")}>
         {pending ? "Saving" : enabled ? "Turn off anomaly detection" : "Turn on anomaly detection"}
       </button>
       <Outcome
@@ -82,7 +83,7 @@ export function MuteMetricForm({ workspaceSlug, options }: { workspaceSlug: stri
             options={options}
           />
         </div>
-        <button type="submit" disabled={pending} className={`${secondaryButtonClass} shrink-0`}>
+        <button type="submit" disabled={pending} className={`shrink-0 ${buttonClass("raised")}`}>
           {pending ? "Muting" : "Mute metric"}
         </button>
       </div>
@@ -117,7 +118,7 @@ export function UnmuteButton({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="muteId" value={muteId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <button type="submit" disabled={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Unmuting" : "Unmute"}
         <span className="sr-only">: {label}</span>
       </button>

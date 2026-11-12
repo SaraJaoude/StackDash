@@ -4,9 +4,10 @@ import { useActionState } from "react";
 
 import { addSuggestedAlerts, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 import type { ProviderId } from "@/lib/alerts/rule-schema";
 
-import { failureOf, secondaryButtonClass } from "./form-controls";
+import { failureOf } from "./form-controls";
 
 /** Adds one provider's suggested rules. Nothing is created until this button is pressed. */
 export function AddSuggestedAlerts({
@@ -34,7 +35,7 @@ export function AddSuggestedAlerts({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="provider" value={provider} />
-      <GuardedButton type="submit" unavailable={pending} className={secondaryButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised")}>
         {pending ? "Adding" : "Add these alerts"}
         <span className="sr-only"> for {providerLabel}</span>
       </GuardedButton>

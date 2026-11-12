@@ -11,8 +11,9 @@ import {
   unpublishMetric,
   type PublicMetricActionResult,
 } from "@/app/w/[workspace]/projects/[projectId]/public-metrics/actions";
-import { inputClass, primaryButtonClass, smallButtonClass } from "@/components/alerts/form-controls";
+import { inputClass } from "@/components/alerts/form-controls";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 import { PAGE_SLUG_MAX } from "@/lib/public-metrics/project-page";
 
 import { SELF_REPORTED_LABEL_MAX, SELF_REPORTED_UNIT_MAX, type SelfReportedField } from "./self-reported-rules";
@@ -130,7 +131,7 @@ export function PublishMetricForm({
           ))}
         </select>
       </div>
-      <button type="submit" disabled={pending} className={`${smallButtonClass} min-h-10`}>
+      <button type="submit" disabled={pending} className={`${buttonClass("raised", "xs")} min-h-10`}>
         {pending ? "Publishing" : "Publish"}
         <span className="sr-only"> {metricLabel}</span>
       </button>
@@ -157,7 +158,7 @@ export function UnpublishButton({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="publicationId" value={publicationId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <button type="submit" disabled={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Unpublishing" : "Unpublish"}
         <span className="sr-only"> {label}</span>
       </button>
@@ -199,7 +200,7 @@ export function UnpublishEverythingButton({
           setOpenCount((count) => count + 1);
           dialogRef.current?.showModal();
         }}
-        className="inline-flex min-h-10 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm font-medium text-danger transition-colors hover:bg-danger/10"
+        className={buttonClass("danger-outline")}
       >
         Unpublish everything
       </button>
@@ -278,14 +279,14 @@ function UnpublishEverythingConfirmation({
           autoFocus
           unavailable={pending}
           onClick={onCancel}
-          className="inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60"
+          className={buttonClass("secondary")}
         >
           Cancel
         </GuardedButton>
         <GuardedButton
           type="submit"
           unavailable={pending}
-          className="inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+          className={buttonClass("danger")}
         >
           {pending ? "Unpublishing everything" : "Unpublish everything"}
         </GuardedButton>
@@ -368,7 +369,7 @@ export function SelfReportedForm({
         );
       })}
       <div className="sm:col-span-3">
-        <button type="submit" disabled={pending} className={primaryButtonClass}>
+        <button type="submit" disabled={pending} className={buttonClass("primary")}>
           {pending ? "Publishing" : "Publish value"}
         </button>
         <Failure state={state} />
@@ -464,7 +465,7 @@ export function ProjectPageForm({
         </p>
       </div>
       <div>
-        <button type="submit" disabled={pending} className={primaryButtonClass}>
+        <button type="submit" disabled={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : enabled ? "Save page settings" : "Turn on the project page"}
         </button>
         <Failure state={state} />
@@ -488,7 +489,7 @@ export function DisableProjectPageButton({
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="projectId" value={projectId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <button type="submit" disabled={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Turning off the project page" : "Turn off the project page"}
       </button>
       <Failure state={state} />

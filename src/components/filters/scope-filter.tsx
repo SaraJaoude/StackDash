@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import { ChevronDownIcon, FilterIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
 import type { ScopeFilters, ScopeOption, ScopeOptions } from "@/lib/filters/scope";
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
@@ -157,13 +158,13 @@ export function ScopeFilter({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary")}
           >
             Apply filters
           </button>
           <Link
             href={action}
-            className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            className={buttonClass("secondary")}
           >
             Clear filters
           </Link>

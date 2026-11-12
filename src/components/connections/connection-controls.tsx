@@ -13,15 +13,9 @@ import {
 } from "@/app/w/[workspace]/connections/actions";
 import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
 type Action = (previous: ConnectionActionResult | null, formData: FormData) => Promise<ConnectionActionResult>;
-
-const PRIMARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
-const SECONDARY =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm transition-colors hover:border-foreground aria-disabled:opacity-60";
-const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md border border-danger/60 px-4 py-2 text-sm text-danger transition-colors hover:bg-danger/10 aria-disabled:opacity-60";
 
 // The account forms sit side by side in the page's three-row grid (label, controls, status) from
 // `sm` up and take those rows as a subgrid, so their controls share a row.
@@ -97,7 +91,7 @@ export function AccountProjectForm({
             </option>
           ))}
         </select>
-        <GuardedButton type="submit" unavailable={pending} className={SECONDARY}>
+        <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("outline")}`}>
           {pending ? "Saving" : "Save project"}
         </GuardedButton>
       </div>
@@ -135,7 +129,7 @@ export function AccountIncludedForm({
         type="submit"
         unavailable={pending}
         aria-label={included ? `Exclude ${accountName}` : `Include ${accountName}`}
-        className={`${SECONDARY} self-start sm:row-start-2 sm:justify-self-start`}
+        className={`shrink-0 self-start sm:row-start-2 sm:justify-self-start ${buttonClass("outline")}`}
       >
         {included ? "Exclude" : "Include"}
       </GuardedButton>
@@ -172,7 +166,7 @@ export function SyncNowForm({
         type="submit"
         unavailable={pending || cooldownNotice !== null}
         aria-describedby={cooldownNotice === null ? undefined : hintId}
-        className={PRIMARY}
+        className={`shrink-0 ${buttonClass("primary")}`}
       >
         {pending ? "Queueing sync" : "Sync now"}
       </GuardedButton>
@@ -192,7 +186,7 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
   return (
     <form action={formAction} className="flex flex-col items-center gap-2">
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <GuardedButton type="submit" unavailable={pending} className={SECONDARY}>
+      <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("outline")}`}>
         {pending ? "Adding sample data" : "Explore with sample data"}
       </GuardedButton>
       <ActionStatus state={state} pending={pending} />
@@ -239,7 +233,7 @@ function ConfirmDialog({
       {hideOpener ? null : (
         <button
           type="button"
-          className={DANGER}
+          className={`shrink-0 ${buttonClass("danger-outline")}`}
           onClick={() => {
             setOpenCount((count) => count + 1);
             setSucceeded(null);
@@ -308,10 +302,10 @@ function ConfirmForm({
         <input type="hidden" name="workspace" value={workspaceSlug} />
         <input type="hidden" name="connectionId" value={connectionId} />
         {/* Cancel first and focused, so Enter right after opening never confirms. */}
-        <button type="button" autoFocus className={SECONDARY} onClick={onCancel}>
+        <button type="button" autoFocus className={`shrink-0 ${buttonClass("outline")}`} onClick={onCancel}>
           Cancel
         </button>
-        <GuardedButton type="submit" unavailable={pending} className={DANGER}>
+        <GuardedButton type="submit" unavailable={pending} className={`shrink-0 ${buttonClass("danger-outline")}`}>
           {pending ? "Working" : confirmLabel}
         </GuardedButton>
       </form>

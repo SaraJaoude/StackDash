@@ -10,15 +10,13 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
 import { ConfirmDelete } from "./confirm-delete";
 import {
   ErrorSummary,
   failureOf,
-  primaryButtonClass,
-  secondaryButtonClass,
   SelectField,
-  smallButtonClass,
   submitWithoutReset,
   TextField,
 } from "./form-controls";
@@ -229,11 +227,11 @@ export function ChannelForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add channel"}
         </GuardedButton>
         {onCancel === undefined ? null : (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
         )}
@@ -266,7 +264,7 @@ function TestButton({ workspaceSlug, destinationId, name }: { workspaceSlug: str
     <form action={formAction} className="contents">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="destinationId" value={destinationId} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Sending" : "Send test message"}
         <span className="sr-only">: {name}</span>
       </GuardedButton>

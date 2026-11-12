@@ -5,11 +5,9 @@ import { useActionState, useId, useRef, useState } from "react";
 import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { DialogError } from "@/components/dialog-error";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
-import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
-
-const dangerButtonClass =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
+import { failureOf } from "./form-controls";
 
 type Action = (previous: AlertActionResult | null, formData: FormData) => Promise<AlertActionResult>;
 
@@ -56,7 +54,7 @@ export function ConfirmDelete({
           setOpenCount((count) => count + 1);
           dialogRef.current?.showModal();
         }}
-        className={`${smallButtonClass} text-danger`}
+        className={`${buttonClass("raised", "xs")} text-danger`}
       >
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
@@ -127,10 +125,10 @@ function ConfirmDeleteForm({
         ))}
         <div className="flex flex-wrap justify-end gap-3">
           {/* Cancel first and focused, so Enter right after opening never deletes. */}
-          <button type="button" autoFocus onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" autoFocus onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
-          <GuardedButton type="submit" unavailable={pending} className={dangerButtonClass}>
+          <GuardedButton type="submit" unavailable={pending} className={buttonClass("danger")}>
             {pending ? "Deleting" : confirmLabel}
           </GuardedButton>
         </div>

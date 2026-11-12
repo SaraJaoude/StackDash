@@ -9,10 +9,11 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
 
 import { BudgetForm } from "./budget-form";
 import { ConfirmDelete } from "./confirm-delete";
-import { failureOf, smallButtonClass } from "./form-controls";
+import { failureOf } from "./form-controls";
 import type { AlertFormOptions, BudgetFormValues, RuleFormValues } from "./labels";
 import { RuleForm } from "./rule-form";
 
@@ -82,7 +83,7 @@ export function EditableRow({
                   setMessage(null);
                   setEditing(true);
                 }}
-                className={smallButtonClass}
+                className={buttonClass("raised", "xs")}
               >
                 {editLabel}
                 <span className="sr-only">: {summary}</span>
@@ -144,7 +145,7 @@ function PauseButton({
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="ruleId" value={ruleId} />
       <input type="hidden" name="paused" value={paused ? "false" : "true"} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {paused ? "Resume rule" : "Pause rule"}
         <span className="sr-only">: {summary}</span>
       </GuardedButton>
