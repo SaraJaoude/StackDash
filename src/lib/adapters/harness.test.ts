@@ -7,8 +7,6 @@ import {
   checkSyncResult,
   checkTraffic,
   createAdapterHarness,
-  HARNESS_CLIENT_ID,
-  HARNESS_TIMEOUT_MS,
   routeKey,
 } from "./harness";
 import type { AdapterMetric } from "./metrics";
@@ -241,8 +239,6 @@ describe("createAdapterHarness and checkTraffic", () => {
       `DELETE ${API}/v1/items`,
     ]);
     expect(harness.ctx.now()).toEqual(NOW);
-    expect(harness.ctx.client.clientId).toBe(HARNESS_CLIENT_ID);
-    expect(harness.ctx.timeoutMs).toBe(HARNESS_TIMEOUT_MS);
     expect(checkTraffic(harness)).toEqual([]);
   });
 

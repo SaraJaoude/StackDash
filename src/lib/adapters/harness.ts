@@ -74,7 +74,7 @@ export type HarnessOptions = Readonly<{
 
 export const HARNESS_CLIENT_ID = "harness-client-id";
 const HARNESS_CLIENT_SECRET = "harness-client-value";
-export const HARNESS_TIMEOUT_MS = 5000;
+const HARNESS_TIMEOUT_MS = 5000;
 
 export function routeKey(method: string, url: URL): string {
   return `${method.toUpperCase()} ${url.origin}${url.pathname}`;
