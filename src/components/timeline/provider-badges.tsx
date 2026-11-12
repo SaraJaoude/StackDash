@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ProviderMark } from "@/components/connections/provider-mark";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import type { ConnectionEventCount } from "@/lib/data/timeline";
 import { providerBadgeQuery, providerBadges, providerBadgeText } from "@/lib/timeline/provider-badges";
 import { timelineHref, type TimelineQuery } from "@/lib/timeline/query";
@@ -43,7 +43,7 @@ export function ProviderBadges({
               }`}
             >
               <span aria-hidden="true" title={name} className="block">
-                <ProviderMark provider={badge.provider} size={16} frame="sm" />
+                <ProviderMark provider={badge.provider} size="sm" />
                 <span className={`${BADGE} -top-2 border-line-strong bg-panel text-foreground`}>{short}</span>
                 <span className={`${BADGE} -bottom-2 border-line bg-panel-raised text-muted`}>{badge.connections}</span>
               </span>

@@ -814,6 +814,11 @@ isOneToOne: false
               "connection_id": string,"events": number,"type_id": string
             }[]
                            },
+"headline_first_readings":
+{ Args: { "p_account_ids": (string)[],"p_on_or_before": string,"p_workspace_id": string }; Returns: {
+              "connection_id": string,"snapshot_date": string
+            }[]
+                           },
 "hook_before_user_created":
 { Args: { "event": Json }; Returns: Json
                            },

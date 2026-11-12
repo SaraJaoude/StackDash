@@ -63,3 +63,6 @@ if (navLinks.length !== HEADER_LABELS.size) {
 // Pages outside the landing page. Kept apart from sectionLinks, which are all in-page anchors.
 export const docsLink: NavLink = { label: "Docs", href: "/docs" };
 export const signInLink: NavLink = { label: "Sign in", href: "/sign-in" };
+// The privacy policy and terms of use (#339). Only rendered where `operatorEnv()` names an operator.
+export const privacyLink: NavLink = { label: "Privacy policy", href: "/privacy" };
+export const termsLink: NavLink = { label: "Terms of use", href: "/terms" };

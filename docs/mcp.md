@@ -93,7 +93,7 @@ Prompts are questions ready to ask: a client lists them, for example as slash co
 
 | Prompt | Title | What it asks | Arguments |
 |---|---|---|---|
-| `weekly_stack_review` | Weekly stack review | Review the 7 UTC days ending today: connections that need attention, spend on the newest day beside the starting reading, allowances running low, failed deployments, sync failures, and anomalies, and unacknowledged alerts. Calls all five tools | none |
+| `weekly_stack_review` | Weekly stack review | Review the 7 UTC days ending today: connections that need attention, spend on the newest day beside the starting reading, allowances running low, failed deployments, sync failures, and unusual spend and usage events, and unacknowledged alerts. Calls all five tools | none |
 | `why_did_spend_change` | Why did spend change | Explain how spend moved over the period: reads verified spend, estimated spend, and usage with `get_usage`, then events and alerts, and ties each increase to the usage and events behind it | `days` (1 to 90, default 7), `provider` (a provider id, default all) |
 
 The period is the `days` UTC days ending today on the server's clock (7 for the weekly review), and the prompts also read the day before them as the starting reading, because a day's spend is its reading minus the previous day's. So the tool calls cover `days + 1` dates: for 7 days ending 2026-11-05, `from` is 2026-10-29. Arguments arrive as text, as MCP requires: `days` is a whole number from 1 to 90, and an unknown provider, an unknown argument, or a `days` outside that range is refused with an invalid params error (`-32602`) before anything is read.

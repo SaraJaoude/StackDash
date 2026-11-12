@@ -8,8 +8,10 @@ import {
   unmuteAnomaly,
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
+import { buttonClass } from "@/components/ui/button";
+import { FailureAnnouncement, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 
-import { failureOf, secondaryButtonClass, SelectField, smallButtonClass } from "./form-controls";
+import { failureOf, SelectField } from "./form-controls";
 import type { Option } from "./labels";
 
 /**
@@ -19,35 +21,23 @@ import type { Option } from "./labels";
  * being dropped.
  */
 
-function Outcome({ state, pending, success }: { state: AlertActionResult | null; pending: boolean; success: string }) {
-  const failure = failureOf(state);
-  return (
-    <div role="status" aria-live="polite" className="mt-2 text-sm">
-      {pending || state === null ? null : failure === null ? (
-        <p className="text-success">{success}</p>
-      ) : (
-        <p className="text-danger">
-          {failure.message}
-          {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-        </p>
-      )}
-    </div>
-  );
-}
-
 export function AnomalyToggle({ workspaceSlug, enabled }: { workspaceSlug: string; enabled: boolean }) {
   const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(setAnomalyDetection, null);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
-      <button type="submit" disabled={pending} className={secondaryButtonClass}>
-        {pending ? "Saving" : enabled ? "Turn off anomaly detection" : "Turn on anomaly detection"}
+      <button type="submit" disabled={pending} className={buttonClass("raised")}>
+        {pending ? "Saving" : enabled ? "Turn off unusual spend and usage checks" : "Turn on unusual spend and usage checks"}
       </button>
-      <Outcome
-        state={state}
-        pending={pending}
-        success={enabled ? "Anomaly detection is on." : "Anomaly detection is off. No new unusual days are flagged."}
+      <OutcomeAnnouncement
+        outcome={outcomeOf(
+          pending ? null : state,
+          enabled
+            ? "Unusual spend and usage checks are on."
+            : "Unusual spend and usage checks are off. No new unusual days are flagged.",
+        )}
+        className="mt-2 text-sm"
       />
     </form>
   );
@@ -82,11 +72,14 @@ export function MuteMetricForm({ workspaceSlug, options }: { workspaceSlug: stri
             options={options}
           />
         </div>
-        <button type="submit" disabled={pending} className={`${secondaryButtonClass} shrink-0`}>
+        <button type="submit" disabled={pending} className={`shrink-0 ${buttonClass("raised")}`}>
           {pending ? "Muting" : "Mute metric"}
         </button>
       </div>
-      <Outcome state={fieldError === undefined ? state : null} pending={pending} success="Metric muted." />
+      <OutcomeAnnouncement
+        outcome={outcomeOf(pending || fieldError !== undefined ? null : state, "Metric muted.")}
+        className="mt-2 text-sm"
+      />
     </form>
   );
 }
@@ -112,23 +105,15 @@ export function UnmuteButton({
     },
     null,
   );
-  const failure = failureOf(state);
   return (
     <form action={formAction}>
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="muteId" value={muteId} />
-      <button type="submit" disabled={pending} className={smallButtonClass}>
+      <button type="submit" disabled={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Unmuting" : "Unmute"}
         <span className="sr-only">: {label}</span>
       </button>
-      <div role="alert" aria-live="assertive" className="text-sm">
-        {failure === null ? null : (
-          <p className="mt-2 text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </p>
-        )}
-      </div>
+      <FailureAnnouncement failure={failureOf(state)} className="text-sm" messageClassName="mt-2" />
     </form>
   );
 }

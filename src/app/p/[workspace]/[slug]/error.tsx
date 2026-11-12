@@ -4,6 +4,7 @@ import Link from "next/link";
 import type { ErrorInfo } from "next/error";
 
 import { digestOf, ErrorPanel } from "@/components/app/error-panel";
+import { buttonClass } from "@/components/ui/button";
 
 /**
  * A public project page whose read failed, for example a project past the included account bound
@@ -24,13 +25,13 @@ export default function ProjectPageError({ error, retry }: Pick<ErrorInfo, "erro
             <button
               type="button"
               onClick={() => retry()}
-              className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+              className={buttonClass("primary")}
             >
               Try again
             </button>
             <Link
               href="/"
-              className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+              className={buttonClass("secondary")}
             >
               Go to the home page
             </Link>

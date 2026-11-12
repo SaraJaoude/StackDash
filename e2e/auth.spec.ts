@@ -2,7 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { test } from "@playwright/test";
 
-import { editedSessionCookies, expect, ownerTest, signOutTest, STORAGE_STATE, type StoredSession } from "./fixtures/auth";
+import {
+  createSyntheticUser,
+  editedSessionCookies,
+  expect,
+  ownerTest,
+  removeSyntheticUser,
+  signOutTest,
+  STORAGE_STATE,
+  type StoredSession,
+} from "./fixtures/auth";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -34,7 +44,7 @@ test.describe("signed out", () => {
   test("a not-invited error explains what to do next", async ({ page }) => {
     await page.goto("/sign-in?error=not_invited");
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-      "This GitHub account's email has not been invited to the DevMacro test. Ask for an invite, then try again.",
+      "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
     );
   });
 
@@ -126,6 +136,42 @@ ownerTest("the app and a workspace root open on the timeline", async ({ page }) 
   await switcher.click();
   await expect(switcher).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("link", { name: /Current$/ })).toHaveAttribute("href", `/w/${slug}/timeline`);
+});
+
+// The last workspace is read with the membership list (#346): a recorded workspace the user still
+// belongs to opens first, and one they have since left gives way to the personal workspace.
+test("the app opens the last workspace while the user is still a member of it", async ({ browser }) => {
+  const admin = adminClient();
+  const user = await createSyntheticUser("last-workspace");
+  const team = await createTestWorkspace("Last workspace");
+  const context = await browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
+  try {
+    const { error: memberError } = await admin
+      .from("workspace_members")
+      .insert({ workspace_id: team.id, user_id: user.id, role: "viewer" });
+    if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
+    const { error: profileError } = await admin.from("profiles").update({ last_workspace_id: team.id }).eq("user_id", user.id);
+    if (profileError) throw new Error(`Recording the last workspace failed (code ${profileError.code}).`);
+    const personal = await personalWorkspace(user.id);
+
+    const page = await context.newPage();
+    await page.goto("/app");
+    await expect(page).toHaveURL(new RegExp(`/w/${team.slug}/timeline$`));
+
+    const { error: leaveError } = await admin
+      .from("workspace_members")
+      .delete()
+      .eq("workspace_id", team.id)
+      .eq("user_id", user.id);
+    if (leaveError) throw new Error(`Removing the member failed (code ${leaveError.code}).`);
+
+    await page.goto("/app");
+    await expect(page).toHaveURL(new RegExp(`/w/${personal.slug}/timeline$`));
+  } finally {
+    await context.close();
+    await deleteTestWorkspace(team);
+    await removeSyntheticUser(user);
+  }
 });
 
 signOutTest("signing out ends the session", async ({ page }) => {

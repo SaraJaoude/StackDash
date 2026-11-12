@@ -1,9 +1,10 @@
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import { ChevronDownIcon, PlatformLogo } from "@/components/icons";
+import { ChevronDownIcon } from "@/components/icons";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SeverityBadge } from "@/components/severity-badge";
 import { declaredEventTypes } from "@/lib/adapters/registry";
 import type { TimelineEvent } from "@/lib/data/timeline";
-import { providerName, providerPlatform } from "@/lib/providers";
+import { providerName } from "@/lib/providers";
 import { groupEventsByDay } from "@/lib/timeline/days";
 import { eventTypeLabel, severityBadge, type EventSeverity } from "@/lib/timeline/query";
 import { groupEventRuns, type EventRun } from "@/lib/timeline/runs";
@@ -74,7 +75,6 @@ export function EventList({ events, now, markSimulated }: { events: readonly Tim
 }
 
 function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: Date; markSimulated: boolean }) {
-  const platform = providerPlatform(event.provider);
   // The account says which team or repository; the connection name is the fallback.
   const source = event.accountName ?? event.connectionName;
   return (
@@ -83,9 +83,7 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
       flash={SEVERITY_FLASH[event.severity]}
       className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[event.severity]}`}
     >
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-foreground">
-        {platform === null ? null : <PlatformLogo platform={platform} className="size-4" />}
-      </span>
+      <ProviderMark provider={event.provider} size="sm" />
       <article className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -139,7 +137,6 @@ function EventItem({ event, now, markSimulated }: { event: TimelineEvent; now: D
  */
 function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent>; now: Date; markSimulated: boolean }) {
   const [latest] = run;
-  const platform = providerPlatform(latest.provider);
   const source = latest.accountName ?? latest.connectionName;
   const eventIds = run.map((event) => event.id);
   const title = run.every((event) => event.title === latest.title)
@@ -152,9 +149,7 @@ function EventRunItem({ run, now, markSimulated }: { run: EventRun<TimelineEvent
       flash={SEVERITY_FLASH[latest.severity]}
       className={`flex gap-3 border-l-2 px-4 py-3 sm:px-5 ${SEVERITY_EDGE[latest.severity]}`}
     >
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-foreground">
-        {platform === null ? null : <PlatformLogo platform={platform} className="size-4" />}
-      </span>
+      <ProviderMark provider={latest.provider} size="sm" />
       <article className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">

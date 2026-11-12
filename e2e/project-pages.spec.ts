@@ -380,7 +380,7 @@ ownerTest.describe("workspace handles as the owner", () => {
         await expect(field).toHaveAttribute("aria-invalid", "true");
         await expect(field).toHaveAccessibleDescription(new RegExp(message.replaceAll(".", "\\.")));
         await expect(field).toBeFocused();
-        await expect(page.getByRole("status").filter({ hasText: `The handle was not saved. ${message}` })).toBeVisible();
+        await expect(page.getByRole("alert").filter({ hasText: `The handle was not saved. ${message}` })).toBeVisible();
       }
 
       // Keyboard only: the field, then Save handle. Capitals and spaces are tidied, not refused.

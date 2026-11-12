@@ -5,7 +5,7 @@ import { test, type Browser, type BrowserContext, type Page } from "@playwright/
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
-import { adminClient, type Admin } from "./fixtures/db";
+import { adminClient, personalWorkspace, type Admin } from "./fixtures/db";
 
 /*
  * Account deletion (#42) and the account's place in the headers (#175). Every test signs in as
@@ -16,17 +16,6 @@ import { adminClient, type Admin } from "./fixtures/db";
 
 async function signedInContext(browser: Browser, user: SyntheticUser): Promise<BrowserContext> {
   return browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
-}
-
-async function personalWorkspaceId(admin: Admin, userId: string): Promise<string> {
-  const { data, error } = await admin
-    .from("workspaces")
-    .select("id")
-    .eq("created_by", userId)
-    .eq("is_personal", true)
-    .single();
-  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
-  return data.id;
 }
 
 /** One of everything a workspace holds: a project, a fake connection and its data, rules, a job. */
@@ -333,13 +322,42 @@ test.describe("the workspace header identity", () => {
   });
 });
 
+test.describe("an account with no workspace", () => {
+  test("explains why and who can help, in product words, and passes axe", async ({ browser }) => {
+    const admin = adminClient();
+    const user = await createSyntheticUser("no-workspace");
+    const context = await signedInContext(browser, user);
+    try {
+      // The only way to reach this page: the user's one workspace is gone.
+      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const { error } = await admin.from("workspaces").delete().eq("id", workspaceId);
+      if (error) throw new Error(`Deleting the personal workspace failed (code ${error.code}).`);
+
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto("/app");
+      const main = page.getByRole("main");
+      await expect(main.getByRole("heading", { level: 1 })).toHaveText("You are not a member of any workspace");
+      // #345: the product says "DevMacro", never "the DevMacro test".
+      await expect(main).toContainText("Contact the person who invited you to DevMacro, or sign out");
+      await expect(main).not.toContainText(/DevMacro test/);
+      await expect(main.getByRole("button", { name: "Sign out" })).toBeVisible();
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
 test.describe("deleting an account", () => {
   test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({ browser }) => {
     const admin = adminClient();
     const user = await createSyntheticUser("delete");
     const context = await signedInContext(browser, user);
     try {
-      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const workspaceId = (await personalWorkspace(user.id)).id;
       await seedWorkspace(admin, workspaceId);
 
       const page = await context.newPage();
@@ -428,7 +446,7 @@ test.describe("deleting an account", () => {
       const { data, error } = await admin.rpc("create_workspace", { p_user_id: owner.id, p_name: name, p_is_personal: false });
       if (error) throw new Error(`Creating the shared workspace failed (code ${error.code}).`);
       sharedId = z.object({ id: z.string() }).parse(data).id;
-      const personalId = await personalWorkspaceId(admin, owner.id);
+      const personalId = (await personalWorkspace(owner.id)).id;
       await seedWorkspace(admin, personalId);
 
       // The page is loaded while the owner is still the only member, so the form is offered.
@@ -443,7 +461,7 @@ test.describe("deleting an account", () => {
         .insert({ workspace_id: sharedId, user_id: member.id, role: "viewer" });
       if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
       await page.getByRole("button", { name: "Delete my account" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Your account was not deleted." })).toContainText(
+      await expect(page.getByRole("alert").filter({ hasText: "Your account was not deleted." })).toContainText(
         `You are the only owner of ${name}, and other people belong to it. Transfer ownership to another member or delete that workspace first, then try again.`,
       );
       await expect(page).toHaveURL(/\/account$/);

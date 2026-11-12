@@ -15,9 +15,10 @@ import {
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { availableProviders } from "@/lib/adapters/registry";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { getConnection, listExternalAccounts, listProjectOptions } from "@/lib/data/connections";
@@ -34,7 +35,7 @@ export const metadata: Metadata = { title: "Connection" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionPage(props: PageProps<"/w/[workspace]/connections/[connectionId]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the connection" />}>
       <ConnectionContent {...props} />
     </Suspense>
   );
@@ -121,7 +122,7 @@ async function ConnectionContent({
             data that needs it cannot sync until you reconnect and approve it.
           </p>
           {canManage ? (
-            <Link href={reconnectHref} className="mt-3 inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background">
+            <Link href={reconnectHref} className={`mt-3 ${buttonClass("primary")}`}>
               Reconnect {providerName}
             </Link>
           ) : null}
@@ -216,7 +217,7 @@ async function ConnectionContent({
             {revoked ? null : (
               <SyncNowForm workspaceSlug={workspace.slug} connectionIds={[connection.id]} cooldownNotice={cooldownNotice} />
             )}
-            <Link href={reconnectHref} className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm">
+            <Link href={reconnectHref} className={buttonClass("outline")}>
               Reconnect
             </Link>
             <DisconnectDialog

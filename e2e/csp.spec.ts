@@ -1,6 +1,7 @@
 import { test, type Page } from "@playwright/test";
 
 import { authEnv, expect, ownerTest } from "./fixtures/auth";
+import { BASELINE_CSP } from "./fixtures/csp";
 import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { expectHydrated } from "./fixtures/hydration";
 import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from "./fixtures/public-pages";
@@ -12,9 +13,6 @@ import { publishStars, seedProjectWithHistory, turnOffPage, turnOnPage } from ".
 // prefixes (#197). The rest of the site keeps a static policy (next.config.ts). CI runs these
 // against the production build, where a prerendered page under the nonce policy would carry
 // unnonced inline scripts and never hydrate.
-
-// The enforced policy of the landing page (next.config.ts).
-const BASELINE_CSP = "frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
 // The server under test is a production build when CI is set and the dev server otherwise, the same
 // switch as the webServer command in playwright.config.ts.

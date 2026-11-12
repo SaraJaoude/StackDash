@@ -94,7 +94,7 @@ Invoices are generated on the 1st of each month. The list has `invoice_uuid`, `a
 
 Each sync reads the last three whole UTC days and keeps the latest day present. Points for another team are skipped.
 
-- `digitalocean.daily_spend.sku_<sku>`: **estimated** spend per SKU for that day (the SKU lowercased, other characters as `_`). The provenance names Billing Insights as the source of the estimate. At most 50 SKUs per sync, largest first; a SKU that nets below zero (a credit) has no metric. A SKU's day is read after it ends, so it never counts as current spend: the card, alerts, and the daily summary leave it out (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`). It feeds the trend charts and anomaly detection, which checks a SKU's day on the day before (`docs/operations/jobs.md`).
+- `digitalocean.daily_spend.sku_<sku>`: **estimated** spend per SKU for that day (the SKU lowercased, other characters as `_`). The provenance names Billing Insights as the source of the estimate. At most 50 SKUs per sync, largest first; a SKU that nets below zero (a credit) has no metric. A SKU's day is read after it ends, so it never counts as current spend: the card, alerts, and the daily summary leave it out (`isCurrentPeriod` in `src/lib/dashboard/aggregate.ts`). It feeds the trend charts and the unusual spend and usage checks, which check a SKU's day on the day before (`docs/operations/jobs.md`).
 
 Billing Insights only hold spend from 2025-12-01 onward. A `404` from this endpoint is recorded as a gap on the connection, not a failed sync.
 

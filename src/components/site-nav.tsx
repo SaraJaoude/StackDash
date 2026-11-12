@@ -35,7 +35,10 @@ export function SiteNav({ anchorBase = "" }: SiteNavProps) {
         <ul className="hidden items-center gap-8 lg:flex">
           {navLinks.map((link) => (
             <li key={link.href}>
-              <a href={`${anchorBase}${link.href}`} className="text-sm text-muted transition-colors hover:text-foreground">
+              <a
+                href={`${anchorBase}${link.href}`}
+                className="inline-flex min-h-6 items-center text-sm text-muted transition-colors hover:text-foreground"
+              >
                 {link.label}
               </a>
             </li>

@@ -29,8 +29,12 @@ import {
 import { vercelAdapter } from "./vercel";
 
 /**
- * The one place that maps a provider id to its adapter. Everything else (routes, pages, the sync
- * runner) asks the registry, so adding a provider is one entry here plus its adapter.
+ * The one place that maps a provider id to its adapter: routes, pages, and the sync runner ask the
+ * registry and never import an adapter themselves. Adding a provider is still far more than an
+ * entry here: the id, its database enum value, names and brand mark, simulated twin, docs,
+ * environment variables, landing page, and tests touch 24 files outside the adapter's folder, and
+ * a few more when it reports deployments. docs/adapters.md, "Register the provider", lists every
+ * one, checked against the GitLab adapter.
  */
 
 const ADAPTER_TIMEOUT_MS = 15_000;

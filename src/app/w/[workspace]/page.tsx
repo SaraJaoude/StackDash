@@ -9,7 +9,7 @@ import { isWorkspaceSlug, workspaceHome } from "@/lib/workspaces/paths";
 // like every page in this segment, so the navigation has an instant shell.
 export default function WorkspaceIndexPage(props: PageProps<"/w/[workspace]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the workspace" />}>
       <WorkspaceIndexContent {...props} />
     </Suspense>
   );

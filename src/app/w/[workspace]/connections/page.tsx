@@ -8,9 +8,10 @@ import { PageHeader } from "@/components/app/page-header";
 import { BetaBadge } from "@/components/connections/beta-badge";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { availableProviders, isProviderConfigured, isProviderSimulated } from "@/lib/adapters/registry";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { ProviderIdSchema, type ProviderAdapter } from "@/lib/adapters/types";
@@ -33,7 +34,7 @@ function first(value: string | string[] | undefined): string | undefined {
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionsPage(props: PageProps<"/w/[workspace]/connections">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading connections" />}>
       <ConnectionsContent {...props} />
     </Suspense>
   );
@@ -126,7 +127,7 @@ async function ConnectionsContent({ params, searchParams }: PageProps<"/w/[works
             {page.nextCursor === null ? null : (
               <Link
                 href={`${connectionsPath}?${new URLSearchParams({ after: page.nextCursor }).toString()}`}
-                className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-md border border-line-strong px-4 py-2 text-sm"
+                className={`mt-4 gap-2 ${buttonClass("outline")}`}
               >
                 Show more connections
                 <ArrowRightIcon />
@@ -261,7 +262,7 @@ function CatalogCard({
           <Link
             href={href}
             aria-describedby={betaReasonId}
-            className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={`gap-2 ${buttonClass("primary")}`}
           >
             Connect {adapter.displayName}
             <ArrowRightIcon />

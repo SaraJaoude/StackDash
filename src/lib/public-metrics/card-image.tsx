@@ -4,13 +4,14 @@ import { ImageResponse } from "next/og";
 import type { ReactNode } from "react";
 
 import { formatDateTime } from "@/lib/format";
+import { site } from "@/lib/site";
 
 import type { PublishedMetricCard } from "./published";
 import { CARD_SIZE, CARD_TREND_DAYS, provenanceSentence, shareableMetric } from "./share";
 import { isYearComplete, yearFigures, yearPeriod, yearProvenance, yearSummaryLabel, type YearSlide, type YearSummary } from "./yearly";
 
 /*
- * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card, #262 year in review slides), rendered with Next.js'
+ * The 1200 by 630 PNG cards (#149 milestone cards, #151 yearly card, #262 year in review slides, #338 site preview image), rendered with Next.js'
  * `ImageResponse` (node_modules/next/dist/docs/01-app/03-api-reference/04-functions/
  * image-response.md): JSX laid out by Satori with flexbox only, no external image service, and the
  * renderer's bundled font, so no font file ships with the route. Colors are the site's tokens
@@ -152,6 +153,16 @@ export function NoticeCard({ title, body }: { title: string; body: string }) {
     <Frame tag={<Tag text="No value shown" color={COLORS.muted} />} footer={["Public metrics, counted from stored data", ""]}>
       <div style={{ display: "flex", fontSize: 88, letterSpacing: -2 }}>{title}</div>
       <div style={{ display: "flex", fontSize: 36, marginTop: 24, color: COLORS.muted }}>{body}</div>
+    </Frame>
+  );
+}
+
+/** The site-wide link preview (#338): what DevMacro does and who it is for, for the landing page and the docs. */
+export function SiteCard() {
+  return (
+    <Frame tag={<Tag text="Open source" color={COLORS.accent} />} footer={[site.tagline, site.githubUrl.replace(/^https:\/\//, "")]}>
+      <div style={{ display: "flex", fontSize: 68, lineHeight: 1.1, letterSpacing: -2 }}>{site.headline}</div>
+      <div style={{ display: "flex", fontSize: 32, lineHeight: 1.3, marginTop: 28, color: COLORS.muted }}>{`For ${site.audience}.`}</div>
     </Frame>
   );
 }

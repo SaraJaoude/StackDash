@@ -7,6 +7,7 @@ import { AlertSettings } from "@/components/alerts/alert-settings";
 import { AnomalySettings } from "@/components/alerts/anomaly-settings";
 import { TriggeredAlerts } from "@/components/alerts/triggered-alerts";
 import { PageHeader } from "@/components/app/page-header";
+import { LiveRegion } from "@/components/ui/live-region";
 import { requireWorkspace } from "@/lib/workspaces/access";
 
 export const metadata: Metadata = { title: "Alerts" };
@@ -24,7 +25,7 @@ const searchSchema = z.object({
 // has an instant shell; access checks and data reads stream in behind it.
 export default function AlertsPage(props: PageProps<"/w/[workspace]/alerts">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading alerts" />}>
       <AlertsContent {...props} />
     </Suspense>
   );
@@ -43,9 +44,9 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
       />
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
             Loading triggered alerts
-          </p>
+          </LiveRegion>
         }
       >
         <TriggeredAlerts
@@ -58,9 +59,9 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
       </Suspense>
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
             Loading alert rules, budgets, and where alerts go
-          </p>
+          </LiveRegion>
         }
       >
         <AlertSettings
@@ -73,9 +74,9 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
       </Suspense>
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
-            Loading anomaly detection settings
-          </p>
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
+            Loading unusual spend and usage settings
+          </LiveRegion>
         }
       >
         <AnomalySettings workspace={workspace} role={role} />

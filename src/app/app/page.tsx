@@ -4,6 +4,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import { requireUser } from "@/lib/auth/session";
 import { getLastWorkspaceSlug, listMyWorkspaces } from "@/lib/data/workspaces";
@@ -18,7 +19,9 @@ export const instant = false;
 /**
  * The signed-in entry point. It holds no content of its own: it opens the last-used workspace,
  * then the personal one, then the first membership. Session reads sit behind Suspense, so the
- * "Opening your workspace" status shows while they run.
+ * "Opening your workspace" status shows while they run. The last workspace and the memberships
+ * are read together, since neither needs the other: a visit with no usable last workspace no
+ * longer waits for a second round trip (#346).
  */
 export default async function AppEntryPage() {
   await connection();
@@ -36,10 +39,9 @@ async function OpenWorkspace() {
   await connection();
   await requireUser("/app");
 
-  const lastSlug = await getLastWorkspaceSlug();
+  const [lastSlug, workspaces] = await Promise.all([getLastWorkspaceSlug(), listMyWorkspaces()]);
   if (lastSlug !== null && isWorkspaceSlug(lastSlug)) redirect(workspaceHome(lastSlug));
 
-  const workspaces = await listMyWorkspaces();
   const target = workspaces.find((workspace) => workspace.is_personal) ?? workspaces[0];
   if (target !== undefined && isWorkspaceSlug(target.slug)) redirect(workspaceHome(target.slug));
 
@@ -48,9 +50,9 @@ async function OpenWorkspace() {
 
 function OpeningWorkspace() {
   return (
-    <p role="status" aria-live="polite" className="text-center text-sm text-muted">
+    <LiveRegion tone="status" as="p" className="text-center text-sm text-muted">
       Opening your workspace
-    </p>
+    </LiveRegion>
   );
 }
 
@@ -66,7 +68,7 @@ function NoWorkspace() {
       <p className="mt-3 text-sm leading-6 text-muted">
         Your account is signed in, but it does not belong to a workspace. This can happen if a
         workspace was deleted or you were removed from it. Contact the person who invited you to
-        the DevMacro test, or sign out and sign in with a different GitHub account.
+        DevMacro, or sign out and sign in with a different GitHub account.
       </p>
       <div className="mt-6">
         <SignOutButton />
