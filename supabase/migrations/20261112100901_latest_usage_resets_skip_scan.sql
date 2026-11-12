@@ -5,12 +5,13 @@
 -- * distinct on (metric_key) ... order by metric_key, snapshot_date desc read every snapshot of the
 --   account and sorted them, on every sync of every account, so the read grew with history (up to
 --   the 13 months retention keeps). Over 7,320 rows (20 metrics, 366 days) the planner chose a
---   sequential scan of the table: 6.3 ms and 1,712 buffers for the query, 4.2 ms for the call.
+--   sequential scan of the table: 6.3 ms and 1,712 buffers for the query, 5.2 to 5.5 ms a call
+--   over five calls (3.5 to 4.0 ms and 417 buffers a call in a later session).
 -- * Now a loose index scan on the unique key (external_account_id, metric_key, snapshot_date): a
 --   recursive step finds the next metric key with one index probe (the first key above the last
 --   one), and each key's newest row is one backward probe. Reads are two probes per metric,
---   whatever the history: 0.32 ms and 172 buffers on the same rows. Measured with explain
---   (analyze, buffers), quoted on #346.
+--   whatever the history: 0.32 ms and 172 buffers for the query on the same rows, 0.24 to 0.42 ms
+--   and 171 to 173 buffers a call. Measured with explain (analyze, buffers), quoted on #346.
 -- * The workspace is checked once against the account (the external_accounts primary key) instead
 --   of on every row. Every snapshot of an account belongs to the account's workspace: the foreign
 --   key (workspace_id, external_account_id) references external_accounts (workspace_id, id), and the
