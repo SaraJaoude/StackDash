@@ -173,6 +173,22 @@ describe("createDialogController", () => {
     expect(focused).toEqual(["opener", "fallback"]);
   });
 
+  it("keeps focus on the fallback when the action completes while Escape's close event is in flight", () => {
+    const focused: string[] = [];
+    const { controller, dialog, closes, close, fireClose } = fakeDialog({
+      fallback: target("fallback", focused),
+    });
+    controller.open(dialog, target("opener", focused));
+    // Escape hid the dialog; the browser delivers its close event a frame later.
+    dialog.open = false;
+    close("completed");
+    expect(focused).toEqual(["fallback"]);
+
+    fireClose();
+    expect(closes.map((closed) => closed.reason)).toEqual(["completed"]);
+    expect(focused).toEqual(["fallback"]);
+  });
+
   it("moves focus to the fallback on a completed close once the dialog itself is gone", () => {
     const focused: string[] = [];
     const controller = createDialogController();

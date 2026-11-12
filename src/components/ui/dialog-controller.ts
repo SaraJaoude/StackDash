@@ -61,10 +61,11 @@ export function createDialogController(): DialogController {
       if (!dialog.open) dialog.showModal();
     },
     close(dialog, next, fallback) {
-      if (dialog?.open === true) {
-        reason = next;
-        dialog.close();
-      }
+      const open = dialog?.open === true;
+      // A completed close counts even when Escape has already hidden the dialog: its `close` event
+      // may still be on the way, and must not then send focus back to the opener.
+      if (open || next === "completed") reason = next;
+      if (open) dialog.close();
       if (next === "completed") focusAfterClose(next, opener, fallback)?.focus();
     },
     returnFocusTo(target) {
