@@ -182,10 +182,12 @@ arriving live, and press Ctrl+C to stop it. The link works once and expires afte
 command again for a new one, which deletes the demo workspace and builds it again from scratch, so
 anything you added to it is gone. Step 11 describes what the command builds and its options.
 
-The links assume the app is on port 3000. If `npm run dev` reports another port because 3000 is
-taken, set `NEXT_PUBLIC_SITE_URL=http://localhost:<port>` in `.env.local`, restart `npm run dev` on
-that port (`npm run dev -- --port <port>`), and run `npm run demo` again so the printed links point
-at it.
+The links assume the app is on port 3000. If 3000 is taken, do not use the port `npm run dev`
+moves to: local Auth returns a GitHub sign-in (step 7) only to port 3000 or a port from 3100 to 3199
+(`additional_redirect_urls` in `supabase/config.toml`). Pick a port from 3102 to 3199 (Playwright
+uses 3100 and 3101 by default), set `NEXT_PUBLIC_SITE_URL=http://localhost:<port>` in `.env.local`,
+start the app with `npm run dev -- --port <port>`, and run `npm run demo` again so the printed links
+point at it.
 
 ### 7. Sign in with your own GitHub account
 
@@ -211,8 +213,9 @@ npm run invite -- you@example.com
 
 Step 6 left the browser signed in as the demo account, and the sign-in page sends a signed-in
 visitor straight back to the app. Choose **Sign out** in the header first. Then, with `npm run dev`
-running, open <http://localhost:3000/sign-in> and continue with GitHub. After sign-in you land on
-your personal workspace timeline.
+running, open <http://localhost:3000/sign-in> (or `http://localhost:<port>/sign-in` if step 6 moved
+the app to another port) and continue with GitHub. After sign-in you land on your personal
+workspace timeline.
 
 ### 8. Connect the fake provider
 
