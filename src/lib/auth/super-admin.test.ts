@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { isSuperAdminEmail, showsAdminLink } from "./super-admin";
+import { isSuperAdminEmail, refusesAdminBeforeRender, showsAdminLink } from "./super-admin";
 
 const logError = vi.hoisted(() => vi.fn(() => "ref-123"));
 vi.mock("@/lib/log/logger", () => ({ log: { warn: () => {} }, logError }));
@@ -44,5 +44,31 @@ describe("showsAdminLink", () => {
     expect(showsAdminLink("ops@example.com")).toBe(false);
     expect(logError).toHaveBeenCalledOnce();
     expect(logError).toHaveBeenCalledWith("admin.link_check_failed", expect.any(Error));
+  });
+});
+
+describe("refusesAdminBeforeRender", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    logError.mockClear();
+  });
+
+  it.each([
+    ["lets the listed address through", "ops@example.com,second@example.com", "second@example.com", false],
+    ["lets the listed address through in another case", "ops@example.com", "OPS@example.com", false],
+    ["refuses another address", "ops@example.com", "someone@example.com", true],
+    ["refuses a user with no email", "ops@example.com", null, true],
+    ["refuses anyone when the list is empty", "", "ops@example.com", true],
+  ])("%s", (_title, list, email, expected) => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", list);
+    expect(refusesAdminBeforeRender(email)).toBe(expected);
+    expect(logError).not.toHaveBeenCalled();
+  });
+
+  it("leaves an invalid list to the page, so its error page still shows, and logs the reason", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    expect(refusesAdminBeforeRender("someone@example.com")).toBe(false);
+    expect(logError).toHaveBeenCalledOnce();
+    expect(logError).toHaveBeenCalledWith("admin.proxy_check_failed", expect.any(Error));
   });
 });

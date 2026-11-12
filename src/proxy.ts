@@ -2,6 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { isAppPath, safeNextPath } from "@/lib/auth/redirect";
+import { ADMIN_PATH, refusesAdminBeforeRender } from "@/lib/auth/super-admin";
 import { findPublicProjectPage } from "@/lib/data/project-pages";
 import { publicEnv } from "@/lib/env";
 import { parseProjectPagePath, projectPagePath } from "@/lib/public-metrics/project-page";
@@ -80,6 +81,12 @@ const UNKNOWN_DOC_PATH = "/docs/_";
 // released one, and another workspace's handle with this page slug get the same 404.
 const UNKNOWN_PROJECT_PAGE = "/p/_";
 
+// The super admin page (#250) answers anyone signed in who is not a super admin with the same 404
+// as a path that does not exist. The page's own check runs after its static shell has been sent
+// with a 200, so the proxy rewrites those requests to a path no route matches, which renders the
+// global 404 with that status (#374).
+const UNKNOWN_ADMIN_PATH = "/app/admin/_";
+
 type ProjectPageRoute =
   | { redirect: string }
   | { rewrite: string }
@@ -128,9 +135,9 @@ function withNoncePolicy(
 
 /**
  * Refreshes the Supabase session cookie, bounces signed-out visitors away from app pages, sets the
- * CSP headers, and rewrites public project page addresses. This is not authorization: every page,
- * Server Function, and route handler still checks the user itself, because a matcher can drift and
- * silently stop covering a path.
+ * CSP headers, rewrites public project page addresses, and gives the super admin page's 404 its
+ * status. This is not authorization: every page, Server Function, and route handler still checks
+ * the user itself, because a matcher can drift and silently stop covering a path.
  */
 export async function proxy(request: NextRequest) {
   if (MIS_CASED_DOC_PATH.test(request.nextUrl.pathname)) {
@@ -200,6 +207,10 @@ export async function proxy(request: NextRequest) {
     const signIn = new URL("/sign-in", request.url);
     signIn.searchParams.set("next", safeNextPath(`${pathname}${search}`));
     response = NextResponse.redirect(signIn);
+  } else if (signedIn && pathname === ADMIN_PATH && refusesAdminBeforeRender(data.claims.email ?? null)) {
+    response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) =>
+      NextResponse.rewrite(new URL(UNKNOWN_ADMIN_PATH, request.url), init),
+    );
   } else {
     response = withNoncePolicy(request, NEXT_PUBLIC_SUPABASE_URL, (init) => NextResponse.next(init));
   }

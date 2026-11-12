@@ -2,24 +2,33 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { PublicPageMatch } from "@/lib/data/project-pages";
+import type * as LoggerModule from "@/lib/log/logger";
 import type * as RequestsModule from "@/lib/public-metrics/requests";
 import type { RateLimitDecision } from "@/lib/public-metrics/requests";
 
 import { proxy } from "./proxy";
 
 // Public project page addresses (#150) through the proxy: the rate limit the badges and cards
-// share (#321), then the lookup that decides between the page, a redirect, and the 404.
+// share (#321), then the lookup that decides between the page, a redirect, and the 404. Then the
+// super admin page's 404 status (#374), decided from the verified claims.
 
 // vi.mock factories run before the imports above, so the mocks they share are hoisted with them.
-const { checkPublicRateLimit, findPublicProjectPage } = vi.hoisted(() => ({
+const { checkPublicRateLimit, findPublicProjectPage, getClaims } = vi.hoisted(() => ({
   checkPublicRateLimit: vi.fn<(headers: Headers, now: Date) => Promise<RateLimitDecision>>(),
   findPublicProjectPage: vi.fn<(address: string, pageSlug: string) => Promise<PublicPageMatch | null>>(),
+  getClaims: vi.fn<() => Promise<{ data: { claims: { sub: string; email?: string } } | null }>>(),
 }));
 
 vi.mock("@/lib/data/project-pages", () => ({ findPublicProjectPage }));
 vi.mock("@/lib/public-metrics/requests", async (importOriginal) => ({
   ...(await importOriginal<typeof RequestsModule>()),
   checkPublicRateLimit,
+}));
+vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth: { getClaims } }) }));
+// Keeps the invalid list case's error line out of the test output.
+vi.mock("@/lib/log/logger", async (importOriginal) => ({
+  ...(await importOriginal<typeof LoggerModule>()),
+  logError: () => "ref-123",
 }));
 
 const ADDRESS = "/@acme-labs/acme-web";
@@ -128,5 +137,65 @@ describe("proxy for public project pages", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("Location")).toBe("http://localhost/@acme-labs/acme-web?ref=readme");
     expect(checkPublicRateLimit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("proxy for the super admin page", () => {
+  beforeEach(() => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com");
+  });
+
+  function signedInAs(email: string | undefined): void {
+    const claims = { sub: "10000000-0000-4000-8000-000000000001", ...(email === undefined ? {} : { email }) };
+    getClaims.mockResolvedValue({ data: { claims } });
+  }
+
+  it.each([
+    ["another address", "someone@example.com"],
+    ["a user with no email", undefined],
+  ])("answers %s with the 404 route before the page renders, under the app policy", async (_title, email) => {
+    signedInAs(email);
+
+    const response = await proxy(request("/app/admin?after=x"));
+
+    expect(rewrittenTo(response)).toBe("/app/admin/_");
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+  });
+
+  it("lets a super admin through to the page, in any case of the address", async () => {
+    signedInAs("OPS@example.com");
+
+    const response = await proxy(request("/app/admin"));
+
+    expect(rewrittenTo(response)).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("leaves an invalid list to the page, whose error page reports it", async () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    signedInAs("someone@example.com");
+
+    const response = await proxy(request("/app/admin"));
+
+    expect(rewrittenTo(response)).toBeNull();
+    expect(response.headers.get("x-middleware-next")).toBe("1");
+  });
+
+  it("sends a signed-out visitor to sign in and back, as on every app page", async () => {
+    getClaims.mockResolvedValue({ data: null });
+
+    const response = await proxy(request("/app/admin"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Fapp%2Fadmin");
+  });
+
+  it("leaves every other app path alone for a user who is not a super admin (boundary: a path under the page)", async () => {
+    signedInAs("someone@example.com");
+
+    for (const path of ["/app", "/app/admin/settings"]) {
+      const response = await proxy(request(path));
+      expect(rewrittenTo(response)).toBeNull();
+    }
   });
 });

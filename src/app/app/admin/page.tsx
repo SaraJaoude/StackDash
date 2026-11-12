@@ -89,9 +89,10 @@ const searchSchema = z.object({
  */
 export default async function AdminPage({ searchParams }: PageProps<"/app/admin">) {
   await connection();
-  // Checked before anything renders, unlike the account page's streamed session read: a streamed
-  // notFound() would already have sent this page's heading with a 200, so a non super admin could
-  // tell the page apart from a missing one. `instant = false` lets the route block here.
+  // Checked before anything below renders: this is the authorization. It cannot set the status on
+  // a production build, where the empty static shell `instant = false` allows has already been sent
+  // with a 200 by the time this runs, so src/proxy.ts answers a non super admin's request with the
+  // 404 before the render (#374). Without that, the not-found page would still stream in here.
   const user = await requireSuperAdmin(ADMIN_PATH);
   return (
     <div className="flex flex-1 flex-col">
