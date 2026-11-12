@@ -1,5 +1,5 @@
-import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
 import { ADMIN_PATH } from "@/lib/auth/super-admin";
+import { appendScopeParams, buildScopeOptions, EMPTY_SCOPE, type ScopeFilters, type ScopeSources } from "@/lib/filters/scope";
 import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 import { eventTypeLabel, timelineHref } from "@/lib/timeline/query";
