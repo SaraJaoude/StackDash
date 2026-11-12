@@ -37,11 +37,18 @@ install it; self-hosters register their own ([Sentry provider page](docs/provide
 
 ## Run it locally
 
-Follow these steps in order from a fresh clone. Every command runs from the repository root.
+Follow these steps in order from a fresh clone. Every command runs from the repository root. Steps
+1 to 6 end in a demo workspace with 90 days of simulated history, signed in, without registering any
+OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and email.
 
 ### 1. Prerequisites
 
-- Node.js 20.9 or later and npm (CI uses Node.js 22).
+- Node.js 22.13 or later in the 22 line, or Node.js 24 or later, and npm. CI uses Node.js 22, and
+  `.nvmrc` says the same, so `nvm use` picks it. The floor comes from `package-lock.json`:
+  `@supabase/supabase-js` and its packages need Node.js 22, Vite and Rolldown (used by Vitest) and
+  `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used by typescript-eslint) needs
+  22.13. Node.js 23 is not supported: Vitest 4 and `eslint-visitor-keys` 5 both leave it out. The
+  `engines` field in `package.json` holds the same range.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
   version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
@@ -51,7 +58,7 @@ Follow these steps in order from a fresh clone. Every command runs from the repo
 ### 2. Clone and install
 
 ```bash
-git clone git@github.com:eddiejaoude/DevMacro.git
+git clone https://github.com/eddiejaoude/DevMacro.git
 cd DevMacro
 npm ci
 ```
@@ -68,16 +75,14 @@ export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=local-placeholder
 supabase start
 ```
 
-Placeholders are enough for everything except signing in with GitHub in the browser (the checks
-and the end-to-end suite never sign in through GitHub, and `npm run demo` from step 11 signs you in
-as the demo account without it). To sign in locally with GitHub, register a separate GitHub OAuth
-app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
-[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in),
-export its real client ID and secret instead (or put both lines in `supabase/.env.local`, which is
-git ignored), and run `supabase stop` then `supabase start` again.
+Placeholders are enough for everything except signing in with your own GitHub account: the demo in
+step 6 signs you in as the demo account without GitHub, and the checks and the end-to-end suite
+never sign in through GitHub. Step 7 sets up real GitHub sign-in.
 
 The first start downloads the images, applies every migration in `supabase/migrations/`, and loads
-`supabase/seed.sql`. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
+`supabase/seed.sql`. If the stack is already running, for example from another clone of this
+repository (they share the project id `devmacro`), `supabase start` says so and changes nothing:
+carry on with step 4. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
 projects:
 
 | Service | Address |
@@ -117,8 +122,15 @@ openssl rand -base64 32   # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, ba
 openssl rand -hex 32      # CRON_SECRET: 64 hex characters
 ```
 
-Leave the provider variables empty for now; step 8 turns on the fake provider instead. Every
-variable is described in [Environment variables](#environment-variables) and in `.env.example`.
+Turn on the simulated providers, which the demo in step 6 connects instead of real ones (step 10
+says what they are). Set this line in `.env.local`:
+
+```bash
+DEVMACRO_SIMULATE_PROVIDERS=1
+```
+
+Leave the provider variables empty. Every variable is described in
+[Environment variables](#environment-variables) and in `.env.example`.
 
 ### 5. Apply migrations
 
@@ -130,8 +142,6 @@ After a fresh `supabase start` this has nothing to do; run it after every pull t
 migrations without touching your data. Migrations are forward only: add one with
 `supabase migration new <name>`, never edit a merged one, and regenerate the types after any schema
 change with `npm run db:types` (writes `src/lib/supabase/database.types.ts`, commit it).
-
-### 6. Seed data
 
 `supabase/seed.sql` holds synthetic data (the users `owner@example.com` and `viewer@example.com`,
 the workspace Acme, one project, one fake connection, three days of snapshots, a few events). The
@@ -148,19 +158,52 @@ psql "postgresql://postgres:postgres@127.0.0.1:55422/postgres" -f supabase/seed.
 The seed uses fixed ids, so it fails on a database that already holds them. Seed users have no
 password; they exist for tests and for browsing data in Studio.
 
-### 7. Invite yourself and sign in
+### 6. Open the demo workspace
+
+Start the app in one terminal and leave it running:
+
+```bash
+npm run dev
+```
+
+Build the demo workspace in a second terminal:
+
+```bash
+npm run demo
+```
+
+It creates the account `demo@example.com` and a workspace called **Demo workspace** with every
+simulated provider connected and 90 days of history, then prints the dashboard, timeline, and
+public page links and a one-time sign-in link. Open the sign-in link in the browser: you land on
+the demo workspace's dashboard, signed in as the demo account. The landing page at
+<http://localhost:3000> works without signing in. Leave `npm run demo` running to keep data
+arriving live, and press Ctrl+C to stop it. The link works once and expires after an hour; run the
+command again for a new one. Step 11 describes what the command builds and its options.
+
+### 7. Sign in with your own GitHub account
+
+Sign-in for real accounts is GitHub only. Register a separate GitHub OAuth app for your local stack
+with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
+[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in).
+Export its real client ID and secret instead of the placeholders from step 3 (or put both lines in
+`supabase/.env.local`, which is git ignored), and restart the stack so Auth reads them:
+
+```bash
+export SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=<client-id>
+export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=<client-secret>
+supabase stop
+supabase start
+```
 
 Sign-up is invite only: the `before_user_created` auth hook lets Supabase create a user only when
 the email is in `public.access_invites`. Invite the primary verified email of your GitHub account:
 
 ```bash
 npm run invite -- you@example.com
-npm run dev
 ```
 
-Open <http://localhost:3000/sign-in> and continue with GitHub. This needs the real GitHub OAuth app
-from step 3. After sign-in you land on your personal workspace timeline. The landing page at
-<http://localhost:3000> works without signing in.
+With `npm run dev` running, open <http://localhost:3000/sign-in> and continue with GitHub. After
+sign-in you land on your personal workspace timeline.
 
 ### 8. Connect the fake provider
 
@@ -206,7 +249,8 @@ simulated item in a workspace that mixes real and simulated connections. While t
 catalog labels every provider **Simulated** too.
 It is for local use only: the app refuses it on a Vercel production deployment.
 
-1. Add the flag to `.env.local` and restart `npm run dev`:
+1. Check that `.env.local` has the flag from step 4, and restart `npm run dev` if you just added
+   it:
 
    ```bash
    DEVMACRO_SIMULATE_PROVIDERS=1
@@ -256,16 +300,12 @@ removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_P
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
 
-### 11. Seed a demo workspace with 90 days of history (optional)
+### 11. What the demo command builds (optional)
 
-For a demo that is not mostly empty charts, one command builds a whole workspace on your local
-stack with every simulated provider connected and 90 days behind it, signs you in to it, and keeps
-it updating live. No GitHub OAuth app is needed. With the stack from step 3, `.env.local` from
-step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1` added (step 10), and `npm run dev` running:
-
-```bash
-npm run demo
-```
+`npm run demo` from step 6 builds a whole workspace on your local stack with every simulated
+provider connected and 90 days behind it, signs you in to it, and keeps it updating live, so a demo
+is not mostly empty charts. No GitHub OAuth app is needed. It needs the stack from step 3,
+`.env.local` from step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1`, and `npm run dev` running.
 
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
   by it, connects every simulated provider through the same code as the connect flow, spreads their
@@ -500,7 +540,7 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
-  eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+  11 provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 - [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
