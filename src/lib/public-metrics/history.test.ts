@@ -334,10 +334,12 @@ describe("historySummary", () => {
     );
   });
 
-  it("says so when there are no values at all (boundary)", () => {
+  it("says no day has a value, for a new metric and one that lapsed alike (boundary)", () => {
+    const lapsed = [0, 1, 2].map((index) => ({ asOf: at(index), value: null, text: "Not synced in the last 2 days" }));
+    expect(historySummary("GitHub stars", "last 30 days", lapsed)).toBe("GitHub stars, last 30 days: no value on any day.");
     expect(historySummary("GitHub stars", "last 30 days", [{ asOf: at(0), value: null, text: "No data yet" }])).toBe(
-      "GitHub stars, last 30 days: no values yet.",
+      "GitHub stars, last 30 days: no value on any day.",
     );
-    expect(historySummary("GitHub stars", "last 30 days", [])).toBe("GitHub stars, last 30 days: no values yet.");
+    expect(historySummary("GitHub stars", "last 30 days", [])).toBe("GitHub stars, last 30 days: no value on any day.");
   });
 });

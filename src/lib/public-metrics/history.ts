@@ -312,14 +312,15 @@ export type ChartPoint = Readonly<{ asOf: Date; value: number | null; text: stri
 /**
  * A period of a metric's history in words: where it starts and ends, the highest and lowest
  * values, and how many days have no value. Used as a chart's text alternative and as visible copy
- * beside it (the last 30 days on a project page, #344), so it follows the copy rules. Dates are
- * UTC days, like the points.
+ * beside it (the last 30 days on a project page, #344), so it follows the copy rules. A period
+ * with no value says so without "yet": the metric may be new, or may have stopped syncing while
+ * the longer chart beside it still draws older values. Dates are UTC days, like the points.
  */
 export function historySummary(title: string, period: string, points: readonly ChartPoint[]): string {
   const available = points.filter((point) => point.value !== null);
   const first = available[0];
   const last = available.at(-1);
-  if (first === undefined || last === undefined) return `${title}, ${period}: no values yet.`;
+  if (first === undefined || last === undefined) return `${title}, ${period}: no value on any day.`;
   const highest = available.reduce((best, point) => ((point.value ?? 0) > (best.value ?? 0) ? point : best), first);
   const lowest = available.reduce((best, point) => ((point.value ?? 0) < (best.value ?? 0) ? point : best), first);
   const missing = points.length - available.length;
