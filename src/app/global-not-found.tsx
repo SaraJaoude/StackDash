@@ -5,12 +5,14 @@ import { SkipLink } from "@/components/skip-link";
 import { site } from "@/lib/site";
 
 import { documentClassName } from "./fonts";
-import { viewport as rootViewport } from "./layout";
+import { metadata as rootMetadata, viewport as rootViewport } from "./layout";
 import NotFound from "./not-found";
 import "./globals.css";
 
-// This document replaces the root layout, so its title template does not apply: name the site here.
-export const metadata: Metadata = { title: `Page not found · ${site.name}` };
+// This document replaces the root layout, so it takes the layout's metadata itself: the origin
+// that resolves the root preview image (src/app/opengraph-image.tsx, which Next.js attaches here
+// too) and the default cards (#338). The title template does not apply: name the site here.
+export const metadata: Metadata = { ...rootMetadata, title: `Page not found · ${site.name}` };
 export const viewport: Viewport = rootViewport;
 
 // Next.js answers every URL that matches no route with this page (experimental.globalNotFound in

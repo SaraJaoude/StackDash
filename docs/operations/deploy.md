@@ -135,7 +135,7 @@ Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_`
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the sitemap's addresses, of a public project page's canonical address and preview image, and of the links in alert messages, which a production build will not send without it |
+| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the addresses in the sitemap and robots.txt, of the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages (left out while it is unset), and of the links in alert messages, which a production build will not send without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
@@ -241,6 +241,7 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
 - [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
+- [ ] **Link previews and crawl rules.** `curl -s https://<production-host>/docs | grep -oE '<(meta property="og:(title|url|image)"|link rel="canonical")[^>]*>'` prints the page's own title and production addresses, the `og:image` address answers `200` with a PNG, and `curl -s https://<production-host>/robots.txt` names `https://<production-host>/sitemap.xml` and disallows `/w/`, `/app`, `/api/`, `/auth/`, `/account`, and `/oauth`.
 
 ## What stays Eddie's
 
