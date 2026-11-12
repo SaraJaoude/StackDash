@@ -17,12 +17,6 @@ export type WorkspaceScope = Readonly<{
 
 export type DashboardData = WorkspaceScope & Readonly<{ snapshots: SnapshotInput[] }>;
 
-/**
- * Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months.
- * The daily trends read this same window (#263); their 30 day chart sits inside it.
- */
-export const SNAPSHOT_WINDOW_DAYS = 45;
-
 // Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap. The monthly
 // trend's rollup (`loadMonthlySnapshots`) has the same cap, but counts one row per account, metric,
 // and month, so it is reached only past about 770 account and metric pairs.
@@ -42,11 +36,6 @@ const ACCOUNT_COLUMNS = "id, connection_id, display_name, project_id";
 const PROJECT_COLUMNS = "id, name";
 const SNAPSHOT_COLUMNS =
   "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source";
-
-/** First UTC date (`YYYY-MM-DD`) of the snapshot window ending at `now`; snapshot dates are UTC dates. */
-export function snapshotWindowStart(now: Date): string {
-  return new Date(now.getTime() - SNAPSHOT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
-}
 
 /** Optional narrowing of a snapshot read on top of the workspace and `sinceDate`. */
 export type SnapshotReadFilters = Readonly<{

@@ -1,12 +1,13 @@
 import type * as React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 
+import { snapshotWindowStart } from "@/lib/dashboard/aggregate";
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { EMPTY_SCOPE } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { fakeSupabase, type PageRequest, type Row } from "@/lib/supabase/fake-postgrest";
 
-import { getDashboardData, snapshotWindowStart } from "./dashboard";
+import { getDashboardData } from "./dashboard";
 import { getTrendData } from "./trends";
 
 /*

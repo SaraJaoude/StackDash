@@ -4,8 +4,9 @@ import { cache } from "react";
 
 import { joinAlertSnapshots, type AlertSnapshotInput } from "@/lib/alerts/evaluate";
 import type { BudgetValues } from "@/lib/alerts/rule-schema";
+import { snapshotWindowStart } from "@/lib/dashboard/aggregate";
 import { afterCursorFilter, decodeCursor, encodeCursor, type Page } from "@/lib/data/cursor";
-import { getWorkspaceScope, loadSnapshots, snapshotWindowStart } from "@/lib/data/dashboard";
+import { getWorkspaceScope, loadSnapshots } from "@/lib/data/dashboard";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 

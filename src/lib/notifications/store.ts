@@ -3,7 +3,7 @@ import "server-only";
 import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { loadSnapshots } from "@/lib/alerts/run";
 import { severityFor } from "@/lib/alerts/evaluate";
-import { snapshotWindowStart } from "@/lib/data/dashboard";
+import { snapshotWindowStart } from "@/lib/dashboard/aggregate";
 import {
   listDeliveryDestinations,
   loadDestinationSecret,
