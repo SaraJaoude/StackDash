@@ -8,8 +8,8 @@ The same keys also connect an AI assistant to the workspace through the read-onl
 
 ## Create a key
 
-1. Open the workspace, then **Settings**, then **API keys**. Only owners and admins see this section.
-2. Name the key after the script or tool that will use it, choose what it may read, and select **Create key**.
+1. Open the workspace, then **Settings**, then **API keys**. Only owners and admins can create keys; everyone else sees why not. **Create API key** in the command palette (Cmd+K or Ctrl+K) opens the same form.
+2. Under **Key name**, name the key after the script or tool that will use it, choose **What the key may read**, and select **Create key**.
 3. Copy the key. DevMacro shows it once and stores only a hash of it, so it cannot show it again. If you lose it, revoke it and create another.
 
 A key belongs to one workspace. It stops working when you revoke it, and when the member who created it leaves the workspace. Settings marks such a key **Not working**; revoke it and create a new one. A workspace can hold 20 keys that are not revoked, so revoke keys you no longer use to make room.
@@ -157,9 +157,11 @@ The seed (`supabase/seed.sql`) loads the workspace Acme (`acmeseedws`) with one 
    psql "postgresql://postgres:postgres@127.0.0.1:55422/postgres" -c "insert into public.workspace_members (workspace_id, user_id, role) select '20000000-0000-4000-8000-000000000001', id, 'admin' from auth.users where email = 'you@example.com'"
    ```
 
-3. Open <http://localhost:3000/w/acmeseedws/settings>, create a key with every scope, and read it into `DEVMACRO_API_KEY` as shown above, with `DEVMACRO_URL=http://localhost:3000`.
+   Without `psql` on your computer, run the same `insert` statement in the SQL editor of the local Supabase Studio at <http://127.0.0.1:55423>.
 
-Every example on this page then answers with seed data: the workspace Acme, the project Acme web, the connection Fake provider, `fake.spend` in `USD` cents, and the failed deployment event. The seed has no triggered alerts, so that list is empty until an alert fires.
+3. Open <http://localhost:3000/w/acmeseedws/settings#create-api-key>, create a key with every scope, and read it into `DEVMACRO_API_KEY` as shown above, with `DEVMACRO_URL=http://localhost:3000`.
+
+Every example on this page then answers with seed data: the workspace Acme, the project Acme web, the connection Fake provider, `fake.spend` in `USD` cents, and the failed deployment event. Once jobs have run on your instance, the events also include DevMacro's daily summaries. The seed has no triggered alerts, so that list is empty until an alert fires.
 
 ## Security
 

@@ -121,6 +121,8 @@ Every tool answers with JSON, both as `structuredContent` (with an `outputSchema
 
 On a local install with the simulated providers on (`DEVMACRO_SIMULATE_PROVIDERS=1`), `npm run demo:seed -- --member you@example.com` builds a demo workspace with 90 days of history and adds your account as an admin (see the header of `scripts/demo-seed.ts`). In that workspace's settings, under **AI assistants**, select **Create assistant key**, connect Claude Code as above with `DEVMACRO_URL=http://localhost:3000`, and run `/mcp__devmacro__weekly_stack_review`, or ask, for example, "Which projects are in my DevMacro workspace, and how much Resend quota is left?"
 
+`npm run demo:seed` replaces the demo workspace each time it runs. To try the server without it, use the seed workspace Acme instead: add yourself to it as in [Try it against the local seed data](api.md#try-it-against-the-local-seed-data), then create the assistant key in its settings. Its answers are smaller: one project, one connection, and a few days of snapshots.
+
 ## Security
 
 - The server reads through the same database functions as the REST API, with the hash of the presented key. The database resolves the workspace from that hash, so a key never reads another workspace, whatever a tool is asked.
