@@ -9,18 +9,16 @@ import path from "node:path";
  * (outputFileTracingIncludes in next.config.ts), the same way src/lib/docs.ts ships the docs.
  */
 
-const MIGRATIONS_DIR = path.join(process.cwd(), "supabase", "migrations");
 // The Supabase CLI's naming: a 14 digit UTC timestamp, then a name. The timestamp is the version.
 const MIGRATION_FILE = /^(\d{14})_[^/]+\.sql$/;
 
-/**
- * The newest migration version in this build, or null when the files did not ship with it. `dir`
- * is a parameter only so tests can point it at a fixture directory.
- */
-export function expectedMigrationVersion(dir: string = MIGRATIONS_DIR): string | null {
+/** The newest migration version in this build, or null when the files did not ship with it. */
+export function expectedMigrationVersion(): string | null {
   let files: string[];
   try {
-    files = fs.readdirSync(dir);
+    // A literal path the build can trace (#363): a variable here, even one only tests set, makes
+    // Turbopack trace the whole project into the server output. Tests stub process.cwd() instead.
+    files = fs.readdirSync(path.join(process.cwd(), "supabase", "migrations"));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
     throw new Error("Reading the migration files failed.", { cause: error });

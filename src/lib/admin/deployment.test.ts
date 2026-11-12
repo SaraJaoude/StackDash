@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { compareMigrations, expectedMigrationVersion } from "./deployment";
 
@@ -21,32 +21,39 @@ describe("compareMigrations", () => {
 describe("expectedMigrationVersion", () => {
   const made: string[] = [];
 
-  function directoryWith(files: readonly string[]): string {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "devmacro-migrations-"));
-    made.push(dir);
+  /** Runs from a project root whose supabase/migrations holds `files`, or has no such folder. */
+  function runFromRootWith(files: readonly string[] | null): void {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "devmacro-root-"));
+    made.push(root);
+    vi.spyOn(process, "cwd").mockReturnValue(root);
+    if (files === null) return;
+    const dir = path.join(root, "supabase", "migrations");
+    fs.mkdirSync(dir, { recursive: true });
     for (const file of files) fs.writeFileSync(path.join(dir, file), "");
-    return dir;
   }
 
   afterEach(() => {
+    vi.restoreAllMocks();
     for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
   });
 
   it("is the newest version, whatever order the directory lists the files in", () => {
-    const dir = directoryWith(["20261107120000_b.sql", "20261031090000_a.sql", "20261107090000_c.sql"]);
-    expect(expectedMigrationVersion(dir)).toBe("20261107120000");
+    runFromRootWith(["20261107120000_b.sql", "20261031090000_a.sql", "20261107090000_c.sql"]);
+    expect(expectedMigrationVersion()).toBe("20261107120000");
   });
 
   it("ignores files that are not CLI migrations", () => {
-    const dir = directoryWith(["20261101000000_real.sql", "20991231235959.sql", "2026110800000_short.sql", "20261109000000_notes.md", ".DS_Store"]);
-    expect(expectedMigrationVersion(dir)).toBe("20261101000000");
+    runFromRootWith(["20261101000000_real.sql", "20991231235959.sql", "2026110800000_short.sql", "20261109000000_notes.md", ".DS_Store"]);
+    expect(expectedMigrationVersion()).toBe("20261101000000");
   });
 
   it("is null for an empty directory", () => {
-    expect(expectedMigrationVersion(directoryWith([]))).toBeNull();
+    runFromRootWith([]);
+    expect(expectedMigrationVersion()).toBeNull();
   });
 
   it("is null when the files did not ship with the build", () => {
-    expect(expectedMigrationVersion(path.join(os.tmpdir(), "devmacro-no-such-directory"))).toBeNull();
+    runFromRootWith(null);
+    expect(expectedMigrationVersion()).toBeNull();
   });
 });
