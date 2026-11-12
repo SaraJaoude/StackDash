@@ -335,7 +335,7 @@ export async function setAnomalyDetection(
   if (!parsed.success) return { ok: false, message: OUT_OF_DATE };
   const { workspace: slug, enabled } = parsed.data;
 
-  return guarded("alerts.anomaly_toggle_failed", "Anomaly detection could not be changed. Try again in a moment.", async () => {
+  return guarded("alerts.anomaly_toggle_failed", "Unusual spend and usage checks could not be changed. Try again in a moment.", async () => {
     const { workspace } = await requireWorkspaceAction(slug, "manage_budgets");
     if (!(await setAnomalyDetectionEnabled(workspace.id, enabled === "true"))) {
       throw new ForbiddenError("admin", actionDeniedReason("manage_budgets"));

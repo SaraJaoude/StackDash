@@ -63,7 +63,7 @@ const DELAY_CHOICES = PUBLISHED_METRIC_DELAYS.map((days) => ({
 // has an instant shell; access checks and data reads stream in behind it.
 export default function PublicMetricsPage(props: PageProps<"/w/[workspace]/projects/[projectId]/public-metrics">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading public metrics" />}>
       <PublicMetricsContent {...props} />
     </Suspense>
   );

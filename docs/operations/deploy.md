@@ -83,7 +83,7 @@ The sign-in page sends Supabase a `redirectTo` of `<origin>/auth/callback`; Supa
 - Hook type: **Postgres function**.
 - Schema `public`, function `hook_before_user_created`.
 
-This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else sees "This email has not been invited to the DevMacro test."
+This mirrors `[auth.hook.before_user_created]` in `supabase/config.toml` (`pg-functions://postgres/public/hook_before_user_created`). With it enabled, Supabase creates a user only when their GitHub email is in `public.access_invites`; everyone else is sent back to the sign-in page with "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again."
 
 ### Custom SMTP sender
 

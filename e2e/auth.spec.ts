@@ -44,7 +44,7 @@ test.describe("signed out", () => {
   test("a not-invited error explains what to do next", async ({ page }) => {
     await page.goto("/sign-in?error=not_invited");
     await expect(page.getByRole("main").getByRole("alert")).toHaveText(
-      "This GitHub account's email has not been invited to the DevMacro test. Ask for an invite, then try again.",
+      "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
     );
   });
 

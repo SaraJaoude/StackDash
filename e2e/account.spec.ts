@@ -322,6 +322,35 @@ test.describe("the workspace header identity", () => {
   });
 });
 
+test.describe("an account with no workspace", () => {
+  test("explains why and who can help, in product words, and passes axe", async ({ browser }) => {
+    const admin = adminClient();
+    const user = await createSyntheticUser("no-workspace");
+    const context = await signedInContext(browser, user);
+    try {
+      // The only way to reach this page: the user's one workspace is gone.
+      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const { error } = await admin.from("workspaces").delete().eq("id", workspaceId);
+      if (error) throw new Error(`Deleting the personal workspace failed (code ${error.code}).`);
+
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto("/app");
+      const main = page.getByRole("main");
+      await expect(main.getByRole("heading", { level: 1 })).toHaveText("You are not a member of any workspace");
+      // #345: the product says "DevMacro", never "the DevMacro test".
+      await expect(main).toContainText("Contact the person who invited you to DevMacro, or sign out");
+      await expect(main).not.toContainText(/DevMacro test/);
+      await expect(main.getByRole("button", { name: "Sign out" })).toBeVisible();
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
 test.describe("deleting an account", () => {
   test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({ browser }) => {
     const admin = adminClient();

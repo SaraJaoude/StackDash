@@ -31,7 +31,7 @@ export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
               <li key={link.href}>
                 <a
                   href={`${anchorBase}${link.href}`}
-                  className="text-sm text-muted transition-colors hover:text-foreground"
+                  className="inline-flex min-h-6 items-center text-sm text-muted transition-colors hover:text-foreground"
                 >
                   {link.label}
                 </a>
@@ -41,7 +41,10 @@ export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
           <ul className="flex flex-col gap-y-2.5">
             {[docsLink, signInLink].map((link) => (
               <li key={link.href}>
-                <Link href={link.href} className="text-sm text-muted transition-colors hover:text-foreground">
+                <Link
+                  href={link.href}
+                  className="inline-flex min-h-6 items-center text-sm text-muted transition-colors hover:text-foreground"
+                >
                   {link.label}
                 </Link>
               </li>
@@ -54,7 +57,7 @@ export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
         <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-3 px-6 py-6 text-xs text-muted">
           <a
             href={site.githubUrl}
-            className="inline-flex items-center gap-2 transition-colors hover:text-foreground"
+            className="inline-flex min-h-6 items-center gap-2 transition-colors hover:text-foreground"
           >
             <GitHubIcon />
             {site.name} on GitHub

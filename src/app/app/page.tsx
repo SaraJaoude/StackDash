@@ -67,7 +67,7 @@ function NoWorkspace() {
       <p className="mt-3 text-sm leading-6 text-muted">
         Your account is signed in, but it does not belong to a workspace. This can happen if a
         workspace was deleted or you were removed from it. Contact the person who invited you to
-        the DevMacro test, or sign out and sign in with a different GitHub account.
+        DevMacro, or sign out and sign in with a different GitHub account.
       </p>
       <div className="mt-6">
         <SignOutButton />
