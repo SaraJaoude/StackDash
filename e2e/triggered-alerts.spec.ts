@@ -1,9 +1,10 @@
-import type { Locator, Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { expectHydrated } from "./fixtures/hydration";
+import { tabTo } from "./fixtures/keyboard";
 
 // Each test creates its own workspace and seeds only inside it.
 
@@ -67,14 +68,8 @@ function triggeredList(page: Page) {
 const SETTINGS_AREAS = ["Alert rules", "Budgets", "Alert emails", "Channels", "Unusual spend and usage"] as const;
 const SETTINGS_FORMS = ["Add an alert rule", "Add a budget", "Add a channel"] as const;
 
-/** Presses Tab until `target` has focus, as a keyboard user reaches it; fails after 60 presses. */
-async function tabTo(page: Page, target: Locator): Promise<void> {
-  for (let presses = 0; presses < 60; presses += 1) {
-    if (await target.evaluate((element) => element === document.activeElement)) return;
-    await page.keyboard.press("Tab");
-  }
-  await expect(target).toBeFocused();
-}
+// More Tab stops than the inbox has before Alert settings, or alert settings before New budget.
+const MAX_TAB_PRESSES = 60;
 
 ownerTest.describe("triggered alerts as the owner", () => {
   ownerTest("sees the alert on the alerts page, dashboard, and timeline, then acknowledges it", async ({ page }) => {
@@ -232,7 +227,7 @@ ownerTest.describe("triggered alerts as the owner", () => {
       // Keyboard only from here: Tab to Alert settings and press Enter.
       await expectHydrated(page);
       const settingsLink = page.getByRole("link", { name: "Alert settings" });
-      await tabTo(page, settingsLink);
+      await tabTo(page, settingsLink, MAX_TAB_PRESSES);
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(`/w/${workspace.slug}/alerts/settings`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
@@ -242,7 +237,7 @@ ownerTest.describe("triggered alerts as the owner", () => {
 
       // New budget opens its form at the name field; Enter in a field adds it.
       const newBudget = page.getByRole("button", { name: "New budget" });
-      await tabTo(page, newBudget);
+      await tabTo(page, newBudget, MAX_TAB_PRESSES);
       await page.keyboard.press("Enter");
       const form = page.getByRole("form", { name: "Add a budget" });
       await expect(form.getByLabel("Budget name")).toBeFocused();
@@ -259,7 +254,7 @@ ownerTest.describe("triggered alerts as the owner", () => {
       await expect(budgets.getByRole("listitem").filter({ hasText: "Keyboard budget" })).toContainText("$40.00 a month");
 
       // Cancel closes it and hands focus back to New budget.
-      await tabTo(page, form.getByRole("button", { name: "Cancel" }));
+      await tabTo(page, form.getByRole("button", { name: "Cancel" }), MAX_TAB_PRESSES);
       await page.keyboard.press("Enter");
       await expect(form).toHaveCount(0);
       await expect(newBudget).toBeFocused();
