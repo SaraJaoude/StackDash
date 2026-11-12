@@ -21,11 +21,14 @@ function stubOperator(values: Partial<Record<keyof typeof OPERATOR, string>>): v
   for (const name of Object.keys(OPERATOR) as (keyof typeof OPERATOR)[]) vi.stubEnv(name, values[name] ?? "");
 }
 
+/** Where this instance runs, and where it sends alert email (`false`: email is not set up). */
+type Hosting = { vercel: boolean; email: false | { apiUrl: string } };
+
 /**
- * Where this instance runs and where it sends alert email, which decide the processors the policy
- * names. `email.apiUrl` is DEVMACRO_RESEND_API_URL, where "" leaves it unset (Resend's own API).
+ * Stubs the variables that decide the processors the policy names. `email.apiUrl` is
+ * DEVMACRO_RESEND_API_URL, where "" leaves it unset (Resend's own API).
  */
-function stubHosting({ vercel, email }: { vercel: boolean; email: false | { apiUrl: string } }): void {
+function stubHosting({ vercel, email }: Hosting): void {
   vi.stubEnv("VERCEL", vercel ? "1" : "");
   vi.stubEnv("DEVMACRO_RESEND_API_KEY", email ? "test-key" : "");
   vi.stubEnv("DEVMACRO_RESEND_API_URL", email ? email.apiUrl : "");
@@ -80,7 +83,7 @@ describe("with an operator configured", () => {
     expect(termsMetadata()).toMatchObject({ title: "Terms of use" });
   });
 
-  it.each([
+  it.each<[string, Hosting, string[], string[]]>([
     ["on Vercel with alert email", { vercel: true, email: RESEND }, ["Vercel", "Resend"], ["Hosting", "Email"]],
     ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel"], ["Hosting", "Resend", "Email"]],
     ["self-hosted with alert email", { vercel: false, email: RESEND }, ["Hosting", "Resend"], ["Vercel", "Email"]],
