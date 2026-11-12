@@ -32,7 +32,8 @@ export function isLoopbackUrl(value: string): boolean {
   return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
-const RESEND_API_URL = "https://api.resend.com";
+/** Resend's own API origin, where alert email goes unless DEVMACRO_RESEND_API_URL names another. */
+export const RESEND_API_URL = "https://api.resend.com";
 
 // Alert email (#152) goes through Resend's API (#244). Without DEVMACRO_RESEND_API_KEY email is not
 // set up on this instance; alerts still reach the app and the channels. DEVMACRO_RESEND_API_URL

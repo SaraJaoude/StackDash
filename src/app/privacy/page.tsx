@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalCode, LegalDocument, LegalLink, LegalSection } from "@/components/legal/legal-document";
 import { listDocs } from "@/lib/docs";
-import { emailEnv, onVercel } from "@/lib/env";
+import { emailEnv, onVercel, RESEND_API_URL } from "@/lib/env";
 import { PRIVACY_UPDATED, requireOperator } from "@/lib/legal";
 import { site } from "@/lib/site";
 
@@ -11,8 +11,8 @@ import { site } from "@/lib/site";
  * request that changes this text lists the code path behind each one, and so must the next. The
  * operator comes from server configuration (`operatorEnv`), and an instance without one answers 404.
  * The processors follow this instance's own configuration too: Vercel only on Vercel (`onVercel`),
- * Resend only where alert email is set up (`emailEnv`), so a self-hosted copy never lists a service
- * it does not use.
+ * Resend only where alert email goes to Resend's own API (`emailEnv`), so a self-hosted copy never
+ * lists a service it does not use.
  *
  * Prerendered: the text, the operator, the processors, and the provider list from docs/ are all
  * known at build time. 'navigation' makes the build fail if the page ever needs request-time
@@ -30,8 +30,17 @@ export function generateMetadata(): Metadata {
 // What the request and server logs hold, wherever the app is hosted.
 const LOGS = "Our logs record what happened and a reference id, with tokens, keys, and other secrets masked.";
 
+// Who receives alert email: Resend by name when the client posts to its own API, otherwise whichever
+// server DEVMACRO_RESEND_API_URL names, which this page cannot name.
+function emailProcessor(): "resend" | "other" | null {
+  const email = emailEnv();
+  if (email === null) return null;
+  return email.apiUrl === RESEND_API_URL ? "resend" : "other";
+}
+
 export default function PrivacyPage() {
   const operator = requireOperator();
+  const email = emailProcessor();
   const providers = listDocs().filter((doc) => doc.group === "providers");
   const contact = <LegalLink href={`mailto:${operator.email}`}>{operator.email}</LegalLink>;
 
@@ -164,10 +173,16 @@ export default function PrivacyPage() {
           <li>
             <strong>GitHub</strong>: confirms who you are when you sign in, and serves your avatar.
           </li>
-          {emailEnv() !== null && (
+          {email === "resend" && (
             <li>
               <strong>Resend</strong>: sends alert and digest emails, so it receives your email address and the
               message.
+            </li>
+          )}
+          {email === "other" && (
+            <li>
+              <strong>Email</strong>: the service that sends alert and digest emails receives your email address and
+              the message.
             </li>
           )}
         </ul>

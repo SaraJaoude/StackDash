@@ -21,13 +21,22 @@ function stubOperator(values: Partial<Record<keyof typeof OPERATOR, string>>): v
   for (const name of Object.keys(OPERATOR) as (keyof typeof OPERATOR)[]) vi.stubEnv(name, values[name] ?? "");
 }
 
-/** Where this instance runs and whether it sends email, which decide the processors the policy names. */
-function stubHosting({ vercel, email }: { vercel: boolean; email: boolean }): void {
+/**
+ * Where this instance runs and where it sends alert email, which decide the processors the policy
+ * names. `email.apiUrl` is DEVMACRO_RESEND_API_URL, where "" leaves it unset (Resend's own API).
+ */
+function stubHosting({ vercel, email }: { vercel: boolean; email: false | { apiUrl: string } }): void {
   vi.stubEnv("VERCEL", vercel ? "1" : "");
   vi.stubEnv("DEVMACRO_RESEND_API_KEY", email ? "test-key" : "");
-  vi.stubEnv("DEVMACRO_RESEND_API_URL", "");
+  vi.stubEnv("DEVMACRO_RESEND_API_URL", email ? email.apiUrl : "");
   vi.stubEnv("DEVMACRO_EMAIL_FROM", email ? "DevMacro <alerts@example.com>" : "");
 }
+
+// Resend's own API, by default and spelled out; another server that answers like it; the local fake.
+const RESEND = { apiUrl: "" };
+const RESEND_EXPLICIT = { apiUrl: "https://api.resend.com/" };
+const RELAY = { apiUrl: "https://mail.example.com" };
+const LOCAL_FAKE = { apiUrl: "http://127.0.0.1:55430" };
 
 /** What `fn` threw; fails the test when it returned instead. */
 function thrownBy(fn: () => unknown): unknown {
@@ -72,10 +81,13 @@ describe("with an operator configured", () => {
   });
 
   it.each([
-    ["on Vercel with alert email", { vercel: true, email: true }, ["Vercel", "Resend"], ["Hosting"]],
-    ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel"], ["Hosting", "Resend"]],
-    ["self-hosted with alert email", { vercel: false, email: true }, ["Hosting", "Resend"], ["Vercel"]],
-    ["self-hosted without alert email", { vercel: false, email: false }, ["Hosting"], ["Vercel", "Resend"]],
+    ["on Vercel with alert email", { vercel: true, email: RESEND }, ["Vercel", "Resend"], ["Hosting", "Email"]],
+    ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel"], ["Hosting", "Resend", "Email"]],
+    ["self-hosted with alert email", { vercel: false, email: RESEND }, ["Hosting", "Resend"], ["Vercel", "Email"]],
+    ["self-hosted without alert email", { vercel: false, email: false }, ["Hosting"], ["Vercel", "Resend", "Email"]],
+    ["with Resend's API set explicitly", { vercel: false, email: RESEND_EXPLICIT }, ["Resend"], ["Email"]],
+    ["sending through another server", { vercel: false, email: RELAY }, ["Email"], ["Resend"]],
+    ["sending to the local fake", { vercel: false, email: LOCAL_FAKE }, ["Email"], ["Resend"]],
   ])("the privacy policy names only the processors an instance %s uses", (_title, hosting, named, absent) => {
     stubOperator(OPERATOR);
     stubHosting(hosting);
