@@ -1,0 +1,61 @@
+# Getting started
+
+This guide takes you from signing in to a workspace that shows your stack: connect a provider, read the timeline and the dashboard, get an alert before a bill surprises you, and publish a number you are proud of. Each step names the buttons and headings exactly as DevMacro shows them.
+
+## 1. Sign in
+
+Open your DevMacro site and select **Sign in**, then **Continue with GitHub**, and approve DevMacro on GitHub. DevMacro is invite only during the test: sign in with the GitHub account whose primary email was invited. Any other account is refused with "This GitHub account's email has not been invited to the DevMacro test."
+
+You land on the **Timeline** of your personal workspace. The navigation along the top of every workspace page holds **Timeline**, **Dashboard**, **Connections**, **Alerts**, **Projects**, and **Settings**.
+
+## 2. Explore with sample data
+
+A new workspace has nothing to show yet, so the timeline says **No activity yet**. On a site that simulates providers (only a local install with `DEVMACRO_SIMULATE_PROVIDERS=1`, never a production deployment), owners and admins of a workspace with no connections also see **Explore with sample data**. Select it to connect every simulated provider to this workspace with this week's made-up history. The timeline opens with **Sample data added**, and everything that data shows is labeled **Simulated**.
+
+When you are done looking around, delete the simulated connections on the **Connections** page, then connect your real providers. Skip this step if your site does not offer the button.
+
+## 3. Connect your first provider
+
+Only owners and admins of a workspace connect providers. Every member sees what is connected.
+
+1. Open **Connections**. Under **Add a provider**, each card lists the **Data collected** and says whether the provider asks for read access only.
+2. Select **Connect** and the provider's name, for example **Connect Vercel**. The next page lists the **Permissions** the provider will ask you to grant and the **Data collected**. A provider that has no read-only permission for that data asks you to tick **I understand DevMacro gets full access to my** account first.
+3. Select **Continue to** the provider, for example **Continue to Vercel**, and approve DevMacro on the provider's own consent screen.
+4. Back in DevMacro, the connection is listed under **Connected providers**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
+
+A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what DevMacro reads, what each permission allows, and what is verified or estimated.
+
+## 4. Read the timeline and the dashboard
+
+The **Timeline** is the live feed of your stack: deploys, payments, sync failures, alerts, and daily summaries, newest first. New events appear without a reload. Narrow it by severity, event type, date range, provider, project, or connection, or with **Search event titles**.
+
+The **Dashboard** adds up spend, usage, and allowances across every connected provider:
+
+- The headline at the top compares **This week** or **This month** with the same days of the period before: **Revenue**, **Revenue minus spend**, **Signups**, **Cost per signup**, and **Deploys**. A figure DevMacro cannot work out says why instead of showing a number.
+- Below it, each provider has a card with its spend, its allowances and how much of each is left, and when they reset. **Verified spend** is the amount the provider reported. **Estimated spend** is calculated by DevMacro from the provider's published prices, and says so.
+
+## 5. Set an alert
+
+Open **Alerts**. Owners and admins manage rules; every member sees what fired.
+
+- **Suggested alerts** appears when a connected provider reports allowances that no rule watches yet. Select **Add these alerts** to be alerted at 75%, 90%, and 100% of each of that provider's allowances.
+- To write your own rule, go to **Add an alert rule**. Under **Alert when**, choose **Usage reaches a percentage of a provider allowance**, **Spend reaches an amount**, or **Spend reaches a percentage of your budget** (add the budget under **Add a budget** first), set the threshold, and select **Add alert rule**.
+
+A rule raises an alert at most once per billing period. Alerts that fired are listed under **Triggered alerts** at the top of the page, where you acknowledge them.
+
+## 6. Publish a metric
+
+Spend, budgets, and alerts are never public. Usage metrics such as deployments or GitHub stars can be, one project at a time, and only after an owner or admin publishes them.
+
+1. Open **Projects**, enter a **Project name**, and select **Create project**. A project groups accounts from different providers into one product.
+2. Assign accounts to it: open **Connections**, select a connection, and under **Accounts** choose the project in **Project for** that account, then select **Save project**.
+3. Back on **Projects**, select **Public metrics** for the project. Under **Metrics from your connected providers**, choose the **Rounding** and **Timing** of a metric and select **Publish**.
+4. A published metric gets a badge and a card to share. To give the project a public page, select **Turn on the project page**.
+
+How each public number is counted is in [Public metrics](architecture/public-metrics.md).
+
+## Next steps
+
+- Read your workspace from your own scripts with the [REST API](api.md).
+- Ask an AI assistant about your workspace through the [MCP server](mcp.md).
+- Run DevMacro yourself: [Deploy to Vercel and Supabase](operations/deploy.md).

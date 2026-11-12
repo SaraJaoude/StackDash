@@ -8,7 +8,7 @@ DevMacro reads GitLab.com compute minutes, storage, and plan, plus pipelines, de
 
 ## Go or no-go
 
-**Go, GitLab.com only, with one estimate.** An OAuth application with the read-only `read_api` and `read_user` scopes reads compute minutes per namespace and per project, namespace storage and its limit, the plan, and the activity Eddie asked for on 2026-11-05: pipelines, deployments per environment, releases, and merged merge requests. Two limits shape it:
+**Go, GitLab.com only, with one estimate.** An OAuth application with the read-only `read_api` and `read_user` scopes reads compute minutes per namespace and per project, namespace storage and its limit, the plan, and activity: pipelines, deployments per environment, releases, and merged merge requests. Two limits shape it:
 
 - GitLab returns no dollar cost through these scopes, and the monthly compute quota (`shared_runners_minutes_limit`) is only returned to GitLab.com administrators. The quota is therefore derived from the plan and the pricing page, and labeled estimated.
 - Compute minutes and storage are only shown to the namespace's Owner (see [Unverified](#unverified)). DevMacro lists only namespaces the user owns (`owned_only=true`), so a member who is not an Owner gets no GitLab account at all. If GitLab still refuses the usage of a listed namespace, the connection lists it as unavailable and activity keeps arriving.

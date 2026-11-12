@@ -373,7 +373,7 @@ npm run build            # production build
 CI also runs `supabase db lint --level error --fail-on error`,
 `npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. GitHub
 secret scanning and push protection are not on for this repository yet: turning them on is a
-manual step in [Deploy, what stays Eddie's](docs/operations/deploy.md#what-stays-eddies), and until
+manual step in [Hosted instance runbook, what stays Eddie's](docs/internal/hosted-instance.md#what-stays-eddies), and until
 then the CI gitleaks scan is the only automated secret check. Run the scan locally from a normal
 clone (not a git worktree) with:
 

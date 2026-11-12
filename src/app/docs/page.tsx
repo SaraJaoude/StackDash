@@ -3,7 +3,7 @@ import Link from "next/link";
 
 import { groupDocs, listDocs, type DocVerification } from "@/lib/docs";
 
-const intro = "How DevMacro connects to each provider, how to deploy and run it, and how its data is stored.";
+const intro = "How to use DevMacro, what it reads from each provider, how to run it yourself, and how its data is stored.";
 
 export const metadata: Metadata = { title: "Docs", description: intro };
 

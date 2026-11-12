@@ -1,6 +1,6 @@
-# Deploy the hosted app
+# Deploy to Vercel and Supabase
 
-This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
+This page takes you from empty Vercel and Supabase accounts to a production deployment of your own DevMacro that the people you invite can sign in to.
 
 Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for your own values. No real value belongs in this file or in the repository.
 
@@ -29,7 +29,7 @@ Order matters: the Supabase project must exist before the Vercel environment var
 
 ## 2. Apply the migrations, forward only
 
-House rules (project rules, Supabase section): schema changes are migrations in the repository, migrations are forward only and applied with `supabase migration up`, and there is **no `supabase db push` to a remote** and no schema change made by hand in the dashboard. A bad migration is fixed with a new migration. Never run `supabase db reset` against a remote, and never load `supabase/seed.sql` into production (it creates local test users).
+Schema changes are migrations in the repository, migrations are forward only and applied with `supabase migration up`, and there is **no `supabase db push` to a remote** and no schema change made by hand in the dashboard. A bad migration is fixed with a new migration. Never run `supabase db reset` against a remote, and never load `supabase/seed.sql` into production (it creates local test users).
 
 From a clean checkout of the commit you are deploying:
 
@@ -119,7 +119,7 @@ Start the line with a space if your shell is set to skip such lines in history, 
 
 ## 5. Create the Vercel project
 
-1. In Vercel, **Add New, Project**, import `eddiejaoude/DevMacro`.
+1. In Vercel, **Add New, Project**, and import your fork of the DevMacro repository.
 2. **Framework Preset**: Next.js. Root directory: the repository root. Keep the default install command, build command (`npm run build`), and output directory.
 3. **Settings, General, Node.js Version**: 22.x, the version CI uses.
 4. **Settings, Git**: production branch `main`. Every other branch and every pull request gets a preview deployment automatically. Keep **Git Fork Protection** on, so a pull request from a fork never builds with the project's secrets until someone approves it.
@@ -207,13 +207,7 @@ After the production deployment exists and `CRON_SECRET` is set, register the `p
 
 The cron job is environment configuration, not a migration, because it carries the production URL and the secret. Register it only on the production project (and on staging only if staging should sync).
 
-## 8. Promote production (Eddie)
-
-1. Merge to `main` after CI passes and the preview has been checked. Vercel builds a production deployment.
-2. Before the deployment receives traffic, apply any new migrations (step 2).
-3. Promote or confirm the production deployment in Vercel.
-
-## 9. Verify the production deployment
+## 8. Verify the production deployment
 
 Run every check against the production URL and write down the deployment URL you checked.
 
@@ -241,13 +235,3 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
 - [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
-
-## What stays Eddie's
-
-- Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and one app per provider ([OAuth apps](oauth-apps.md)), and entering their secrets.
-- Generating and storing the production secrets.
-- Running migrations against production, registering the cron job, and inviting testers.
-- Promoting production deployments. Agents never trigger or promote one.
-- Migrating and rotating the JWT signing keys of the production (and staging) Supabase projects ([JWT signing keys](#jwt-signing-keys)).
-- Turning on GitHub secret scanning and push protection for the repository. In **Settings, Code security** (called **Advanced Security** in newer GitHub layouts), enable **Secret scanning** and **Push protection**. For a private repository this needs GitHub Secret Protection, a paid part of GitHub Advanced Security; both are free once the repository is public. Until they are on, the gitleaks scan in CI is the only automated secret check, and it only runs after a push. Confirm with `gh api repos/eddiejaoude/DevMacro --jq '.security_and_analysis'`: `secret_scanning` and `secret_scanning_push_protection` must both show `"status": "enabled"`.

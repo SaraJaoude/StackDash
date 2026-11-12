@@ -7,19 +7,36 @@ import { cache } from "react";
 /**
  * Repository docs published on the website. Every Markdown file under `docs/` becomes a page at
  * `/docs/<folder>/<file>`, read with `fs` at build time (synchronous reads complete during the
- * prerender, so the pages stay fully static).
+ * prerender, so the pages stay fully static), except the files under `docs/internal/`.
  */
 const DOCS_DIR = path.join(process.cwd(), "docs");
 export const DOCS_ROUTE = "/docs";
+
+// Runbooks for the people who operate the hosted instance. They stay in the repository and are
+// never published: no /docs page, no entry in the docs list, no link target.
+const INTERNAL_FOLDER = "internal";
 
 // One URL segment per folder or file name. Anything else (`..`, `/`, `\`, `%`, uppercase, an empty
 // segment) is refused before a path is ever built from it.
 const SEGMENT = /^[a-z0-9-]+$/;
 
-// Index order for the folders under docs/. A new folder still publishes, after these.
-const GROUP_ORDER = ["providers", "operations", "architecture"];
-const ROOT_GROUP = "general";
+// The top-level pages written for people using DevMacro, in reading order. They lead the index.
+// Any other top-level page is for people working on DevMacro's code and is listed under
+// Developers.
+const GUIDE_PAGES = ["getting-started", "api", "mcp"];
+const GUIDES_GROUP = "guides";
+const DEVELOPERS_GROUP = "developers";
 const PROVIDERS_GROUP = "providers";
+
+// Index order and label of each group. A folder under docs/ that is not listed here still
+// publishes, after these, labeled from its name.
+const GROUPS: readonly { id: string; label: string }[] = [
+  { id: GUIDES_GROUP, label: "Using DevMacro" },
+  { id: PROVIDERS_GROUP, label: "Providers" },
+  { id: "operations", label: "Self-hosting and operations" },
+  { id: "architecture", label: "Architecture" },
+  { id: DEVELOPERS_GROUP, label: "Developers" },
+];
 
 /**
  * How far a provider page's claims have been checked, from its `Verification:` lead sentence:
@@ -38,7 +55,7 @@ export interface DocPage {
   /** URL segments under /docs, the file path without `.md`. */
   slug: readonly string[];
   href: string;
-  /** Folder under docs/, or "general" for a file at the top level. */
+  /** Folder under docs/; a file at the top level is in "guides" or "developers" (GUIDE_PAGES). */
   group: string;
   /** Plain text of the first heading. */
   title: string;
@@ -158,6 +175,16 @@ function requireVerification(relativeFile: string, source: string): DocVerificat
   throw new Error(`docs/${relativeFile}: add one of ${phrases.join(" or ")} to the lead line`);
 }
 
+/**
+ * The index group of the doc at this slug: its folder, or for a top-level page "guides" when
+ * GUIDE_PAGES lists it and "developers" otherwise.
+ */
+export function docGroup(slug: readonly string[]): string {
+  const [first = ""] = slug;
+  if (slug.length > 1) return first;
+  return GUIDE_PAGES.includes(first) ? GUIDES_GROUP : DEVELOPERS_GROUP;
+}
+
 function readDoc(relativeFile: string): DocPage {
   const slug = relativeFile.slice(0, -".md".length).split(path.sep);
   if (!isDocSlug(slug)) {
@@ -170,7 +197,7 @@ function readDoc(relativeFile: string): DocPage {
   const title = parseTitle(lines);
   if (title === null) throw new Error(`docs/${relativeFile}: add a "# Title" heading, the page title comes from it`);
 
-  const group = slug.length > 1 ? (slug[0] ?? ROOT_GROUP) : ROOT_GROUP;
+  const group = docGroup(slug);
   return {
     slug,
     href: docHref(slug),
@@ -183,21 +210,29 @@ function readDoc(relativeFile: string): DocPage {
 }
 
 function groupRank(group: string): number {
-  const index = GROUP_ORDER.indexOf(group);
-  return index === -1 ? GROUP_ORDER.length : index;
+  const index = GROUPS.findIndex((known) => known.id === group);
+  return index === -1 ? GROUPS.length : index;
 }
 
-/** Every doc, ordered by folder (GROUP_ORDER first) and then by title. */
+/** Reading order inside a group: the guides as GUIDE_PAGES lists them, every other page by title. */
+function guideRank(doc: DocPage): number {
+  return doc.group === GUIDES_GROUP ? GUIDE_PAGES.indexOf(doc.slug[0] ?? "") : 0;
+}
+
+/** Every published doc, ordered by group (GROUPS first) and then by reading order or title. */
 export const listDocs = cache((): readonly DocPage[] => {
   const files = fs
     .readdirSync(DOCS_DIR, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".md"));
+    .filter((file) => file.endsWith(".md") && file.split(path.sep)[0] !== INTERNAL_FOLDER);
 
   return files
     .map(readDoc)
     .sort(
       (a, b) =>
-        groupRank(a.group) - groupRank(b.group) || a.group.localeCompare(b.group) || a.title.localeCompare(b.title),
+        groupRank(a.group) - groupRank(b.group) ||
+        a.group.localeCompare(b.group) ||
+        guideRank(a) - guideRank(b) ||
+        a.title.localeCompare(b.title),
     );
 });
 
@@ -209,6 +244,8 @@ export function getDoc(slug: readonly string[]): DocPage | null {
 }
 
 function groupLabel(group: string): string {
+  const known = GROUPS.find(({ id }) => id === group);
+  if (known !== undefined) return known.label;
   const words = group.replace(/-/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
