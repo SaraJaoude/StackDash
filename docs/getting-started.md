@@ -21,13 +21,13 @@ Only owners and admins of a workspace connect providers. Every member sees what 
 1. Open **Connections**. Under **Add a provider**, each card lists the **Data collected** and says whether the provider asks for read access only.
 2. Select **Connect** and the provider's name, for example **Connect Vercel**. The next page lists the **Permissions** the provider will ask you to grant and the **Data collected**. A provider that has no read-only permission for that data asks you to tick **I understand DevMacro gets full access to my** account first.
 3. Select **Continue to** the provider, for example **Continue to Vercel**, and approve DevMacro on the provider's own consent screen.
-4. Back in DevMacro, the connection is listed under **Connected providers**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
+4. Back in DevMacro, you land on the new connection's page, which says the provider is connected, for example **Vercel connected**, and links to **Open the timeline**. The connection is also listed under **Connected providers** on **Connections**. Its first sync is queued at once; until it finishes, the timeline says **Events are on their way**.
 
 A card that says **Not set up on this instance** belongs to a provider the person who runs your site has not registered yet. Each provider has its own page in these docs, for example [Vercel](providers/vercel.md), with what DevMacro reads, what each permission allows, and what is verified or estimated.
 
 ## 4. Read the timeline and the dashboard
 
-The **Timeline** is the live feed of your stack: deploys, payments, sync failures, alerts, and daily summaries, newest first. New events appear without a reload. Narrow it by severity, event type, date range, provider, project, or connection, or with **Search event titles**.
+The **Timeline** is the live feed of your stack: deploys, payments, sync failures, alerts, and daily summaries, newest first. New events appear without a reload. Narrow it by severity, event type, date range, provider, project, or account, or with **Search event titles**.
 
 The **Dashboard** adds up spend, usage, and allowances across every connected provider:
 
