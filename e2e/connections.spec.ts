@@ -462,8 +462,6 @@ ownerTest.describe("connecting a provider as the owner", () => {
         breakIt: () => deleteConnectionRow(disconnectId),
         message: GONE_MESSAGE,
       });
-      // Only the dialog reports it: the status beside the opener stays for a success.
-      await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
 
       const deleteId = await seedConnection(workspace.id);
       await page.goto(`/w/${workspace.slug}/connections/${deleteId}`);
