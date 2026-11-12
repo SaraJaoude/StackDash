@@ -156,33 +156,38 @@ describe("proxy for the super admin page", () => {
   it.each([
     ["another address", "someone@example.com"],
     ["a user with no email", undefined],
-  ])("answers %s with the 404 route before the page renders, under the app policy", async (_title, email) => {
+  ])("leaves %s on /app/admin, which has no route, exactly as a missing app path, and logs the refusal", async (_title, email) => {
     signedInAs(email);
 
-    const response = await proxy(request("/app/admin?after=x"));
+    const admin = await proxy(request("/app/admin?after=x"));
+    const missing = await proxy(request("/app/no-such-page?after=x"));
 
-    expect(rewrittenTo(response)).toBe("/app/admin/_");
-    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    for (const response of [admin, missing]) {
+      expect(rewrittenTo(response)).toBeNull();
+      expect(response.headers.get("x-middleware-next")).toBe("1");
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    }
     expect(warn).toHaveBeenCalledExactlyOnceWith("admin.access_refused", { userId: USER_ID });
   });
 
-  it("lets a super admin through to the page, in any case of the address", async () => {
+  it("sends a super admin, in any case of the address, to the page route with the query kept", async () => {
     signedInAs("OPS@example.com");
 
-    const response = await proxy(request("/app/admin"));
+    const response = await proxy(request("/app/admin?after=x"));
 
-    expect(rewrittenTo(response)).toBeNull();
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    const target = new URL(response.headers.get("x-middleware-rewrite") ?? "http://localhost/none");
+    expect(`${target.pathname}${target.search}`).toBe("/super-admin?after=x");
+    expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
+    expect(warn).not.toHaveBeenCalled();
   });
 
-  it("leaves an invalid list to the page, whose error page reports it", async () => {
+  it("sends an invalid list on to the page, whose error page reports it", async () => {
     vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
     signedInAs("someone@example.com");
 
     const response = await proxy(request("/app/admin"));
 
-    expect(rewrittenTo(response)).toBeNull();
-    expect(response.headers.get("x-middleware-next")).toBe("1");
+    expect(rewrittenTo(response)).toBe("/super-admin");
   });
 
   it("sends a signed-out visitor to sign in and back, as on every app page", async () => {
@@ -194,12 +199,17 @@ describe("proxy for the super admin page", () => {
     expect(response.headers.get("Location")).toBe("http://localhost/sign-in?next=%2Fapp%2Fadmin");
   });
 
-  it("leaves every other app path alone for a user who is not a super admin (boundary: a path under the page)", async () => {
-    signedInAs("someone@example.com");
+  it.each([
+    ["a super admin", "ops@example.com"],
+    ["anyone else", "someone@example.com"],
+  ])("answers the page route's own path, and any path under it, with one 404 route for %s", async (_title, email) => {
+    signedInAs(email);
 
-    for (const path of ["/app", "/app/admin/settings"]) {
+    for (const path of ["/super-admin", "/super-admin?after=x", "/super-admin/anything"]) {
       const response = await proxy(request(path));
-      expect(rewrittenTo(response)).toBeNull();
+      expect(rewrittenTo(response)).toBe("/super-admin/_");
+      expect(response.headers.get("Content-Security-Policy")).toMatch(/script-src 'self' 'nonce-/);
     }
+    expect(getClaims).not.toHaveBeenCalled();
   });
 });

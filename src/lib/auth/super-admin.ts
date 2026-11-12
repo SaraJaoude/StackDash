@@ -14,8 +14,15 @@ import { log, logError } from "@/lib/log/logger";
  * database role, so a super admin is no more than a workspace member anywhere else in the app.
  */
 
-/** The super admin page: the instance overview. */
+/** The super admin page's address: the instance overview. No route answers it directly. */
 export const ADMIN_PATH = "/app/admin";
+
+/**
+ * The route that renders the instance overview (src/app/super-admin/). src/proxy.ts rewrites
+ * ADMIN_PATH to it for a super admin only and answers any direct request to it as not found, so a
+ * non super admin's ADMIN_PATH is a path with no route: the same 404 as any other (#374).
+ */
+export const ADMIN_ROUTE = "/super-admin";
 
 /** True when `email` is on the super admin list. A user with no email is never one. */
 export function isSuperAdminEmail(email: string | null, admins: ReadonlySet<string> = superAdminEmails()): boolean {
@@ -39,30 +46,34 @@ export const showsAdminLink = cache((email: string | null): boolean => {
 });
 
 /**
- * Whether the proxy answers ADMIN_PATH with the not found page itself, before the page renders
- * (#374), for a user the proxy already verified. With Cache Components a production build sends the
- * page's prerendered static shell with a 200 before the page runs, so the notFound() in
- * `requireSuperAdmin` can no longer set the status (Next.js docs, loading.js, "Status codes"). The
- * page keeps that check: it is the authorization, this is only the status. A refusal is logged as
- * the page logs it, because the page no longer runs for that request. An invalid list is left to
- * the page, which fails on it with its error page as before, and is logged here.
+ * Whether the proxy sends a request for ADMIN_PATH to ADMIN_ROUTE (#374), for a user the proxy
+ * already verified. Anyone else's request is left alone, and ADMIN_PATH has no route, so it is the
+ * global 404 with the same status and headers as any missing path. The status cannot come from the
+ * page: with Cache Components a production build sends its prerendered static shell with a 200
+ * before the page runs (Next.js docs, loading.js, "Status codes"). A refusal is logged as the page
+ * logs it, because the page does not run for that request. An invalid list is logged and sent to
+ * the page, which fails on it with its error page, as it did before the route moved.
  */
-export function refusesAdminBeforeRender(user: Pick<SessionUser, "id" | "email">): boolean {
-  let refused: boolean;
+export function admitsToAdminRoute(user: Pick<SessionUser, "id" | "email">): boolean {
+  let admitted: boolean;
   try {
-    refused = !isSuperAdminEmail(user.email);
+    admitted = isSuperAdminEmail(user.email);
   } catch (error) {
     logError("admin.proxy_check_failed", error);
-    return false;
+    return true;
   }
-  if (refused) log.warn("admin.access_refused", { userId: user.id });
-  return refused;
+  if (!admitted) log.warn("admin.access_refused", { userId: user.id });
+  return admitted;
 }
 
 /**
- * The signed-in super admin. Signed out, a redirect to sign-in like every app page; signed in as
- * anyone else, the same 404 as a page that does not exist, so the route reveals nothing. Cached per
- * request, so the page and its metadata share one check and one log line.
+ * The signed-in super admin: the authorization for every super admin surface. Signed out, a
+ * redirect to sign-in like every app page. Signed in as anyone else, notFound(), which on a
+ * production build only streams the not-found page into a response already sent with a 200: the
+ * 404 status, and a route that reveals nothing, come from the proxy sending only super admins to
+ * ADMIN_ROUTE (`admitsToAdminRoute`, #374). A new super admin page needs the same treatment in
+ * src/proxy.ts, or it answers a non super admin with a 200. Cached per request, so the page and its
+ * metadata share one check and one log line.
  */
 export const requireSuperAdmin = cache(async (nextPath: string): Promise<SessionUser> => {
   const user = await requireUser(nextPath);

@@ -5,7 +5,7 @@ import path from "node:path";
 
 /*
  * What is running (#250): the commit, and whether the database has the migrations this build was
- * written against. The migration files ship with the /app/admin route's server output
+ * written against. The migration files ship with the super admin route's server output
  * (outputFileTracingIncludes in next.config.ts), the same way src/lib/docs.ts ships the docs.
  */
 

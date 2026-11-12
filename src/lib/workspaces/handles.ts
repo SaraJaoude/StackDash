@@ -36,6 +36,7 @@ export const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   "oauth",
   "p",
   "sign-in",
+  "super-admin",
   "unsubscribe",
   "w",
   // Root files and segments the app serves or is likely to add.
