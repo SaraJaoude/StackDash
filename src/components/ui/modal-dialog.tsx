@@ -26,7 +26,7 @@ import {
 
 /**
  * The app's one modal dialog (#342): a native `<dialog>` opened with `showModal()`, so the browser
- * makes the page behind it inert and Escape closes it. It is labelled by its title and described by
+ * makes the page behind it inert and Escape closes it. It is labeled by its title and described by
  * its description, keeps Tab inside it, and on close returns focus by the rules in
  * `dialog-controller.ts`: to the element that opened it, or to `fallbackFocusId` after its action
  * completed or once the opener is gone.
@@ -41,35 +41,49 @@ export type ModalDialogHandle = Readonly<{
   /** Opens so far; `ModalDialog` keys per-open content on it. */
   openCount: number;
   controller: DialogController;
+  /** Where focus goes after the action completed, or when the opener is no longer on the page. */
+  fallback: () => FocusTarget | null;
   /** Opens the dialog. Focus returns to `opener` on close: by default, whatever has focus now. */
   open: (opener?: FocusTarget | null) => void;
   /**
-   * `completed` after the dialog's action succeeded: focus goes to the fallback, or stays where
-   * the action put it.
+   * `completed` after the dialog's action succeeded: focus goes to the fallback at once, or stays
+   * where the action put it.
    */
   close: (reason?: CloseReason) => void;
   /** Sends focus somewhere other than the opener on the next close. */
   returnFocusTo: (target: FocusTarget | null) => void;
 }>;
 
-export function useModalDialog(): ModalDialogHandle {
+export function useModalDialog({
+  fallbackFocusId,
+}: { fallbackFocusId?: string } = {}): ModalDialogHandle {
   const ref = useRef<HTMLDialogElement>(null);
   const [controller] = useState(createDialogController);
   const [openCount, setOpenCount] = useState(0);
+  const fallback = () =>
+    fallbackFocusId === undefined
+      ? null
+      : document.getElementById(fallbackFocusId);
   return {
     ref,
     openCount,
     controller,
+    fallback,
     open(opener) {
       const dialog = ref.current;
       if (dialog === null) return;
       const focused = document.activeElement;
-      const from = opener !== undefined ? opener : focused instanceof HTMLElement && focused !== document.body ? focused : null;
+      const from =
+        opener !== undefined
+          ? opener
+          : focused instanceof HTMLElement && focused !== document.body
+            ? focused
+            : null;
       setOpenCount((count) => count + 1);
       controller.open(dialog, from);
     },
     close(reason = "dismissed") {
-      if (ref.current !== null) controller.close(ref.current, reason);
+      controller.close(ref.current, reason, fallback());
     },
     returnFocusTo: controller.returnFocusTo,
   };
@@ -95,7 +109,9 @@ const FOCUSABLE = [
  */
 function keepTabInside(event: KeyboardEvent<HTMLDialogElement>): void {
   if (event.key !== "Tab") return;
-  const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)];
+  const focusable = [
+    ...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE),
+  ];
   const first = focusable[0];
   const last = focusable.at(-1);
   if (first === undefined || last === undefined) return;
@@ -127,7 +143,6 @@ export function ModalDialog({
   describedBy,
   size = "md",
   content = "each-open",
-  fallbackFocusId,
   onClose,
   children,
 }: {
@@ -148,8 +163,6 @@ export function ModalDialog({
    * loads nothing the dialog shows until someone opens it; `always` keeps it mounted from the start.
    */
   content?: "each-open" | "after-first-open" | "always";
-  /** Where focus goes after the action completed, or when the opener is no longer on the page. */
-  fallbackFocusId?: string;
   onClose?: (closed: ClosedDialog) => void;
   children: ReactNode;
 }) {
@@ -165,7 +178,14 @@ export function ModalDialog({
   }, [openCount, ref]);
 
   const heading = (
-    <h2 id={titleId} className={hideTitle ? "sr-only" : "text-lg font-semibold tracking-tight break-words"}>
+    <h2
+      id={titleId}
+      className={
+        hideTitle
+          ? "sr-only"
+          : "text-lg font-semibold tracking-tight break-words"
+      }
+    >
       {title}
     </h2>
   );
@@ -175,12 +195,15 @@ export function ModalDialog({
       <dialog
         ref={ref}
         aria-labelledby={titleId}
-        aria-describedby={description === undefined ? describedBy : descriptionId}
+        aria-describedby={
+          description === undefined ? describedBy : descriptionId
+        }
         onClose={(event) =>
           dialog.controller.closed(event.currentTarget, {
-            fallback: fallbackFocusId === undefined ? null : document.getElementById(fallbackFocusId),
+            fallback: dialog.fallback(),
             onClose,
-            otherModalOpen: () => document.querySelector("dialog[open]") !== null,
+            otherModalOpen: () =>
+              document.querySelector("dialog[open]") !== null,
           })
         }
         onKeyDown={keepTabInside}
@@ -202,7 +225,9 @@ export function ModalDialog({
         {content === "always" ? (
           children
         ) : openCount === 0 ? null : (
-          <Fragment key={content === "each-open" ? openCount : 0}>{children}</Fragment>
+          <Fragment key={content === "each-open" ? openCount : 0}>
+            {children}
+          </Fragment>
         )}
       </dialog>
     </ModalDialogContext>
@@ -223,7 +248,8 @@ export function DialogCloseButton({
   initialFocus?: boolean;
 }) {
   const dialog = use(ModalDialogContext);
-  if (dialog === null) throw new Error("DialogCloseButton must be rendered inside ModalDialog");
+  if (dialog === null)
+    throw new Error("DialogCloseButton must be rendered inside ModalDialog");
   return (
     <GuardedButton
       type="button"
@@ -239,5 +265,7 @@ export function DialogCloseButton({
 
 /** The row of buttons at the foot of a dialog, Cancel first. */
 export function DialogActions({ children }: { children: ReactNode }) {
-  return <div className="mt-6 flex flex-wrap justify-end gap-3">{children}</div>;
+  return (
+    <div className="mt-6 flex flex-wrap justify-end gap-3">{children}</div>
+  );
 }

@@ -6,11 +6,19 @@ import type { AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
 import { DialogError } from "@/components/ui/dialog-error";
-import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
+import {
+  DialogActions,
+  DialogCloseButton,
+  ModalDialog,
+  useModalDialog,
+} from "@/components/ui/modal-dialog";
 
 import { failureOf } from "./form-controls";
 
-type Action = (previous: AlertActionResult | null, formData: FormData) => Promise<AlertActionResult>;
+type Action = (
+  previous: AlertActionResult | null,
+  formData: FormData,
+) => Promise<AlertActionResult>;
 
 /**
  * A delete button that asks first, in a `ModalDialog`. Escape or Cancel returns focus to the
@@ -38,7 +46,7 @@ export function ConfirmDelete({
   fields: Record<string, string>;
   afterDeleteFocusId: string;
 }) {
-  const dialog = useModalDialog();
+  const dialog = useModalDialog({ fallbackFocusId: afterDeleteFocusId });
 
   return (
     <>
@@ -50,7 +58,12 @@ export function ConfirmDelete({
         {label}
         <span className="sr-only">: {accessibleSuffix}</span>
       </button>
-      <ModalDialog dialog={dialog} title={title} description={description} size="sm" fallbackFocusId={afterDeleteFocusId}>
+      <ModalDialog
+        dialog={dialog}
+        title={title}
+        description={description}
+        size="sm"
+      >
         <ConfirmDeleteForm
           confirmLabel={confirmLabel}
           action={action}
@@ -73,14 +86,14 @@ function ConfirmDeleteForm({
   fields: Record<string, string>;
   onDeleted: () => void;
 }) {
-  const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(
-    async (previous, formData) => {
-      const result = await action(previous, formData);
-      if (result.ok) onDeleted();
-      return result;
-    },
-    null,
-  );
+  const [state, formAction, pending] = useActionState<
+    AlertActionResult | null,
+    FormData
+  >(async (previous, formData) => {
+    const result = await action(previous, formData);
+    if (result.ok) onDeleted();
+    return result;
+  }, null);
 
   return (
     <>
@@ -91,7 +104,11 @@ function ConfirmDeleteForm({
         ))}
         <DialogActions>
           <DialogCloseButton className={buttonClass("raised")} />
-          <GuardedButton type="submit" unavailable={pending} className={buttonClass("danger")}>
+          <GuardedButton
+            type="submit"
+            unavailable={pending}
+            className={buttonClass("danger")}
+          >
             {pending ? "Deleting" : confirmLabel}
           </GuardedButton>
         </DialogActions>

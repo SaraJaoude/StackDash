@@ -21,8 +21,18 @@ import { acknowledgedAllMessage } from "@/components/alerts/labels";
 import { SearchIcon } from "@/components/icons";
 import { buttonClass } from "@/components/ui/button";
 import type { FocusTarget } from "@/components/ui/dialog-controller";
-import { LiveRegion, OutcomeAnnouncement, type Outcome } from "@/components/ui/live-region";
-import { DialogActions, DialogCloseButton, INITIAL_FOCUS, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
+import {
+  LiveRegion,
+  OutcomeAnnouncement,
+  type Outcome,
+} from "@/components/ui/live-region";
+import {
+  DialogActions,
+  DialogCloseButton,
+  INITIAL_FOCUS,
+  ModalDialog,
+  useModalDialog,
+} from "@/components/ui/modal-dialog";
 import {
   isApplePlatform,
   isTypingTarget,
@@ -62,13 +72,18 @@ function resultStatus(search: PaletteSearch, query: string): string {
 }
 
 /** The palette results that run a Server Action rather than open a page. */
-type ServerAction = Extract<PaletteAction, { kind: "sync" | "acknowledge_all" }>;
+type ServerAction = Extract<
+  PaletteAction,
+  { kind: "sync" | "acknowledge_all" }
+>;
 
 /**
  * What an action says while it runs, to a second request made before it ends, and when its
  * request never got an answer.
  */
-function wordsFor(action: ServerAction): Readonly<{ running: string; busy: string; lost: string }> {
+function wordsFor(
+  action: ServerAction,
+): Readonly<{ running: string; busy: string; lost: string }> {
   return action.kind === "sync"
     ? {
         running: `Queueing a sync for ${action.name}.`,
@@ -87,7 +102,10 @@ function wordsFor(action: ServerAction): Readonly<{ running: string; busy: strin
  * list's acknowledge all), which authorizes the caller and words every result, so the palette adds
  * only the case where the request never got an answer.
  */
-async function runServerAction(workspaceSlug: string, action: ServerAction): Promise<Outcome> {
+async function runServerAction(
+  workspaceSlug: string,
+  action: ServerAction,
+): Promise<Outcome> {
   const formData = new FormData();
   formData.set("workspace", workspaceSlug);
   let failure: Readonly<{ message: string; referenceId?: string | undefined }>;
@@ -95,12 +113,20 @@ async function runServerAction(workspaceSlug: string, action: ServerAction): Pro
     if (action.kind === "sync") {
       formData.append("connectionId", action.connectionId);
       const result = await syncNow(null, formData);
-      if (result.ok) return { tone: "success", message: result.message ?? `Sync queued for ${action.name}.` };
+      if (result.ok)
+        return {
+          tone: "success",
+          message: result.message ?? `Sync queued for ${action.name}.`,
+        };
       failure = result;
     } else {
       const result = await acknowledgeAllAlerts(null, formData);
       // The palette is not the alerts list, so there is no "Show acknowledged alerts" to point to.
-      if (result.ok) return { tone: "success", message: acknowledgedAllMessage(result, true) };
+      if (result.ok)
+        return {
+          tone: "success",
+          message: acknowledgedAllMessage(result, true),
+        };
       failure = result;
     }
   } catch {
@@ -114,11 +140,14 @@ async function runServerAction(workspaceSlug: string, action: ServerAction): Pro
   return {
     tone: "error",
     message: failure.message,
-    ...(failure.referenceId === undefined ? {} : { referenceId: failure.referenceId }),
+    ...(failure.referenceId === undefined
+      ? {}
+      : { referenceId: failure.referenceId }),
   };
 }
 
-const KBD = "rounded border border-line-strong bg-panel-raised px-1.5 font-mono text-[11px] leading-5 text-foreground";
+const KBD =
+  "rounded border border-line-strong bg-panel-raised px-1.5 font-mono text-[11px] leading-5 text-foreground";
 
 function ArrowKeys() {
   return (
@@ -167,8 +196,9 @@ export function CommandPalette({
   const [active, setActive] = useState(0);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [running, startRunning] = useTransition();
-  const palette = useModalDialog();
-  const shortcuts = useModalDialog();
+  const buttonId = useId();
+  const palette = useModalDialog({ fallbackFocusId: buttonId });
+  const shortcuts = useModalDialog({ fallbackFocusId: buttonId });
   // "Keyboard shortcuts" closes the palette and opens the list, which returns focus where the
   // palette would have.
   const shortcutsNextRef = useRef(false);
@@ -182,7 +212,6 @@ export function CommandPalette({
   const actionOpenRef = useRef(0);
   // What a request made while an action runs is told: the running action's own words.
   const busyRef = useRef("");
-  const buttonId = useId();
   const inputId = useId();
   const listboxId = useId();
   const noticeId = useId();
@@ -239,7 +268,8 @@ export function CommandPalette({
       // navigating within the page mounts nothing new that could take it.
       const destination = new URL(action.href, window.location.href);
       const target =
-        destination.hash !== "" && destination.pathname === window.location.pathname
+        destination.hash !== "" &&
+        destination.pathname === window.location.pathname
           ? document.getElementById(destination.hash.slice(1))
           : null;
       if (target !== null) palette.returnFocusTo(target);
@@ -271,7 +301,10 @@ export function CommandPalette({
     pointerRef.current = { x: event.clientX, y: event.clientY };
   }
 
-  function onOptionPointerMove(event: ReactPointerEvent<HTMLLIElement>, index: number): void {
+  function onOptionPointerMove(
+    event: ReactPointerEvent<HTMLLIElement>,
+    index: number,
+  ): void {
     const next = { x: event.clientX, y: event.clientY };
     const moved = pointerMoved(pointerRef.current, next);
     pointerRef.current = next;
@@ -301,15 +334,32 @@ export function CommandPalette({
   // Keeps the selected result visible while the arrow keys move through a long list.
   useEffect(() => {
     if (!open) return;
-    document.getElementById(`${listboxId}-option-${activeIndex}`)?.scrollIntoView({ block: "nearest" });
+    document
+      .getElementById(`${listboxId}-option-${activeIndex}`)
+      ?.scrollIntoView({ block: "nearest" });
   }, [open, activeIndex, listboxId]);
 
-  const shortcutRows: readonly Readonly<{ keys: ReactNode; description: string }>[] = [
-    { keys: <kbd className={KBD}>{shortcut.label}</kbd>, description: "Open the command palette" },
-    { keys: <kbd className={KBD}>?</kbd>, description: "Show this list of shortcuts" },
+  const shortcutRows: readonly Readonly<{
+    keys: ReactNode;
+    description: string;
+  }>[] = [
+    {
+      keys: <kbd className={KBD}>{shortcut.label}</kbd>,
+      description: "Open the command palette",
+    },
+    {
+      keys: <kbd className={KBD}>?</kbd>,
+      description: "Show this list of shortcuts",
+    },
     { keys: <ArrowKeys />, description: "Move through the palette's results" },
-    { keys: <kbd className={KBD}>Enter</kbd>, description: "Open or run the selected result" },
-    { keys: <kbd className={KBD}>Esc</kbd>, description: "Close the palette or this list" },
+    {
+      keys: <kbd className={KBD}>Enter</kbd>,
+      description: "Open or run the selected result",
+    },
+    {
+      keys: <kbd className={KBD}>Esc</kbd>,
+      description: "Close the palette or this list",
+    },
   ];
 
   return (
@@ -336,7 +386,6 @@ export function CommandPalette({
         describedBy={notice === null ? undefined : noticeId}
         size="palette"
         content="always"
-        fallbackFocusId={buttonId}
         onClose={({ opener }) => onPaletteClose(opener)}
       >
         <div className="flex items-center gap-3 border-b border-line px-4 py-2">
@@ -351,7 +400,9 @@ export function CommandPalette({
             role="combobox"
             aria-expanded={hasResults}
             aria-controls={hasResults ? listboxId : undefined}
-            aria-activedescendant={hasResults ? optionId(activeIndex) : undefined}
+            aria-activedescendant={
+              hasResults ? optionId(activeIndex) : undefined
+            }
             aria-autocomplete="list"
             autoComplete="off"
             autoCorrect="off"
@@ -366,20 +417,30 @@ export function CommandPalette({
             onKeyDown={onInputKeyDown}
             className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none"
           />
-          <DialogCloseButton initialFocus={false} className={buttonClass("secondary", "sm")}>
+          <DialogCloseButton
+            initialFocus={false}
+            className={buttonClass("secondary", "sm")}
+          >
             Close
           </DialogCloseButton>
         </div>
 
         {notice === null ? null : (
-          <p id={noticeId} className="border-b border-line px-4 py-2 text-sm text-warning">
+          <p
+            id={noticeId}
+            className="border-b border-line px-4 py-2 text-sm text-warning"
+          >
             {notice}
           </p>
         )}
 
         {/* Always mounted, so screen readers announce every change: progress and success politely,
             a failure at once. */}
-        <OutcomeAnnouncement outcome={outcome} className="text-sm" messageClassName="border-b border-line px-4 py-2" />
+        <OutcomeAnnouncement
+          outcome={outcome}
+          className="text-sm"
+          messageClassName="border-b border-line px-4 py-2"
+        />
 
         {hasResults ? (
           <ul
@@ -406,11 +467,19 @@ export function CommandPalette({
                   onPointerEnter={onOptionPointerEnter}
                   onPointerMove={(event) => onOptionPointerMove(event, index)}
                   className={`flex min-h-9 cursor-pointer items-center gap-3 rounded-md border px-3 py-1.5 text-sm ${
-                    selected ? "border-line-strong bg-panel-raised text-foreground" : "border-transparent text-muted"
+                    selected
+                      ? "border-line-strong bg-panel-raised text-foreground"
+                      : "border-transparent text-muted"
                   }`}
                 >
-                  <span className="min-w-0 flex-1 break-words">{command.label}</span>
-                  <span id={`${optionId(index)}-kind`} aria-hidden="true" className="shrink-0 text-xs text-muted">
+                  <span className="min-w-0 flex-1 break-words">
+                    {command.label}
+                  </span>
+                  <span
+                    id={`${optionId(index)}-kind`}
+                    aria-hidden="true"
+                    className="shrink-0 text-xs text-muted"
+                  >
                     {command.kind}
                   </span>
                   {/* Shape as well as color marks the selection. */}
@@ -430,7 +499,8 @@ export function CommandPalette({
             {search === null ? null : resultStatus(search, query)}
           </LiveRegion>
           <p aria-hidden="true" className="hidden sm:block">
-            <ArrowKeys /> to move, <kbd className={KBD}>Enter</kbd> to choose, <kbd className={KBD}>Esc</kbd> to close
+            <ArrowKeys /> to move, <kbd className={KBD}>Enter</kbd> to choose,{" "}
+            <kbd className={KBD}>Esc</kbd> to close
           </p>
         </div>
       </ModalDialog>
@@ -440,7 +510,6 @@ export function CommandPalette({
         title="Keyboard shortcuts"
         description="Shortcuts do nothing while you are typing in a field."
         size="sm"
-        fallbackFocusId={buttonId}
       >
         <dl className="mt-4 grid grid-cols-[auto_1fr] items-center gap-x-4 gap-y-2 text-sm">
           {shortcutRows.map(({ keys, description }) => (
@@ -451,7 +520,9 @@ export function CommandPalette({
           ))}
         </dl>
         <DialogActions>
-          <DialogCloseButton className={buttonClass("secondary", "sm")}>Close</DialogCloseButton>
+          <DialogCloseButton className={buttonClass("secondary", "sm")}>
+            Close
+          </DialogCloseButton>
         </DialogActions>
       </ModalDialog>
     </>
