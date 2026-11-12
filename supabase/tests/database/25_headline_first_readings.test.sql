@@ -1,4 +1,5 @@
--- Headline first readings (20261112100900_headline_first_readings.sql, #346): one call returns each
+-- Headline first readings (20261112100900_headline_first_readings.sql and
+-- 20261112100902_headline_first_readings_connection_probe.sql, #346): one call returns each
 -- connection's oldest snapshot on or before a day, for the accounts passed in, for zero, one, and
 -- many connections; members only.
 begin;
@@ -77,14 +78,12 @@ select is_empty(
   $$,
   'headline_first_readings: security definer, empty search_path, executable by authenticated only');
 
-select is(
-  (select pg_get_indexdef(indexrelid) from pg_catalog.pg_index where indexrelid = 'public.usage_snapshots_connection_date_idx'::regclass),
-  'CREATE INDEX usage_snapshots_connection_date_idx ON public.usage_snapshots USING btree (connection_id, snapshot_date)',
+select has_index(
+  'public', 'usage_snapshots', 'usage_snapshots_connection_date_idx', array['connection_id', 'snapshot_date'],
   'headline_first_readings: usage_snapshots is indexed on (connection_id, snapshot_date)');
 
-select is(
-  to_regclass('public.usage_snapshots_connection_id_idx'),
-  null,
+select hasnt_index(
+  'public', 'usage_snapshots', 'usage_snapshots_connection_id_idx',
   'headline_first_readings: the connection_id index it replaces is gone');
 
 set local role authenticated;
