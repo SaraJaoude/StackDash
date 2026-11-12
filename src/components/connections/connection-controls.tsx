@@ -188,8 +188,9 @@ export function SampleDataForm({ workspaceSlug }: { workspaceSlug: string }) {
 /**
  * A `ModalDialog` whose body lists exactly what confirming does. A failure keeps the dialog open
  * and shows inside it, where it can be seen and heard; a success closes it and shows beside the
- * opener. The confirmation remounts on every open, so it starts without a previous attempt's
- * error.
+ * opener. A failure that arrives after Cancel or Escape closed the dialog mid-action shows beside
+ * the opener too (#367), since the hidden dialog can no longer report it. The confirmation
+ * remounts on every open, so it starts without a previous attempt's error.
  */
 function ConfirmDialog({
   hideOpener = false,
@@ -212,34 +213,38 @@ function ConfirmDialog({
   children: ReactNode;
 }) {
   const dialog = useModalDialog();
-  // Held here rather than in the confirmation, so a success outlives the dialog closing.
-  const [succeeded, setSucceeded] = useState<ConnectionActionResult | null>(null);
+  // Held here rather than in the confirmation, so a result outlives the dialog closing.
+  const [settled, setSettled] = useState<ConnectionActionResult | null>(null);
 
   return (
     <div className="flex flex-col gap-2">
       {hideOpener ? null : (
         <button
           type="button"
-          className={`shrink-0 ${buttonClass("danger-outline")}`}
+          className={`shrink-0 self-start ${buttonClass("danger-outline")}`}
           onClick={(event) => {
-            setSucceeded(null);
+            setSettled(null);
             dialog.open(event.currentTarget);
           }}
         >
           {openLabel}
         </button>
       )}
-      {/* Outside the dialog so a success stays readable after it closes. */}
-      <ActionStatus state={succeeded} pending={false} />
+      {/* Outside the dialog so a result stays readable after it closes. */}
+      <ActionStatus state={settled} pending={false} />
       <ModalDialog dialog={dialog} title={title} description={children}>
         <ConfirmForm
           confirmLabel={confirmLabel}
           action={action}
           workspaceSlug={workspaceSlug}
           connectionId={connectionId}
-          onSucceeded={(result) => {
-            setSucceeded(result);
-            dialog.close("completed");
+          onSettled={(result) => {
+            if (result.ok) {
+              setSettled(result);
+              dialog.close("completed");
+            } else if (dialog.ref.current?.open !== true) {
+              setSettled(result);
+            }
           }}
         />
       </ModalDialog>
@@ -252,17 +257,17 @@ function ConfirmForm({
   action,
   workspaceSlug,
   connectionId,
-  onSucceeded,
+  onSettled,
 }: {
   confirmLabel: string;
   action: Action;
   workspaceSlug: string;
   connectionId: string;
-  onSucceeded: (result: ConnectionActionResult) => void;
+  onSettled: (result: ConnectionActionResult) => void;
 }) {
   const [state, formAction, pending] = useConnectionAction(async (previous, formData) => {
     const result = await action(previous, formData);
-    if (result.ok) onSucceeded(result);
+    onSettled(result);
     return result;
   });
 

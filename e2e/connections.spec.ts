@@ -4,6 +4,7 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 import { expectFailureInDialog } from "./fixtures/dialogs";
+import { expectHydrated } from "./fixtures/hydration";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -30,6 +31,32 @@ function postStart(page: Page, provider: string, form: Record<string, string>) {
     maxRedirects: 0,
   });
 }
+
+// Seeded rather than connected through the UI: the failure tests force a failure by deleting the
+// row behind the open dialog, and Realtime refreshes the page on inserts and updates only.
+async function seedConnection(workspaceId: string): Promise<string> {
+  const { data, error } = await adminClient()
+    .from("connections")
+    .insert({
+      workspace_id: workspaceId,
+      provider: "fake",
+      status: "active",
+      display_name: `${PROVIDER_NAME} (Seeded team)`,
+      authorized_account_label: "Seeded team",
+      poll_interval_seconds: 3600,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+  return data.id;
+}
+
+async function deleteConnectionRow(id: string): Promise<void> {
+  const { error } = await adminClient().from("connections").delete().eq("id", id);
+  if (error) throw new Error(`Deleting the connection failed (code ${error.code}).`);
+}
+
+const GONE_MESSAGE = "That item no longer exists in this workspace. Reload the page to see what is current.";
 
 /**
  * Reads the authorize URL from the start route's handoff page: the target of its "Continue to"
@@ -425,53 +452,69 @@ ownerTest.describe("connecting a provider as the owner", () => {
   ownerTest("shows a failed disconnect and a failed delete inside the open dialog", async ({ page }) => {
     const workspace = await createTestWorkspace("Connection failures");
     try {
-      const admin = adminClient();
-      // Seeded rather than connected through the UI: the failure is forced by deleting the row
-      // behind the open dialog, and Realtime refreshes the page on inserts and updates only.
-      const seedConnection = async (): Promise<string> => {
-        const { data, error } = await admin
-          .from("connections")
-          .insert({
-            workspace_id: workspace.id,
-            provider: "fake",
-            status: "active",
-            display_name: `${PROVIDER_NAME} (Seeded team)`,
-            authorized_account_label: "Seeded team",
-            poll_interval_seconds: 3600,
-          })
-          .select("id")
-          .single();
-        if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
-        return data.id;
-      };
-      const deleteConnectionRow = (id: string) => async () => {
-        const { error } = await admin.from("connections").delete().eq("id", id);
-        if (error) throw new Error(`Deleting the connection failed (code ${error.code}).`);
-      };
-      const message = "That item no longer exists in this workspace. Reload the page to see what is current.";
       const main = page.getByRole("main");
-
-      const disconnectId = await seedConnection();
+      const disconnectId = await seedConnection(workspace.id);
       await page.goto(`/w/${workspace.slug}/connections/${disconnectId}`);
       await expectFailureInDialog(page, {
         trigger: main.getByRole("button", { name: "Disconnect", exact: true }),
         dialog: page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` }),
         confirmName: "Disconnect",
-        breakIt: deleteConnectionRow(disconnectId),
-        message,
+        breakIt: () => deleteConnectionRow(disconnectId),
+        message: GONE_MESSAGE,
       });
       // Only the dialog reports it: the status beside the opener stays for a success.
-      await expect(page.getByText(message)).toHaveCount(0);
+      await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
 
-      const deleteId = await seedConnection();
+      const deleteId = await seedConnection(workspace.id);
       await page.goto(`/w/${workspace.slug}/connections/${deleteId}`);
       await expectFailureInDialog(page, {
         trigger: main.getByRole("button", { name: "Delete connection and history", exact: true }),
         dialog: page.getByRole("dialog", { name: "Delete this connection and its history?" }),
         confirmName: "Delete connection and history",
-        breakIt: deleteConnectionRow(deleteId),
-        message,
+        breakIt: () => deleteConnectionRow(deleteId),
+        message: GONE_MESSAGE,
       });
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a failure beside the opener when its dialog was dismissed while working (#367)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Dismissed failure");
+    try {
+      const connectionId = await seedConnection(workspace.id);
+      const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
+      // Holds the server action (a POST to the page) until the dialog is dismissed, so "Working"
+      // stays on screen for as long as the test needs it, with no sleep.
+      const held = Promise.withResolvers<void>();
+      await page.route(`**${connectionPath}`, async (route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await held.promise;
+        return route.continue();
+      });
+      await page.goto(connectionPath);
+      await expectHydrated(page);
+      const main = page.getByRole("main");
+      const opener = main.getByRole("button", { name: "Disconnect", exact: true });
+      const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
+
+      await opener.click();
+      await deleteConnectionRow(connectionId);
+      await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
+      await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(dialog).toBeHidden();
+      await expect(opener).toBeFocused();
+      held.resolve();
+
+      // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
+      await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toBeVisible();
+      await expectNoAxeViolations(page);
+
+      // Opening the dialog again starts fresh, beside the opener too.
+      await opener.click();
+      await expect(dialog).toBeVisible();
+      await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);
     }
