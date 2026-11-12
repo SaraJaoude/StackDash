@@ -6,7 +6,7 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
 import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";

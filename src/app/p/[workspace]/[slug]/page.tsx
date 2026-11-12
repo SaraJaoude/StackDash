@@ -4,13 +4,12 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
-import { PlatformLogo, PuzzleIcon } from "@/components/icons";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { HistoryChart } from "@/components/public-metrics/history-chart";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
-import { providerName, providerPlatform } from "@/lib/providers";
 import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
@@ -119,25 +118,11 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
           <div className="mt-6">
             <h2 className="text-sm font-semibold">Connected providers</h2>
             <ul className="mt-3 flex flex-wrap gap-3">
-              {providers.map((provider) => {
-                const platform = providerPlatform(provider);
-                return (
-                  <li key={provider}>
-                    <span
-                      role="img"
-                      aria-label={providerName(provider)}
-                      title={providerName(provider)}
-                      className="flex size-10 items-center justify-center rounded-lg border border-line bg-panel-raised text-foreground"
-                    >
-                      {platform === null ? (
-                        <PuzzleIcon width={20} height={20} />
-                      ) : (
-                        <PlatformLogo platform={platform} width={20} height={20} />
-                      )}
-                    </span>
-                  </li>
-                );
-              })}
+              {providers.map((provider) => (
+                <li key={provider}>
+                  <ProviderMark provider={provider} labelled />
+                </li>
+              ))}
             </ul>
           </div>
         )}

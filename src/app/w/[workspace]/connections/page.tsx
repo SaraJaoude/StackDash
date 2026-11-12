@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/app/page-header";
 import { BetaBadge } from "@/components/connections/beta-badge";
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, LockIcon, PlugIcon } from "@/components/icons";
 import { availableProviders, isProviderConfigured, isProviderSimulated } from "@/lib/adapters/registry";

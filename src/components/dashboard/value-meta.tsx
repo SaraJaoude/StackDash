@@ -1,16 +1,15 @@
 import type { SVGProps } from "react";
 
-import { GaugeIcon, PlatformLogo, ServerIcon, ShieldIcon } from "@/components/icons";
+import { GaugeIcon, ShieldIcon } from "@/components/icons";
 import {
   freshnessLabel,
   type ConnectionStatus,
   type Provenance,
-  type ProviderId,
   type ValueSource,
 } from "@/lib/dashboard/aggregate";
 import { spendProjectionText, type ProjectionText, type SpendProjection } from "@/lib/dashboard/projection";
 import { formatDateTime } from "@/lib/format";
-import { providerName, providerPlatform } from "@/lib/providers";
+import { providerName } from "@/lib/providers";
 
 import { InfoTooltip } from "./info-tooltip";
 
@@ -24,16 +23,6 @@ const STATUS_LABELS: Record<ConnectionStatus, string> = {
 
 export function connectionStatusLabel(status: ConnectionStatus): string {
   return STATUS_LABELS[status];
-}
-
-/** The provider's mark as decoration; its name is always printed beside it. */
-export function ProviderMark({ provider }: { provider: ProviderId }) {
-  const platform = providerPlatform(provider);
-  return (
-    <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-line bg-panel-raised text-white">
-      {platform === null ? <ServerIcon className="size-4" /> : <PlatformLogo platform={platform} className="size-4" />}
-    </span>
-  );
 }
 
 function EstimateIcon(props: SVGProps<SVGSVGElement>) {

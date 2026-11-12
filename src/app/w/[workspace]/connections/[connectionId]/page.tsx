@@ -15,7 +15,7 @@ import {
 import { ConnectionStatusBadge } from "@/components/connections/connection-status-badge";
 import { cooldownRemainingSeconds, syncCooldownNotice } from "@/components/connections/cooldown";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
 import { availableProviders } from "@/lib/adapters/registry";

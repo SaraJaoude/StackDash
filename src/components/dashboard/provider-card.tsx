@@ -1,6 +1,7 @@
 import { useId } from "react";
 
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import {
   providerCardFields,
   type Allowance,
@@ -29,7 +30,6 @@ import {
   Freshness,
   ProjectionNote,
   ProvenanceBadge,
-  ProviderMark,
   SpendProjectionNote,
   Unavailable,
 } from "./value-meta";
@@ -180,7 +180,7 @@ export function ProviderCard({
       <article aria-labelledby={titleId} className="relative isolate h-full rounded-xl border border-line bg-panel p-4">
         <ArrivalCard values={values} label={summary.name}>
           <header className="flex flex-wrap items-start gap-3">
-            <ProviderMark provider={summary.provider} />
+            <ProviderMark provider={summary.provider} size="md" />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 id={titleId} className="font-semibold">
