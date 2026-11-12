@@ -227,7 +227,6 @@ Registering makes the adapter available to users, and it touches files across th
 | `src/lib/providers.ts` | The name in `PROVIDER_NAMES` and the platform in `PROVIDER_PLATFORMS` |
 | `src/lib/site.ts` | The platform in the `Platform` union |
 | `src/components/icons.tsx` | The brand mark in `PLATFORM_MARKS`, with its brand rules in the comment |
-| `src/components/connections/provider-mark.tsx` | The platform in `PLATFORM` |
 | `src/lib/connections/revoke.ts` | The steps to remove DevMacro at the provider in `MANUAL_REVOKE_STEPS`, when the provider has them |
 | `supabase/migrations/<version>_provider_<id>.sql` | `alter type public.provider_id add value if not exists '<id>';` |
 | `supabase/tests/database/<NN>_<id>_provider.test.sql` | A pgTAP test that the id is a `provider_id` |
