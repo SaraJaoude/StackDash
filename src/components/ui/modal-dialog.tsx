@@ -82,7 +82,7 @@ export const INITIAL_FOCUS = { "data-initial-focus": "" } as const;
 
 const FOCUSABLE = [
   "button:not([disabled])",
-  "input:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
   "select:not([disabled])",
   "textarea:not([disabled])",
   "a[href]",

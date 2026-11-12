@@ -9,7 +9,8 @@ type Props = Omit<Parameters<typeof ModalDialog>[0], "dialog" | "children">;
 /** A closed dialog as the server renders it, with `children` as its content. */
 function render(props: Props, children: ReactNode = createElement("p", null, "Body")): string {
   function Harness() {
-    return createElement(ModalDialog, { ...props, dialog: useModalDialog(), children });
+    const dialogProps: Parameters<typeof ModalDialog>[0] = { ...props, dialog: useModalDialog(), children };
+    return createElement(ModalDialog, dialogProps);
   }
   return renderToStaticMarkup(createElement(Harness));
 }
