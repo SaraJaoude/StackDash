@@ -45,7 +45,7 @@ export async function AnomalySettings({ workspace, role }: { workspace: Workspac
           {ANOMALY_MIN_HISTORY_DAYS} days of history first, and small changes never count.
         </p>
         <p className="mt-2 text-sm">
-          <Link href={timelineHref} className={linkClass}>
+          <Link href={timelineHref} className={`inline-flex min-h-6 items-center ${linkClass}`}>
             Show unusual days on the timeline
           </Link>
         </p>

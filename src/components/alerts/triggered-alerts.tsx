@@ -166,7 +166,11 @@ export async function TriggeredAlerts({
           </p>
           {canAcknowledge ? null : <DeniedReason>{actionDeniedReason("acknowledge_alert")}</DeniedReason>}
         </div>
-        <Link href={hrefFor(!showAcknowledged, null)} scroll={false} className={`shrink-0 text-sm ${linkClass}`}>
+        <Link
+          href={hrefFor(!showAcknowledged, null)}
+          scroll={false}
+          className={`inline-flex min-h-6 shrink-0 items-center text-sm ${linkClass}`}
+        >
           {showAcknowledged ? "Hide acknowledged alerts" : "Show acknowledged alerts"}
         </Link>
       </div>
