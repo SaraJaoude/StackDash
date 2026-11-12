@@ -4,7 +4,6 @@ import type { ReactNode } from "react";
 import { INLINE_CODE_CLASS, LINK_CLASS } from "@/components/docs/doc-markdown";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
-import { LEGAL_UPDATED } from "@/lib/legal";
 
 // Body text styled like a doc page (src/components/docs/doc-markdown.tsx), set once on the wrapper
 // so the policy and terms read as plain paragraphs and lists.
@@ -15,8 +14,22 @@ const PROSE_CLASS = [
   "[&_strong]:font-semibold [&_strong]:text-foreground",
 ].join(" ");
 
-/** The privacy policy or the terms of use: the site header and footer around one titled document. */
-export function LegalDocument({ title, intro, children }: { title: string; intro: ReactNode; children: ReactNode }) {
+/**
+ * The privacy policy or the terms of use: the site header and footer around one titled document.
+ * `updated` is that document's own date (`PRIVACY_UPDATED`, `TERMS_UPDATED` in src/lib/legal.ts), so
+ * an edit to one never moves the other's.
+ */
+export function LegalDocument({
+  title,
+  updated,
+  intro,
+  children,
+}: {
+  title: string;
+  updated: string;
+  intro: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <>
       <SiteNav anchorBase="/" />
@@ -25,7 +38,7 @@ export function LegalDocument({ title, intro, children }: { title: string; intro
           <header>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
             <p className="mt-3 text-sm text-muted">
-              Last updated <time dateTime={LEGAL_UPDATED}>{LEGAL_UPDATED}</time>
+              Last updated <time dateTime={updated}>{updated}</time>
             </p>
           </header>
           <div className={PROSE_CLASS}>

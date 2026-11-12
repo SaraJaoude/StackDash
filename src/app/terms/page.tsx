@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { LegalDocument, LegalLink, LegalSection } from "@/components/legal/legal-document";
-import { requireOperator } from "@/lib/legal";
+import { requireOperator, TERMS_UPDATED } from "@/lib/legal";
 import { privacyLink, site } from "@/lib/site";
 
 /*
@@ -25,6 +25,7 @@ export default function TermsPage() {
   return (
     <LegalDocument
       title="Terms of use"
+      updated={TERMS_UPDATED}
       intro={
         <>
           These terms apply when you use {site.name} at this address, which {operator.name} runs. By signing in, you

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalCode, LegalDocument, LegalLink, LegalSection } from "@/components/legal/legal-document";
 import { listDocs } from "@/lib/docs";
-import { requireOperator } from "@/lib/legal";
+import { PRIVACY_UPDATED, requireOperator } from "@/lib/legal";
 import { site } from "@/lib/site";
 
 /*
@@ -31,6 +31,7 @@ export default function PrivacyPage() {
   return (
     <LegalDocument
       title="Privacy policy"
+      updated={PRIVACY_UPDATED}
       intro={
         <>
           {operator.name} runs {site.name} at this address and is responsible for the personal data it holds. This

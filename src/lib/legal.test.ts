@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PrivacyPage, { generateMetadata as privacyMetadata } from "@/app/privacy/page";
 import TermsPage, { generateMetadata as termsMetadata } from "@/app/terms/page";
 import { LegalConsent } from "@/components/legal/legal-consent";
+import { LegalDocument } from "@/components/legal/legal-document";
 import { SiteFooter } from "@/components/site-footer";
 
-import { legalLinks, requireOperator } from "./legal";
+import { legalLinks, legalPages, PRIVACY_UPDATED, requireOperator, TERMS_UPDATED } from "./legal";
 
 // Synthetic, and deliberately not the hosted instance's values: the text must come from here.
 const OPERATOR = {
@@ -61,6 +62,20 @@ describe("with an operator configured", () => {
     expect(termsMetadata()).toMatchObject({ title: "Terms of use" });
   });
 
+  it("each page shows its own date, and the sitemap sends the same one", () => {
+    stubOperator(OPERATOR);
+
+    expect(renderToStaticMarkup(createElement(PrivacyPage))).toContain(`<time dateTime="${PRIVACY_UPDATED}">`);
+    expect(renderToStaticMarkup(createElement(TermsPage))).toContain(`<time dateTime="${TERMS_UPDATED}">`);
+    // The shell shows the date it is given, so a change to one document never moves the other's.
+    const shell = renderToStaticMarkup(LegalDocument({ title: "Terms of use", updated: "2027-01-02", intro: "", children: null }));
+    expect(shell).toContain('<time dateTime="2027-01-02">2027-01-02</time>');
+    expect(legalPages().map(({ link, updated }) => [link.href, updated])).toEqual([
+      ["/privacy", PRIVACY_UPDATED],
+      ["/terms", TERMS_UPDATED],
+    ]);
+  });
+
   it("the footer, the sign-in line, and the sitemap links lead to both pages", () => {
     stubOperator(OPERATOR);
     const footer = renderToStaticMarkup(createElement(SiteFooter));
@@ -100,6 +115,7 @@ describe("with no operator configured", () => {
     expect(footer).not.toContain('href="/terms"');
     expect(renderToStaticMarkup(createElement(LegalConsent))).toBe("");
     expect(legalLinks()).toEqual([]);
+    expect(legalPages()).toEqual([]);
   });
 
   it("a partial configuration fails loudly instead of rendering a page with no contact", () => {

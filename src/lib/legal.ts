@@ -11,8 +11,14 @@ import { privacyLink, termsLink, type NavLink } from "@/lib/site";
  * so a self-hosted copy never presents another operator's policy as its own.
  */
 
-/** When the privacy policy or the terms of use last changed. Change it with every edit to either text. */
-export const LEGAL_UPDATED = "2026-11-12";
+/** When the privacy policy last changed. Change it with every edit to its text, and only then. */
+export const PRIVACY_UPDATED = "2026-11-12";
+
+/** When the terms of use last changed. Change it with every edit to their text, and only then. */
+export const TERMS_UPDATED = "2026-11-12";
+
+/** A legal page and the date its text last changed, which the page shows and the sitemap sends. */
+export type LegalPage = Readonly<{ link: NavLink; updated: string }>;
 
 /** The configured operator, or a 404 for an instance that names none. */
 export function requireOperator(): OperatorEnv {
@@ -21,7 +27,16 @@ export function requireOperator(): OperatorEnv {
   return operator;
 }
 
+/** Both pages with their dates, or none when the instance names no operator. */
+export function legalPages(): readonly LegalPage[] {
+  if (operatorEnv() === null) return [];
+  return [
+    { link: privacyLink, updated: PRIVACY_UPDATED },
+    { link: termsLink, updated: TERMS_UPDATED },
+  ];
+}
+
 /** The links to both pages, or none when the instance names no operator. */
 export function legalLinks(): readonly NavLink[] {
-  return operatorEnv() === null ? [] : [privacyLink, termsLink];
+  return legalPages().map((page) => page.link);
 }
