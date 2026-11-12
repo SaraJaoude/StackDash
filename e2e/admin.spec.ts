@@ -5,6 +5,7 @@ import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { openWith, palette, trigger } from "./fixtures/palette";
 
 // playwright.config.ts names the e2e owner, and only the owner, in DEVMACRO_SUPER_ADMIN_EMAILS.
 
@@ -12,16 +13,17 @@ function adminLink(page: Page) {
   return page.getByRole("banner").getByRole("link", { name: "Admin", exact: true });
 }
 
-function palette(page: Page) {
-  return page.getByRole("dialog", { name: "Command palette" });
-}
-
-/** Opens the palette once the shell has hydrated; a click before that does nothing, so it repeats. */
-async function openPalette(page: Page): Promise<void> {
-  await expect(async () => {
-    if (!(await palette(page).isVisible())) await page.getByRole("button", { name: "Jump to" }).click();
-    await expect(palette(page)).toBeVisible({ timeout: 1_000 });
-  }).toPass({ timeout: 15_000 });
+/** Opens the palette, searches "open admin", and takes the one result to the overview. */
+async function openAdminFromPalette(page: Page): Promise<void> {
+  await openWith(palette(page), () => trigger(page).click());
+  await palette(page).getByRole("combobox", { name: "Search commands" }).fill("open admin");
+  await expect(palette(page).getByRole("option")).toHaveCount(1);
+  const admin = palette(page).getByRole("option", { name: "Admin", exact: true });
+  await expect(admin).toHaveAccessibleDescription("Page");
+  await expect(admin).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL("/app/admin");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Instance overview");
 }
 
 ownerTest.describe("the instance overview as a super admin", () => {
@@ -88,15 +90,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
     const workspace = await createTestWorkspace("Admin palette");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
-      await openPalette(page);
-      await palette(page).getByRole("combobox", { name: "Search commands" }).fill("open admin");
-      await expect(palette(page).getByRole("option")).toHaveCount(1);
-      const admin = palette(page).getByRole("option", { name: "Admin", exact: true });
-      await expect(admin).toHaveAccessibleDescription("Page");
-      await expect(admin).toHaveAttribute("aria-selected", "true");
-      await page.keyboard.press("Enter");
-      await expect(page).toHaveURL("/app/admin");
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Instance overview");
+      await openAdminFromPalette(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -120,7 +114,7 @@ viewerTest("a signed-in user who is not a super admin is offered no way to the o
     await expect(page.getByRole("banner").getByRole("link", { name: "Account" })).toBeVisible();
     await expect(adminLink(page)).toHaveCount(0);
 
-    await openPalette(page);
+    await openWith(palette(page), () => trigger(page).click());
     await palette(page).getByRole("combobox", { name: "Search commands" }).fill("admin");
     await expect(palette(page).getByRole("option")).toHaveCount(0);
     await expect(palette(page).getByText('No commands match "admin"')).toBeVisible();

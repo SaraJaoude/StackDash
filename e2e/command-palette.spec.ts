@@ -3,6 +3,7 @@ import type { Locator, Page, Route } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { openWith, palette, trigger } from "./fixtures/palette";
 
 /** A fresh workspace with one Vercel connection, account, and project, and two Vercel events. */
 async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
@@ -89,16 +90,8 @@ async function seedTriggeredAlerts(workspace: TestWorkspace, count: number): Pro
   if (error) throw new Error(`Seeding triggered alerts failed (code ${error.code}).`);
 }
 
-function palette(page: Page) {
-  return page.getByRole("dialog", { name: "Command palette" });
-}
-
 function combobox(page: Page) {
   return palette(page).getByRole("combobox", { name: "Search commands" });
-}
-
-function trigger(page: Page) {
-  return page.getByRole("button", { name: "Jump to" });
 }
 
 /**
@@ -138,21 +131,6 @@ async function applePlatform(page: Page): Promise<boolean> {
 /** The palette shortcut for the page's own platform. */
 async function pressPaletteShortcut(page: Page): Promise<void> {
   await page.keyboard.press((await applePlatform(page)) ? "Meta+K" : "Control+K");
-}
-
-/**
- * Repeats `open` until `dialog` shows. The button's handler and the shortcut listener attach when
- * the shell hydrates, which can land after its streamed HTML is already visible (the dev server
- * compiles the client chunk on first use), and an action before that does nothing. Repeating is
- * safe: an open dialog makes the page inert and the shortcut ignores presses while one is open.
- * Use it for a test's first open only. Later opens are plain, so a bug that breaks re-opening is not
- * retried away.
- */
-async function openWith(dialog: Locator, open: () => Promise<void>): Promise<void> {
-  await expect(async () => {
-    if (!(await dialog.isVisible())) await open();
-    await expect(dialog).toBeVisible({ timeout: 1_000 });
-  }).toPass({ timeout: 15_000 });
 }
 
 type KeyInit = Readonly<Pick<KeyboardEventInit, "key" | "metaKey" | "ctrlKey" | "shiftKey">>;
