@@ -16,8 +16,9 @@ const MIGRATION_FILE = /^(\d{14})_[^/]+\.sql$/;
 export function expectedMigrationVersion(): string | null {
   let files: string[];
   try {
-    // A literal path the build can trace (#363): a variable here, even one only tests set, makes
-    // Turbopack trace the whole project into the server output. Tests stub process.cwd() instead.
+    // A literal path the build can trace (#363). When the directory was a parameter, Turbopack
+    // could not tell the path and traced the whole project into the server output. It is not a
+    // module constant like DOCS_DIR in src/lib/docs.ts because the tests stub process.cwd() per call.
     files = fs.readdirSync(path.join(process.cwd(), "supabase", "migrations"));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
