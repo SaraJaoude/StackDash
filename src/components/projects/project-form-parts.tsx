@@ -3,11 +3,14 @@
 import { useEffect, useRef } from "react";
 
 import type { ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { ReferenceNote } from "@/components/ui/live-region";
 
 type Failure = Extract<ProjectActionResult, { ok: false }>;
 
 /** The failed result of a form action, or undefined when it has not failed. */
-export function failureOf(state: ProjectActionResult | null): Failure | undefined {
+export function failureOf(
+  state: ProjectActionResult | null,
+): Failure | undefined {
   return state !== null && !state.ok ? state : undefined;
 }
 
@@ -72,7 +75,13 @@ export function ProjectNameField({
  * Shown when a submit fails, and focused so keyboard and screen reader users land on what went
  * wrong. A field error links to its field; an unexpected error carries the reference id.
  */
-export function FormErrorSummary({ failure, fieldId }: { failure: Failure | undefined; fieldId?: string }) {
+export function FormErrorSummary({
+  failure,
+  fieldId,
+}: {
+  failure: Failure | undefined;
+  fieldId?: string;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   // Every submit returns a new result object, so a repeated failure moves focus again.
   useEffect(() => {
@@ -80,7 +89,8 @@ export function FormErrorSummary({ failure, fieldId }: { failure: Failure | unde
   }, [failure]);
 
   if (failure === undefined) return null;
-  const hasFieldError = fieldId !== undefined && failure.fieldErrors?.name !== undefined;
+  const hasFieldError =
+    fieldId !== undefined && failure.fieldErrors?.name !== undefined;
   return (
     <div
       ref={ref}
@@ -94,12 +104,7 @@ export function FormErrorSummary({ failure, fieldId }: { failure: Failure | unde
       ) : (
         <p>
           {failure.message}
-          {failure.referenceId === undefined ? null : (
-            <>
-              {" "}
-              Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-            </>
-          )}
+          <ReferenceNote referenceId={failure.referenceId} />
         </p>
       )}
     </div>
