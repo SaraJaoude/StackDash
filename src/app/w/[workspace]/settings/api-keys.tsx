@@ -1,31 +1,11 @@
 "use client";
 
-import {
-  startTransition,
-  useActionState,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from "react";
+import { startTransition, useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { buttonClass } from "@/components/ui/button";
-import {
-  OutcomeAnnouncement,
-  ReferenceNote,
-  type Outcome,
-} from "@/components/ui/live-region";
-import {
-  DialogActions,
-  DialogCloseButton,
-  ModalDialog,
-  useModalDialog,
-} from "@/components/ui/modal-dialog";
-import {
-  API_KEY_SCOPE_LABELS,
-  API_KEY_SCOPES,
-  type ApiKeyScope,
-} from "@/lib/api/scopes";
+import { OutcomeAnnouncement, ReferenceNote, type Outcome } from "@/components/ui/live-region";
+import { DialogActions, DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/modal-dialog";
+import { API_KEY_SCOPE_LABELS, API_KEY_SCOPES, type ApiKeyScope } from "@/lib/api/scopes";
 import { CREATE_API_KEY_FIELD_ID } from "@/lib/workspaces/paths";
 
 import {
@@ -56,22 +36,13 @@ function keyStateOf(apiKey: ApiKeyItem): KeyState {
   return apiKey.creatorLeft ? "creator_left" : "active";
 }
 
-const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> =
-  {
-    active: { label: "Active", className: "border-success/50 text-success" },
-    creator_left: {
-      label: "Not working",
-      className: "border-warning/50 text-warning",
-    },
-    revoked: {
-      label: "Revoked",
-      className: "border-dashed border-line-strong text-muted",
-    },
-  };
+const KEY_STATE_BADGES: Record<KeyState, { label: string; className: string }> = {
+  active: { label: "Active", className: "border-success/50 text-success" },
+  creator_left: { label: "Not working", className: "border-warning/50 text-warning" },
+  revoked: { label: "Revoked", className: "border-dashed border-line-strong text-muted" },
+};
 
-export function failureOf(
-  state: CreateApiKeyResult | RevokeApiKeyResult | null,
-): ApiKeyActionFailure | undefined {
+export function failureOf(state: CreateApiKeyResult | RevokeApiKeyResult | null): ApiKeyActionFailure | undefined {
   return state !== null && !state.ok ? state : undefined;
 }
 
@@ -79,11 +50,7 @@ export function failureOf(
  * Shown when a submit fails, and focused so keyboard and screen reader users land on what went
  * wrong. An unexpected error carries the reference id.
  */
-export function ErrorSummary({
-  failure,
-}: {
-  failure: ApiKeyActionFailure | undefined;
-}) {
+export function ErrorSummary({ failure }: { failure: ApiKeyActionFailure | undefined }) {
   const ref = useRef<HTMLDivElement>(null);
   // Every submit returns a new result object, so a repeated failure moves focus again.
   useEffect(() => {
@@ -120,18 +87,12 @@ export function ApiKeysManager({
   listLimit: number;
 }) {
   const [status, setStatus] = useState<Outcome | null>(null);
-  const [created, setCreated] = useState<{ name: string; key: string } | null>(
-    null,
-  );
+  const [created, setCreated] = useState<{ name: string; key: string } | null>(null);
 
   return (
     <div className="px-6 py-5">
       {/* Always mounted so screen readers announce changes to it. */}
-      <OutcomeAnnouncement
-        outcome={status}
-        className="text-sm"
-        messageClassName="mb-4"
-      />
+      <OutcomeAnnouncement outcome={status} className="text-sm" messageClassName="mb-4" />
 
       {created === null ? null : (
         <NewKeyPanel
@@ -141,19 +102,12 @@ export function ApiKeysManager({
             setStatus(
               copied
                 ? { tone: "success", message: "Key copied." }
-                : {
-                    tone: "error",
-                    message:
-                      "Copying did not work in this browser. Select the key and copy it yourself.",
-                  },
+                : { tone: "error", message: "Copying did not work in this browser. Select the key and copy it yourself." },
             )
           }
           onDismiss={() => {
             setCreated(null);
-            setStatus({
-              tone: "success",
-              message: "The new key is hidden. It cannot be shown again.",
-            });
+            setStatus({ tone: "success", message: "The new key is hidden. It cannot be shown again." });
           }}
         />
       )}
@@ -168,10 +122,7 @@ export function ApiKeysManager({
 
       <h3 className="mt-8 text-sm font-semibold">Keys in this workspace</h3>
       {keys.length === 0 ? (
-        <p className="mt-2 text-sm text-muted">
-          No API keys yet. Create one above to read this workspace from a
-          script.
-        </p>
+        <p className="mt-2 text-sm text-muted">No API keys yet. Create one above to read this workspace from a script.</p>
       ) : (
         <ul className="mt-3 divide-y divide-line rounded-lg border border-line">
           {keys.map((key) => (
@@ -179,20 +130,13 @@ export function ApiKeysManager({
               key={key.id}
               workspaceSlug={workspaceSlug}
               apiKey={key}
-              onRevoked={(name) =>
-                setStatus({
-                  tone: "success",
-                  message: `Revoked the key ${name}. Requests with it now fail.`,
-                })
-              }
+              onRevoked={(name) => setStatus({ tone: "success", message: `Revoked the key ${name}. Requests with it now fail.` })}
             />
           ))}
         </ul>
       )}
       {hasMore ? (
-        <p className="mt-3 text-sm text-muted">
-          Showing the newest {listLimit} keys. Older keys are not listed here.
-        </p>
+        <p className="mt-3 text-sm text-muted">Showing the newest {listLimit} keys. Older keys are not listed here.</p>
       ) : null}
     </div>
   );
@@ -224,18 +168,12 @@ export function NewKeyPanel({
       aria-labelledby={`${inputId}-title`}
       className="mb-6 rounded-lg border border-success/60 bg-success/10 px-4 py-4"
     >
-      <h3
-        id={`${inputId}-title`}
-        ref={headingRef}
-        tabIndex={-1}
-        className="text-sm font-semibold"
-      >
+      <h3 id={`${inputId}-title`} ref={headingRef} tabIndex={-1} className="text-sm font-semibold">
         Copy the key for {name} now
       </h3>
       <p id={warningId} className="mt-1 text-sm">
-        This is the only time DevMacro shows it. Store it somewhere safe, such
-        as a password manager or your deployment&apos;s secret settings. If you
-        lose it, revoke it and create another.
+        This is the only time DevMacro shows it. Store it somewhere safe, such as a password manager or your
+        deployment&apos;s secret settings. If you lose it, revoke it and create another.
       </p>
       <label htmlFor={inputId} className="mt-3 block text-sm font-medium">
         API key
@@ -265,11 +203,7 @@ export function NewKeyPanel({
           Copy key
         </button>
       </div>
-      <button
-        type="button"
-        onClick={onDismiss}
-        className={`mt-3 ${buttonClass("secondary")}`}
-      >
+      <button type="button" onClick={onDismiss} className={`mt-3 ${buttonClass("secondary")}`}>
         Hide key
       </button>
     </section>
@@ -286,19 +220,19 @@ function CreateApiKeyForm({
   // Controlled so a rejected submit keeps what was typed and ticked.
   const [name, setName] = useState("");
   const [scopes, setScopes] = useState<ReadonlySet<ApiKeyScope>>(new Set());
-  const [state, formAction, pending] = useActionState<
-    CreateApiKeyResult | null,
-    FormData
-  >(async (previous, formData) => {
-    const result = await createApiKey(previous, formData);
-    if (result.ok) {
-      onCreated(result.name, result.key);
-      setName("");
-      setScopes(new Set());
-    }
-    // The key is handed to onCreated and kept out of the form state.
-    return result.ok ? { ...result, key: "" } : result;
-  }, null);
+  const [state, formAction, pending] = useActionState<CreateApiKeyResult | null, FormData>(
+    async (previous, formData) => {
+      const result = await createApiKey(previous, formData);
+      if (result.ok) {
+        onCreated(result.name, result.key);
+        setName("");
+        setScopes(new Set());
+      }
+      // The key is handed to onCreated and kept out of the form state.
+      return result.ok ? { ...result, key: "" } : result;
+    },
+    null,
+  );
   const id = useId();
   const nameHintId = `${id}-name-hint`;
   const nameErrorId = `${id}-name-error`;
@@ -310,8 +244,7 @@ function CreateApiKeyForm({
   // Arriving from the palette's "Create API key" (`createApiKeyPath`) starts in the name field, so
   // the action reads as one step. The URL fragment is read once, on arrival.
   useEffect(() => {
-    if (window.location.hash === `#${CREATE_API_KEY_FIELD_ID}`)
-      nameRef.current?.focus();
+    if (window.location.hash === `#${CREATE_API_KEY_FIELD_ID}`) nameRef.current?.focus();
   }, []);
 
   return (
@@ -326,10 +259,7 @@ function CreateApiKeyForm({
       }}
     >
       <input type="hidden" name="workspace" value={workspaceSlug} />
-      <label
-        htmlFor={CREATE_API_KEY_FIELD_ID}
-        className="block text-sm font-medium"
-      >
+      <label htmlFor={CREATE_API_KEY_FIELD_ID} className="block text-sm font-medium">
         Key name
       </label>
       <p id={nameHintId} className="mt-1 text-sm text-muted">
@@ -344,9 +274,7 @@ function CreateApiKeyForm({
         value={name}
         onChange={(event) => setName(event.target.value)}
         aria-invalid={nameError === undefined ? undefined : true}
-        aria-describedby={
-          nameError === undefined ? nameHintId : `${nameHintId} ${nameErrorId}`
-        }
+        aria-describedby={nameError === undefined ? nameHintId : `${nameHintId} ${nameErrorId}`}
         className={`mt-2 block min-h-10 w-full rounded-md border bg-panel-raised px-3 py-2 text-sm text-foreground sm:max-w-md ${
           nameError === undefined ? "border-line-strong" : "border-danger"
         }`}
@@ -358,14 +286,9 @@ function CreateApiKeyForm({
         </p>
       )}
 
-      <fieldset
-        className="mt-5"
-        aria-describedby={scopesError === undefined ? undefined : scopesErrorId}
-      >
+      <fieldset className="mt-5" aria-describedby={scopesError === undefined ? undefined : scopesErrorId}>
         <legend className="text-sm font-medium">What the key may read</legend>
-        <p className="mt-1 text-sm text-muted">
-          Keys only ever read. Choose at least one.
-        </p>
+        <p className="mt-1 text-sm text-muted">Keys only ever read. Choose at least one.</p>
         <div className="mt-2 grid gap-2">
           {API_KEY_SCOPES.map((scope) => {
             const optionId = `${id}-scope-${scope.replace(":", "-")}`;
@@ -387,14 +310,9 @@ function CreateApiKeyForm({
                   className="mt-0.5 size-5 shrink-0"
                 />
                 <label htmlFor={optionId} className="text-sm">
-                  <span className="font-medium">
-                    {API_KEY_SCOPE_LABELS[scope].label}
-                  </span>{" "}
+                  <span className="font-medium">{API_KEY_SCOPE_LABELS[scope].label}</span>{" "}
                   <code className="font-mono text-xs text-muted">{scope}</code>
-                  <span
-                    id={`${optionId}-description`}
-                    className="block text-muted"
-                  >
+                  <span id={`${optionId}-description`} className="block text-muted">
                     {API_KEY_SCOPE_LABELS[scope].description}
                   </span>
                 </label>
@@ -410,11 +328,7 @@ function CreateApiKeyForm({
         )}
       </fieldset>
 
-      <button
-        type="submit"
-        disabled={pending}
-        className={`mt-5 shrink-0 ${buttonClass("primary")}`}
-      >
+      <button type="submit" disabled={pending} className={`mt-5 shrink-0 ${buttonClass("primary")}`}>
         {pending ? "Creating" : "Create key"}
       </button>
       <ErrorSummary failure={failure} />
@@ -438,41 +352,24 @@ function ApiKeyRow({
       <div className="min-w-0 text-sm">
         <p className="flex flex-wrap items-center gap-2">
           <span className="break-words font-medium">{apiKey.name}</span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-xs font-medium ${badge.className}`}
-          >
-            {badge.label}
-          </span>
+          <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${badge.className}`}>{badge.label}</span>
         </p>
         {state === "creator_left" ? (
           <p className="mt-1 text-warning">
-            Its creator left the workspace, so requests with it fail. Revoke it
-            and create a new key.
+            Its creator left the workspace, so requests with it fail. Revoke it and create a new key.
           </p>
         ) : null}
-        <p className="mt-1 font-mono text-xs text-muted">
-          {apiKey.tokenPrefix}…
-        </p>
+        <p className="mt-1 font-mono text-xs text-muted">{apiKey.tokenPrefix}…</p>
         <p className="mt-1 text-muted">
-          Reads:{" "}
-          {apiKey.scopes
-            .map((scope) => API_KEY_SCOPE_LABELS[scope].label)
-            .join(", ")}
+          Reads: {apiKey.scopes.map((scope) => API_KEY_SCOPE_LABELS[scope].label).join(", ")}
         </p>
         <p className="mt-1 text-xs text-muted">
-          Created {apiKey.created}.{" "}
-          {apiKey.lastUsed === null
-            ? "Never used."
-            : `Last used ${apiKey.lastUsed}.`}
+          Created {apiKey.created}. {apiKey.lastUsed === null ? "Never used." : `Last used ${apiKey.lastUsed}.`}
           {apiKey.revoked === null ? null : ` Revoked ${apiKey.revoked}.`}
         </p>
       </div>
       {state === "revoked" ? null : (
-        <RevokeApiKeyDialog
-          workspaceSlug={workspaceSlug}
-          apiKey={apiKey}
-          onRevoked={onRevoked}
-        />
+        <RevokeApiKeyDialog workspaceSlug={workspaceSlug} apiKey={apiKey} onRevoked={onRevoked} />
       )}
     </li>
   );
@@ -530,14 +427,14 @@ function RevokeConfirmation({
   apiKey: ApiKeyItem;
   onRevoked: (name: string) => void;
 }) {
-  const [state, formAction, pending] = useActionState<
-    RevokeApiKeyResult | null,
-    FormData
-  >(async (previous, formData) => {
-    const result = await revokeApiKey(previous, formData);
-    if (result.ok) onRevoked(result.name);
-    return result;
-  }, null);
+  const [state, formAction, pending] = useActionState<RevokeApiKeyResult | null, FormData>(
+    async (previous, formData) => {
+      const result = await revokeApiKey(previous, formData);
+      if (result.ok) onRevoked(result.name);
+      return result;
+    },
+    null,
+  );
 
   return (
     <form action={formAction}>
@@ -546,11 +443,7 @@ function RevokeConfirmation({
       <ErrorSummary failure={failureOf(state)} />
       <DialogActions>
         <DialogCloseButton unavailable={pending} />
-        <button
-          type="submit"
-          disabled={pending}
-          className={buttonClass("danger")}
-        >
+        <button type="submit" disabled={pending} className={buttonClass("danger")}>
           {pending ? "Revoking" : "Revoke key"}
         </button>
       </DialogActions>

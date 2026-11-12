@@ -34,10 +34,7 @@ export function FeedbackBanner({
         tone === "error" ? "border-danger/50" : "border-success/40"
       }`}
     >
-      <p
-        id={titleId}
-        className={`font-semibold ${tone === "error" ? "text-danger" : "text-success"}`}
-      >
+      <p id={titleId} className={`font-semibold ${tone === "error" ? "text-danger" : "text-success"}`}>
         {title}
       </p>
       <div className="mt-1 leading-6 text-muted">{children}</div>

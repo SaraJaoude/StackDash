@@ -17,16 +17,9 @@
  */
 
 export type FocusTarget = Readonly<{ focus: () => void; isConnected: boolean }>;
-export type DialogElement = Readonly<{
-  open: boolean;
-  showModal: () => void;
-  close: () => void;
-}>;
+export type DialogElement = Readonly<{ open: boolean; showModal: () => void; close: () => void }>;
 export type CloseReason = "dismissed" | "completed";
-export type ClosedDialog = Readonly<{
-  reason: CloseReason;
-  opener: FocusTarget | null;
-}>;
+export type ClosedDialog = Readonly<{ reason: CloseReason; opener: FocusTarget | null }>;
 
 export function focusAfterClose(
   reason: CloseReason,
@@ -34,11 +27,7 @@ export function focusAfterClose(
   fallback: FocusTarget | null,
 ): FocusTarget | null {
   const order = reason === "completed" ? [fallback] : [opener, fallback];
-  return (
-    order.find(
-      (target): target is FocusTarget => target !== null && target.isConnected,
-    ) ?? null
-  );
+  return order.find((target): target is FocusTarget => target !== null && target.isConnected) ?? null;
 }
 
 export type DialogController = Readonly<{
@@ -47,11 +36,7 @@ export type DialogController = Readonly<{
    * Closes the dialog if it is open. A completed close moves focus straight away, even when the
    * dialog is gone or Escape closed it while the action ran.
    */
-  close: (
-    dialog: DialogElement | null,
-    reason: CloseReason,
-    fallback: FocusTarget | null,
-  ) => void;
+  close: (dialog: DialogElement | null, reason: CloseReason, fallback: FocusTarget | null) => void;
   /** Sends focus somewhere else on the next close, such as the part of the page a result named. */
   returnFocusTo: (target: FocusTarget | null) => void;
   /** Handles the dialog's `close` event, however the dialog was closed. */
@@ -80,8 +65,7 @@ export function createDialogController(): DialogController {
         reason = next;
         dialog.close();
       }
-      if (next === "completed")
-        focusAfterClose(next, opener, fallback)?.focus();
+      if (next === "completed") focusAfterClose(next, opener, fallback)?.focus();
     },
     returnFocusTo(target) {
       opener = target;

@@ -32,20 +32,13 @@ const BASE =
   "inline-flex items-center justify-center text-sm disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:opacity-60";
 
 const VARIANTS: Record<ButtonVariant, string> = {
-  primary:
-    "bg-accent font-medium text-background transition-opacity hover:opacity-85",
-  secondary:
-    "border border-line-strong text-muted transition-colors hover:text-foreground",
-  outline:
-    "border border-line-strong transition-colors hover:border-foreground",
-  raised:
-    "border border-line-strong bg-panel-raised font-medium text-foreground transition-colors hover:border-accent",
-  danger:
-    "bg-danger font-medium text-background transition-opacity hover:opacity-85",
-  "danger-outline":
-    "border border-danger/60 text-danger transition-colors hover:bg-danger/10",
-  "danger-quiet":
-    "border border-line-strong text-danger transition-colors hover:border-danger",
+  primary: "bg-accent font-medium text-background transition-opacity hover:opacity-85",
+  secondary: "border border-line-strong text-muted transition-colors hover:text-foreground",
+  outline: "border border-line-strong transition-colors hover:border-foreground",
+  raised: "border border-line-strong bg-panel-raised font-medium text-foreground transition-colors hover:border-accent",
+  danger: "bg-danger font-medium text-background transition-opacity hover:opacity-85",
+  "danger-outline": "border border-danger/60 text-danger transition-colors hover:bg-danger/10",
+  "danger-quiet": "border border-line-strong text-danger transition-colors hover:border-danger",
 };
 
 const SIZES: Record<ButtonSize, string> = {
@@ -55,9 +48,6 @@ const SIZES: Record<ButtonSize, string> = {
   xs: "min-h-8 min-w-8 rounded-md px-3 py-1",
 };
 
-export function buttonClass(
-  variant: ButtonVariant,
-  size: ButtonSize = "md",
-): string {
+export function buttonClass(variant: ButtonVariant, size: ButtonSize = "md"): string {
   return `${BASE} ${SIZES[size]} ${VARIANTS[variant]}`;
 }

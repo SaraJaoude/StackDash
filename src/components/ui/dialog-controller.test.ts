@@ -9,10 +9,7 @@ import {
 } from "./dialog-controller";
 
 /** An element that records when it takes focus, and can leave the document like a deleted row. */
-function target(
-  name: string,
-  focused: string[],
-): FocusTarget & { isConnected: boolean } {
+function target(name: string, focused: string[]): FocusTarget & { isConnected: boolean } {
   return {
     isConnected: true,
     focus: () => {
@@ -31,11 +28,7 @@ function fakeDialog({
   fallback = null,
   otherModalOpen = () => false,
   closeEventFires = true,
-}: {
-  fallback?: FocusTarget | null;
-  otherModalOpen?: () => boolean;
-  closeEventFires?: boolean;
-} = {}) {
+}: { fallback?: FocusTarget | null; otherModalOpen?: () => boolean; closeEventFires?: boolean } = {}) {
   const controller = createDialogController();
   const closes: ClosedDialog[] = [];
   const dialog = {
@@ -50,11 +43,7 @@ function fakeDialog({
     },
   };
   function fireClose() {
-    controller.closed(dialog, {
-      fallback,
-      onClose: (closed) => closes.push(closed),
-      otherModalOpen,
-    });
+    controller.closed(dialog, { fallback, onClose: (closed) => closes.push(closed), otherModalOpen });
   }
   return {
     controller,
@@ -75,27 +64,20 @@ describe("focusAfterClose", () => {
     ["completed", "fallback"],
   ] as const)("a %s close prefers the %s", (reason, expected) => {
     const focused: string[] = [];
-    focusAfterClose(
-      reason,
-      target("opener", focused),
-      target("fallback", focused),
-    )?.focus();
+    focusAfterClose(reason, target("opener", focused), target("fallback", focused))?.focus();
     expect(focused).toEqual([expected]);
   });
 
   it.each([
     ["dismissed", "fallback"],
     ["completed", "fallback"],
-  ] as const)(
-    "a %s close skips an opener that left the document for the %s",
-    (reason, expected) => {
-      const focused: string[] = [];
-      const opener = target("opener", focused);
-      opener.isConnected = false;
-      focusAfterClose(reason, opener, target("fallback", focused))?.focus();
-      expect(focused).toEqual([expected]);
-    },
-  );
+  ] as const)("a %s close skips an opener that left the document for the %s", (reason, expected) => {
+    const focused: string[] = [];
+    const opener = target("opener", focused);
+    opener.isConnected = false;
+    focusAfterClose(reason, opener, target("fallback", focused))?.focus();
+    expect(focused).toEqual([expected]);
+  });
 
   it("a completed close without a fallback leaves focus where the action put it", () => {
     expect(focusAfterClose("completed", target("opener", []), null)).toBeNull();
@@ -104,9 +86,7 @@ describe("focusAfterClose", () => {
   it("a completed close skips a fallback that left the document rather than refocusing the opener", () => {
     const fallback = target("fallback", []);
     fallback.isConnected = false;
-    expect(
-      focusAfterClose("completed", target("opener", []), fallback),
-    ).toBeNull();
+    expect(focusAfterClose("completed", target("opener", []), fallback)).toBeNull();
   });
 
   it("returns nothing when neither target is in the document", () => {
@@ -122,9 +102,7 @@ describe("focusAfterClose", () => {
 describe("createDialogController", () => {
   it("returns focus to the opener when Escape closes the dialog", () => {
     const focused: string[] = [];
-    const { controller, dialog, closes, pressEscape } = fakeDialog({
-      fallback: target("fallback", focused),
-    });
+    const { controller, dialog, closes, pressEscape } = fakeDialog({ fallback: target("fallback", focused) });
     const opener = target("opener", focused);
     controller.open(dialog, opener);
     expect(dialog.open).toBe(true);
@@ -145,18 +123,13 @@ describe("createDialogController", () => {
     close("completed");
     controller.open(dialog, target("opener", focused));
     pressEscape();
-    expect(closes.map((closed) => closed.reason)).toEqual([
-      "completed",
-      "dismissed",
-    ]);
+    expect(closes.map((closed) => closed.reason)).toEqual(["completed", "dismissed"]);
     expect(focused).toEqual(["fallback", "opener"]);
   });
 
   it("returns focus to the opener when Cancel closes the dialog", () => {
     const focused: string[] = [];
-    const { controller, dialog, close } = fakeDialog({
-      fallback: target("fallback", focused),
-    });
+    const { controller, dialog, close } = fakeDialog({ fallback: target("fallback", focused) });
     controller.open(dialog, target("opener", focused));
     close("dismissed");
     expect(focused).toEqual(["opener"]);
@@ -164,9 +137,7 @@ describe("createDialogController", () => {
 
   it("moves focus to the fallback when the action completed", () => {
     const focused: string[] = [];
-    const { controller, dialog, closes, close } = fakeDialog({
-      fallback: target("fallback", focused),
-    });
+    const { controller, dialog, closes, close } = fakeDialog({ fallback: target("fallback", focused) });
     controller.open(dialog, target("opener", focused));
     close("completed");
     expect(closes.map((closed) => closed.reason)).toEqual(["completed"]);
@@ -220,9 +191,7 @@ describe("createDialogController", () => {
 
   it("does nothing on a dismissed close of a dialog that is already closed", () => {
     const focused: string[] = [];
-    const { controller, dialog, closes, close } = fakeDialog({
-      fallback: target("fallback", focused),
-    });
+    const { controller, dialog, closes, close } = fakeDialog({ fallback: target("fallback", focused) });
     controller.open(dialog, target("opener", focused));
     // Hidden by the browser, its close event not delivered yet.
     dialog.open = false;
@@ -233,9 +202,7 @@ describe("createDialogController", () => {
 
   it("moves focus to the fallback when Escape closes a dialog whose opener is gone", () => {
     const focused: string[] = [];
-    const { controller, dialog, pressEscape } = fakeDialog({
-      fallback: target("fallback", focused),
-    });
+    const { controller, dialog, pressEscape } = fakeDialog({ fallback: target("fallback", focused) });
     const opener = target("opener", focused);
     controller.open(dialog, opener);
     opener.isConnected = false;

@@ -54,16 +54,11 @@ export type ModalDialogHandle = Readonly<{
   returnFocusTo: (target: FocusTarget | null) => void;
 }>;
 
-export function useModalDialog({
-  fallbackFocusId,
-}: { fallbackFocusId?: string } = {}): ModalDialogHandle {
+export function useModalDialog({ fallbackFocusId }: { fallbackFocusId?: string } = {}): ModalDialogHandle {
   const ref = useRef<HTMLDialogElement>(null);
   const [controller] = useState(createDialogController);
   const [openCount, setOpenCount] = useState(0);
-  const fallback = () =>
-    fallbackFocusId === undefined
-      ? null
-      : document.getElementById(fallbackFocusId);
+  const fallback = () => (fallbackFocusId === undefined ? null : document.getElementById(fallbackFocusId));
   return {
     ref,
     openCount,
@@ -73,12 +68,7 @@ export function useModalDialog({
       const dialog = ref.current;
       if (dialog === null) return;
       const focused = document.activeElement;
-      const from =
-        opener !== undefined
-          ? opener
-          : focused instanceof HTMLElement && focused !== document.body
-            ? focused
-            : null;
+      const from = opener !== undefined ? opener : focused instanceof HTMLElement && focused !== document.body ? focused : null;
       setOpenCount((count) => count + 1);
       controller.open(dialog, from);
     },
@@ -109,9 +99,7 @@ const FOCUSABLE = [
  */
 function keepTabInside(event: KeyboardEvent<HTMLDialogElement>): void {
   if (event.key !== "Tab") return;
-  const focusable = [
-    ...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE),
-  ];
+  const focusable = [...event.currentTarget.querySelectorAll<HTMLElement>(FOCUSABLE)];
   const first = focusable[0];
   const last = focusable.at(-1);
   if (first === undefined || last === undefined) return;
@@ -178,14 +166,7 @@ export function ModalDialog({
   }, [openCount, ref]);
 
   const heading = (
-    <h2
-      id={titleId}
-      className={
-        hideTitle
-          ? "sr-only"
-          : "text-lg font-semibold tracking-tight break-words"
-      }
-    >
+    <h2 id={titleId} className={hideTitle ? "sr-only" : "text-lg font-semibold tracking-tight break-words"}>
       {title}
     </h2>
   );
@@ -195,15 +176,12 @@ export function ModalDialog({
       <dialog
         ref={ref}
         aria-labelledby={titleId}
-        aria-describedby={
-          description === undefined ? describedBy : descriptionId
-        }
+        aria-describedby={description === undefined ? describedBy : descriptionId}
         onClose={(event) =>
           dialog.controller.closed(event.currentTarget, {
             fallback: dialog.fallback(),
             onClose,
-            otherModalOpen: () =>
-              document.querySelector("dialog[open]") !== null,
+            otherModalOpen: () => document.querySelector("dialog[open]") !== null,
           })
         }
         onKeyDown={keepTabInside}
@@ -225,9 +203,7 @@ export function ModalDialog({
         {content === "always" ? (
           children
         ) : openCount === 0 ? null : (
-          <Fragment key={content === "each-open" ? openCount : 0}>
-            {children}
-          </Fragment>
+          <Fragment key={content === "each-open" ? openCount : 0}>{children}</Fragment>
         )}
       </dialog>
     </ModalDialogContext>
@@ -248,8 +224,7 @@ export function DialogCloseButton({
   initialFocus?: boolean;
 }) {
   const dialog = use(ModalDialogContext);
-  if (dialog === null)
-    throw new Error("DialogCloseButton must be rendered inside ModalDialog");
+  if (dialog === null) throw new Error("DialogCloseButton must be rendered inside ModalDialog");
   return (
     <GuardedButton
       type="button"
@@ -265,7 +240,5 @@ export function DialogCloseButton({
 
 /** The row of buttons at the foot of a dialog, Cancel first. */
 export function DialogActions({ children }: { children: ReactNode }) {
-  return (
-    <div className="mt-6 flex flex-wrap justify-end gap-3">{children}</div>
-  );
+  return <div className="mt-6 flex flex-wrap justify-end gap-3">{children}</div>;
 }
