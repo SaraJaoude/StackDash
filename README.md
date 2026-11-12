@@ -589,9 +589,10 @@ registered and how many workspaces use each provider, the background job queue a
 the last 24 hours, users, workspaces with their members and timeline events, and whether the
 database has this build's migrations. Super admins are the addresses in
 `DEVMACRO_SUPER_ADMIN_EMAILS`; anyone else gets page not found. A super admin reaches it from the
-Admin link in the workspace header or the Admin command in the command palette; neither is sent to
-anyone else. Each view is logged with the viewer's user id (`admin.viewed`). Locally, add your
-GitHub email to `.env.local` and restart `npm run dev`.
+Admin link in the workspace header on wider screens (the `lg` breakpoint, 1024 pixels, and up), or
+from the Admin command in the command palette at every width, which is the way in on a phone;
+neither is sent to anyone else. Each view is logged with the viewer's user id (`admin.viewed`).
+Locally, add your GitHub email to `.env.local` and restart `npm run dev`.
 
 ### Rotate the encryption key
 
