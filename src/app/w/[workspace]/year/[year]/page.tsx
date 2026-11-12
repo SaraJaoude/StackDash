@@ -41,7 +41,7 @@ export const metadata: Metadata = { title: "Year in review" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function YearInReviewPage(props: PageProps<"/w/[workspace]/year/[year]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the year in review" />}>
       <YearInReviewContent {...props} />
     </Suspense>
   );

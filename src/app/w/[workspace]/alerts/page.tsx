@@ -24,7 +24,7 @@ const searchSchema = z.object({
 // has an instant shell; access checks and data reads stream in behind it.
 export default function AlertsPage(props: PageProps<"/w/[workspace]/alerts">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading alerts" />}>
       <AlertsContent {...props} />
     </Suspense>
   );
