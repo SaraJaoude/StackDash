@@ -506,6 +506,9 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
 - [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to
   a workspace with an API key, and the read-only tools it can call.
+- [Write a provider adapter](docs/adapters.md): copy the example adapter, the adapter contract,
+  the test harness, every file a new provider touches, the provider page template, and how
+  adapters are reviewed. Ask for a new provider with the **Adapter request** issue template.
 
 ### Invite testers
 
@@ -582,7 +585,7 @@ src/
     docs/                      Markdown rendering and the docs list for /docs
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated), registry, the unregistered example adapter, and the contract test harness
     api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     mcp/                       MCP server: the read-only tools and provider page resources, client setup snippets
     connections/               connect, OAuth state, revoke
@@ -610,6 +613,7 @@ supabase/
 scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
