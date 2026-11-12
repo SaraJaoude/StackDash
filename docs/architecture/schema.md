@@ -43,6 +43,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261112100900_headline_first_readings.sql` | `headline_first_readings`: every connection's oldest snapshot on or before a day, in one call behind one membership check; `usage_snapshots_connection_date_idx` on `(connection_id, snapshot_date)` replaces `usage_snapshots_connection_id_idx` |
 | `20261112100901_latest_usage_resets_skip_scan.sql` | `latest_usage_resets` reads one row per metric of the account through the unique key instead of every snapshot of its history |
 | `20261112100902_headline_first_readings_connection_probe.sql` | `headline_first_readings` leaves the workspace out of the snapshot lookup, so the planner keeps to `usage_snapshots_connection_date_idx` when the table's statistics are out of date |
+| `20261112101200_super_admin_overview.sql` | Service role only figures for the super admin instance overview: `admin_instance_totals`, `admin_workspace_stats` (keyset pages, newest first, with `workspaces_created_at_id_idx`), `admin_provider_usage`, `admin_job_health`, `admin_job_failures`, and `admin_latest_migration` |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 

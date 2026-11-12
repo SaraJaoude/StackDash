@@ -192,6 +192,30 @@ export function clientIpEnv(): ClientIpEnv {
   return { header: "x-forwarded-for", trustedProxies: Number(env.DEVMACRO_TRUSTED_PROXY_COUNT ?? "1") };
 }
 
+const SUPER_ADMIN_EMAIL = z.email();
+
+/**
+ * The super admins of this instance (#250): DEVMACRO_SUPER_ADMIN_EMAILS, comma separated, lowercased.
+ * Empty when unset, so nobody is one by default. An entry that is not an email address is a
+ * configuration error rather than skipped, so a typo fails loudly instead of quietly locking the
+ * operator out. Messages name the entry's position, never the address.
+ */
+export function superAdminEmails(): ReadonlySet<string> {
+  const raw = process.env.DEVMACRO_SUPER_ADMIN_EMAILS;
+  const emails = new Set<string>();
+  if (raw === undefined) return emails;
+  const entries = raw.split(",").map((entry) => entry.trim()).filter((entry) => entry !== "");
+  for (const [index, entry] of entries.entries()) {
+    if (!SUPER_ADMIN_EMAIL.safeParse(entry).success) {
+      throw new Error(
+        `Environment configuration error: DEVMACRO_SUPER_ADMIN_EMAILS is invalid: entry ${index + 1} is not an email address. See .env.example for the format.`,
+      );
+    }
+    emails.add(entry.toLowerCase());
+  }
+  return emails;
+}
+
 /**
  * The operator the privacy policy and terms of use name, or null when none of the three variables
  * is set: then /privacy and /terms answer 404 and nothing links to them. Setting only some of them

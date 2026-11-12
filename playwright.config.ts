@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_USERS } from "./e2e/fixtures/auth";
 import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
 import { E2E_OPERATOR } from "./e2e/fixtures/operator";
 
@@ -91,12 +92,15 @@ export default defineConfig({
       // "Simulated".
       // The public origin is the server's own, whatever .env.local says, so absolute metadata URLs
       // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
+      // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
+      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
       env: {
         ...inherited,
         ...fakeResendEnv,
         ...E2E_OPERATOR,
         DEVMACRO_SIMULATE_PROVIDERS: "1",
         NEXT_PUBLIC_SITE_URL: baseURL,
+        DEVMACRO_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
       },
     },
   ],

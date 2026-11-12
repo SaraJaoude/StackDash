@@ -10,7 +10,9 @@ import {
   getAdapter,
   isProviderConfigured,
   isProviderSimulated,
+  liveProviderSetup,
   loadOAuthClient,
+  missingOAuthEnv,
 } from "./registry";
 import { simulatedAdapters } from "./simulated";
 import { liveProviderIds, Secret, type ProviderAdapter } from "./types";
@@ -209,6 +211,43 @@ describe("loadOAuthClient", () => {
   it("never serializes the secret", () => {
     setRequired();
     expect(JSON.stringify(loadOAuthClient(TEST_ADAPTER))).not.toContain("client-secret");
+  });
+});
+
+describe("missingOAuthEnv", () => {
+  it("names nothing when every required variable is set and the optional extra is not", () => {
+    setRequired();
+    expect(missingOAuthEnv(TEST_ADAPTER)).toEqual([]);
+  });
+
+  it("names every empty or whitespace-only required variable in declaration order, never the optional one", () => {
+    vi.stubEnv("TEST_REGISTRY_CLIENT_ID", "");
+    vi.stubEnv("TEST_REGISTRY_CLIENT_SECRET", "  ");
+    vi.stubEnv("TEST_REGISTRY_SLUG", "");
+    vi.stubEnv("TEST_REGISTRY_TEST_KEY", "");
+    expect(missingOAuthEnv(TEST_ADAPTER)).toEqual(["TEST_REGISTRY_CLIENT_ID", "TEST_REGISTRY_CLIENT_SECRET", "TEST_REGISTRY_SLUG"]);
+  });
+});
+
+describe("liveProviderSetup", () => {
+  function clearVercel(): void {
+    for (const name of ["VERCEL_CLIENT_ID", "VERCEL_CLIENT_SECRET", "VERCEL_INTEGRATION_SLUG"]) vi.stubEnv(name, "");
+  }
+
+  it("lists every live provider in catalog order and never the fake one", () => {
+    vi.stubEnv("DEVMACRO_ENABLE_FAKE_PROVIDER", "1");
+    expect(liveProviderSetup().map(({ provider }) => provider)).toEqual([...liveProviderIds]);
+  });
+
+  it("reports the real OAuth app as missing while simulation stands in for it", () => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "1");
+    clearVercel();
+    expect(isProviderConfigured(getAdapter("vercel"))).toBe(true);
+    expect(liveProviderSetup().find(({ provider }) => provider === "vercel")?.missing).toEqual([
+      "VERCEL_CLIENT_ID",
+      "VERCEL_CLIENT_SECRET",
+      "VERCEL_INTEGRATION_SLUG",
+    ]);
   });
 });
 
