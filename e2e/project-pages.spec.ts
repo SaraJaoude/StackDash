@@ -121,9 +121,29 @@ ownerTest.describe("project pages as the owner", () => {
         await expect(publicPage.getByRole("img", { name: "GitHub", exact: true })).toBeVisible();
         await expect(publicPage.getByRole("img", { name: "Vercel", exact: true })).toHaveCount(0);
 
-        // History charts with text alternatives, and the values as a table.
-        await expect(publicPage.getByRole("img", { name: /^GitHub stars, last 30 days: from .* to 1,204 stars on / })).toBeVisible();
-        await expect(publicPage.getByRole("img", { name: /^GitHub stars, last 90 days: from / })).toBeVisible();
+        // One history chart per published metric (#344), with a text alternative, the last 30 days
+        // stated in words beside it, and the values as a table. Each metric in the section has its
+        // own level 3 heading, so the charts are counted against those headings; the fixture
+        // publishes one metric with history.
+        const history = publicPage.getByRole("region", { name: "History" });
+        const metrics = history.getByRole("heading", { level: 3 });
+        await expect(metrics).toHaveText(["GitHub stars"]);
+        const metricCount = await metrics.count();
+        await expect(history.getByRole("figure")).toHaveCount(metricCount);
+        await expect(history.getByRole("img")).toHaveCount(metricCount);
+        // The two windows differ in the fixture's 35 days of stars: the 90 day history starts with
+        // days that have no value and its first value is the oldest reading, 14 stars, while the
+        // last 30 days have a value every day, so that sentence ends after the lowest value. The
+        // 30 day start is left loose because it moves with the hour the run starts (the fixture
+        // stamps earlier days at 23:00 UTC).
+        await expect(
+          history.getByRole("img", { name: /^GitHub stars, last 90 days: from 14 stars on \d{4}-\d{2}-\d{2} to 1,204 stars on .*\. \d+ days have no value\.$/ }),
+        ).toBeVisible();
+        await expect(
+          history.getByText(
+            /^GitHub stars, last 30 days: from \S+ stars on \d{4}-\d{2}-\d{2} to 1,204 stars on \d{4}-\d{2}-\d{2}\. Highest 1,204 stars on \d{4}-\d{2}-\d{2}, lowest \S+ stars on \d{4}-\d{2}-\d{2}\.$/,
+          ),
+        ).toBeVisible();
 
         const milestones = publicPage.getByRole("region", { name: "Milestones" });
         await expect(milestones).toContainText("Reached 100 GitHub stars");
@@ -142,9 +162,9 @@ ownerTest.describe("project pages as the owner", () => {
         await summary.focus();
         await expect(summary).toBeFocused();
         await publicPage.keyboard.press("Enter");
-        await expect(publicPage.getByRole("table", { name: "GitHub stars: daily values for the last 30 days" })).toBeVisible();
+        await expect(publicPage.getByRole("table", { name: "GitHub stars: daily values for the last 90 days" })).toBeVisible();
         await publicPage.keyboard.press("Tab");
-        await expect(publicPage.getByRole("region", { name: "GitHub stars, last 30 days, values" })).toBeFocused();
+        await expect(publicPage.getByRole("region", { name: "GitHub stars, last 90 days, values" })).toBeFocused();
       });
 
       const sitemap = await readPublic(baseURL, "/sitemap.xml");
