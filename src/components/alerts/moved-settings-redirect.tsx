@@ -11,6 +11,9 @@ import { movedAlertSettingsHref } from "@/lib/workspaces/paths";
  * fragment is what says so, and a fragment never reaches the server, so this runs in the browser
  * once the inbox loads. `replace` keeps the inbox out of the history, so Back does not land on it
  * and bounce forward again. The section's FragmentHeading lands on it once it streams in.
+ *
+ * Only a signed-in visit gets here with its fragment. A signed-out one goes through sign-in, which
+ * drops the fragment (#358), so it ends on the inbox.
  */
 export function MovedSettingsRedirect({ workspaceSlug }: { workspaceSlug: string }) {
   const router = useRouter();
