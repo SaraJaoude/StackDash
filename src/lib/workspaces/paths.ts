@@ -48,3 +48,52 @@ export const CREATE_API_KEY_FIELD_ID = "create-api-key";
 export function createApiKeyPath(slug: string): string {
   return `${workspacePath(slug, "settings")}#${CREATE_API_KEY_FIELD_ID}`;
 }
+
+/**
+ * Fragments on the alert settings page that links land on (#343): each section's heading, and the
+ * "New" button of each create form, which opens its form when the page loads with that fragment.
+ * The alerts page itself is the inbox of triggered alerts.
+ */
+export const ALERT_SETTINGS_IDS = {
+  suggested: "suggested-alerts-title",
+  rules: "alert-rules-title",
+  newRule: "add-alert-rule",
+  budgets: "budgets-title",
+  newBudget: "add-budget",
+  emails: "alert-emails",
+  channels: "alert-channels",
+  newChannel: "add-alert-channel",
+  unusual: "unusual-activity-title",
+} as const;
+
+export type AlertSettingsId = (typeof ALERT_SETTINGS_IDS)[keyof typeof ALERT_SETTINGS_IDS];
+
+const ALERT_SETTINGS_ID_SET: ReadonlySet<string> = new Set(Object.values(ALERT_SETTINGS_IDS));
+
+// The settings lists' pager cursors; the inbox's own query (acknowledged, alertsAfter) stays there.
+const ALERT_SETTINGS_QUERY = ["rulesAfter", "budgetsAfter"] as const;
+
+/** Alert settings: rules, budgets, unusual spend and usage, alert emails, and channels (#343). */
+export function alertSettingsPath(slug: string, id?: AlertSettingsId): string {
+  const path = `${workspacePath(slug, "alerts")}/settings`;
+  return id === undefined ? path : `${path}#${id}`;
+}
+
+/**
+ * Where a link written for the alerts page before its settings moved (#343) belongs, from the
+ * page's `location.search` and `location.hash`: alert settings, with the settings pagers' cursors
+ * and the same fragment, when the fragment names a settings section. Null for any other fragment,
+ * which stays on the inbox. Alert emails sent before the move link to `/alerts#alert-emails`.
+ */
+export function movedAlertSettingsHref(slug: string, search: string, hash: string): string | null {
+  const id = hash.startsWith("#") ? hash.slice(1) : "";
+  if (!ALERT_SETTINGS_ID_SET.has(id)) return null;
+  const from = new URLSearchParams(search);
+  const query = new URLSearchParams();
+  for (const name of ALERT_SETTINGS_QUERY) {
+    const value = from.get(name);
+    if (value !== null && value !== "") query.set(name, value);
+  }
+  const text = query.toString();
+  return `${alertSettingsPath(slug)}${text === "" ? "" : `?${text}`}#${id}`;
+}

@@ -1,3 +1,4 @@
+import { openCreateForm } from "./fixtures/alerts";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
@@ -15,11 +16,13 @@ ownerTest.describe("alert channels as the owner", () => {
     const workspace = await createTestWorkspace("Alert channels");
     const receiver = await startReceiver();
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const channels = page.getByRole("region", { name: "Channels" });
       await expect(channels.getByText("No channels yet")).toBeVisible();
 
-      const form = channels.getByRole("form", { name: "Add a channel" });
+      // Closed until asked for (#343); opening it lands on its first field.
+      const form = await openCreateForm(page, "New channel", "Add a channel", channels);
+      await expect(form.getByLabel("Where to post")).toBeFocused();
       await form.getByLabel("Where to post").selectOption({ label: "Webhook" });
       await form.getByLabel("Channel name").fill("Ops webhook");
       await form.getByLabel("Webhook URL").fill(receiver.url);
@@ -63,6 +66,12 @@ ownerTest.describe("alert channels as the owner", () => {
       await expect(page.getByRole("heading", { name: "Channels" })).toBeFocused();
 
       expect((await secrets()).count).toBe(0);
+
+      // Keyboard: Cancel closes the form and hands focus back to the button that opened it.
+      await form.getByRole("button", { name: "Cancel" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(form).toHaveCount(0);
+      await expect(channels.getByRole("button", { name: "New channel" })).toBeFocused();
     } finally {
       await stopReceiver(receiver.server);
       await deleteTestWorkspace(workspace);
@@ -72,8 +81,8 @@ ownerTest.describe("alert channels as the owner", () => {
   ownerTest("refuses a webhook URL that is not https and keeps every choice in the form", async ({ page }) => {
     const workspace = await createTestWorkspace("Alert channel errors");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
-      const form = page.getByRole("form", { name: "Add a channel" });
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      const form = await openCreateForm(page, "New channel", "Add a channel");
       await form.getByLabel("Where to post").selectOption({ label: "Webhook" });
       await form.getByLabel("Channel name").fill("Ops webhook");
       await form.getByLabel("Webhook URL").fill("ftp://example.com/hook");
@@ -100,7 +109,7 @@ ownerTest.describe("alert channels as the owner", () => {
   ownerTest("keeps the chosen alert email option selected after saving it", async ({ page }) => {
     const workspace = await createTestWorkspace("Alert email setting");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const emails = page.getByRole("form", { name: "Alert emails" });
       await expect(emails.getByRole("radio", { name: /^As each alert happens/ })).toBeChecked();
       await emails.getByRole("radio", { name: /^Weekly digest/ }).check();
@@ -119,10 +128,11 @@ viewerTest.describe("alert channels and emails as a viewer", () => {
   viewerTest("sees why they cannot add a channel or receive alert emails", async ({ page }) => {
     const workspace = await createTestWorkspace("Alert channels viewer");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       await expect(page.getByRole("region", { name: "Alert emails" }).getByText("Only owners and admins receive alert emails for this workspace.")).toBeVisible();
       const channels = page.getByRole("region", { name: "Channels" });
       await expect(channels.getByText("Only owners and admins can add or change where alerts are posted.")).toBeVisible();
+      await expect(channels.getByRole("button", { name: "New channel" })).toHaveCount(0);
       await expect(channels.getByRole("form", { name: "Add a channel" })).toHaveCount(0);
     } finally {
       await deleteTestWorkspace(workspace);

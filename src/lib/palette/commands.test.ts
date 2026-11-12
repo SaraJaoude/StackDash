@@ -64,17 +64,29 @@ function searchParamsOf(href: string): Record<string, string[]> {
 describe("buildPaletteCommands", () => {
   const commands = buildPaletteCommands(SOURCES);
 
-  it("goes to every workspace section in nav order, then the year in review and the account", () => {
-    expect(commands.slice(0, 8).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
+  it("goes to every workspace section in nav order, then alert settings, the year in review, and the account", () => {
+    expect(commands.slice(0, 9).map((command) => [command.label, command.kind, hrefOf(command)])).toEqual([
       ["Timeline", "Page", `/w/${SLUG}/timeline`],
       ["Dashboard", "Page", `/w/${SLUG}/dashboard`],
       ["Connections", "Page", `/w/${SLUG}/connections`],
       ["Alerts", "Page", `/w/${SLUG}/alerts`],
       ["Projects", "Page", `/w/${SLUG}/projects`],
       ["Settings", "Page", `/w/${SLUG}/settings`],
+      ["Alert settings", "Page", `/w/${SLUG}/alerts/settings`],
       ["Year in review", "Page", `/w/${SLUG}/year/2026`],
       ["Account", "Page", "/account"],
     ]);
+  });
+
+  // Rules, budgets, channels, and digests moved off the alerts inbox (#343).
+  it.each(["budgets", "rules", "channels", "digest", "webhook", "unusual"])("finds alert settings first for %j", (query) => {
+    expect(searchCommands(commands, query).results[0]?.id).toBe("page:alert-settings");
+  });
+
+  it("finds the alerts inbox, not its settings, for triggered alerts", () => {
+    const ids = searchCommands(commands, "triggered").results.map((command) => command.id);
+    expect(ids[0]).toBe("page:alerts");
+    expect(ids).not.toContain("page:alert-settings");
   });
 
   it("scopes the dashboard to one provider, project, unassigned, or account, labeled by name alone", () => {
@@ -217,6 +229,7 @@ describe("buildPaletteCommands", () => {
       "page:alerts",
       "page:projects",
       "page:settings",
+      "page:alert-settings",
       "page:year",
       "page:account",
       "action:acknowledge-all",

@@ -72,7 +72,7 @@ const WHAT_TO_DO: NoticeSection = {
   items: [
     {
       title: "Raise the threshold",
-      body: "If this level is expected, edit the rule on the alerts page so it fires at a higher level.",
+      body: "If this level is expected, edit the rule in alert settings so it fires at a higher level.",
       severity: "info",
       fields: [],
     },

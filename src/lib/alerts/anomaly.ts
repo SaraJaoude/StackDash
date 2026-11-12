@@ -35,7 +35,7 @@
  *   `github.spend.actions`), and a window inside a longer billing window of the same account,
  *   kind, and currency is dropped (`dropSubWindows`: `github.daily_spend.actions` inside the
  *   month's `github.spend.actions`), so one spike is one event. `checkedRows` is that rule, and
- *   the alerts page lists only the metrics it keeps, so every mute silences something.
+ *   alert settings lists only the metrics it keeps, so every mute silences something.
  * - The checked day is compared with the 14 days before it. It needs at least 7 of
  *   them, and it fires only when all three hold: the day is at least twice the median, it is above
  *   the median by at least the minimum change for its currency or unit, and its modified z-score
@@ -424,7 +424,7 @@ export function anomalyEvent(workspaceId: string, anomaly: Anomaly): TablesInser
     title: `Unusual ${noun} on ${provider}: ${unusualWords(anomaly)}`,
     body: [
       `${anomaly.label} (${anomaly.source}) ${amountWords(anomaly)} on ${anomaly.date}. The usual amount is ${usual} a day, the median of ${usualDaysWords(anomaly.historyDays)} before.`,
-      `What to do next: open ${provider} to see what drove it, check the timeline for deploys on ${anomaly.date}, or mute this metric on the Alerts page if it was expected.`,
+      `What to do next: open ${provider} to see what drove it, check the timeline for deploys on ${anomaly.date}, or mute this metric in alert settings if it was expected.`,
     ].join("\n"),
     url: null,
     // The end of the checked day, beside the daily summary for the same day.

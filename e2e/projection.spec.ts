@@ -145,7 +145,7 @@ ownerTest.describe("projection to the end of the period", () => {
       const dashboardScan = await new AxeBuilder({ page }).analyze();
       expect(dashboardScan.violations).toEqual([]);
 
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const budget = page.getByRole("list", { name: "Budgets" }).getByRole("listitem").filter({ hasText: "Production apps" });
       await expect(budget.getByText("Projected to cross", { exact: true })).toBeVisible();
       await expect(budget).toContainText(`On track for ${expected.spend} by ${expected.lastDay}, at or above the $20.00 budget`);

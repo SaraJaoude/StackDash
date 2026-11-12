@@ -42,7 +42,7 @@ export function InvalidLinkNotice() {
     <>
       <p className="text-sm leading-6">
         This unsubscribe link is incomplete or no longer valid. Open it again from the email, or sign in and change your
-        alert emails on the alerts page of your workspace.
+        alert emails in the alert settings of your workspace.
       </p>
       <SignInLink />
     </>
@@ -63,7 +63,7 @@ export function EmailsOffNotice({ workspaceName, focusOnMount = false }: { works
         alert emails or digests for this workspace.
       </p>
       <p className="mt-3 text-sm leading-6 text-muted">
-        Alerts still show in DevMacro. To get emails again, sign in and choose how often on the alerts page.
+        Alerts still show in DevMacro. To get emails again, sign in and choose how often in alert settings.
       </p>
       <SignInLink />
     </>

@@ -111,6 +111,7 @@ function collectHydrationErrors(page: Page): () => readonly string[] {
 const PAGES = [
   { path: "settings", heading: "Settings" },
   { path: "alerts", heading: "Alerts" },
+  { path: "alerts/settings", heading: "Alert settings" },
   { path: "connections", heading: "Connections" },
   { path: "dashboard", heading: "Dashboard" },
   { path: "timeline", heading: "Timeline" },

@@ -207,7 +207,7 @@ async function sendToTarget(
 
 /**
  * Writes a failed delivery onto the channel: its failure count, error code, and reference id, so
- * the alerts page shows the problem. A permanent failure, or the one that reaches the limit, makes
+ * alert settings shows the problem. A permanent failure, or the one that reaches the limit, makes
  * the channel "needs attention" and writes one `devmacro.channel_needs_attention` event.
  */
 async function recordChannelFailure(
@@ -263,7 +263,7 @@ function failureEvent(input: {
     ? "DevMacro tries again shortly."
     : target.kind === "email"
       ? "DevMacro will not try this message again. Alerts stay on the alerts page."
-      : "DevMacro will not try this message again. Check the channel on the alerts page.";
+      : "DevMacro will not try this message again. Check the channel in alert settings.";
   return {
     workspace_id: input.workspace.id,
     connection_id: null,

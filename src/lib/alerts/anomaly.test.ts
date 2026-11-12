@@ -394,7 +394,7 @@ describe("anomaly event", () => {
     expect(event.body).toBe(
       [
         "Vercel billed spend, month to date (verified) went up by $412.00 on 2026-10-20. The usual amount is $103.00 a day, the median of the 14 days before.",
-        "What to do next: open Vercel to see what drove it, check the timeline for deploys on 2026-10-20, or mute this metric on the Alerts page if it was expected.",
+        "What to do next: open Vercel to see what drove it, check the timeline for deploys on 2026-10-20, or mute this metric in alert settings if it was expected.",
       ].join("\n"),
     );
     expect(`${event.title} ${event.body}`).not.toMatch(/[\u2013\u2014]/);

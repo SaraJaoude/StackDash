@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type { Page } from "@playwright/test";
 import { z } from "zod";
 
+import { openCreateForm } from "./fixtures/alerts";
 import { E2E_USERS, expect, ownerTest } from "./fixtures/auth";
 import { connectSimulated } from "./fixtures/connections";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
@@ -66,8 +67,8 @@ async function countEvents(workspace: TestWorkspace): Promise<number | null> {
 }
 
 async function addWebhookChannel(page: Page, workspace: TestWorkspace, url: string): Promise<void> {
-  await page.goto(`/w/${workspace.slug}/alerts`);
-  const form = page.getByRole("region", { name: "Channels" }).getByRole("form", { name: "Add a channel" });
+  await page.goto(`/w/${workspace.slug}/alerts/settings`);
+  const form = await openCreateForm(page, "New channel", "Add a channel", page.getByRole("region", { name: "Channels" }));
   await form.getByLabel("Where to post").selectOption({ label: "Webhook" });
   await form.getByLabel("Channel name").fill("Ops webhook");
   await form.getByLabel("Webhook URL").fill(url);

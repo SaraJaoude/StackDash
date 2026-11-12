@@ -65,7 +65,7 @@ async function plan(
     // The seed deletes and rebuilds the demo workspace, and never touches a --workspace target.
     const rebuild = input.demoWorkspace ? " Or rebuild the demo workspace with npm run demo:seed, which replaces it and its history and adds one." : "";
     return {
-      stop: `No budget alert in ${target.workspace.name} covers Vercel spend in ${SIMULATED_VERCEL_CURRENCY}. Add a budget and an alert on it on the alerts page.${rebuild}`,
+      stop: `No budget alert in ${target.workspace.name} covers Vercel spend in ${SIMULATED_VERCEL_CURRENCY}. Add a budget and an alert on it in alert settings.${rebuild}`,
       code: 2,
     };
   }

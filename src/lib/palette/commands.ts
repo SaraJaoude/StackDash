@@ -3,6 +3,7 @@ import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 import { eventTypeLabel, timelineHref } from "@/lib/timeline/query";
 import {
+  alertSettingsPath,
   createApiKeyPath,
   WORKSPACE_SECTIONS,
   workspaceHome,
@@ -29,7 +30,7 @@ const SECTION_COMMANDS: Record<WorkspaceSection, Readonly<{ label: string; keywo
   timeline: { label: "Timeline", keywords: "events activity deploys payments" },
   dashboard: { label: "Dashboard", keywords: "spend usage allowances trends totals" },
   connections: { label: "Connections", keywords: "providers integrations" },
-  alerts: { label: "Alerts", keywords: "rules budgets thresholds triggered" },
+  alerts: { label: "Alerts", keywords: "triggered acknowledge inbox" },
   projects: { label: "Projects", keywords: "groups" },
   settings: { label: "Settings", keywords: "workspace members rename api keys" },
 };
@@ -184,6 +185,14 @@ export function buildPaletteCommands(sources: PaletteSources): PaletteCommand[] 
     action: { kind: "navigate", href: workspacePath(workspaceSlug, section) },
   }));
   pages.push(
+    {
+      // The settings moved off the alerts inbox (#343); these words used to find the Alerts page.
+      id: "page:alert-settings",
+      label: "Alert settings",
+      kind: "Page",
+      keywords: "rules budgets thresholds channels webhooks digest emails unusual anomaly mute",
+      action: { kind: "navigate", href: alertSettingsPath(workspaceSlug) },
+    },
     {
       id: "page:year",
       label: "Year in review",

@@ -12,7 +12,7 @@ const links: WorkspaceLinks = {
 
 const footer: EmailFooter = {
   reason: "You get this because you are an owner or admin of Acme and your alert emails are set to each alert as it happens.",
-  preferencesUrl: "https://devmacro.test/w/abc/alerts#alert-emails",
+  preferencesUrl: "https://devmacro.test/w/abc/alerts/settings#alert-emails",
   unsubscribePageUrl: "https://devmacro.test/unsubscribe?token=t",
   oneClickUrl: "https://devmacro.test/api/notifications/unsubscribe?token=t",
 };

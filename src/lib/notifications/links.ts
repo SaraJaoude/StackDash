@@ -1,4 +1,5 @@
 import { connectOrigin } from "@/lib/connections/oauth-state";
+import { ALERT_SETTINGS_IDS, alertSettingsPath } from "@/lib/workspaces/paths";
 
 import type { WorkspaceLinks } from "./notice";
 
@@ -27,11 +28,9 @@ export function workspaceLinks(origin: string, slug: string): WorkspaceLinks {
   };
 }
 
-/** The member's email setting on the alerts page. The fragment is the section's heading id. */
-export const ALERT_EMAILS_SECTION_ID = "alert-emails";
-
+/** The member's email setting, on alert settings. The fragment is the section's heading id. */
 export function emailPreferenceUrl(origin: string, slug: string): string {
-  return new URL(`/w/${slug}/alerts#${ALERT_EMAILS_SECTION_ID}`, origin).href;
+  return new URL(alertSettingsPath(slug, ALERT_SETTINGS_IDS.emails), origin).href;
 }
 
 export const UNSUBSCRIBE_PAGE_PATH = "/unsubscribe";
