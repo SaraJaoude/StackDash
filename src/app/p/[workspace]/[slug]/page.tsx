@@ -10,7 +10,10 @@ import { SiteFooter } from "@/components/site-footer";
 import { SiteNav } from "@/components/site-nav";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
-import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
+import {
+  FORMULAS_DOC_PATH,
+  PROVENANCE_LABELS,
+} from "@/lib/public-metrics/definitions";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
   loadPublishedProjectHistory,
@@ -57,7 +60,9 @@ function isEngine(metric: PublishedMetric): metric is PublishedEngineMetric {
   return metric.kind === "engine";
 }
 
-export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[slug]">): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: PageProps<"/p/[workspace]/[slug]">): Promise<Metadata> {
   await connection();
   const { workspace, slug } = await params;
   const page = await loadPublicProjectPage(workspace, slug);
@@ -66,7 +71,10 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
   const title = `${page.projectName}: public metrics`;
   const shown = page.published.metrics
     .slice(0, DESCRIPTION_METRICS)
-    .map((metric) => `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`);
+    .map(
+      (metric) =>
+        `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`,
+    );
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
   const path = projectPagePath(page.workspace, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
@@ -74,24 +82,46 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
   const images =
     card === undefined
       ? []
-      : [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }];
+      : [
+          {
+            url: cardPath(page.published.projectId, card.metricId),
+            ...CARD_SIZE,
+            alt: `${card.label} for ${page.projectName}`,
+          },
+        ];
 
   return {
     title,
     description,
     // Indexable only when the owner chose it (#150).
-    robots: page.indexable ? { index: true, follow: true } : { index: false, follow: false },
+    robots: page.indexable
+      ? { index: true, follow: true }
+      : { index: false, follow: false },
     ...(siteUrl
       ? {
           alternates: { canonical: path },
-          openGraph: { type: "website", siteName: site.name, title, description, url: path, images },
-          twitter: { card: images.length > 0 ? "summary_large_image" : "summary", title, description, images },
+          openGraph: {
+            type: "website",
+            siteName: site.name,
+            title,
+            description,
+            url: path,
+            images,
+          },
+          twitter: {
+            card: images.length > 0 ? "summary_large_image" : "summary",
+            title,
+            description,
+            images,
+          },
         }
       : {}),
   };
 }
 
-export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/[slug]">) {
+export default async function ProjectPage({
+  params,
+}: PageProps<"/p/[workspace]/[slug]">) {
   await connection();
   const { workspace, slug } = await params;
   const page = await loadPublicProjectPage(workspace, slug);
@@ -99,7 +129,10 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
   const history = await loadPublishedProjectHistory(page.published);
 
   const engine = page.published.metrics.filter(isEngine);
-  const selfReported = page.published.metrics.filter((metric): metric is PublishedSelfReportedMetric => metric.kind === "self_reported");
+  const selfReported = page.published.metrics.filter(
+    (metric): metric is PublishedSelfReportedMetric =>
+      metric.kind === "self_reported",
+  );
   // Icons only, for the connected providers behind published values; never account names. A metric
   // that counts several providers (deployments) shows only those the project has connected.
   const providers = [...new Set(engine.flatMap((metric) => metric.providers))];
@@ -107,12 +140,20 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
   return (
     <>
       <SiteNav anchorBase="/" />
-      <main id="main" className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 lg:py-16">
-        <p className="font-mono text-xs font-medium text-muted">Public project page</p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight break-words">{page.projectName}</h1>
+      <main
+        id="main"
+        className="mx-auto w-full max-w-5xl flex-1 px-6 py-12 lg:py-16"
+      >
+        <p className="font-mono text-xs font-medium text-muted">
+          Public project page
+        </p>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight break-words">
+          {page.projectName}
+        </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted">
-          The numbers this project chose to publish on {site.name}, counted from what its providers report. Each one
-          says how it is counted and when it was last synced.
+          The numbers this project chose to publish on {site.name}, counted from
+          what its providers report. Each one says how it is counted and when it
+          was last synced.
         </p>
         {providers.length === 0 ? null : (
           <div className="mt-6">
@@ -120,7 +161,7 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
             <ul className="mt-3 flex flex-wrap gap-3">
               {providers.map((provider) => (
                 <li key={provider}>
-                  <ProviderMark provider={provider} labelled />
+                  <ProviderMark provider={provider} labeled />
                 </li>
               ))}
             </ul>
@@ -136,15 +177,23 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
               <EngineMetricCard key={metric.publicationId} metric={metric} />
             ))}
             {selfReported.map((metric) => (
-              <li key={metric.publicationId} className="rounded-xl border border-line bg-panel p-5">
+              <li
+                key={metric.publicationId}
+                className="rounded-xl border border-line bg-panel p-5"
+              >
                 <h3 className="flex flex-wrap items-center gap-2 font-medium">
                   <span className="break-words">{metric.label}</span>
                   <ProvenanceBadge label={PROVENANCE_LABELS.self_reported} />
                 </h3>
-                <p className="mt-3 text-2xl font-semibold tabular-nums">{metric.text}</p>
+                <p className="mt-3 text-2xl font-semibold tabular-nums">
+                  {metric.text}
+                </p>
                 <p className="mt-2 text-sm text-muted">
                   Typed by the project, not counted by {site.name}. Published{" "}
-                  <time dateTime={metric.publishedAt.toISOString()}>{formatDateTime(metric.publishedAt)}</time>.
+                  <time dateTime={metric.publishedAt.toISOString()}>
+                    {formatDateTime(metric.publishedAt)}
+                  </time>
+                  .
                 </p>
               </li>
             ))}
@@ -157,14 +206,20 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
               History
             </h2>
             <p className="mt-2 text-sm text-muted">
-              Each day&apos;s published value, rounded and delayed the same way as today&apos;s.
+              Each day&apos;s published value, rounded and delayed the same way
+              as today&apos;s.
             </p>
             {history.histories.map((entry) => (
               <div key={entry.publicationId} className="mt-6">
                 <h3 className="font-medium">{entry.label}</h3>
                 <div className="mt-3 grid gap-4 lg:grid-cols-2">
                   {HISTORY_WINDOWS.map((window) => (
-                    <HistoryChart key={window.days} title={entry.label} period={window.period} points={entry.points.slice(-window.days)} />
+                    <HistoryChart
+                      key={window.days}
+                      title={entry.label}
+                      period={window.period}
+                      points={entry.points.slice(-window.days)}
+                    />
                   ))}
                 </div>
               </div>
@@ -177,7 +232,9 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
             Milestones
           </h2>
           {history.milestones.length === 0 ? (
-            <p className="mt-2 text-sm text-muted">No milestones yet in what this project publishes.</p>
+            <p className="mt-2 text-sm text-muted">
+              No milestones yet in what this project publishes.
+            </p>
           ) : (
             <ol className="mt-4 space-y-3 border-l border-line pl-5">
               {history.milestones.map((milestone) => (
@@ -185,7 +242,9 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
                   <span className="font-medium">{milestone.title}</span>
                   <span className="text-muted">
                     {" on "}
-                    <time dateTime={milestone.at.toISOString()}>{milestone.at.toISOString().slice(0, 10)}</time>
+                    <time dateTime={milestone.at.toISOString()}>
+                      {milestone.at.toISOString().slice(0, 10)}
+                    </time>
                   </span>
                 </li>
               ))}
@@ -195,7 +254,10 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
 
         <p className="mt-12 text-sm text-muted">
           Every formula is on the{" "}
-          <Link href={FORMULAS_DOC_PATH} className="font-medium text-foreground underline underline-offset-4">
+          <Link
+            href={FORMULAS_DOC_PATH}
+            className="font-medium text-foreground underline underline-offset-4"
+          >
             public metrics formulas page
           </Link>
           . Spend, budgets, and account names are never published.
@@ -207,7 +269,11 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
 }
 
 function ProvenanceBadge({ label }: { label: string }) {
-  return <span className="rounded-full border border-line-strong px-2 py-0.5 text-xs font-normal text-muted">{label}</span>;
+  return (
+    <span className="rounded-full border border-line-strong px-2 py-0.5 text-xs font-normal text-muted">
+      {label}
+    </span>
+  );
 }
 
 function EngineMetricCard({ metric }: { metric: PublishedEngineMetric }) {
@@ -217,15 +283,28 @@ function EngineMetricCard({ metric }: { metric: PublishedEngineMetric }) {
       <h3 className="flex flex-wrap items-center gap-2 font-medium">
         <span>{metric.label}</span>
         <ProvenanceBadge label={PROVENANCE_LABELS[metric.provenance]} />
-        {value.status === "available" && value.simulated ? <SimulatedBadge /> : null}
+        {value.status === "available" && value.simulated ? (
+          <SimulatedBadge />
+        ) : null}
       </h3>
       {value.status === "available" ? (
         <>
-          <p className="mt-3 text-2xl font-semibold tabular-nums">{value.text}</p>
+          <p className="mt-3 text-2xl font-semibold tabular-nums">
+            {value.text}
+          </p>
           <p className="mt-2 text-sm text-muted">
-            {metric.delayDays === 0 ? "Synced " : `Shown ${metric.delayDays} days late, as of `}
-            <time dateTime={(metric.delayDays === 0 ? value.lastSyncedAt : metric.asOf).toISOString()}>
-              {formatDateTime(metric.delayDays === 0 ? value.lastSyncedAt : metric.asOf)}
+            {metric.delayDays === 0
+              ? "Synced "
+              : `Shown ${metric.delayDays} days late, as of `}
+            <time
+              dateTime={(metric.delayDays === 0
+                ? value.lastSyncedAt
+                : metric.asOf
+              ).toISOString()}
+            >
+              {formatDateTime(
+                metric.delayDays === 0 ? value.lastSyncedAt : metric.asOf,
+              )}
             </time>
             .
           </p>
@@ -234,7 +313,10 @@ function EngineMetricCard({ metric }: { metric: PublishedEngineMetric }) {
         <p className="mt-3 text-lg text-muted">{value.text}</p>
       )}
       <p className="mt-2 text-sm">
-        <Link href={metric.formulaPath} className="text-muted underline underline-offset-4 hover:text-foreground">
+        <Link
+          href={metric.formulaPath}
+          className="text-muted underline underline-offset-4 hover:text-foreground"
+        >
           How it is counted<span className="sr-only"> for {metric.label}</span>
         </Link>
       </p>

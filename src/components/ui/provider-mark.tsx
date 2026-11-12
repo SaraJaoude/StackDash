@@ -15,26 +15,30 @@ const SIZES = {
  * the test-only fake one, gets the generic puzzle mark. `platform` marks a platform that is not a
  * provider, such as the landing page's GitHub Actions.
  *
- * Decorative by default, because the name is printed beside it. Set `labelled` where the mark
+ * Decorative by default, because the name is printed beside it. Set `labeled` where the mark
  * stands alone, so it is read out as an image named after the provider.
  */
 export function ProviderMark({
   size = "lg",
-  labelled = false,
+  labeled = false,
   className = "",
   ...source
-}: (Readonly<{ provider: ProviderId | null }> | Readonly<{ platform: Platform }>) & {
+}: (
+  Readonly<{ provider: ProviderId | null }> | Readonly<{ platform: Platform }>
+) & {
   size?: keyof typeof SIZES;
-  labelled?: boolean;
+  labeled?: boolean;
   /** Placement only, such as `mt-0.5`. */
   className?: string;
 }) {
-  const platform = "platform" in source ? source.platform : providerPlatform(source.provider);
-  const name = "platform" in source ? source.platform : providerName(source.provider);
+  const platform =
+    "platform" in source ? source.platform : providerPlatform(source.provider);
+  const name =
+    "platform" in source ? source.platform : providerName(source.provider);
   const { frame, icon } = SIZES[size];
   return (
     <span
-      {...(labelled ? { role: "img", "aria-label": name, title: name } : {})}
+      {...(labeled ? { role: "img", "aria-label": name, title: name } : {})}
       className={`flex shrink-0 items-center justify-center border border-line bg-panel-raised text-foreground ${frame} ${className}`.trim()}
     >
       {platform !== null ? (
