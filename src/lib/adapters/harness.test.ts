@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionMissingError } from "./errors";
 import { eventTypes, exampleAdapter, metricKeys } from "./example";
 import { fakeAdapter } from "./fake";
-import { checkAdapterDeclaration, checkSyncResult, checkTraffic, createAdapterHarness, routeKey } from "./harness";
+import {
+  checkAdapterDeclaration,
+  checkSyncResult,
+  checkTraffic,
+  createAdapterHarness,
+  HARNESS_CLIENT_ID,
+  HARNESS_TIMEOUT_MS,
+  routeKey,
+} from "./harness";
 import type { AdapterMetric } from "./metrics";
 import { getAdapter } from "./registry";
 import { simulatedAdapters } from "./simulated";
@@ -233,6 +241,8 @@ describe("createAdapterHarness and checkTraffic", () => {
       `DELETE ${API}/v1/items`,
     ]);
     expect(harness.ctx.now()).toEqual(NOW);
+    expect(harness.ctx.client.clientId).toBe(HARNESS_CLIENT_ID);
+    expect(harness.ctx.timeoutMs).toBe(HARNESS_TIMEOUT_MS);
     expect(checkTraffic(harness)).toEqual([]);
   });
 
@@ -241,6 +251,19 @@ describe("createAdapterHarness and checkTraffic", () => {
     const response = await harness.ctx.fetch(`${API}/v1/unknown`, { signal: AbortSignal.timeout(1000) });
     expect(response.status).toBe(404);
     expect(checkTraffic(harness)).toEqual([`GET ${API}/v1/unknown has no recorded response`]);
+  });
+
+  it("hands the adapter the client id, timeout, and extra settings a test passes", () => {
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: {},
+      clientId: "acme-client-id",
+      timeoutMs: 250,
+      extra: { privateKey: "synthetic-private-key-1" },
+    });
+    expect(harness.ctx.client.clientId).toBe("acme-client-id");
+    expect(harness.ctx.timeoutMs).toBe(250);
+    expect(harness.ctx.client.extra.privateKey?.reveal()).toBe("synthetic-private-key-1");
   });
 
   it("reports a request over http or without a timeout (boundary)", async () => {
@@ -257,13 +280,15 @@ describe("createAdapterHarness and checkTraffic", () => {
   });
 
   it("reports a log line that carries a secret, and passes one with a Secret (boundary)", () => {
-    const harness = createAdapterHarness({ now: NOW, routes: {} });
-    harness.ctx.logger.info("example.safe", { secret: harness.ctx.client.clientSecret });
+    const harness = createAdapterHarness({ now: NOW, routes: {}, extra: { privateKey: "synthetic-private-key-1" } });
+    harness.ctx.logger.info("example.safe", { secret: harness.ctx.client.clientSecret, key: harness.ctx.client.extra.privateKey });
     harness.ctx.logger.warn("example.leak", { token: "synthetic-access-token-1" });
     harness.ctx.logger.error("example.client", { value: harness.clientSecret });
+    harness.ctx.logger.error("example.extra", { key: harness.ctx.client.extra.privateKey?.reveal() });
     expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([
       "log 1 (example.leak) contains a secret",
       "log 2 (example.client) contains a secret",
+      "log 3 (example.extra) contains a secret",
     ]);
   });
 });

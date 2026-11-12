@@ -54,22 +54,27 @@ export type AdapterHarness = Readonly<{
   unmatched: readonly RecordedRequest[];
   /** Everything the adapter logged, in order. */
   logs: readonly LogEntry[];
-  /** The OAuth client secret the harness hands the adapter, for leak checks. */
+  /** The OAuth client secret the harness hands the adapter, for request assertions. */
   clientSecret: string;
+  /** Every secret the harness hands the adapter: the client secret and each `extra` value. */
+  handedSecrets: readonly string[];
 }>;
 
 export type HarnessOptions = Readonly<{
   routes: RecordedRoutes;
   now: Date;
+  // Replaces HARNESS_CLIENT_ID.
   clientId?: string;
-  // Settings beyond the client id and secret, keyed like `OAuthDescriptor.extraEnv`.
+  // Settings beyond the client id and secret, keyed like `OAuthDescriptor.extraEnv` (an app's
+  // private key, say). The adapter gets each one as a `Secret`; `checkTraffic` scans for them.
   extra?: Readonly<Record<string, string>>;
+  // Replaces HARNESS_TIMEOUT_MS.
   timeoutMs?: number;
 }>;
 
 export const HARNESS_CLIENT_ID = "harness-client-id";
 const HARNESS_CLIENT_SECRET = "harness-client-value";
-const HARNESS_TIMEOUT_MS = 5000;
+export const HARNESS_TIMEOUT_MS = 5000;
 
 export function routeKey(method: string, url: URL): string {
   return `${method.toUpperCase()} ${url.origin}${url.pathname}`;
@@ -118,9 +123,8 @@ export function createAdapterHarness(options: HarnessOptions): AdapterHarness {
     logs.push({ level, event, fields });
   };
 
-  const extra = Object.fromEntries(
-    Object.entries(options.extra ?? {}).map(([key, value]) => [key, new Secret(value)] as const),
-  );
+  const extraValues = options.extra ?? {};
+  const extra = Object.fromEntries(Object.entries(extraValues).map(([key, value]) => [key, new Secret(value)] as const));
 
   return {
     ctx: {
@@ -134,6 +138,7 @@ export function createAdapterHarness(options: HarnessOptions): AdapterHarness {
     unmatched,
     logs,
     clientSecret: HARNESS_CLIENT_SECRET,
+    handedSecrets: [HARNESS_CLIENT_SECRET, ...Object.values(extraValues)],
   };
 }
 
@@ -289,8 +294,8 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
 
 /**
  * What the adapter sent and logged during the test: every request answered by a recording, sent
- * over https with a timeout, and no secret (the harness client secret plus `secrets`, normally the
- * test credential's tokens) in any log line.
+ * over https with a timeout, and no secret (every secret the harness handed the adapter, plus
+ * `secrets`, normally the test credential's tokens) in any log line.
  */
 export function checkTraffic(harness: AdapterHarness, secrets: readonly string[] = []): string[] {
   const problems: string[] = [];
@@ -302,7 +307,7 @@ export function checkTraffic(harness: AdapterHarness, secrets: readonly string[]
     if (request.url.protocol !== "https:") problems.push(`${key} is not https`);
     if (!request.hasTimeout) problems.push(`${key} was sent without a timeout; send it through fetchJson`);
   }
-  const values = [harness.clientSecret, ...secrets].filter((value) => value.length > 0);
+  const values = [...harness.handedSecrets, ...secrets].filter((value) => value.length > 0);
   harness.logs.forEach((entry, index) => {
     const line = `${entry.event} ${JSON.stringify(entry.fields ?? {})}`;
     if (values.some((value) => line.includes(value))) problems.push(`log ${index} (${entry.event}) contains a secret`);

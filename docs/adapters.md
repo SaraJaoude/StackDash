@@ -203,10 +203,10 @@ expect(checkSyncResult(acmeAdapter, "acct_1001", result)).toEqual([]);
 expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([]);
 ```
 
-- `createAdapterHarness` answers each request from `routes`, keyed by method, origin, and path. A function route reads the query from the request. A request with no recording gets a `404` and is reported. `harness.requests` and `harness.logs` hold everything the adapter sent and logged.
+- `createAdapterHarness` answers each request from `routes`, keyed by method, origin, and path. A function route reads the query from the request. A request with no recording gets a `404` and is reported. `harness.requests` and `harness.logs` hold everything the adapter sent and logged. Pass `extra` when the adapter reads settings beyond the client id and secret (keyed like `oauth.extraEnv`, for example an app's private key): the adapter receives each one as a `Secret` in `ctx.client.extra`. `clientId` and `timeoutMs` replace the harness defaults when a test needs particular values.
 - `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, capabilities, projections, the poll interval, and environment variable names.
 - `checkSyncResult` applies the sync runner's own gates (every metric and event valid, every key owned by the adapter, nothing for another account) plus the capability, projection, and partial error rules.
-- `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret or the secrets you pass.
+- `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret, one of its `extra` values, or the secrets you pass.
 
 Each check returns a list of problems in plain words, so a failing test prints all of them at once.
 
