@@ -129,7 +129,7 @@ The dashboard labels figures verified or estimated from the kind, so never repor
 
 An event type is declared once, in `eventTypes`, with a stable id (`acme.deploy.failed`), a label, a description, whether it is shown by default, and optionally a category (`signup`, `deploy_succeeded`, or `deploy_failed`) so the dashboard headline counts it. An event emitted with an undeclared type id rejects the whole batch.
 
-Each event carries a type id, when it happened, a severity (`info`, `success`, `warning`, `critical`), a title of at most 200 characters, an optional body, the external account, and a dedupe key that is the same every time the same event is read, so reading it twice never stores it twice. A link is kept only when it is `https`.
+Each event carries a type id, when it happened, a severity (`info`, `success`, `warning`, `critical`), a title of at most 200 characters, an optional body, the external account, and a dedupe key that is the same every time the same event is read, so reading it twice never stores it twice. An optional link must be `https`: an event with any other link fails validation, and that rejects the whole batch. Drop a link that is not `https` before the event reaches the batch, as the example's `httpsUrl` does.
 
 The event model has no field for a person, on purpose: no names, emails, usernames, or avatars. Count a signup; never record who signed up.
 
@@ -146,7 +146,9 @@ Send every request through `fetchJson` (`src/lib/adapters/errors.ts`). It applie
 | `429`, or `403` with rate limit headers | `RateLimitedError` | Backs off, honoring `Retry-After` |
 | `5xx` or no response | `ProviderUnavailableError` | Retries later |
 | Timeout | `AdapterTimeoutError` | Retries later |
-| A body that does not match the schema | `InvalidResponseError` | Fails the sync with an error reference |
+| A body that does not match the schema | `InvalidResponseError` | Retries later, like an outage |
+
+Only the first two stop the retries, because the user has to act before another attempt can work. Every other error is retried with backoff, and after the last attempt the connection is marked failed. Every failure is logged with an error reference.
 
 On the token endpoint, `400` with `invalid_grant` means the grant is gone: report it as `AuthRevokedError`, as the example does.
 
@@ -248,7 +250,7 @@ When the provider reports deployments, also:
 | File | Change |
 |---|---|
 | `src/lib/dashboard/markers.ts` | Its finished deployment event types in the deployments marker category, with `markers.test.ts` |
-| `src/lib/public-metrics/definitions.ts` | Its success and failure types in `DEPLOYMENT_OUTCOMES`, with `definitions.test.ts` |
+| `src/lib/public-metrics/definitions.ts` | Its success and failure types in `DEPLOYMENT_OUTCOMES`, with `definitions.test.ts`. The provider then joins the list in the year in review's deployment slide ("Connect DigitalOcean, GitLab, Railway, or Vercel to count your deployments."), so update that sentence in `src/lib/public-metrics/yearly.test.ts` and `e2e/year-in-review.spec.ts` |
 | `docs/architecture/public-metrics.md` | The provider in the deployment metrics' event lists |
 
 Event categories, capabilities, projections, and daily signup totals need no list of their own: the dashboard reads them from the registered adapter.
