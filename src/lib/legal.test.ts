@@ -100,6 +100,23 @@ describe("with an operator configured", () => {
     for (const processor of absent) expect(html).not.toContain(`<strong>${processor}</strong>`);
   });
 
+  it.each<[string, Hosting["email"], boolean]>([
+    ["alert email through Resend", RESEND, true],
+    ["alert email through another server", RELAY, true],
+    ["no alert email", false, false],
+  ])("with %s, the policy says whether the email service keeps sent mail after deletion", (_title, email, kept) => {
+    stubOperator(OPERATOR);
+    stubHosting({ vercel: false, email });
+    const html = renderToStaticMarkup(createElement(PrivacyPage));
+
+    const statements = [
+      "Alert and digest emails already sent: the email service keeps its record of them",
+      "also keeps its own record of the emails it already sent",
+    ];
+    for (const statement of statements) expect(html.includes(statement)).toBe(kept);
+    expect(html).toContain("Two records in our database that hold your email address stay");
+  });
+
   it.each([
     ["the privacy policy", () => privacyMetadata(), "/privacy", "Privacy policy"],
     ["the terms of use", () => termsMetadata(), "/terms", "Terms of use"],

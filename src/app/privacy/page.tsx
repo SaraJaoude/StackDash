@@ -226,6 +226,12 @@ export default function PrivacyPage() {
             the database stays until we delete it: nothing in {site.name} deletes it, and deleting your account does
             not.
           </li>
+          {email !== null && (
+            <li>
+              Alert and digest emails already sent: the email service keeps its record of them for the period its
+              service sets. Deleting your account does not remove them.
+            </li>
+          )}
         </ul>
       </LegalSection>
 
@@ -239,8 +245,15 @@ export default function PrivacyPage() {
           to, transfer ownership or delete that workspace first.
         </p>
         <p>
-          Two records that hold your email address stay after you delete your account: your entry on the invite list,
-          and the log of sign-in events. To have them removed from the database, email {contact}.
+          Two records in our database that hold your email address stay after you delete your account: your entry on
+          the invite list, and the log of sign-in events. To have them removed from the database, email {contact}.
+          {email !== null && (
+            <>
+              {" "}
+              The service that sends alert and digest emails also keeps its own record of the emails it already sent
+              you, as the list above says.
+            </>
+          )}
         </p>
       </LegalSection>
 
