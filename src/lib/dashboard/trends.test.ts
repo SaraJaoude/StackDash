@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 
-import type { SnapshotInput } from "./aggregate";
+import { snapshotWindowStart, type SnapshotInput } from "./aggregate";
 import {
   buildTrends,
   canonicalExpanded,
@@ -145,49 +145,57 @@ describe("buildTrends gaps", () => {
 });
 
 describe("buildTrends accounts that stopped reporting (#308)", () => {
-  // 45 days before NOW: the dashboard's window, and the first date the daily trend reads.
-  const WINDOW_START = "2025-12-01";
+  // The dashboard's window, the first date the daily trend reads, starts on the 1st for NOW and
+  // inside a month for END_OF_JANUARY, so a rule that only compared months would fail one of them.
+  const END_OF_JANUARY = new Date("2026-01-31T12:00:00.000Z");
 
-  /** a1 reports every month through today; a2 starts in October and last reports on `a2Last`. */
-  function rowsWithA2LastOn(a2Last: string): TrendRow[] {
+  /** a1 reports every month through `today`; a2 starts in October and last reports on `a2Last`. */
+  function rowsWithA2LastOn(a2Last: string, today = "2026-01-15"): TrendRow[] {
     return [
       spend({ snapshot_date: "2025-10-31", amount_minor: 80 }),
       spend({ snapshot_date: "2025-11-30", amount_minor: 90 }),
       spend({ snapshot_date: "2025-12-31", amount_minor: 95 }),
-      spend({ snapshot_date: "2026-01-15", amount_minor: 100 }),
+      spend({ snapshot_date: today, amount_minor: 100 }),
       spend({ snapshot_date: "2025-10-20", amount_minor: 50, external_account_id: "a2" }),
       spend({ snapshot_date: a2Last, amount_minor: 40, external_account_id: "a2" }),
     ];
   }
 
-  /**
-   * Today in the daily view, given only the rows the daily read loads, and this month in the
-   * monthly view. A daily series whose every day is unavailable is left out, which also means no
-   * value today, so that reads as null too.
-   */
-  function current(rows: TrendRow[]) {
-    const dailyRows = rows.filter((row) => row.snapshot_date >= WINDOW_START);
-    return { today: valueOn(dailyRows, "2026-01-15")?.value ?? null, thisMonth: valueOn(rows, "2026-01", "monthly")?.value ?? null };
+  /** A bucket's value, or null when it is unavailable or the series is left out for having none. */
+  function at(rows: TrendRow[], bucket: string, granularity: "daily" | "monthly", now: Date): number | null {
+    return buildTrends(rows, connections, granularity, now)[0]?.points.find((entry) => entry.bucket === bucket)?.value ?? null;
   }
 
   it.each([
-    ["the day before the window: stopped, so neither view expects it", "2025-11-30", { today: 100, thisMonth: 100 }],
-    ["the window's first day: still reporting, so both views expect it", WINDOW_START, { today: null, thisMonth: null }],
-  ])("agrees in both views when the account's last row is on %s", (_title, a2Last, expected) => {
-    expect(current(rowsWithA2LastOn(a2Last))).toEqual(expected);
+    ["the day before a window that starts on the 1st: stopped", NOW, "2025-12-01", "2025-11-30", 100],
+    ["the first day of a window that starts on the 1st: still reporting", NOW, "2025-12-01", "2025-12-01", null],
+    ["the day before a window that starts mid-month: stopped", END_OF_JANUARY, "2025-12-17", "2025-12-16", 100],
+    ["the first day of a window that starts mid-month: still reporting", END_OF_JANUARY, "2025-12-17", "2025-12-17", null],
+  ])("agrees in both views when the account's last row is on %s", (_title, now, windowStart, a2Last, expected) => {
+    expect(snapshotWindowStart(now)).toBe(windowStart);
+    const today = now.toISOString().slice(0, 10);
+    const rows = rowsWithA2LastOn(a2Last, today);
+    const loadedDaily = rows.filter((row) => row.snapshot_date >= windowStart);
+    expect(at(loadedDaily, today, "daily", now)).toBe(expected);
+    // Rows older than the window would change nothing, so the daily read may leave them out.
+    expect(at(rows, today, "daily", now)).toBe(expected);
+    expect(at(rows, today.slice(0, 7), "monthly", now)).toBe(expected);
   });
 
-  it("still counts a stopped account up to the bucket of its last row, and not after it", () => {
-    const rows = rowsWithA2LastOn("2025-11-30");
-    expect(valueOn(rows, "2025-10", "monthly")?.value).toBe(130);
-    expect(valueOn(rows, "2025-11", "monthly")?.value).toBe(130);
-    expect(valueOn(rows, "2025-12", "monthly")?.value).toBe(95);
+  it.each([
+    ["the month's last day", "2025-11-30"],
+    ["the month's first day", "2025-11-01"],
+  ])("still counts a stopped account in the month of its last row, on %s, and not after it", (_title, a2Last) => {
+    const rows = rowsWithA2LastOn(a2Last);
+    expect(at(rows, "2025-10", "monthly", NOW)).toBe(130);
+    expect(at(rows, "2025-11", "monthly", NOW)).toBe(130);
+    expect(at(rows, "2025-12", "monthly", NOW)).toBe(95);
   });
 
   it("keeps a stopped account's missing month inside its reporting span unavailable", () => {
     const rows = rowsWithA2LastOn("2025-11-30").filter((row) => !(row.external_account_id === "a2" && row.snapshot_date === "2025-10-20"));
     rows.push(spend({ snapshot_date: "2025-09-15", amount_minor: 30, external_account_id: "a2" }));
-    expect(valueOn(rows, "2025-10", "monthly")?.value).toBeNull();
+    expect(at(rows, "2025-10", "monthly", NOW)).toBeNull();
   });
 });
 
