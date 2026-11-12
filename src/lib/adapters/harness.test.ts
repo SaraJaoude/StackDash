@@ -70,6 +70,11 @@ describe("checkAdapterDeclaration", () => {
     ["a blank display name", { displayName: "  " }, "displayName is empty"],
     ["no permissions", { permissions: [] }, "permissions is empty: the connect screen has nothing to show"],
     [
+      "a permission without a description",
+      { permissions: [{ scope: "accounts:read", access: "read", description: " " }] },
+      "permission accounts:read has no description",
+    ],
+    [
       "a full access scope without a reason",
       { permissions: [...exampleAdapter.permissions, { scope: "admin", access: "full", description: "Admin", fullAccessReason: "" }] },
       "permission admin is full access without a fullAccessReason",
@@ -127,6 +132,12 @@ describe("checkAdapterDeclaration", () => {
     ],
   ])("reports %s (boundary)", (_case, change, problem) => {
     expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);
+  });
+
+  it("reports an event type the schema rejects (boundary)", () => {
+    const problems = checkAdapterDeclaration(adapterWith({ eventTypes: [{ ...eventTypes[0], label: "" }] }));
+    // The message ends with zod's wording, so only its start is pinned.
+    expect(problems).toContainEqual(expect.stringMatching(/^event type example\.signup is invalid: \S/));
   });
 });
 
