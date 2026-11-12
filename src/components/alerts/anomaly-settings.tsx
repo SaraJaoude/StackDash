@@ -53,11 +53,13 @@ export async function AnomalySettings({ workspace, role }: { workspace: Workspac
 
       <div className="flex flex-col gap-3 border-b border-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="text-sm">
-          <p className="font-medium">{controls.enabled ? "Anomaly detection is on" : "Anomaly detection is off"}</p>
+          <p className="font-medium">
+            {controls.enabled ? "Unusual spend and usage checks are on" : "Unusual spend and usage checks are off"}
+          </p>
           <p className="mt-1 text-muted">
             {controls.enabled
-              ? "No setup needed. It applies to every provider this workspace connects."
-              : "No unusual days are flagged. Turn it on to check every provider again from the next daily summary."}
+              ? "No setup needed. They apply to every provider this workspace connects."
+              : "No unusual days are flagged. Turn them on to check every provider again from the next daily summary."}
           </p>
           {canManage ? null : <DeniedReason>{actionDeniedReason("manage_budgets")}</DeniedReason>}
         </div>
