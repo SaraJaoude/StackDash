@@ -1,6 +1,11 @@
 import "server-only";
 
-import { McpServer, type AuthInfo, type CallToolResult, type GetPromptResult } from "@modelcontextprotocol/server";
+import {
+  McpServer,
+  type AuthInfo,
+  type CallToolResult,
+  type GetPromptResult,
+} from "@modelcontextprotocol/server";
 import { z } from "zod";
 
 import { addUtcDays, ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
@@ -42,7 +47,11 @@ import { providerName } from "@/lib/providers";
  * arguments, so every number in the answer still comes through a tool and its scope check.
  */
 
-export const MCP_SERVER_INFO = { name: "devmacro", title: "DevMacro", version: "1.0.0" } as const;
+export const MCP_SERVER_INFO = {
+  name: "devmacro",
+  title: "DevMacro",
+  version: "1.0.0",
+} as const;
 
 /** URI of a provider page from docs/providers, as a resource. */
 export const PROVIDER_DOC_URI_PREFIX = "devmacro://docs/providers/";
@@ -69,19 +78,32 @@ export const MCP_TOOLS = {
 type McpToolName = (typeof MCP_TOOLS)[keyof typeof MCP_TOOLS];
 
 // Every tool reads, never changes anything, and answers from DevMacro's own database.
-const READ_ONLY = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
+const READ_ONLY = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 
 const timestamp = z.iso.datetime({ offset: true });
 
-const readAt = timestamp.meta({ description: "When DevMacro read this answer from its database." });
+const readAt = timestamp.meta({
+  description: "When DevMacro read this answer from its database.",
+});
 const nextCursor = z
   .string()
   .nullable()
-  .meta({ description: "Pass as cursor, with the same filters, to read the next page. Null on the last page." });
+  .meta({
+    description:
+      "Pass as cursor, with the same filters, to read the next page. Null on the last page.",
+  });
 const display = z
   .string()
   .nullable()
-  .meta({ description: "The amount or quantity formatted for people, for example $12.50 or 1,200 emails." });
+  .meta({
+    description:
+      "The amount or quantity formatted for people, for example $12.50 or 1,200 emails.",
+  });
 const withheld = z
   .object({
     fields: z.array(z.string()),
@@ -89,7 +111,10 @@ const withheld = z
     reason: z.string(),
   })
   .nullable()
-  .meta({ description: "Fields this key cannot read, set to null in every item, and the scope that would return them." });
+  .meta({
+    description:
+      "Fields this key cannot read, set to null in every item, and the scope that would return them.",
+  });
 
 const WithheldText = z.string().nullable();
 
@@ -109,41 +134,81 @@ const AlertsInputSchema = TriggeredAlertsQuerySchema.extend({
   acknowledged: z
     .boolean()
     .optional()
-    .meta({ description: "true for acknowledged alerts only, false for unacknowledged only. Leave it out for both." }),
+    .meta({
+      description:
+        "true for acknowledged alerts only, false for unacknowledged only. Leave it out for both.",
+    }),
 });
 
 function page<Item extends z.ZodType>(item: Item) {
   return { read_at: readAt, data: z.array(item), next_cursor: nextCursor };
 }
 
-const ProjectsOutputSchema = z.object({ workspace: WorkspaceSchema, ...page(ProjectSchema) });
+const ProjectsOutputSchema = z.object({
+  workspace: WorkspaceSchema,
+  ...page(ProjectSchema),
+});
 const ConnectionsOutputSchema = z.object(page(ConnectionSchema));
 const UsageOutputSchema = z.object(page(McpUsageSnapshotSchema));
 const EventsOutputSchema = z.object({ ...page(McpEventSchema), withheld });
-const AlertsOutputSchema = z.object({ ...page(McpTriggeredAlertSchema), withheld });
+const AlertsOutputSchema = z.object({
+  ...page(McpTriggeredAlertSchema),
+  withheld,
+});
 
 type Withheld = z.infer<typeof withheld>;
 
 const SPEND_SCOPE: ApiKeyScope = "usage:read";
 const EVENT_TEXT_FIELDS = ["title", "body"] as const;
-const ALERT_MONEY_FIELDS = ["message", "threshold_label", "observed_amount_minor", "currency", "display"] as const;
+const ALERT_MONEY_FIELDS = [
+  "message",
+  "threshold_label",
+  "observed_amount_minor",
+  "currency",
+  "display",
+] as const;
 
-function withheldFor(principal: ApiPrincipal, fields: readonly string[], reason: string): Withheld {
-  return principal.scopes.includes(SPEND_SCOPE) ? null : { fields: [...fields], scope: SPEND_SCOPE, reason };
+function withheldFor(
+  principal: ApiPrincipal,
+  fields: readonly string[],
+  reason: string,
+): Withheld {
+  return principal.scopes.includes(SPEND_SCOPE)
+    ? null
+    : { fields: [...fields], scope: SPEND_SCOPE, reason };
 }
 
 /** The amount or the quantity formatted for people, or null when the row carries neither. */
-function displayOf(amountMinor: number | null, currency: string | null, value: number | null, unit: string | null) {
-  if (amountMinor !== null && currency !== null) return formatMoney(amountMinor, currency);
+function displayOf(
+  amountMinor: number | null,
+  currency: string | null,
+  value: number | null,
+  unit: string | null,
+) {
+  if (amountMinor !== null && currency !== null)
+    return formatMoney(amountMinor, currency);
   if (value !== null && unit !== null) return formatQuantity(value, unit);
   return null;
 }
 
-function alertItem(row: ApiTriggeredAlert, hideMoney: boolean): z.infer<typeof McpTriggeredAlertSchema> {
+function alertItem(
+  row: ApiTriggeredAlert,
+  hideMoney: boolean,
+): z.infer<typeof McpTriggeredAlertSchema> {
   if (hideMoney) {
-    return { ...row, message: null, threshold_label: null, observed_amount_minor: null, currency: null, display: null };
+    return {
+      ...row,
+      message: null,
+      threshold_label: null,
+      observed_amount_minor: null,
+      currency: null,
+      display: null,
+    };
   }
-  return { ...row, display: displayOf(row.observed_amount_minor, row.currency, null, null) };
+  return {
+    ...row,
+    display: displayOf(row.observed_amount_minor, row.currency, null, null),
+  };
 }
 
 /**
@@ -159,10 +224,18 @@ async function runTool<Output extends Record<string, unknown>>(
   try {
     if (scope !== null) requireApiScope(principal, scope);
     const output = await read();
-    return { content: [{ type: "text", text: JSON.stringify(output) }], structuredContent: output };
+    return {
+      content: [{ type: "text", text: JSON.stringify(output) }],
+      structuredContent: output,
+    };
   } catch (error) {
     const { apiError, referenceId } = reportApiError(error);
-    return { content: [{ type: "text", text: `${apiError.message} Reference ${referenceId}.` }], isError: true };
+    return {
+      content: [
+        { type: "text", text: `${apiError.message} Reference ${referenceId}.` },
+      ],
+      isError: true,
+    };
   }
 }
 
@@ -191,7 +264,9 @@ export function authInfoFor(principal: ApiPrincipal): AuthInfo {
 export function principalFrom(authInfo: AuthInfo | undefined): ApiPrincipal {
   const workspaceId = authInfo?.extra?.workspaceId;
   if (authInfo === undefined || typeof workspaceId !== "string") {
-    throw new Error("The MCP server was called without an authenticated API key.");
+    throw new Error(
+      "The MCP server was called without an authenticated API key.",
+    );
   }
   return {
     keyId: authInfo.clientId,
@@ -213,13 +288,21 @@ const PROMPT_PAGE = { limit: API_PAGE_SIZE_MAX } as const;
 const SpendChangeArgsSchema = z.strictObject({
   days: z
     .string()
-    .regex(/^(?:[1-9]|[1-8][0-9]|90)$/, "Use a whole number of days from 1 to 90.")
+    .regex(
+      /^(?:[1-9]|[1-8][0-9]|90)$/,
+      "Use a whole number of days from 1 to 90.",
+    )
     .optional()
-    .meta({ description: "How many days to look back, from 1 to 90. Leave it out for 7." }),
+    .meta({
+      description:
+        "How many days to look back, from 1 to 90. Leave it out for 7.",
+    }),
   provider: UsageSnapshotsQuerySchema.shape.provider,
 });
 
-type MetricKind = NonNullable<z.infer<typeof UsageSnapshotsQuerySchema>["kind"]>;
+type MetricKind = NonNullable<
+  z.infer<typeof UsageSnapshotsQuerySchema>["kind"]
+>;
 
 /** A step of a prompt: one call of a registered tool, with the arguments to pass. */
 type PromptToolCall = Readonly<{
@@ -233,23 +316,38 @@ type PromptToolCall = Readonly<{
  * the baseline each day's change is measured against, so the calls cover `days + 1` dates. `label`
  * names the period that way for the prompt text, and `since` is the start of `from` in RFC 3339.
  */
-function lookBack(now: Date, days: number): { from: string; to: string; since: string; label: string } {
+function lookBack(
+  now: Date,
+  days: number,
+): { from: string; to: string; since: string; label: string } {
   const to = utcDate(now);
   const from = addUtcDays(to, -days);
   const period = days === 1 ? "the day" : `the ${days} days`;
-  return { from, to, since: `${from}T00:00:00Z`, label: `${period} ending ${to}, starting from the ${from} reading (UTC days)` };
+  return {
+    from,
+    to,
+    since: `${from}T00:00:00Z`,
+    label: `${period} ending ${to}, starting from the ${from} reading (UTC days)`,
+  };
 }
 
 /**
  * One user message: the task, the tool calls in order with their exact arguments, then how to
  * answer. Every number in the answer comes from those calls; the prompt adds no data of its own.
  */
-function promptResult(task: string, calls: readonly PromptToolCall[], answer: readonly string[]): GetPromptResult {
+function promptResult(
+  task: string,
+  calls: readonly PromptToolCall[],
+  answer: readonly string[],
+): GetPromptResult {
   const text = [
     task,
     "",
     "Call these DevMacro tools in order. When a result has a next_cursor, call the same tool again with the same arguments plus that cursor, until next_cursor is null.",
-    ...calls.map((call, index) => `${index + 1}. Call \`${call.tool}\` with \`${JSON.stringify(call.arguments)}\`: ${call.purpose}`),
+    ...calls.map(
+      (call, index) =>
+        `${index + 1}. Call \`${call.tool}\` with \`${JSON.stringify(call.arguments)}\`: ${call.purpose}`,
+    ),
     "",
     ...answer,
     "",
@@ -264,53 +362,90 @@ function weeklyStackReview(now: Date): GetPromptResult {
   return promptResult(
     `Review this DevMacro workspace's developer stack for ${label}.`,
     [
-      { tool: MCP_TOOLS.listProjects, arguments: {}, purpose: "the workspace and its projects, to group the review by." },
-      { tool: MCP_TOOLS.getConnectionStatus, arguments: {}, purpose: "connections that are not active need attention first." },
+      {
+        tool: MCP_TOOLS.listProjects,
+        arguments: {},
+        purpose: "the workspace and its projects, to group the review by.",
+      },
+      {
+        tool: MCP_TOOLS.getConnectionStatus,
+        arguments: {},
+        purpose: "connections that are not active need attention first.",
+      },
       {
         tool: MCP_TOOLS.getUsage,
         arguments: { from, to, ...PROMPT_PAGE },
-        purpose: "spend, usage, and allowances for each day, plus the starting reading.",
+        purpose:
+          "spend, usage, and allowances for each day, plus the starting reading.",
       },
       {
         tool: MCP_TOOLS.listEvents,
         arguments: { from: since, ...PROMPT_PAGE },
-        purpose: "deployments, failures, payments, and anomalies in the same days.",
+        purpose:
+          "deployments, failures, payments, and unusual spend and usage events in the same days.",
       },
-      { tool: MCP_TOOLS.listAlerts, arguments: { acknowledged: false, ...PROMPT_PAGE }, purpose: "alerts nobody has acknowledged yet." },
+      {
+        tool: MCP_TOOLS.listAlerts,
+        arguments: { acknowledged: false, ...PROMPT_PAGE },
+        purpose: "alerts nobody has acknowledged yet.",
+      },
     ],
     [
       "Then write the review under these headings, leaving out any heading with nothing to report:",
       "- Connections: each one that is not active, and what to do about it.",
       `- Spend: each spend metric on its newest day beside its ${from} reading, per provider and currency.`,
       "- Allowances: each remaining_allowance that is running low, and its resets_at.",
-      `- Events: failed deployments, sync failures, and anomalies (type ${ANOMALY_TYPE_ID}), with the day of each.`,
+      `- Events: failed deployments, sync failures, and unusual spend and usage events (type ${ANOMALY_TYPE_ID}), with the day of each.`,
       "- Alerts: each unacknowledged alert and what it measured.",
       "Finish with the one thing most worth doing next.",
     ],
   );
 }
 
-function whyDidSpendChange({ days, provider }: z.infer<typeof SpendChangeArgsSchema>, now: Date): GetPromptResult {
+function whyDidSpendChange(
+  { days, provider }: z.infer<typeof SpendChangeArgsSchema>,
+  now: Date,
+): GetPromptResult {
   const span = days === undefined ? WEEK_DAYS : Number(days);
   const { from, to, since, label } = lookBack(now, span);
-  const usage = (kind: MetricKind) => ({ kind, from, to, ...(provider === undefined ? {} : { provider }), ...PROMPT_PAGE });
+  const usage = (kind: MetricKind) => ({
+    kind,
+    from,
+    to,
+    ...(provider === undefined ? {} : { provider }),
+    ...PROMPT_PAGE,
+  });
   const scope = provider === undefined ? "" : ` for ${providerName(provider)}`;
   return promptResult(
     `Explain why spend changed in this DevMacro workspace${scope} over ${label}.`,
     [
-      { tool: MCP_TOOLS.getUsage, arguments: usage("verified_spend"), purpose: "spend each provider reported." },
-      { tool: MCP_TOOLS.getUsage, arguments: usage("estimated_spend"), purpose: "spend DevMacro estimated from a price list." },
+      {
+        tool: MCP_TOOLS.getUsage,
+        arguments: usage("verified_spend"),
+        purpose: "spend each provider reported.",
+      },
+      {
+        tool: MCP_TOOLS.getUsage,
+        arguments: usage("estimated_spend"),
+        purpose: "spend DevMacro estimated from a price list.",
+      },
       {
         tool: MCP_TOOLS.getUsage,
         arguments: usage("usage"),
-        purpose: "the usage that estimated spend is priced from, and that often drives reported spend.",
+        purpose:
+          "the usage that estimated spend is priced from, and that often drives reported spend.",
       },
       {
         tool: MCP_TOOLS.listEvents,
         arguments: { from: since, ...PROMPT_PAGE },
-        purpose: `deployments, usage warnings, anomalies (type ${ANOMALY_TYPE_ID}), and daily summaries in the same days.`,
+        purpose: `deployments, usage warnings, unusual spend and usage events (type ${ANOMALY_TYPE_ID}), and daily summaries in the same days.`,
       },
-      { tool: MCP_TOOLS.listAlerts, arguments: PROMPT_PAGE, purpose: "spend and usage alerts; keep the ones whose triggered_at falls in the period." },
+      {
+        tool: MCP_TOOLS.listAlerts,
+        arguments: PROMPT_PAGE,
+        purpose:
+          "spend and usage alerts; keep the ones whose triggered_at falls in the period.",
+      },
     ],
     [
       "How to read spend: a spend row is a running total for its billing period (period_start to period_end), so a day's spend is its reading minus the previous day's reading in the same period. When period_start changes, a new period began: a drop is not a saving, and the first day of a period includes charges billed once per period, such as a plan fee.",
@@ -344,7 +479,8 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
           API_ENDPOINTS.projects.load(tokenHash, query),
         ]);
         const workspace = workspaces.data[0];
-        if (workspace === undefined) throw new Error("The authenticated key's workspace was not found.");
+        if (workspace === undefined)
+          throw new Error("The authenticated key's workspace was not found.");
         return { workspace, read_at: readAtNow(), ...projects };
       }),
   );
@@ -361,10 +497,21 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
     },
     (query) =>
       runTool(principal, API_ENDPOINTS.usageSnapshots.scope, async () => {
-        const result = await API_ENDPOINTS.usageSnapshots.load(tokenHash, query);
+        const result = await API_ENDPOINTS.usageSnapshots.load(
+          tokenHash,
+          query,
+        );
         return {
           read_at: readAtNow(),
-          data: result.data.map((row) => ({ ...row, display: displayOf(row.amount_minor, row.currency, row.value, row.unit) })),
+          data: result.data.map((row) => ({
+            ...row,
+            display: displayOf(
+              row.amount_minor,
+              row.currency,
+              row.value,
+              row.unit,
+            ),
+          })),
           next_cursor: result.next_cursor,
         };
       }),
@@ -390,7 +537,10 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
         );
         return {
           read_at: readAtNow(),
-          data: hidden === null ? result.data : result.data.map((row) => ({ ...row, title: null, body: null })),
+          data:
+            hidden === null
+              ? result.data
+              : result.data.map((row) => ({ ...row, title: null, body: null })),
           next_cursor: result.next_cursor,
           withheld: hidden,
         };
@@ -409,8 +559,15 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
     },
     (query) =>
       runTool(principal, API_ENDPOINTS.triggeredAlerts.scope, async () => {
-        const result = await API_ENDPOINTS.triggeredAlerts.load(tokenHash, query);
-        const hidden = withheldFor(principal, ALERT_MONEY_FIELDS, "A spend or budget alert quotes the amount it measured.");
+        const result = await API_ENDPOINTS.triggeredAlerts.load(
+          tokenHash,
+          query,
+        );
+        const hidden = withheldFor(
+          principal,
+          ALERT_MONEY_FIELDS,
+          "A spend or budget alert quotes the amount it measured.",
+        );
         return {
           read_at: readAtNow(),
           data: result.data.map((row) => alertItem(row, hidden !== null)),
@@ -442,8 +599,16 @@ export function createDevMacroMcpServer(principal: ApiPrincipal): McpServer {
     server.registerResource(
       `provider-${provider}`,
       `${PROVIDER_DOC_URI_PREFIX}${provider}`,
-      { title: doc.title, description: doc.description, mimeType: "text/markdown" },
-      (uri) => ({ contents: [{ uri: uri.href, mimeType: "text/markdown", text: doc.source }] }),
+      {
+        title: doc.title,
+        description: doc.description,
+        mimeType: "text/markdown",
+      },
+      (uri) => ({
+        contents: [
+          { uri: uri.href, mimeType: "text/markdown", text: doc.source },
+        ],
+      }),
     );
   }
 
