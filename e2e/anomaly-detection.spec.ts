@@ -92,7 +92,7 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
       await expect(page).toHaveURL(/\/timeline\?type=devmacro\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
-      // The page the link lands on names the type the way the alerts page names the feature (#345).
+      // The page the link lands on names the type the way alert settings names the feature (#345).
       await openFilters(page, "keyboard");
       const types = page.getByRole("group", { name: "Event type" });
       await expect(types.getByRole("checkbox", { name: "DevMacro: Unusual spend or usage" })).toBeChecked();
