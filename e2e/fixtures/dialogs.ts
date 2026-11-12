@@ -8,10 +8,10 @@ import { expectHydrated } from "./hydration";
  * failure. Opens the dialog from `trigger` with Enter and expects Tab to stay inside it both ways
  * (#342): Shift+Tab from Cancel wraps to the confirm button, past the form's hidden inputs, and Tab
  * wraps back. It then runs `breakIt` to make the action fail on the server (delete the row it
- * targets, say), confirms with Tab and Enter, and expects the error inside the still-open dialog:
- * in its assertive live region and focused. Tab then reaches Cancel, and Escape closes the dialog
- * and returns focus to the trigger. Opening it again starts fresh, without the previous attempt's
- * error.
+ * targets, say), confirms with Tab and Enter, and expects the error inside the still-open dialog,
+ * and nowhere else on the page: in its assertive live region and focused. Tab then reaches Cancel,
+ * and Escape closes the dialog and returns focus to the trigger. Opening it again starts fresh,
+ * without the previous attempt's error.
  */
 export async function expectFailureInDialog(
   page: Page,
@@ -48,6 +48,7 @@ export async function expectFailureInDialog(
   await page.keyboard.press("Enter");
 
   await expect(dialog.getByRole("alert")).toHaveText(message);
+  await expect(page.getByText(message)).toHaveCount(1);
   await expect(dialog.getByText(message)).toBeFocused();
   await expect(dialog).toBeVisible();
   await expectNoAxeViolations(page);
