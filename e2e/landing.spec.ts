@@ -256,7 +256,7 @@ test.describe("skip to content", () => {
   // The landing page fades its hero in; a scan mid-fade reports contrast the settled page has not.
   test.use({ reducedMotion: "reduce" });
 
-  for (const route of ["/", "/docs", "/sign-in"]) {
+  for (const route of ["/", "/docs", "/sign-in", "/privacy", "/terms"]) {
     test(`moves keyboard focus to the main content on ${route}`, async ({ page }) => {
       await page.goto(route);
       await expectSkipToContent(page);

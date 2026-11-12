@@ -32,7 +32,8 @@ export function isLoopbackUrl(value: string): boolean {
   return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
 
-const RESEND_API_URL = "https://api.resend.com";
+/** Resend's own API origin, where alert email goes unless DEVMACRO_RESEND_API_URL names another. */
+export const RESEND_API_URL = "https://api.resend.com";
 
 // Alert email (#152) goes through Resend's API (#244). Without DEVMACRO_RESEND_API_KEY email is not
 // set up on this instance; alerts still reach the app and the channels. DEVMACRO_RESEND_API_URL
@@ -60,16 +61,24 @@ const emailEnvSchema = z.object({
     .default(RESEND_API_URL),
 });
 
-// Where the public routes' per IP rate limit (#149) finds the client. VERCEL=1 is Vercel's system
-// environment variable (https://vercel.com/docs/environment-variables/system-environment-variables).
-// Elsewhere DEVMACRO_TRUSTED_PROXY_COUNT is how many proxies in front of the app append to
-// x-forwarded-for; one when unset.
+// Where the public routes' per IP rate limit (#149) finds the client: on Vercel (`onVercel`), its
+// own header. Elsewhere DEVMACRO_TRUSTED_PROXY_COUNT is how many proxies in front of the app append
+// to x-forwarded-for; one when unset.
 const clientIpEnvSchema = z.object({
-  VERCEL: z.string().optional(),
   DEVMACRO_TRUSTED_PROXY_COUNT: z
     .string()
     .regex(/^[1-9]$/, "use a whole number from 1 to 9: the proxies in front of the app that append to x-forwarded-for")
     .optional(),
+});
+
+// Who runs this instance (#339): the privacy policy and terms of use name them, and the pages and
+// their links exist only when all three are set, so a self-hosted instance never names another
+// operator. Not secret. The landing page and the legal pages are prerendered, so they take the
+// values `next build` saw: set them before building and deploy again after changing one.
+const operatorEnvSchema = z.object({
+  DEVMACRO_OPERATOR_NAME: z.string().trim().min(1).max(200),
+  DEVMACRO_OPERATOR_EMAIL: z.email({ error: "use one email address, such as privacy@your-domain" }),
+  DEVMACRO_GOVERNING_LAW: z.string().trim().min(1).max(200),
 });
 
 export type PublicEnv = z.infer<typeof publicEnvSchema>;
@@ -77,6 +86,7 @@ export type ServerEnv = z.infer<typeof serverEnvSchema>;
 export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
 export type EmailEnv = Readonly<{ from: string; apiKey: string; apiUrl: string }>;
 export type ClientIpEnv = Readonly<{ header: "x-vercel-forwarded-for" | "x-forwarded-for"; trustedProxies: number }>;
+export type OperatorEnv = Readonly<{ name: string; email: string; governingLaw: string }>;
 
 function parseEnv<Schema extends z.ZodType>(
   schema: Schema,
@@ -162,16 +172,63 @@ export function emailEnv(): EmailEnv | null {
 }
 
 /**
+ * Whether this deployment runs on Vercel. VERCEL=1 is Vercel's system environment variable, set at
+ * both build and run time (https://vercel.com/docs/environment-variables/system-environment-variables),
+ * so a prerendered page reads it as reliably as a request does.
+ */
+export function onVercel(): boolean {
+  return process.env.VERCEL === "1";
+}
+
+/**
  * Which request header holds the client IP and how many proxies appended to it. On Vercel,
  * `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel
  * cannot overwrite (https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
  * Self-hosted, `x-forwarded-for` with DEVMACRO_TRUSTED_PROXY_COUNT proxies appending to it.
  */
 export function clientIpEnv(): ClientIpEnv {
-  const env = parseEnv(clientIpEnvSchema, {
-    VERCEL: process.env.VERCEL,
-    DEVMACRO_TRUSTED_PROXY_COUNT: process.env.DEVMACRO_TRUSTED_PROXY_COUNT,
-  });
-  if (env.VERCEL === "1") return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
+  const env = parseEnv(clientIpEnvSchema, { DEVMACRO_TRUSTED_PROXY_COUNT: process.env.DEVMACRO_TRUSTED_PROXY_COUNT });
+  if (onVercel()) return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
   return { header: "x-forwarded-for", trustedProxies: Number(env.DEVMACRO_TRUSTED_PROXY_COUNT ?? "1") };
+}
+
+const SUPER_ADMIN_EMAIL = z.email();
+
+/**
+ * The super admins of this instance (#250): DEVMACRO_SUPER_ADMIN_EMAILS, comma separated, lowercased.
+ * Empty when unset, so nobody is one by default. An entry that is not an email address is a
+ * configuration error rather than skipped, so a typo fails loudly instead of quietly locking the
+ * operator out. Messages name the entry's position, never the address.
+ */
+export function superAdminEmails(): ReadonlySet<string> {
+  const raw = process.env.DEVMACRO_SUPER_ADMIN_EMAILS;
+  const emails = new Set<string>();
+  if (raw === undefined) return emails;
+  const entries = raw.split(",").map((entry) => entry.trim()).filter((entry) => entry !== "");
+  for (const [index, entry] of entries.entries()) {
+    if (!SUPER_ADMIN_EMAIL.safeParse(entry).success) {
+      throw new Error(
+        `Environment configuration error: DEVMACRO_SUPER_ADMIN_EMAILS is invalid: entry ${index + 1} is not an email address. See .env.example for the format.`,
+      );
+    }
+    emails.add(entry.toLowerCase());
+  }
+  return emails;
+}
+
+/**
+ * The operator the privacy policy and terms of use name, or null when none of the three variables
+ * is set: then /privacy and /terms answer 404 and nothing links to them. Setting only some of them
+ * is a configuration error rather than a silent "off", so a half-configured instance fails loudly
+ * instead of publishing a policy with no one to contact.
+ */
+export function operatorEnv(): OperatorEnv | null {
+  const input = {
+    DEVMACRO_OPERATOR_NAME: process.env.DEVMACRO_OPERATOR_NAME,
+    DEVMACRO_OPERATOR_EMAIL: process.env.DEVMACRO_OPERATOR_EMAIL,
+    DEVMACRO_GOVERNING_LAW: process.env.DEVMACRO_GOVERNING_LAW,
+  };
+  if (!input.DEVMACRO_OPERATOR_NAME && !input.DEVMACRO_OPERATOR_EMAIL && !input.DEVMACRO_GOVERNING_LAW) return null;
+  const env = parseEnv(operatorEnvSchema, input);
+  return { name: env.DEVMACRO_OPERATOR_NAME, email: env.DEVMACRO_OPERATOR_EMAIL, governingLaw: env.DEVMACRO_GOVERNING_LAW };
 }

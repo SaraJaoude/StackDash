@@ -32,7 +32,7 @@ import { vercelAdapter } from "./vercel";
  * The one place that maps a provider id to its adapter: routes, pages, and the sync runner ask the
  * registry and never import an adapter themselves. Adding a provider is still far more than an
  * entry here: the id, its database enum value, names and brand mark, simulated twin, docs,
- * environment variables, landing page, and tests touch 25 files outside the adapter's folder, and
+ * environment variables, landing page, and tests touch 24 files outside the adapter's folder, and
  * a few more when it reports deployments. docs/adapters.md, "Register the provider", lists every
  * one, checked against the GitLab adapter.
  */
@@ -126,6 +126,23 @@ const SIMULATED_CLIENT: OAuthClient = {
 };
 
 /**
+ * The variables `adapter`'s OAuth app needs that are empty on this instance, in declaration order;
+ * none means the app is registered. Extra keys listed in `optionalExtraKeys` are never required.
+ */
+export function missingOAuthEnv(adapter: ProviderAdapter): string[] {
+  const { clientIdEnv, clientSecretEnv, extraEnv, optionalExtraKeys } = adapter.oauth;
+  const optional = new Set(optionalExtraKeys ?? []);
+  const required = [
+    clientIdEnv,
+    clientSecretEnv,
+    ...Object.entries(extraEnv ?? {})
+      .filter(([key]) => !optional.has(key))
+      .map(([, envName]) => envName),
+  ];
+  return required.filter((envName) => readEnv(envName) === undefined);
+}
+
+/**
  * The OAuth app settings this instance registered for `adapter`, or null when any required
  * variable is empty: the catalog then says the provider is not set up here. Extra keys listed in
  * `optionalExtraKeys` are passed through only when set and never make the provider unavailable.
@@ -136,22 +153,25 @@ export function loadOAuthClient(adapter: ProviderAdapter): OAuthClient | null {
   if (isSimulatedAdapter(adapter)) {
     return isProviderSimulationEnabled() ? SIMULATED_CLIENT : null;
   }
-  const { clientIdEnv, clientSecretEnv, extraEnv, optionalExtraKeys } = adapter.oauth;
+  const { clientIdEnv, clientSecretEnv, extraEnv } = adapter.oauth;
   const clientId = readEnv(clientIdEnv);
   const clientSecret = readEnv(clientSecretEnv);
-  if (clientId === undefined || clientSecret === undefined) return null;
+  if (clientId === undefined || clientSecret === undefined || missingOAuthEnv(adapter).length > 0) return null;
 
-  const optional = new Set(optionalExtraKeys ?? []);
   const extra: Record<string, Secret> = {};
   for (const [key, envName] of Object.entries(extraEnv ?? {})) {
     const value = readEnv(envName);
-    if (value === undefined) {
-      if (optional.has(key)) continue;
-      return null;
-    }
-    extra[key] = new Secret(value);
+    if (value !== undefined) extra[key] = new Secret(value);
   }
   return { clientId, clientSecret: new Secret(clientSecret), extra };
+}
+
+/**
+ * Whether each live provider's OAuth app is registered on this instance, in catalog order, from the
+ * live adapters even while simulation replaces them, so the answer is about the real setup.
+ */
+export function liveProviderSetup(): { provider: LiveProviderId; missing: string[] }[] {
+  return liveProviderIds.map((provider) => ({ provider, missing: missingOAuthEnv(liveAdapters[provider]) }));
 }
 
 /** True when this instance has registered the provider's OAuth app. Never exposes the values. */

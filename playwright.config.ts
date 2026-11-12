@@ -1,6 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_USERS } from "./e2e/fixtures/auth";
 import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
+import { E2E_OPERATOR } from "./e2e/fixtures/operator";
 
 // E2E_PORT lets parallel local runs (and agents) avoid each other and the default dev port.
 const port = Number(process.env.E2E_PORT ?? 3100);
@@ -82,13 +84,24 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: process.env.CI ? 300_000 : 120_000,
       // Alert email goes to the fake Resend API, as above (fakeResendEnv).
+      // A synthetic operator, and the only switch for it in end-to-end runs (CI does not set it):
+      // it publishes /privacy and /terms (#339), e2e/fixtures/operator.ts.
       // Simulated providers, and the only switch for it in end-to-end runs (CI does not set it):
       // the live providers are simulated (#131), so their connect flow runs without OAuth apps.
       // Rows a spec seeds for a live provider stay real connections and are never labeled
       // "Simulated".
       // The public origin is the server's own, whatever .env.local says, so absolute metadata URLs
       // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
-      env: { ...inherited, ...fakeResendEnv, DEVMACRO_SIMULATE_PROVIDERS: "1", NEXT_PUBLIC_SITE_URL: baseURL },
+      // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
+      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
+      env: {
+        ...inherited,
+        ...fakeResendEnv,
+        ...E2E_OPERATOR,
+        DEVMACRO_SIMULATE_PROVIDERS: "1",
+        NEXT_PUBLIC_SITE_URL: baseURL,
+        DEVMACRO_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
+      },
     },
   ],
 });

@@ -1,16 +1,20 @@
 "use client";
 
-import { startTransition, useActionState, useId, useRef, useState, type ReactNode, type RefObject } from "react";
+import { startTransition, useActionState, useId, useRef, useState, type ReactNode } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
+import {
+  DialogActions,
+  DialogCloseButton,
+  ModalDialog,
+  useModalDialog,
+  type ModalDialogHandle,
+} from "@/components/ui/modal-dialog";
 import { HANDLE_MAX, HANDLE_MIN, handleSchema } from "@/lib/workspaces/handles";
 
 import { removeWorkspaceHandle, setWorkspaceHandle, type WorkspaceHandleResult } from "./actions";
-
-const SECONDARY =
-  "inline-flex min-h-10 items-center justify-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground aria-disabled:opacity-60";
-const DANGER =
-  "inline-flex min-h-10 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 /**
  * Claims, changes, or removes the workspace's handle, for owners and admins. Controlled, so a
@@ -18,7 +22,7 @@ const DANGER =
  * `pattern` or `maxLength`, so the field error explains the rule.
  *
  * Changing or removing a handle frees the old one at once for any workspace and breaks every link
- * that uses it, so both ask first in a native modal `<dialog>`, as the app's other irreversible
+ * that uses it, so both ask first in a `ModalDialog`, as the app's other irreversible
  * actions do. A first claim needs no confirmation, and neither does a value the rules refuse: it
  * goes straight to the server, which explains the rule beside the field. One status region serves
  * both forms, because the remove button unmounts once the handle is gone.
@@ -30,8 +34,8 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
   const inputRef = useRef<HTMLInputElement>(null);
   const saveRef = useRef<HTMLButtonElement>(null);
   const removeRef = useRef<HTMLButtonElement>(null);
-  const changeDialogRef = useRef<HTMLDialogElement>(null);
-  const removeDialogRef = useRef<HTMLDialogElement>(null);
+  const changeDialog = useModalDialog();
+  const removeDialog = useModalDialog();
   // Set by the change dialog's confirm button, so the submit it starts is not intercepted again.
   const confirmedRef = useRef(false);
   const inputId = useId();
@@ -64,8 +68,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
   }, null);
 
   const pending = saving || removing;
-  const failure = last !== null && !last.ok ? last : undefined;
-  const fieldError = failure?.fieldErrors?.handle;
+  const fieldError = last !== null && !last.ok ? last.fieldErrors?.handle : undefined;
   // The handle a save would store, when the rules accept it; null for a value the server refuses.
   const parsed = handleSchema.safeParse(handle);
   const nextHandle = parsed.success ? parsed.data : null;
@@ -90,7 +93,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
           }
           if (currentHandle !== null && nextHandle !== null && nextHandle !== currentHandle) {
             event.preventDefault();
-            changeDialogRef.current?.showModal();
+            changeDialog.open(saveRef.current);
           }
         }}
       >
@@ -130,7 +133,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             ref={saveRef}
             type="submit"
             unavailable={pending}
-            className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60"
+            className={`shrink-0 ${buttonClass("primary")}`}
           >
             {saving ? "Saving" : "Save handle"}
           </GuardedButton>
@@ -142,14 +145,13 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             ref={removeRef}
             type="button"
             unavailable={pending}
-            onClick={() => removeDialogRef.current?.showModal()}
-            className={`mt-3 ${SECONDARY}`}
+            onClick={(event) => removeDialog.open(event.currentTarget)}
+            className={`mt-3 ${buttonClass("secondary")}`}
           >
             {removing ? "Removing" : "Remove handle"}
           </GuardedButton>
           <ConfirmHandleDialog
-            dialogRef={changeDialogRef}
-            returnFocusRef={saveRef}
+            dialog={changeDialog}
             title={`Change the handle to ${nextHandle ?? ""}?`}
             confirmLabel="Change handle"
             onConfirm={() => {
@@ -161,8 +163,7 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
             Public project pages will open at <span className="font-mono break-words">/@{nextHandle}/</span> instead.
           </ConfirmHandleDialog>
           <ConfirmHandleDialog
-            dialogRef={removeDialogRef}
-            returnFocusRef={removeRef}
+            dialog={removeDialog}
             title={`Remove the handle ${currentHandle}?`}
             confirmLabel="Remove handle"
             onConfirm={() => {
@@ -179,21 +180,10 @@ export function WorkspaceHandleForm({ workspaceSlug, currentHandle }: { workspac
       )}
 
       {/* Always mounted so screen readers announce changes to it. */}
-      <div role="status" aria-live="polite" className="mt-3 text-sm">
-        {pending || last === null ? null : last.ok ? (
-          <p className="text-success">{last.message}</p>
-        ) : (
-          <p className="text-danger">
-            {last.message}
-            {failure?.referenceId === undefined ? null : (
-              <>
-                {" "}
-                Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-              </>
-            )}
-          </p>
-        )}
-      </div>
+      <OutcomeAnnouncement
+        outcome={outcomeOf(pending ? null : last, last !== null && last.ok ? last.message : null)}
+        className="mt-3 text-sm"
+      />
     </div>
   );
 }
@@ -208,66 +198,38 @@ function ReleaseWarning({ handle }: { handle: string }) {
 }
 
 /**
- * A native modal `<dialog>`: the browser traps focus and closes it on Escape. Cancel comes first
- * and takes focus, so Enter right after opening never confirms. Confirming closes the dialog and
- * hands the work to `onConfirm`, whose result the section's status region announces; cancelling
- * returns focus to the button that opened it.
+ * Cancel takes focus when it opens, so Enter right after opening never confirms, and returns focus
+ * to the button that opened it. Confirming closes the dialog and then hands the work to
+ * `onConfirm`, whose result the section's status region announces.
  */
 function ConfirmHandleDialog({
-  dialogRef,
-  returnFocusRef,
+  dialog,
   title,
   confirmLabel,
   onConfirm,
   children,
 }: {
-  dialogRef: RefObject<HTMLDialogElement | null>;
-  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  dialog: ModalDialogHandle;
   title: string;
   confirmLabel: string;
   onConfirm: () => void;
   children: ReactNode;
 }) {
-  const confirmingRef = useRef(false);
-  const titleId = useId();
-  const descriptionId = useId();
   return (
-    <dialog
-      ref={dialogRef}
-      aria-labelledby={titleId}
-      aria-describedby={descriptionId}
-      onClose={() => {
-        if (confirmingRef.current) {
-          confirmingRef.current = false;
-          onConfirm();
-        } else {
-          returnFocusRef.current?.focus();
-        }
+    <ModalDialog
+      dialog={dialog}
+      title={title}
+      description={children}
+      onClose={({ reason }) => {
+        if (reason === "completed") onConfirm();
       }}
-      className="m-auto w-[min(32rem,calc(100%-2rem))] rounded-xl border border-line bg-panel p-6 text-foreground backdrop:bg-black/60"
     >
-      <h2 id={titleId} className="break-words text-lg font-semibold tracking-tight">
-        {title}
-      </h2>
-      <p id={descriptionId} className="mt-3 text-sm leading-6 text-muted">
-        {children}
-      </p>
-      <div className="mt-6 flex flex-wrap justify-end gap-3">
-        {/* First in the dialog, so showModal() focuses it and Enter right after opening never confirms. */}
-        <button type="button" onClick={() => dialogRef.current?.close()} className={SECONDARY}>
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            confirmingRef.current = true;
-            dialogRef.current?.close();
-          }}
-          className={DANGER}
-        >
+      <DialogActions>
+        <DialogCloseButton />
+        <button type="button" onClick={() => dialog.close("completed")} className={buttonClass("danger")}>
           {confirmLabel}
         </button>
-      </div>
-    </dialog>
+      </DialogActions>
+    </ModalDialog>
   );
 }

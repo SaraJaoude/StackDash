@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { PlatformLogo } from "@/components/icons";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
 import type { Platform } from "@/lib/site";
 
@@ -161,9 +161,7 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-white">
-                    <PlatformLogo platform={event.platform} className="size-3.5" />
-                  </span>
+                  <ProviderMark platform={event.platform} size="sm" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-mono text-xs text-muted">{event.platform}</span>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { buttonClass } from "@/components/ui/button";
 import { Wordmark } from "@/components/wordmark";
 
 export const metadata: Metadata = { title: "Page not found" };
@@ -25,13 +26,13 @@ export default function NotFound() {
         <div className="mt-6 flex flex-wrap gap-3">
           <Link
             href="/"
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary")}
           >
             Go to the home page
           </Link>
           <Link
             href="/app"
-            className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            className={buttonClass("secondary")}
           >
             Open your workspaces
           </Link>

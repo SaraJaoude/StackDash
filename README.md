@@ -425,7 +425,7 @@ npm run build            # production build
 CI also runs `supabase db lint --level error --fail-on error`,
 `npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. GitHub
 secret scanning and push protection are not on for this repository yet: turning them on is a
-manual step in [Deploy, what stays Eddie's](docs/operations/deploy.md#what-stays-eddies), and until
+manual step in [Hosted instance runbook, what stays Eddie's](docs/internal/hosted-instance.md#what-stays-eddies), and until
 then the CI gitleaks scan is the only automated secret check. Run the scan locally from a normal
 clone (not a git worktree) with:
 
@@ -495,18 +495,22 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, the privacy policy and terms of use, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
 | `DEVMACRO_ENCRYPTION_KEY` | AES-256-GCM key for stored provider credentials | Secret | Required to connect providers and sync |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Old keys kept readable during key rotation, `keyId:base64Key` comma separated | Secret | Optional (only while rotating) |
 | `CRON_SECRET` | Bearer secret for `POST /api/jobs/tick`, at least 32 characters | Secret | Required where a scheduler calls the route |
+| `DEVMACRO_SUPER_ADMIN_EMAILS` | Comma separated email addresses of the people who can open the [instance overview](#instance-overview) at `/app/admin`, matched without regard to case against the email they sign in with | Server only | Optional (empty means nobody) |
 | `DEVMACRO_EMAIL_FROM` | Sender of alert emails, optionally with a name: `DevMacro alerts <alerts@your-domain>`, on a domain verified in the Resend account | Server only | Required with `DEVMACRO_RESEND_API_KEY` |
 | `DEVMACRO_RESEND_API_KEY` | Resend API key with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain. Locally any value, with the fake from step 12 | Secret | Optional (without it email is off) |
 | `DEVMACRO_RESEND_API_URL` | Another server that answers like Resend's API, instead of `https://api.resend.com`: https, or plain http only to this computer; scheme, host, and port only. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts (step 12) | Server only | Optional (needs `DEVMACRO_RESEND_API_KEY`) |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Set to `1` to let generic webhook channels post to plain http and private network addresses in a production build; checked on every post. Development allows them anyway | Server only | Optional (self-hosted instances on their own network and the CI e2e run; never on a hosted instance) |
 | `DEVMACRO_TRUSTED_PROXY_COUNT` | Self-hosted installs: how many proxies in front of the app append the client address to `x-forwarded-for`, a whole number from 1 to 9. The per IP rate limit of the public badge, card, and metrics routes and public project pages reads the entry that many places from the right. The app must sit behind a proxy that appends to `x-forwarded-for`: reached directly, a client can claim any address and the limit counts per claimed address. Ignored on Vercel (`VERCEL=1`), which reads `x-vercel-forwarded-for` | Server only | Optional (1 when unset) |
+| `DEVMACRO_OPERATOR_NAME` | Who runs this instance, named as responsible for its data on `/privacy` and `/terms`. Set all three operator variables or none: with none, both pages answer 404 and the sign-in page, footer, and sitemap do not link to them. The policy names Vercel as a processor only on Vercel (`VERCEL=1`), Resend only when alert email goes to Resend's own API (`DEVMACRO_RESEND_API_KEY` set, `DEVMACRO_RESEND_API_URL` unset or `https://api.resend.com`), and a generic email service when `DEVMACRO_RESEND_API_URL` names another server. Read at build time by the prerendered pages, together with `VERCEL` and the email variables, so rebuild after changing any of them; a half-set email configuration then fails the build | Server only | Optional (required to publish the privacy policy and terms) |
+| `DEVMACRO_OPERATOR_EMAIL` | One email address for privacy and data requests, shown on both pages | Server only | With `DEVMACRO_OPERATOR_NAME` |
+| `DEVMACRO_GOVERNING_LAW` | The law the terms of use are governed by, as it reads after "the law of", such as `England and Wales` | Server only | With `DEVMACRO_OPERATOR_NAME` |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID` | Sign-in GitHub OAuth app client ID, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET` | Sign-in GitHub OAuth app client secret, read by the Supabase CLI only | Secret (local CLI only) | Required by `supabase start` (placeholder allowed) |
 | `VERCEL_CLIENT_ID` | Vercel Integration client ID | Server only | Optional (enables Vercel) |
@@ -550,10 +554,11 @@ rest of the app keeps working. Each provider callback URL is
 
 ## Operations
 
-Every Markdown file under `docs/` is also published on the website at `/docs`, rendered at build time.
+Every Markdown file under `docs/` except `docs/internal/` is also published on the website at
+`/docs`, rendered at build time.
 
-- [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
-  Auth settings, Vercel project, environment variables, secrets, and verification.
+- [Deploy to Vercel and Supabase](docs/operations/deploy.md): Supabase project, forward-only
+  migrations, Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
   11 provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
@@ -575,6 +580,17 @@ npm run invite -- tester@example.com --remove   # stop new sign-ups with that em
 The script reads `.env.local` when present, otherwise `NEXT_PUBLIC_SUPABASE_URL` and
 `SUPABASE_SERVICE_ROLE_KEY` from the environment. Removing an invite does not delete an existing
 account. For production, follow [Deploy, invite testers](docs/operations/deploy.md#4-invite-testers).
+
+### Instance overview
+
+`/app/admin` shows a super admin how this server is configured and used: whether each environment
+variable above is set (never its value) and what that means, which provider OAuth apps are
+registered and how many workspaces use each provider, the background job queue and its failures in
+the last 24 hours, users, workspaces with their members and timeline events, and whether the
+database has this build's migrations. Super admins are the addresses in
+`DEVMACRO_SUPER_ADMIN_EMAILS`; anyone else gets page not found. Each view is logged with the
+viewer's user id (`admin.viewed`). Locally, add your GitHub email to `.env.local` and restart
+`npm run dev`.
 
 ### Rotate the encryption key
 
@@ -606,7 +622,8 @@ src/
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
-    sitemap.ts                 /sitemap.xml: the landing page, /docs and every docs page, and indexable public project pages
+    sitemap.ts                 /sitemap.xml: the landing page, /docs and every docs page, the legal pages, and indexable
+                               public project pages
     robots.ts                  /robots.txt: public pages allowed, signed-in and API paths disallowed, the sitemap named
     opengraph-image.tsx        /opengraph-image: the site's 1200 by 630 link preview image
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
@@ -614,9 +631,10 @@ src/
                                scripts carry the policy nonce
     fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
-    docs/                      the Markdown in docs/ published at /docs, one page per file
+    docs/                      the Markdown in docs/ published at /docs, one page per file, except docs/internal/
+    privacy/, terms/           privacy policy and terms of use, published only when the operator variables are set
     auth/                      OAuth callback, error page, sign-out
-    app/                       entry after sign-in, sends you to a workspace
+    app/                       entry after sign-in, sends you to a workspace; app/admin/ is the super admin instance overview
     account/                   account page, delete account action, signed-out "account deleted" page
     w/[workspace]/             dashboard, connections, projects, timeline, alerts and alert settings, settings, year in review
     unsubscribe/               signed-out page behind the unsubscribe link in alert emails
@@ -634,12 +652,17 @@ src/
     app/                       app shell: navigation, workspace switcher, command palette, page states
     account/                   account deletion form and manual revoke steps
     dashboard/                 dashboard view and provider cards
-    connections/               connection status, controls, provider marks
+    connections/               connection status and controls
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
     timeline/                  event list and filters
+    admin/                     instance overview tables and status pills
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs
+    legal/                     the privacy policy and terms of use layout, and the line beside the sign-in button
+    ui/                        shared primitives, used instead of writing your own: ProviderMark,
+                               ModalDialog (the only <dialog>), buttonClass, LiveRegion and the
+                               status and error announcements, DialogError
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
     adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated), registry, the unregistered example adapter, and the contract test harness
@@ -655,11 +678,13 @@ src/
     palette/                   command palette: the commands for a workspace, search, and shortcut keys
     data/                      data access per table
     crypto/                    credential encryption and key ids
-    auth/, workspaces/, account/  session, redirects, roles and permissions, account deletion
+    auth/, workspaces/, account/  session, redirects, super admins, roles and permissions, account deletion
+    admin/                     instance overview: configuration checks, deployment and migration state
     demo/                      the demo workspace, its replayed history, its one-time sign-in link, incidents on cue (npm run demo, demo:seed, demo:event), and in-app sample data
     log/                       structured logger with redaction
     supabase/                  Supabase clients (server, browser, admin) and generated types
     env.ts, site.ts, money.ts, providers.ts  env validation, site constants, money, provider list
+    legal.ts                   whether this instance names an operator, and the links to the legal pages
     docs.ts                    reads docs/ for /docs: the page list, titles, and link rewriting
   types/                       ambient type declarations
 supabase/
@@ -672,10 +697,13 @@ e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
+  getting-started.md           first steps for people using DevMacro, from sign-in to a published metric
+  mcp.md                       the MCP server: connecting an assistant, tools, resources, prompts
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   architecture/public-metrics.md  publishable metrics: rules, formulas, and the read API
   operations/                  deploy, OAuth apps, jobs
+  internal/                    hosted instance runbook, kept in the repository, not published at /docs
   providers/                   one page per provider: app setup, permissions, data read
 ```
 

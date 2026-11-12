@@ -4,14 +4,14 @@ import { useActionState, useId, useState } from "react";
 
 import { saveBudget, type AlertActionResult } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { BUDGET_NAME_MAX } from "@/lib/alerts/rule-schema";
 
 import {
   ErrorSummary,
   failureOf,
-  primaryButtonClass,
   ScopeFields,
-  secondaryButtonClass,
   SelectField,
   TextField,
 } from "./form-controls";
@@ -109,19 +109,19 @@ export function BudgetForm({
       <ScopeFields idPrefix={id} values={values} onChange={update} errors={errors} options={options} />
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add budget"}
         </GuardedButton>
         {onCancel === undefined ? null : (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
         )}
       </div>
 
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true && !isEdit ? <p className="text-success">Budget added.</p> : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }

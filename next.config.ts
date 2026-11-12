@@ -47,11 +47,13 @@ const nextConfig: NextConfig = {
   // src/lib/docs.ts reads docs/**/*.md with fs. A /docs slug that was not prerendered renders on
   // demand (and answers 404), so the Markdown ships with that route's server output, the MCP
   // endpoint serves the provider pages as resources (#163), and /sitemap.xml lists every docs page
-  // per request (#338).
+  // per request (#338). The super admin page compares the database's newest migration with the
+  // newest file in this build (src/lib/admin/deployment.ts, #250).
   outputFileTracingIncludes: {
     "/docs/**": ["./docs/**/*.md"],
     "/api/mcp": ["./docs/**/*.md"],
     "/sitemap.xml": ["./docs/**/*.md"],
+    "/app/admin": ["./supabase/migrations/*.sql"],
   },
   turbopack: {
     rules: {

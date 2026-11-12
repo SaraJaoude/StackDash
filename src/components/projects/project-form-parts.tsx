@@ -3,6 +3,7 @@
 import { useEffect, useRef } from "react";
 
 import type { ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { ReferenceNote } from "@/components/ui/live-region";
 
 type Failure = Extract<ProjectActionResult, { ok: false }>;
 
@@ -94,12 +95,7 @@ export function FormErrorSummary({ failure, fieldId }: { failure: Failure | unde
       ) : (
         <p>
           {failure.message}
-          {failure.referenceId === undefined ? null : (
-            <>
-              {" "}
-              Reference <code className="font-mono text-xs text-foreground">{failure.referenceId}</code>.
-            </>
-          )}
+          <ReferenceNote referenceId={failure.referenceId} />
         </p>
       )}
     </div>

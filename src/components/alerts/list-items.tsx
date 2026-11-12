@@ -9,11 +9,12 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 import { ALERT_SETTINGS_IDS } from "@/lib/workspaces/paths";
 
 import { BudgetForm } from "./budget-form";
 import { ConfirmDelete } from "./confirm-delete";
-import { failureOf, secondaryButtonClass, smallButtonClass } from "./form-controls";
 import type { AlertFormOptions, BudgetFormValues, RuleFormValues } from "./labels";
 import { RuleForm } from "./rule-form";
 
@@ -83,7 +84,7 @@ export function EditableRow({
                   setMessage(null);
                   setEditing(true);
                 }}
-                className={smallButtonClass}
+                className={buttonClass("raised", "xs")}
               >
                 {editLabel}
                 <span className="sr-only">: {summary}</span>
@@ -101,9 +102,9 @@ export function EditableRow({
           {renderForm(done)}
         </div>
       ) : null}
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {message === null ? null : <p className="mt-2 text-success">{message}</p>}
-      </div>
+      </LiveRegion>
     </li>
   );
 }
@@ -185,7 +186,7 @@ export function CreateDisclosure({
           setReturnFocus(false);
           setChosen(true);
         }}
-        className={secondaryButtonClass}
+        className={buttonClass("raised")}
       >
         {label}
       </button>
@@ -257,26 +258,20 @@ function PauseButton({
     setAlertRulePausedAction,
     null,
   );
-  const failure = failureOf(state);
   return (
     <form action={formAction} className="contents">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="ruleId" value={ruleId} />
       <input type="hidden" name="paused" value={paused ? "false" : "true"} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {paused ? "Resume rule" : "Pause rule"}
         <span className="sr-only">: {summary}</span>
       </GuardedButton>
-      <span role="status" aria-live="polite" className="basis-full text-sm">
-        {pending || state === null ? null : failure === null ? (
-          <span className="text-success">{paused ? "Alert rule paused." : "Alert rule resumed."}</span>
-        ) : (
-          <span className="text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </span>
-        )}
-      </span>
+      <OutcomeAnnouncement
+        inline
+        outcome={outcomeOf(pending ? null : state, paused ? "Alert rule paused." : "Alert rule resumed.")}
+        className="basis-full text-sm"
+      />
     </form>
   );
 }

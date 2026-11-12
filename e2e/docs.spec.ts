@@ -10,7 +10,7 @@ const ISSUE_REFERENCE = /(?<![\w&])#\d+\b/;
 const MAX_TAB_PRESSES = 100;
 
 test.describe("docs", () => {
-  test("the landing page leads to an index of every provider and operations page", async ({ page }) => {
+  test("the landing page leads to an index that starts with getting started", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("banner").getByRole("link", { name: "Docs", exact: true }).click();
 
@@ -18,13 +18,27 @@ test.describe("docs", () => {
     await expect(page).toHaveTitle("Docs · DevMacro");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
+    const main = page.getByRole("main");
+    // The leading four only: any other top-level page adds a Developers group after Architecture.
+    const groupHeadings = main.getByRole("heading", { level: 2 });
+    const leadingGroups = ["Using DevMacro", "Providers", "Self-hosting and operations", "Architecture"];
+    for (const [index, name] of leadingGroups.entries()) {
+      await expect(groupHeadings.nth(index)).toHaveText(name);
+    }
+    await expect(main.getByRole("link").first()).toHaveText("Getting started");
+    await expect(page.getByRole("region", { name: "Using DevMacro" }).getByRole("link")).toHaveText([
+      "Getting started",
+      "REST API",
+      "MCP server",
+    ]);
+
     const providers = page.getByRole("region", { name: "Providers" });
     for (const name of ["DigitalOcean", "GitHub", "GitLab", "Polar", "PostHog", "Railway", "Resend", "Sentry", "Stripe", "Supabase", "Vercel"]) {
       await expect(providers.getByRole("link", { name, exact: true })).toBeVisible();
     }
-    const operations = page.getByRole("region", { name: "Operations" });
+    const operations = page.getByRole("region", { name: "Self-hosting and operations" });
     for (const name of [
-      "Deploy the hosted app",
+      "Deploy to Vercel and Supabase",
       "Jobs: scheduled syncs, retries, and retention",
       "Register the OAuth apps",
     ]) {
@@ -34,8 +48,9 @@ test.describe("docs", () => {
       page.getByRole("region", { name: "Architecture" }).getByRole("link", { name: "Database schema", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("region", { name: "General" }).getByRole("link", { name: "Write a provider adapter", exact: true }),
+      page.getByRole("region", { name: "Developers" }).getByRole("link", { name: "Write a provider adapter", exact: true }),
     ).toBeVisible();
+    await expect(main.getByText("Hosted instance runbook")).toHaveCount(0);
   });
 
   test("each provider card says what DevMacro reads and how far it was tested", async ({ page }) => {
@@ -49,10 +64,20 @@ test.describe("docs", () => {
       await expect(card.getByText(/^(Not yet tested|Tested) with a real account$/)).toHaveCount(1);
     }
     // Only provider pages carry a status.
-    await expect(page.getByRole("region", { name: "Operations" }).getByText(/tested with a real account/)).toHaveCount(0);
+    await expect(
+      page.getByRole("region", { name: "Self-hosting and operations" }).getByText(/tested with a real account/),
+    ).toHaveCount(0);
   });
 
-  for (const path of ["/docs", "/docs/api", "/docs/mcp", "/docs/adapters", "/docs/providers/digitalocean", "/docs/architecture/schema"]) {
+  for (const path of [
+    "/docs",
+    "/docs/getting-started",
+    "/docs/api",
+    "/docs/mcp",
+    "/docs/adapters",
+    "/docs/providers/digitalocean",
+    "/docs/architecture/schema",
+  ]) {
     test(`${path} shows no issue numbers`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -113,7 +138,7 @@ test.describe("docs", () => {
     await tabTo(page, copyButton, MAX_TAB_PRESSES);
     await page.keyboard.press("Space");
 
-    await expect(main.getByRole("status").first()).toHaveText(
+    await expect(main.getByRole("alert").first()).toHaveText(
       "Could not copy the code. Select the text in the block and copy it yourself.",
     );
   });
@@ -140,11 +165,17 @@ test.describe("docs", () => {
     await page.getByRole("main").getByRole("link", { name: "Deploy, environment variables", exact: true }).click();
 
     await expect(page).toHaveURL("/docs/operations/deploy#environment-variables");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deploy the hosted app");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Deploy to Vercel and Supabase");
     await expect(page.getByRole("heading", { name: "Environment variables", exact: true })).toBeInViewport();
   });
 
-  for (const path of ["/docs/providers/not-a-provider", "/docs/Providers/Vercel", "/docs/providers/vercel/extra"]) {
+  for (const path of [
+    "/docs/providers/not-a-provider",
+    "/docs/Providers/Vercel",
+    "/docs/providers/vercel/extra",
+    // In the repository, never published.
+    "/docs/internal/hosted-instance",
+  ]) {
     test(`answers 404 for ${path}`, async ({ page }) => {
       const response = await page.goto(path);
 
@@ -155,7 +186,7 @@ test.describe("docs", () => {
     });
   }
 
-  for (const path of ["/docs", "/docs/api", "/docs/adapters", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
+  for (const path of ["/docs", "/docs/getting-started", "/docs/api", "/docs/adapters", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
     test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -168,19 +199,19 @@ test.describe("docs", () => {
   test("keyboard focus reaches the docs list and opens a doc", async ({ page }) => {
     await page.goto("/docs/providers/vercel");
     const firstDoc = page.getByRole("navigation", { name: "Docs" }).getByRole("link").first();
-    await expect(firstDoc).toHaveText("DigitalOcean");
+    await expect(firstDoc).toHaveText("Getting started");
 
     // Tab from the top of the page until focus lands on the first doc in the list.
     await tabTo(page, firstDoc, MAX_TAB_PRESSES);
 
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL("/docs/providers/digitalocean");
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("DigitalOcean");
+    await expect(page).toHaveURL("/docs/getting-started");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Getting started");
   });
 
   test("keyboard focus opens the adapter guide and follows a link to one of its sections", async ({ page }) => {
     await page.goto("/docs");
-    const guide = page.getByRole("region", { name: "General" }).getByRole("link", { name: "Write a provider adapter", exact: true });
+    const guide = page.getByRole("region", { name: "Developers" }).getByRole("link", { name: "Write a provider adapter", exact: true });
 
     await tabTo(page, guide, MAX_TAB_PRESSES);
     await page.keyboard.press("Enter");

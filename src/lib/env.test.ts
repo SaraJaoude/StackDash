@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { emailEnv, isLoopbackUrl } from "./env";
+import { emailEnv, isLoopbackUrl, onVercel, operatorEnv, superAdminEmails } from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -61,6 +61,63 @@ describe("emailEnv", () => {
   });
 });
 
+const OPERATOR_VARIABLES = ["DEVMACRO_OPERATOR_NAME", "DEVMACRO_OPERATOR_EMAIL", "DEVMACRO_GOVERNING_LAW"] as const;
+
+function stubOperatorEnv(values: Partial<Record<(typeof OPERATOR_VARIABLES)[number], string>>): void {
+  for (const name of OPERATOR_VARIABLES) vi.stubEnv(name, values[name] ?? "");
+}
+
+const OPERATOR = {
+  DEVMACRO_OPERATOR_NAME: "Example Operator Ltd",
+  DEVMACRO_OPERATOR_EMAIL: "privacy@example.com",
+  DEVMACRO_GOVERNING_LAW: "England and Wales",
+};
+
+describe("operatorEnv", () => {
+  it("is off when none of the three is set", () => {
+    stubOperatorEnv({});
+    expect(operatorEnv()).toBeNull();
+  });
+
+  it("reads all three, trimming the outer spaces of the name and the law", () => {
+    stubOperatorEnv({ ...OPERATOR, DEVMACRO_OPERATOR_NAME: "  Example Operator Ltd ", DEVMACRO_GOVERNING_LAW: " England and Wales" });
+    expect(operatorEnv()).toEqual({ name: "Example Operator Ltd", email: "privacy@example.com", governingLaw: "England and Wales" });
+  });
+
+  it.each(OPERATOR_VARIABLES.map((name) => [name]))("refuses a configuration without %s", (missing) => {
+    stubOperatorEnv({ ...OPERATOR, [missing]: "" });
+    expect(() => operatorEnv()).toThrow(`${missing} is not set`);
+  });
+
+  it.each([
+    ["a name of spaces only", { DEVMACRO_OPERATOR_NAME: "   " }, "DEVMACRO_OPERATOR_NAME is invalid"],
+    ["a name longer than 200 characters", { DEVMACRO_OPERATOR_NAME: "a".repeat(201) }, "DEVMACRO_OPERATOR_NAME is invalid"],
+    ["text that is not an email address", { DEVMACRO_OPERATOR_EMAIL: "privacy at example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
+    ["two email addresses", { DEVMACRO_OPERATOR_EMAIL: "a@example.com, b@example.com" }, "DEVMACRO_OPERATOR_EMAIL is invalid"],
+    ["a governing law of spaces only", { DEVMACRO_GOVERNING_LAW: " " }, "DEVMACRO_GOVERNING_LAW is invalid"],
+  ])("refuses %s", (_title, override, message) => {
+    stubOperatorEnv({ ...OPERATOR, ...override });
+    expect(() => operatorEnv()).toThrow(message);
+  });
+});
+
+describe("onVercel", () => {
+  it("is true for Vercel's own value, exactly 1", () => {
+    vi.stubEnv("VERCEL", "1");
+    expect(onVercel()).toBe(true);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["0", "0"],
+    ["true", "true"],
+  ])("is false when VERCEL is %s", (_title, value) => {
+    vi.stubEnv("VERCEL", value);
+    expect(onVercel()).toBe(false);
+  });
+});
+
 describe("isLoopbackUrl", () => {
   it.each([
     ["the agent stack", "http://127.0.0.1:56421"],
@@ -88,5 +145,27 @@ describe("isLoopbackUrl", () => {
     ["an empty string", ""],
   ])("refuses %s", (_title, url) => {
     expect(isLoopbackUrl(url)).toBe(false);
+  });
+});
+
+describe("superAdminEmails", () => {
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["only separators and spaces", " , ,"],
+  ])("names nobody when %s", (_title, value) => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", value);
+    expect(superAdminEmails().size).toBe(0);
+  });
+
+  it("reads a comma separated list, trimmed and lowercased, without duplicates", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", " Ops@Example.com,second@example.com ,ops@example.com,");
+    expect([...superAdminEmails()]).toEqual(["ops@example.com", "second@example.com"]);
+  });
+
+  it("refuses an entry that is not an email address, naming its position but never the entry", () => {
+    vi.stubEnv("DEVMACRO_SUPER_ADMIN_EMAILS", "ops@example.com,not-an-address");
+    expect(() => superAdminEmails()).toThrow("entry 2 is not an email address");
+    expect(() => superAdminEmails()).not.toThrow("not-an-address");
   });
 });

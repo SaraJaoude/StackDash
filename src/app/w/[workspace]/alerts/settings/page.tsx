@@ -7,6 +7,7 @@ import { PageSkeleton } from "@/components/app/page-skeleton";
 import { AlertSettings } from "@/components/alerts/alert-settings";
 import { AnomalySettings } from "@/components/alerts/anomaly-settings";
 import { PageHeader } from "@/components/app/page-header";
+import { LiveRegion } from "@/components/ui/live-region";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 
@@ -50,9 +51,9 @@ async function AlertSettingsContent({ params, searchParams }: PageProps<"/w/[wor
       />
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
             Loading alert rules, budgets, and where alerts go
-          </p>
+          </LiveRegion>
         }
       >
         <AlertSettings
@@ -65,9 +66,9 @@ async function AlertSettingsContent({ params, searchParams }: PageProps<"/w/[wor
       </Suspense>
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
             Loading unusual spend and usage settings
-          </p>
+          </LiveRegion>
         }
       >
         <AnomalySettings workspace={workspace} role={role} />

@@ -4,12 +4,11 @@ import Link from "next/link";
 import { useActionState, useEffect, useRef, type ReactNode } from "react";
 
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 
 import { unsubscribeFromEmail, type UnsubscribeResult } from "./actions";
-
-const buttonClass =
-  "inline-flex min-h-11 items-center rounded-lg bg-accent px-5 py-3 text-sm font-medium text-background transition-opacity hover:opacity-85 aria-disabled:opacity-60";
 
 export function UnsubscribeCard({ children }: { children: ReactNode }) {
   return (
@@ -58,10 +57,10 @@ export function EmailsOffNotice({ workspaceName, focusOnMount = false }: { works
   }, [focusOnMount]);
   return (
     <>
-      <p ref={ref} role="status" tabIndex={-1} className="text-sm leading-6">
+      <LiveRegion ref={ref} tone="status" as="p" tabIndex={-1} className="text-sm leading-6">
         Alert emails for <strong className="font-semibold">{workspaceName}</strong> are off. DevMacro sends you no more
         alert emails or digests for this workspace.
-      </p>
+      </LiveRegion>
       <p className="mt-3 text-sm leading-6 text-muted">
         Alerts still show in DevMacro. To get emails again, sign in and choose how often in alert settings.
       </p>
@@ -90,12 +89,12 @@ export function UnsubscribeForm({
   return (
     <>
       {state?.ok === false && state.reason === "failed" ? (
-        <div role="alert" className="mb-4 text-sm leading-6 text-danger">
+        <LiveRegion tone="error" className="mb-4 text-sm leading-6 text-danger">
           <p>DevMacro could not turn off your alert emails. Try again in a moment.</p>
           <p className="mt-2 text-muted">
             If it keeps happening, share reference <span className="font-mono text-foreground">{state.referenceId}</span>.
           </p>
-        </div>
+        </LiveRegion>
       ) : null}
       <p className="text-sm leading-6">
         Your alert emails for <strong className="font-semibold">{workspaceName}</strong> are set to {frequencyLabel}.
@@ -103,7 +102,7 @@ export function UnsubscribeForm({
       </p>
       <form action={formAction} className="mt-6">
         <input type="hidden" name="token" value={token} />
-        <GuardedButton type="submit" unavailable={pending} className={buttonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary", "lg")}>
           {pending ? "Turning off alert emails" : "Turn off alert emails"}
         </GuardedButton>
       </form>

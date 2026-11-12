@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createHeadingSlugger,
+  docGroup,
   getDoc,
   groupDocs,
   isDocSlug,
@@ -141,12 +142,14 @@ describe("createHeadingSlugger", () => {
 
 describe("listDocs", () => {
   const docsDir = path.join(process.cwd(), "docs");
-  const markdownFiles = fs
+  const allMarkdown = fs
     .readdirSync(docsDir, { recursive: true, encoding: "utf8" })
     .filter((file) => file.endsWith(".md"))
-    .map((file) => `/docs/${file.slice(0, -3).split(path.sep).join("/")}`);
+    .map((file) => file.slice(0, -3).split(path.sep));
+  const internalSlugs = allMarkdown.filter((slug) => slug[0] === "internal");
+  const markdownFiles = allMarkdown.filter((slug) => slug[0] !== "internal").map((slug) => `/docs/${slug.join("/")}`);
 
-  it("publishes every Markdown file under docs/ exactly once", () => {
+  it("publishes every Markdown file under docs/ outside docs/internal/ exactly once", () => {
     const hrefs = listDocs().map((doc) => doc.href);
     expect(markdownFiles.length).toBeGreaterThan(0);
     expect(new Set(hrefs).size).toBe(hrefs.length);
@@ -154,6 +157,24 @@ describe("listDocs", () => {
     expect(hrefs).toEqual(
       expect.arrayContaining(["/docs/providers/vercel", "/docs/operations/deploy", "/docs/architecture/schema"]),
     );
+  });
+
+  // docs/internal/ holds steps only the hosted instance's operator performs. A page there that
+  // became reachable at /docs would publish them.
+  it("never publishes a page under docs/internal/", () => {
+    expect(internalSlugs.length).toBeGreaterThan(0);
+    for (const slug of internalSlugs) {
+      expect(getDoc(slug), slug.join("/")).toBeNull();
+    }
+    expect(listDocs().filter((doc) => doc.slug[0] === "internal")).toEqual([]);
+  });
+
+  it("links to a page under docs/internal/ as a repository path, never as a doc", () => {
+    const docHrefs = new Set(listDocs().map((doc) => doc.href));
+    expect(resolveDocLink(["operations", "deploy"], "../internal/hosted-instance.md", docHrefs)).toEqual({
+      kind: "repo",
+      path: "docs/internal/hosted-instance.md",
+    });
   });
 
   it("titles each page from its first heading and describes it in plain text", () => {
@@ -197,9 +218,50 @@ describe("listDocs", () => {
     }
   });
 
-  it("groups pages by folder with providers, operations, then architecture", () => {
+  it("leads with getting started and the guides, then providers, operations, and architecture", () => {
     const groups = groupDocs(listDocs());
-    expect(groups.slice(0, 3).map((group) => group.label)).toEqual(["Providers", "Operations", "Architecture"]);
+    expect(groups.slice(0, 4).map((group) => group.label)).toEqual([
+      "Using DevMacro",
+      "Providers",
+      "Self-hosting and operations",
+      "Architecture",
+    ]);
+    expect(groups[0]?.docs.map((doc) => doc.href)).toEqual(["/docs/getting-started", "/docs/api", "/docs/mcp"]);
+    expect(listDocs()[0]?.href).toBe("/docs/getting-started");
     expect(groups.flatMap((group) => group.docs)).toHaveLength(listDocs().length);
+  });
+
+  // GitHub token prefixes, the shapes secret scanners flag. Samples use placeholders such as `<token>`.
+  it("holds no GitHub token-shaped string in any file under docs/, published or not", () => {
+    const tokenShape = /gh[pousr]_|github_pat_/;
+    for (const file of fs.readdirSync(docsDir, { recursive: true, encoding: "utf8" })) {
+      const fullPath = path.join(docsDir, file);
+      if (!fs.statSync(fullPath).isFile()) continue;
+      const found = fs
+        .readFileSync(fullPath, "utf8")
+        .split("\n")
+        .filter((line) => tokenShape.test(line));
+      expect(found, file).toEqual([]);
+    }
+  });
+});
+
+describe("docGroup", () => {
+  it.each<[string, string[], string]>([
+    ["a listed guide", ["getting-started"], "guides"],
+    ["the last listed guide", ["mcp"], "guides"],
+    ["a top-level page that is not a guide", ["adapters"], "developers"],
+    ["a page in a folder", ["providers", "vercel"], "providers"],
+    ["a page in a folder named like a guide", ["api", "keys"], "api"],
+    ["a page in a nested folder", ["architecture", "notes", "x"], "architecture"],
+  ])("puts %s in its group", (_case, slug, expected) => {
+    expect(docGroup(slug)).toBe(expected);
+  });
+
+  it("labels the known groups and a new folder from its name", () => {
+    const vercel = getDoc(["providers", "vercel"]);
+    if (vercel === null) throw new Error("docs/providers/vercel.md is missing");
+    const pages = ["developers", "release-notes"].map((group) => ({ ...vercel, group }));
+    expect(groupDocs(pages).map((group) => group.label)).toEqual(["Developers", "Release notes"]);
   });
 });

@@ -10,16 +10,15 @@ import {
   type AlertActionResult,
 } from "@/app/w/[workspace]/alerts/actions";
 import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
 import { ALERT_SETTINGS_IDS } from "@/lib/workspaces/paths";
 
 import { ConfirmDelete } from "./confirm-delete";
 import {
   ErrorSummary,
   failureOf,
-  primaryButtonClass,
-  secondaryButtonClass,
   SelectField,
-  smallButtonClass,
   submitWithoutReset,
   TextField,
 } from "./form-controls";
@@ -230,17 +229,17 @@ export function ChannelForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-3">
-        <GuardedButton type="submit" unavailable={pending} className={primaryButtonClass}>
+        <GuardedButton type="submit" unavailable={pending} className={buttonClass("primary")}>
           {pending ? "Saving" : isEdit ? "Save changes" : "Add channel"}
         </GuardedButton>
         {onCancel === undefined ? null : (
-          <button type="button" onClick={onCancel} className={secondaryButtonClass}>
+          <button type="button" onClick={onCancel} className={buttonClass("raised")}>
             Cancel
           </button>
         )}
       </div>
 
-      <div role="status" aria-live="polite" className="text-sm">
+      <LiveRegion tone="status" className="text-sm">
         {!pending && state?.ok === true && !isEdit ? (
           <div className="space-y-2">
             <p className="text-success">Channel added. Send a test message to check it.</p>
@@ -255,7 +254,7 @@ export function ChannelForm({
             )}
           </div>
         ) : null}
-      </div>
+      </LiveRegion>
     </form>
   );
 }
@@ -283,25 +282,19 @@ export function NewChannel({
 
 function TestButton({ workspaceSlug, destinationId, name }: { workspaceSlug: string; destinationId: string; name: string }) {
   const [state, formAction, pending] = useActionState<AlertActionResult | null, FormData>(sendAlertChannelTest, null);
-  const failure = failureOf(state);
   return (
     <form action={formAction} className="contents">
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="destinationId" value={destinationId} />
-      <GuardedButton type="submit" unavailable={pending} className={smallButtonClass}>
+      <GuardedButton type="submit" unavailable={pending} className={buttonClass("raised", "xs")}>
         {pending ? "Sending" : "Send test message"}
         <span className="sr-only">: {name}</span>
       </GuardedButton>
-      <span role="status" aria-live="polite" className="basis-full text-sm">
-        {pending || state === null ? null : failure === null ? (
-          <span className="text-success">Test message sent to {name}.</span>
-        ) : (
-          <span className="text-danger">
-            {failure.message}
-            {failure.referenceId === undefined ? null : ` Reference ${failure.referenceId}.`}
-          </span>
-        )}
-      </span>
+      <OutcomeAnnouncement
+        inline
+        outcome={outcomeOf(pending ? null : state, `Test message sent to ${name}.`)}
+        className="basis-full text-sm"
+      />
     </form>
   );
 }

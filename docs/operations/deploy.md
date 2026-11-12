@@ -1,6 +1,6 @@
-# Deploy the hosted app
+# Deploy to Vercel and Supabase
 
-This page takes a cold reader from an empty Vercel and Supabase account to a production deployment that invited testers can sign in to. Production promotion is Eddie's: agents prepare configuration and preview deployments, they never trigger or promote a production deployment.
+This page takes you from empty Vercel and Supabase accounts to a production deployment of your own DevMacro that the people you invite can sign in to.
 
 Placeholders in angle brackets (`<project-ref>`, `<production-host>`) stand for your own values. No real value belongs in this file or in the repository.
 
@@ -29,7 +29,7 @@ Order matters: the Supabase project must exist before the Vercel environment var
 
 ## 2. Apply the migrations, forward only
 
-House rules (project rules, Supabase section): schema changes are migrations in the repository, migrations are forward only and applied with `supabase migration up`, and there is **no `supabase db push` to a remote** and no schema change made by hand in the dashboard. A bad migration is fixed with a new migration. Never run `supabase db reset` against a remote, and never load `supabase/seed.sql` into production (it creates local test users).
+Schema changes are migrations in the repository, migrations are forward only and applied with `supabase migration up`, and there is **no `supabase db push` to a remote** and no schema change made by hand in the dashboard. A bad migration is fixed with a new migration. Never run `supabase db reset` against a remote, and never load `supabase/seed.sql` into production (it creates local test users).
 
 From a clean checkout of the commit you are deploying:
 
@@ -119,7 +119,7 @@ Start the line with a space if your shell is set to skip such lines in history, 
 
 ## 5. Create the Vercel project
 
-1. In Vercel, **Add New, Project**, import `eddiejaoude/DevMacro`.
+1. In Vercel, **Add New, Project**, and import your fork of the DevMacro repository.
 2. **Framework Preset**: Next.js. Root directory: the repository root. Keep the default install command, build command (`npm run build`), and output directory.
 3. **Settings, General, Node.js Version**: 22.x, the version CI uses.
 4. **Settings, Git**: production branch `main`. Every other branch and every pull request gets a preview deployment automatically. Keep **Git Fork Protection** on, so a pull request from a fork never builds with the project's secrets until someone approves it.
@@ -131,22 +131,26 @@ Preview deployments run unreviewed branch code. Point the **Preview** environmen
 
 ### Environment variables
 
-Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment; every other variable is read on the server at runtime. A secret must never get a `NEXT_PUBLIC_` name.
+Set them in **Settings, Environment Variables**, per environment. `NEXT_PUBLIC_` variables are inlined into the browser bundle at build time, so changing one needs a new deployment. Every other variable is read on the server at runtime, except the inputs of the prerendered home page and legal pages, which are read at build time: the three operator variables, and for the privacy policy's list of processors also `VERCEL` and the email variables (`DEVMACRO_RESEND_API_KEY`, `DEVMACRO_EMAIL_FROM`, `DEVMACRO_RESEND_API_URL`). So the policy names Resend only after a deployment that was built with the email variables set, and with the operator variables set, a half-set email configuration (a key without `DEVMACRO_EMAIL_FROM`) fails `next build` instead of only showing a notice on the alerts page. A secret must never get a `NEXT_PUBLIC_` name. Vercel applies a changed variable only to the next deployment anyway.
 
 | Variable | Kind | Production | Preview | Where it comes from |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the addresses in the sitemap and robots.txt, of the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages (left out while it is unset), and of the links in alert messages, which a production build will not send without it |
+| `NEXT_PUBLIC_SITE_URL` | Public | `https://<production-host>` | Leave unset (the app falls back to the request origin), unless the preview sends alert emails or channel messages: then the preview URL | The production URL. Also the origin of every provider callback URL, of the `formulaUrl` links in the public metrics route, of the addresses in the sitemap and robots.txt, of the canonical address, `og:url`, and preview image of the landing page, the docs, the privacy policy and terms of use, and public project pages (left out while it is unset), and of the links in alert messages, which a production build will not send without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Public | `https://<project-ref>.supabase.co` | Staging project URL | Supabase, Project Settings, API |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Public | Publishable key (`sb_publishable_...`) | Staging publishable key | Supabase, Project Settings, API Keys |
 | `SUPABASE_SERVICE_ROLE_KEY` | Secret | Service role (secret) key | Staging key | Supabase, Project Settings, API Keys. Bypasses row level security |
 | `DEVMACRO_ENCRYPTION_KEY` | Secret | Own key | Different key | `openssl rand -base64 32` (step 6) |
 | `DEVMACRO_ENCRYPTION_KEYS_PREVIOUS` | Secret | Unset except during rotation | Unset | See [key rotation](#key-rotation) |
 | `CRON_SECRET` | Secret | Own value | Different value, or unset if staging runs no cron job | Step 6. The same value goes into the `pg_cron` job |
+| `DEVMACRO_SUPER_ADMIN_EMAILS` | Server only | The operators' sign-in emails | Optional | Who can open the instance overview at `/app/admin`, comma separated, matched without regard to case. Empty means nobody |
 | `DEVMACRO_EMAIL_FROM` | Server only | `DevMacro alerts <alerts@<verified-domain>>` | Optional | Sender of alert emails, an address on a domain verified in the Resend account |
 | `DEVMACRO_RESEND_API_KEY` | Secret | Yes, for alert email | Optional, a separate key | Resend, API Keys, with sending access. Alert email goes only through Resend, so a self-hosted install needs a Resend account and a verified sending domain; without this key email is off |
 | `DEVMACRO_RESEND_API_URL` | Server only | Unset (sends to `https://api.resend.com`) | Unset | Another server that answers like Resend's API: https, or plain http only to the same computer. Locally `http://127.0.0.1:55430`, the fake that `npm run email:fake` starts |
 | `DEVMACRO_ALLOW_PRIVATE_WEBHOOKS` | Server only | **Must be unset** | **Unset** | `1` lets webhook channels reach plain http and private addresses, whether written in the URL or resolved from its host name. Checked each time a message is posted, so unsetting it stops posts to such channels at once. Only for a self-hosted instance on its own network, and the e2e run |
 | `DEVMACRO_TRUSTED_PROXY_COUNT` | Server only | Unset | Unset | Self-hosted only: how many proxies in front of the app append to `x-forwarded-for` (1 when unset), for the per IP rate limit of the public routes. Ignored on Vercel: with `VERCEL=1` (a system environment variable) the app reads the client from `x-vercel-forwarded-for`. Without system variables it reads `x-forwarded-for`, which Vercel overwrites with the client alone, so unset is right there too |
+| `DEVMACRO_OPERATOR_NAME` | Server only | `<your name or organization>` | Optional: unset keeps `/privacy` and `/terms` off previews | Who runs the instance, named on the privacy policy and terms of use. Set all three operator variables or none: with none, both pages answer 404 and nothing links to them; with only some, the build fails and names the missing one. The policy names Vercel only when the build sees `VERCEL=1`, which Vercel sets only while **Settings, Environment Variables, Enable access to System Environment Variables** is checked ([system environment variables](https://vercel.com/docs/environment-variables/system-environment-variables)), so keep it checked: without it the policy says "Hosting" and nothing fails. After the first production deployment built with these and the email variables, check that `/privacy` lists Vercel and Resend |
+| `DEVMACRO_OPERATOR_EMAIL` | Server only | `<privacy contact address>` | Optional, with the name | The address for privacy and data requests, shown on both pages |
+| `DEVMACRO_GOVERNING_LAW` | Server only | `<jurisdiction>`, for example `England and Wales` | Optional, with the name | The law the terms of use are governed by, as it reads after "the law of" |
 | `GITHUB_APP_ID` | Server only | Yes | Optional | [OAuth apps, GitHub App](oauth-apps.md#github-app) |
 | `GITHUB_APP_SLUG` | Server only | Yes | Optional | Same |
 | `GITHUB_APP_CLIENT_ID` | Server only | Yes | Optional | Same |
@@ -207,13 +211,7 @@ After the production deployment exists and `CRON_SECRET` is set, register the `p
 
 The cron job is environment configuration, not a migration, because it carries the production URL and the secret. Register it only on the production project (and on staging only if staging should sync).
 
-## 8. Promote production (Eddie)
-
-1. Merge to `main` after CI passes and the preview has been checked. Vercel builds a production deployment.
-2. Before the deployment receives traffic, apply any new migrations (step 2).
-3. Promote or confirm the production deployment in Vercel.
-
-## 9. Verify the production deployment
+## 8. Verify the production deployment
 
 Run every check against the production URL and write down the deployment URL you checked.
 
@@ -239,19 +237,7 @@ Run every check against the production URL and write down the deployment URL you
 - [ ] **The scheduler runs.** In the Supabase SQL editor, recent `pg_cron` runs succeed and ticks get `200` responses; [Jobs](jobs.md) lists the queries.
 - [ ] **A sync runs.** Connect one provider in a test workspace (needs that provider's app from [OAuth apps](oauth-apps.md)), then select **Sync now** or wait for the schedule. The connection shows a recent "last synced" time and `public.sync_jobs` has a `succeeded` row for it.
 - [ ] **Fake and simulated providers are off.** The provider catalog shows no fake provider and no "Simulated" label, and `https://<production-host>/api/dev/fake-provider/authorize` and `https://<production-host>/api/dev/fake-provider/authorize?provider=vercel` both answer `404`.
+- [ ] **Instance overview.** Sign in as an address in `DEVMACRO_SUPER_ADMIN_EMAILS` and open `https://<production-host>/app/admin`: it says nothing needs attention, the scheduler is running, and the database migrations are up to date. Signed in as anyone else, the same address answers page not found.
 - [ ] **Preview deployments.** A pull request gets a preview URL from Vercel.
 - [ ] **Sessions are verified without Auth.** The **JWT signing keys** page lists the ECC (P-256) key as the current key. Checking the JWKS endpoint is not enough: it also lists a key that is only on standby.
 - [ ] **Link previews and crawl rules.** `curl -s https://<production-host>/docs | grep -oE '<(meta property="og:(title|url|image)"|link rel="canonical")[^>]*>'` prints the page's own title and production addresses, the `og:image` address answers `200` with a PNG, and `curl -s https://<production-host>/robots.txt` names `https://<production-host>/sitemap.xml` and disallows `/w/`, `/app`, `/api/`, `/auth/`, `/account`, and `/oauth`.
-
-## What stays Eddie's
-
-- Creating the Vercel project, the production (and staging) Supabase projects, and the SMTP sender.
-- Registering the sign-in OAuth app and one app per provider ([OAuth apps](oauth-apps.md)), and entering their secrets.
-- Generating and storing the production secrets.
-- Running migrations against production, registering the cron job, and inviting testers.
-- Promoting production deployments. Agents never trigger or promote one.
-- Migrating and rotating the JWT signing keys of the production (and staging) Supabase projects ([JWT signing keys](#jwt-signing-keys)).
-- Turning on GitHub secret scanning and push protection for the repository. In **Settings, Code security** (called **Advanced Security** in newer GitHub layouts), enable **Secret scanning** and **Push protection**. For a private repository this needs GitHub Secret Protection, a paid part of GitHub Advanced Security; both are free once the repository is public. Until they are on, the gitleaks scan in CI is the only automated secret check, and it only runs after a push. Confirm with `gh api repos/eddiejaoude/DevMacro --jq '.security_and_analysis'`: `secret_scanning` and `secret_scanning_push_protection` must both show `"status": "enabled"`.
-- Turning on private vulnerability reporting, which `SECURITY.md` names as the way to report a vulnerability. GitHub offers it for public repositories only: while the repository is private, `gh api -X PUT repos/eddiejaoude/DevMacro/private-vulnerability-reporting` answers `404 Not Found` and reports go to the email address in `SECURITY.md`. Once the repository is public, run that command again (or enable **Private vulnerability reporting** in **Settings, Code security**) and confirm with `gh api repos/eddiejaoude/DevMacro/private-vulnerability-reporting`: it must show `"enabled": true`.
-- Checking the issue chooser after the contributor templates in `.github/ISSUE_TEMPLATE/` reach `main`. GitHub reads issue templates from the default branch only, so no branch before that can show them. On the repository, open **Issues**, then **New issue**: the chooser must list **Bug report**, **Adapter request**, and **Task**, and one **Report a security vulnerability** row that opens the security policy. GitHub may add its own row of that name once `SECURITY.md` is on `main`. If both show, remove the `contact_links` entry from `.github/ISSUE_TEMPLATE/config.yml`: it duplicates GitHub's row.
-- Turning the CI workflow back on before the repository takes pull requests from outside contributors. `CONTRIBUTING.md` tells contributors that CI runs on every pull request, and the workflow was switched off before launch. Check with `gh api repos/eddiejaoude/DevMacro/actions/workflows --jq '.workflows[] | {name, state}'`: while CI shows `"state": "disabled_manually"`, run `gh workflow enable ci.yml -R eddiejaoude/DevMacro` and check again. CI must show `"state": "active"`.

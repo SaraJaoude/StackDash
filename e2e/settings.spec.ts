@@ -49,7 +49,7 @@ ownerTest.describe("renaming a workspace as the owner", () => {
       await save.click();
       await expect(field).toHaveAttribute("aria-invalid", "true");
       await expect(field).toHaveAccessibleDescription(/Enter a workspace name\./);
-      await expect(page.getByRole("status").filter({ hasText: "The name was not saved." })).toBeVisible();
+      await expect(page.getByRole("alert").filter({ hasText: "The name was not saved." })).toBeVisible();
 
       await field.fill("a".repeat(81));
       await save.click();

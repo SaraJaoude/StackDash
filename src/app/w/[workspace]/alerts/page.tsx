@@ -4,10 +4,11 @@ import { Suspense } from "react";
 import { z } from "zod";
 
 import { PageSkeleton } from "@/components/app/page-skeleton";
-import { secondaryButtonClass } from "@/components/alerts/form-controls";
 import { MovedSettingsRedirect } from "@/components/alerts/moved-settings-redirect";
 import { TriggeredAlerts } from "@/components/alerts/triggered-alerts";
 import { PageHeader } from "@/components/app/page-header";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { alertSettingsPath } from "@/lib/workspaces/paths";
 
@@ -43,16 +44,16 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
         title="Alerts"
         description="Alerts raised by your rules and budgets, newest first. Rules, budgets, unusual spend and usage, and where alerts go are in alert settings."
         actions={
-          <Link href={alertSettingsPath(workspace.slug)} className={secondaryButtonClass}>
+          <Link href={alertSettingsPath(workspace.slug)} className={buttonClass("raised")}>
             Alert settings
           </Link>
         }
       />
       <Suspense
         fallback={
-          <p role="status" className="mt-8 text-sm text-muted">
+          <LiveRegion tone="status" as="p" className="mt-8 text-sm text-muted">
             Loading triggered alerts
-          </p>
+          </LiveRegion>
         }
       >
         <TriggeredAlerts
@@ -63,7 +64,6 @@ async function AlertsContent({ params, searchParams }: PageProps<"/w/[workspace]
           after={search.alertsAfter ?? null}
         />
       </Suspense>
-
     </>
   );
 }
