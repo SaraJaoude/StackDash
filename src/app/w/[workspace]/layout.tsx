@@ -113,11 +113,12 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
           </span>
         ) : null}
         {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364).
-            Below `sm` it would squeeze the workspace switcher to one letter; the palette offers it there. */}
+            From `sm` to `lg` the role badge, the account name, and this link leave the workspace
+            switcher too little room for its name, so it starts at `lg`; the palette offers it at every width. */}
         {showsAdminLink(user.email) ? (
           <Link
             href={ADMIN_PATH}
-            className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground sm:inline-flex"
+            className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground lg:inline-flex"
           >
             Admin
           </Link>

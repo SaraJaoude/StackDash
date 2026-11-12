@@ -1,16 +1,23 @@
 import { test, type Page } from "@playwright/test";
 
-import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { E2E_USERS, expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } from "./fixtures/db";
+import { expectTopRowFits } from "./fixtures/header";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
 import { openWith, palette, trigger } from "./fixtures/palette";
 
 // playwright.config.ts names the e2e owner, and only the owner, in DEVMACRO_SUPER_ADMIN_EMAILS.
 
+const OWNER_ACCOUNT = `Account: ${E2E_USERS.owner.userName}`;
+
 function adminLink(page: Page) {
   return page.getByRole("banner").getByRole("link", { name: "Admin", exact: true });
+}
+
+function accountLink(page: Page) {
+  return page.getByRole("banner").getByRole("link", { name: OWNER_ACCOUNT, exact: true });
 }
 
 /** Opens the palette, searches "open admin", and takes the one result to the overview. */
@@ -91,6 +98,44 @@ ownerTest.describe("the instance overview as a super admin", () => {
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openAdminFromPalette(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps the Admin link off a phone's header row, and the palette still reaches the overview there", async ({ page }) => {
+    const workspace = await createTestWorkspace("Admin phone");
+    try {
+      await page.setViewportSize({ width: 375, height: 812 });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(accountLink(page)).toBeVisible();
+      await expect(adminLink(page)).toBeHidden();
+      await expectTopRowFits(page, OWNER_ACCOUNT);
+      await openAdminFromPalette(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // The link starts at lg: below it, the role badge and the account name leave the workspace
+  // switcher too little room beside it (#364).
+  ownerTest("shows the Admin link from the lg breakpoint, with the workspace name still in full", async ({ page }) => {
+    const workspace = await createTestWorkspace("Admin breakpoint");
+    try {
+      const switcherName = page.getByRole("banner").getByRole("button", { name: /^Workspace: / }).getByText(workspace.name, { exact: true });
+      const nameFits = () => switcherName.evaluate((element) => element.scrollWidth <= element.clientWidth);
+
+      await page.setViewportSize({ width: 1023, height: 720 });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(accountLink(page)).toBeVisible();
+      await expect(adminLink(page)).toBeHidden();
+      await expectTopRowFits(page, OWNER_ACCOUNT);
+      expect(await nameFits()).toBe(true);
+
+      await page.setViewportSize({ width: 1024, height: 720 });
+      await expect(adminLink(page)).toBeVisible();
+      await expectTopRowFits(page, OWNER_ACCOUNT, { adminLink: true });
+      expect(await nameFits()).toBe(true);
     } finally {
       await deleteTestWorkspace(workspace);
     }
