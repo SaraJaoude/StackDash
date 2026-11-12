@@ -612,10 +612,13 @@ scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, dem
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
+  getting-started.md           first steps for people using DevMacro, from sign-in to a published metric
+  mcp.md                       the MCP server: connecting an assistant, tools, resources, prompts
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   architecture/public-metrics.md  publishable metrics: rules, formulas, and the read API
   operations/                  deploy, OAuth apps, jobs
+  internal/                    hosted instance runbook, kept in the repository, not published at /docs
   providers/                   one page per provider: app setup, permissions, data read
 ```
 
