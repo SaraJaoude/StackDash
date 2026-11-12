@@ -29,8 +29,7 @@ export const instant = false;
 const signInErrorSchema = z.enum(SIGN_IN_ERROR_CODES);
 
 const SIGN_IN_ERRORS: Record<SignInErrorCode, string> = {
-  not_invited:
-    "This GitHub account's email has not been invited to the DevMacro test. Ask for an invite, then try again.",
+  not_invited: "This GitHub account's email has not been invited to DevMacro. Ask for an invite, then try again.",
   cancelled: "GitHub sign-in was cancelled. Continue with GitHub to try again.",
   start_failed: "We could not start GitHub sign-in. Try again in a moment.",
   callback_failed: "GitHub sign-in did not finish. Try again in a moment.",

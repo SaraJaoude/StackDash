@@ -204,6 +204,11 @@ ownerTest.describe("command palette as the owner", () => {
       await page.goto(`/w/${workspace.slug}/dashboard`);
       await openWith(palette(page), () => trigger(page).click());
       await expect(combobox(page)).toBeFocused();
+      // The search field shows the shell's focus outline (#345): a solid 2px ring in the accent,
+      // 6.2:1 against the palette's panel, not a borderless field with no sign of focus.
+      await expect(combobox(page)).toHaveCSS("outline-style", "solid");
+      await expect(combobox(page)).toHaveCSS("outline-width", "2px");
+      await expect(combobox(page)).toHaveCSS("outline-color", "rgb(255, 93, 59)");
       await expect(option(page, "Timeline", "Page")).toBeVisible();
       await waitForTrends(page);
       await expectNoAxeViolations(page);

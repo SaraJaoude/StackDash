@@ -22,6 +22,7 @@ import {
 } from "@/lib/public-metrics/published";
 import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
+import { socialMetadata } from "@/lib/site-metadata";
 
 /*
  * A public project page (#150), answered at /@<handle or workspace slug>/<page slug> (src/proxy.ts
@@ -52,9 +53,6 @@ const HISTORY_PERIOD = `last ${HISTORY_DAYS} days`;
 const RECENT_WINDOW = { days: 30, period: "last 30 days" } as const;
 const DESCRIPTION_METRICS = 3;
 
-// The public origin is configuration (root layout): unset means no absolute URLs in metadata.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-
 function isEngine(metric: PublishedMetric): metric is PublishedEngineMetric {
   return metric.kind === "engine";
 }
@@ -70,26 +68,20 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
     .slice(0, DESCRIPTION_METRICS)
     .map((metric) => `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`);
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
-  const path = projectPagePath(page.workspace, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
-  // The preview image is the badges and cards (#149) card of the first published engine metric.
+  // The preview image is the badges and cards (#149) card of the first published engine metric,
+  // and the site image (#338) when only self-reported values are published.
   const images =
     card === undefined
-      ? []
-      : [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }];
+      ? {}
+      : { images: [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }] };
 
   return {
     title,
     description,
     // Indexable only when the owner chose it (#150).
     robots: page.indexable ? { index: true, follow: true } : { index: false, follow: false },
-    ...(siteUrl
-      ? {
-          alternates: { canonical: path },
-          openGraph: { type: "website", siteName: site.name, title, description, url: path, images },
-          twitter: { card: images.length > 0 ? "summary_large_image" : "summary", title, description, images },
-        }
-      : {}),
+    ...socialMetadata({ title, description, path: projectPagePath(page.workspace, page.pageSlug), ...images }),
   };
 }
 

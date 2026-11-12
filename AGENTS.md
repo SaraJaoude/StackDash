@@ -14,8 +14,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 Read `/Users/eddie/Downloads/brain/docs/project-rules.md` before doing any work in this repository.
 It is the source of truth for safety, decisions, voice, accessibility, tracking, attribution,
 commits, review, handoff, documentation research, code standards, types, dependencies, data
-correctness, security, error handling, performance, secrets, testing, and CI. If you cannot read
-that file, stop and say so rather than guessing.
+correctness, security, error handling, performance, secrets, testing, and CI. That file lives on
+the maintainer's machine. If you cannot read it, you are working as an outside contributor: follow
+[`CONTRIBUTING.md`](CONTRIBUTING.md), which carries the rules that apply to outside contributors,
+and do not guess at the rest.
 
 Repo: `eddiejaoude/DevMacro` (working directory `DevMacro`, so pass `-R eddiejaoude/DevMacro` to
 every `gh issue` and `gh pr` command).

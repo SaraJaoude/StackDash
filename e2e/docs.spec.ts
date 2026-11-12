@@ -43,6 +43,9 @@ test.describe("docs", () => {
     await expect(
       page.getByRole("region", { name: "Architecture" }).getByRole("link", { name: "Database schema", exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "General" }).getByRole("link", { name: "Write a provider adapter", exact: true }),
+    ).toBeVisible();
   });
 
   test("each provider card says what DevMacro reads and how far it was tested", async ({ page }) => {
@@ -59,7 +62,7 @@ test.describe("docs", () => {
     await expect(page.getByRole("region", { name: "Operations" }).getByText(/tested with a real account/)).toHaveCount(0);
   });
 
-  for (const path of ["/docs", "/docs/api", "/docs/mcp", "/docs/providers/digitalocean", "/docs/architecture/schema"]) {
+  for (const path of ["/docs", "/docs/api", "/docs/mcp", "/docs/adapters", "/docs/providers/digitalocean", "/docs/architecture/schema"]) {
     test(`${path} shows no issue numbers`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -162,7 +165,7 @@ test.describe("docs", () => {
     });
   }
 
-  for (const path of ["/docs", "/docs/api", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
+  for (const path of ["/docs", "/docs/api", "/docs/adapters", "/docs/providers/vercel", "/docs/providers/gitlab"]) {
     test(`${path} has no automatically detectable accessibility violations`, async ({ page }) => {
       await page.goto(path);
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
@@ -183,5 +186,21 @@ test.describe("docs", () => {
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/providers/digitalocean");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("DigitalOcean");
+  });
+
+  test("keyboard focus opens the adapter guide and follows a link to one of its sections", async ({ page }) => {
+    await page.goto("/docs");
+    const guide = page.getByRole("region", { name: "General" }).getByRole("link", { name: "Write a provider adapter", exact: true });
+
+    await tabTo(page, guide);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("/docs/adapters");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Write a provider adapter");
+
+    const sectionLink = page.getByRole("main").getByRole("link", { name: "Register the provider", exact: true }).first();
+    await tabTo(page, sectionLink);
+    await page.keyboard.press("Enter");
+    await expect(page).toHaveURL("/docs/adapters#register-the-provider");
+    await expect(page.getByRole("heading", { name: "Register the provider", exact: true })).toBeInViewport();
   });
 });
