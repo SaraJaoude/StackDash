@@ -495,10 +495,11 @@ rest of the app keeps working. Each provider callback URL is
 
 ## Operations
 
-Every Markdown file under `docs/` is also published on the website at `/docs`, rendered at build time.
+Every Markdown file under `docs/` except `docs/internal/` is also published on the website at
+`/docs`, rendered at build time.
 
-- [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
-  Auth settings, Vercel project, environment variables, secrets, and verification.
+- [Deploy to Vercel and Supabase](docs/operations/deploy.md): Supabase project, forward-only
+  migrations, Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
   eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
@@ -554,7 +555,7 @@ src/
                                scripts carry the policy nonce
     fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
-    docs/                      the Markdown in docs/ published at /docs, one page per file
+    docs/                      the Markdown in docs/ published at /docs, one page per file, except docs/internal/
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
     account/                   account page, delete account action, signed-out "account deleted" page
