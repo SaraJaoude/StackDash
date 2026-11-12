@@ -29,7 +29,7 @@ export function HistoryChart({
   title: string;
   /** "last 90 days", lowercase: it continues the title in sentences. */
   period: string;
-  /** The last `days` points, summarized in words above the chart under their own `period`. */
+  /** The last `days` points, summarized in words beside the chart under their own `period`. */
   recent: Readonly<{ days: number; period: string }>;
   points: readonly PublishedHistoryPoint[];
 }) {
@@ -64,58 +64,63 @@ export function HistoryChart({
         </span>
         {simulated ? <SimulatedBadge /> : null}
       </figcaption>
-      <p className="mt-2 text-sm">{historySummary(title, recent.period, chartPoints.slice(-recent.days))}</p>
 
-      <svg role="img" aria-label={historySummary(title, period, chartPoints)} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="mt-4 h-auto w-full text-accent">
-        <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
-        {chartPoints.map((point, index) => {
-          const previous = chartPoints[index - 1];
-          if (previous === undefined || previous.value === null || point.value === null) return null;
-          return (
-            <line
-              key={`segment-${point.asOf.toISOString()}`}
-              x1={x(index - 1)}
-              y1={y(previous.value)}
-              x2={x(index)}
-              y2={y(point.value)}
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          );
-        })}
-        {chartPoints.map((point, index) =>
-          point.value === null ? (
-            <line
-              key={`gap-${point.asOf.toISOString()}`}
-              x1={x(index)}
-              x2={x(index)}
-              y1={baseline - GAP_MARK}
-              y2={baseline}
-              className="stroke-muted"
-              strokeWidth={2}
-              vectorEffect="non-scaling-stroke"
-            />
-          ) : null,
-        )}
-      </svg>
-
-      {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
-      <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
-        <span className="shrink-0">{first === undefined ? "" : utcDay(first.asOf)}</span>
-        <span className="min-w-0 text-center">{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
-        <span className="shrink-0">{last === undefined ? "" : utcDay(last.asOf)}</span>
-      </div>
-
-      {hasGaps ? (
-        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
-            <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
+      <div className="mt-4 grid gap-x-6 gap-y-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <svg role="img" aria-label={historySummary(title, period, chartPoints)} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="h-auto w-full text-accent">
+            <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />
+            {chartPoints.map((point, index) => {
+              const previous = chartPoints[index - 1];
+              if (previous === undefined || previous.value === null || point.value === null) return null;
+              return (
+                <line
+                  key={`segment-${point.asOf.toISOString()}`}
+                  x1={x(index - 1)}
+                  y1={y(previous.value)}
+                  x2={x(index)}
+                  y2={y(point.value)}
+                  stroke="currentColor"
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  vectorEffect="non-scaling-stroke"
+                />
+              );
+            })}
+            {chartPoints.map((point, index) =>
+              point.value === null ? (
+                <line
+                  key={`gap-${point.asOf.toISOString()}`}
+                  x1={x(index)}
+                  x2={x(index)}
+                  y1={baseline - GAP_MARK}
+                  y2={baseline}
+                  className="stroke-muted"
+                  strokeWidth={2}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null,
+            )}
           </svg>
-          Break in the line, mark on the baseline: no value that day
-        </p>
-      ) : null}
+
+          {/* The dates and range are in the chart's name and the table, so screen readers skip them here. */}
+          <div aria-hidden="true" className="mt-1 flex justify-between gap-4 font-mono text-xs text-muted">
+            <span className="shrink-0">{first === undefined ? "" : utcDay(first.asOf)}</span>
+            <span className="min-w-0 text-center">{highest === undefined || lowest === undefined ? "" : `High ${highest.text}, low ${lowest.text}`}</span>
+            <span className="shrink-0">{last === undefined ? "" : utcDay(last.asOf)}</span>
+          </div>
+
+          {hasGaps ? (
+            <p className="mt-3 flex items-center gap-2 text-xs text-muted">
+              <svg width={12} height={12} viewBox="0 0 12 12" aria-hidden="true" className="text-muted">
+                <line x1={6} x2={6} y1={4} y2={12} stroke="currentColor" strokeWidth={2} />
+              </svg>
+              Break in the line, mark on the baseline: no value that day
+            </p>
+          ) : null}
+        </div>
+
+        <p className="text-sm leading-6">{historySummary(title, recent.period, chartPoints.slice(-recent.days))}</p>
+      </div>
 
       <details className="mt-4">
         <summary className="inline-flex min-h-6 cursor-pointer items-center text-sm font-medium underline underline-offset-4">

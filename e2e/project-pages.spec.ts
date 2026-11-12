@@ -122,7 +122,7 @@ ownerTest.describe("project pages as the owner", () => {
         await expect(publicPage.getByRole("img", { name: "Vercel", exact: true })).toHaveCount(0);
 
         // One history chart per published metric (#344), with a text alternative, the last 30 days
-        // stated in words above it, and the values as a table.
+        // stated in words beside it, and the values as a table.
         const history = publicPage.getByRole("region", { name: "History" });
         await expect(history.getByRole("figure")).toHaveCount(1);
         await expect(history.getByRole("img")).toHaveCount(1);

@@ -47,7 +47,7 @@ import { site } from "@/lib/site";
 export const instant = false;
 
 // One chart per metric over the whole history the page reads (#344). The last 30 days are a
-// sentence above it, not a second chart of the same line.
+// sentence beside it, not a second chart of the same line.
 const HISTORY_PERIOD = `last ${HISTORY_DAYS} days`;
 const RECENT_WINDOW = { days: 30, period: "last 30 days" } as const;
 const DESCRIPTION_METRICS = 3;
