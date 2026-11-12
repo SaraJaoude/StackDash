@@ -10,6 +10,38 @@ export function trigger(page: Page): Locator {
   return page.getByRole("button", { name: "Jump to" });
 }
 
+/** The palette's search field. */
+export function combobox(page: Page): Locator {
+  return palette(page).getByRole("combobox", { name: "Search commands" });
+}
+
+/**
+ * One result by its label, which is its accessible name, and its kind, which is its accessible
+ * description and the secondary text beside the label. Exact, because "Vercel" is the name of a
+ * provider dashboard and a provider timeline, and part of other names. Find a result this way, not
+ * by counting: the e2e owner and viewer belong to every spec's test workspace, and each one is a
+ * `Workspace` result that matches its own name.
+ */
+export function option(page: Page, label: string, kind: string): Locator {
+  return palette(page)
+    .getByRole("option", { name: label, exact: true })
+    .filter({ has: page.getByText(kind, { exact: true }) });
+}
+
+/** Every result of one kind, whatever its name. */
+export function optionsOfKind(page: Page, kind: string): Locator {
+  return palette(page)
+    .getByRole("option")
+    .filter({ has: page.getByText(kind, { exact: true }) });
+}
+
+/** The live region that counts the results, beside the one that reports an action's progress. */
+export function resultCount(page: Page): Locator {
+  return palette(page)
+    .getByRole("status")
+    .filter({ hasText: /results?\b|No commands match/ });
+}
+
 /**
  * Repeats `open` until `dialog` shows. The button's handler and the shortcut listener attach when
  * the shell hydrates, which can land after its streamed HTML is already visible (the dev server

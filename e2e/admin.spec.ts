@@ -6,7 +6,7 @@ import { adminClient, createTestWorkspace, cronSecret, deleteTestWorkspace } fro
 import { expectTopRowFits } from "./fixtures/header";
 import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
-import { openWith, palette, trigger } from "./fixtures/palette";
+import { combobox, openWith, option, optionsOfKind, palette, resultCount, trigger } from "./fixtures/palette";
 
 // playwright.config.ts names the e2e owner, and only the owner, in DEVMACRO_SUPER_ADMIN_EMAILS.
 
@@ -20,12 +20,16 @@ function accountLink(page: Page) {
   return page.getByRole("banner").getByRole("link", { name: OWNER_ACCOUNT, exact: true });
 }
 
-/** Opens the palette, searches "open admin", and takes the one result to the overview. */
+/**
+ * Opens the palette, searches "open admin", and takes the Admin page result to the overview. The
+ * result is found by label and kind, not by counting: the owner belongs to every spec's test
+ * workspace, and one named with "admin" also matches. The Admin page still comes first, because
+ * ties keep the list's own order and pages come before workspaces.
+ */
 async function openAdminFromPalette(page: Page): Promise<void> {
   await openWith(palette(page), () => trigger(page).click());
-  await palette(page).getByRole("combobox", { name: "Search commands" }).fill("open admin");
-  await expect(palette(page).getByRole("option")).toHaveCount(1);
-  const admin = palette(page).getByRole("option", { name: "Admin", exact: true });
+  await combobox(page).fill("open admin");
+  const admin = option(page, "Admin", "Page");
   await expect(admin).toHaveAccessibleDescription("Page");
   await expect(admin).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Enter");
@@ -76,7 +80,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
   });
 
   ownerTest("reaches the overview from the workspace header's Admin link, by keyboard", async ({ page }) => {
-    const workspace = await createTestWorkspace("Admin link");
+    const workspace = await createTestWorkspace("Header link");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await expect(adminLink(page)).toHaveAttribute("href", "/app/admin");
@@ -94,7 +98,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
   });
 
   ownerTest("reaches the overview from the command palette as \"open admin\"", async ({ page }) => {
-    const workspace = await createTestWorkspace("Admin palette");
+    const workspace = await createTestWorkspace("Palette overview");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await openAdminFromPalette(page);
@@ -104,7 +108,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
   });
 
   ownerTest("keeps the Admin link off a phone's header row, and the palette still reaches the overview there", async ({ page }) => {
-    const workspace = await createTestWorkspace("Admin phone");
+    const workspace = await createTestWorkspace("Phone header");
     try {
       await page.setViewportSize({ width: 375, height: 812 });
       await page.goto(`/w/${workspace.slug}/timeline`);
@@ -120,7 +124,7 @@ ownerTest.describe("the instance overview as a super admin", () => {
   // The link starts at lg: below it, the role badge and the account name leave the workspace
   // switcher too little room beside it (#364).
   ownerTest("shows the Admin link from the lg breakpoint, with the workspace name still in full", async ({ page }) => {
-    const workspace = await createTestWorkspace("Admin breakpoint");
+    const workspace = await createTestWorkspace("Header breakpoint");
     try {
       const switcherName = page.getByRole("banner").getByRole("button", { name: /^Workspace: / }).getByText(workspace.name, { exact: true });
       const nameFits = () => switcherName.evaluate((element) => element.scrollWidth <= element.clientWidth);
@@ -151,7 +155,7 @@ viewerTest("a signed-in user who is not a super admin gets page not found", asyn
 });
 
 viewerTest("a signed-in user who is not a super admin is offered no way to the overview", async ({ page }) => {
-  const workspace = await createTestWorkspace("Admin hidden");
+  const workspace = await createTestWorkspace("Overview hidden");
   try {
     const response = await page.goto(`/w/${workspace.slug}/timeline`);
     // The whole streamed response, HTML and RSC payload, so a link hidden only by style would fail too.
@@ -160,9 +164,11 @@ viewerTest("a signed-in user who is not a super admin is offered no way to the o
     await expect(adminLink(page)).toHaveCount(0);
 
     await openWith(palette(page), () => trigger(page).click());
-    await palette(page).getByRole("combobox", { name: "Search commands" }).fill("admin");
-    await expect(palette(page).getByRole("option")).toHaveCount(0);
-    await expect(palette(page).getByText('No commands match "admin"')).toBeVisible();
+    await combobox(page).fill("admin");
+    // By kind: the viewer also belongs to other specs' workspaces, some named with "admin", and no
+    // other page's label or keywords hold the word.
+    await expect(resultCount(page)).toBeVisible();
+    await expect(optionsOfKind(page, "Page")).toHaveCount(0);
   } finally {
     await deleteTestWorkspace(workspace);
   }

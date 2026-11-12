@@ -3,7 +3,7 @@ import type { Locator, Page, Route } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations, waitForTrends } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
-import { openWith, palette, trigger } from "./fixtures/palette";
+import { combobox, openWith, option, optionsOfKind, palette, resultCount, trigger } from "./fixtures/palette";
 
 /** A fresh workspace with one Vercel connection, account, and project, and two Vercel events. */
 async function seedPaletteWorkspace(label: string): Promise<TestWorkspace> {
@@ -88,35 +88,6 @@ async function seedTriggeredAlerts(workspace: TestWorkspace, count: number): Pro
     })),
   );
   if (error) throw new Error(`Seeding triggered alerts failed (code ${error.code}).`);
-}
-
-function combobox(page: Page) {
-  return palette(page).getByRole("combobox", { name: "Search commands" });
-}
-
-/**
- * One result by its label, which is its accessible name, and its kind, which is its accessible
- * description and the secondary text beside the label. Exact, because "Vercel" is the name of a
- * provider dashboard and a provider timeline, and part of other names.
- */
-function option(page: Page, label: string, kind: string) {
-  return palette(page)
-    .getByRole("option", { name: label, exact: true })
-    .filter({ has: page.getByText(kind, { exact: true }) });
-}
-
-/** Every result of one kind, whatever its name. */
-function optionsOfKind(page: Page, kind: string) {
-  return palette(page)
-    .getByRole("option")
-    .filter({ has: page.getByText(kind, { exact: true }) });
-}
-
-/** The live region that counts the results, beside the one that reports an action's progress. */
-function resultCount(page: Page) {
-  return palette(page)
-    .getByRole("status")
-    .filter({ hasText: /results?\b|No commands match/ });
 }
 
 /**
