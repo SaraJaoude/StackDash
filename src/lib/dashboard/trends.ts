@@ -12,9 +12,10 @@
  * - An account is expected in a bucket from its first row on. One that has stopped reporting (no
  *   row since `snapshotWindowStart(now)`, the dashboard's window) is expected only up to the
  *   bucket of its last row, in both granularities (#308), so a stopped account never makes a
- *   later day or month unavailable, and the daily and monthly views agree about it. The cost: the
- *   comparison across that account's last bucket compares a sum that includes it with one that no
- *   longer does, so it can show a fall that is only the account leaving.
+ *   later day or month unavailable, and the daily and monthly views agree about it. The cost, in
+ *   the monthly view only: the comparison across that account's last month compares a sum that
+ *   includes it with one that no longer does, so it can show a fall that is only the account
+ *   leaving. A stopped account's last day is more than 45 days back, outside the 30 day chart.
  * - A point is estimated when any row behind it is estimated. A series is simulated when any
  *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
