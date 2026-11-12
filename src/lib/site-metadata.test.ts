@@ -8,10 +8,14 @@ import { LANDING_TITLE, robotsRules, ROBOTS_DISALLOW, SITE_IMAGE, siteMetadataBa
 const ORIGIN = "https://devmacro.example";
 const DOC_PATHS = ["/docs/providers/vercel", "/docs/operations/deploy"];
 const PROJECT_PAGE = { path: "/@acme/acme-web", lastModified: new Date("2026-11-01T09:00:00Z") };
+const LEGAL_PAGES = [
+  { path: "/privacy", lastModified: "2026-11-12" },
+  { path: "/terms", lastModified: "2026-11-10" },
+];
 
 describe("sitemapEntries", () => {
   it("lists the static pages, then every docs page, then the project pages, all absolute", () => {
-    expect(sitemapEntries(ORIGIN, { docPaths: DOC_PATHS, projectPages: [PROJECT_PAGE] })).toEqual([
+    expect(sitemapEntries(ORIGIN, { docPaths: DOC_PATHS, legalPages: [], projectPages: [PROJECT_PAGE] })).toEqual([
       { url: `${ORIGIN}/` },
       { url: `${ORIGIN}/docs` },
       { url: `${ORIGIN}/docs/providers/vercel` },
@@ -20,13 +24,33 @@ describe("sitemapEntries", () => {
     ]);
   });
 
-  it("still lists the landing page and /docs with no docs pages and no project pages", () => {
-    expect(sitemapEntries(ORIGIN, { docPaths: [], projectPages: [] })).toEqual([{ url: `${ORIGIN}/` }, { url: `${ORIGIN}${DOCS_ROUTE}` }]);
+  it("lists the legal pages after the static pages, each with the date it last changed", () => {
+    expect(sitemapEntries(ORIGIN, { docPaths: DOC_PATHS, legalPages: LEGAL_PAGES, projectPages: [PROJECT_PAGE] })).toEqual([
+      { url: `${ORIGIN}/` },
+      { url: `${ORIGIN}/docs` },
+      { url: `${ORIGIN}/privacy`, lastModified: "2026-11-12" },
+      { url: `${ORIGIN}/terms`, lastModified: "2026-11-10" },
+      { url: `${ORIGIN}/docs/providers/vercel` },
+      { url: `${ORIGIN}/docs/operations/deploy` },
+      { url: `${ORIGIN}/@acme/acme-web`, lastModified: PROJECT_PAGE.lastModified },
+    ]);
+  });
+
+  it("still lists the landing page and /docs with no docs, legal, or project pages", () => {
+    expect(sitemapEntries(ORIGIN, { docPaths: [], legalPages: [], projectPages: [] })).toEqual([{ url: `${ORIGIN}/` }, { url: `${ORIGIN}${DOCS_ROUTE}` }]);
   });
 
   it("writes no double slash when the origin ends with a slash", () => {
-    const urls = sitemapEntries(`${ORIGIN}/`, { docPaths: DOC_PATHS, projectPages: [PROJECT_PAGE] }).map((entry) => entry.url);
-    expect(urls).toEqual([`${ORIGIN}/`, `${ORIGIN}/docs`, `${ORIGIN}/docs/providers/vercel`, `${ORIGIN}/docs/operations/deploy`, `${ORIGIN}/@acme/acme-web`]);
+    const urls = sitemapEntries(`${ORIGIN}/`, { docPaths: DOC_PATHS, legalPages: LEGAL_PAGES, projectPages: [PROJECT_PAGE] }).map((entry) => entry.url);
+    expect(urls).toEqual([
+      `${ORIGIN}/`,
+      `${ORIGIN}/docs`,
+      `${ORIGIN}/privacy`,
+      `${ORIGIN}/terms`,
+      `${ORIGIN}/docs/providers/vercel`,
+      `${ORIGIN}/docs/operations/deploy`,
+      `${ORIGIN}/@acme/acme-web`,
+    ]);
   });
 });
 
