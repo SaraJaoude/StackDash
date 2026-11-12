@@ -22,8 +22,10 @@ export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: Sn
  *   both views (#308), so leaving its older rows out of the daily read changes nothing.
  * - `"monthly"` reads `loadMonthlySnapshots` from `trendWindowStart(now)`: each account's latest
  *   row per metric and UTC month, grouped in the database (#317). That is every row `buildTrends`
- *   uses for a month (the latest per account, and the first month each account reported), so the
- *   read grows with months instead of days and a long history keeps its oldest months.
+ *   uses for a month (the latest per account, the first month each account reported, and the date
+ *   of each account's last row, which is its latest row of its last month and decides whether it
+ *   stopped reporting), so the read grows with months instead of days and a long history keeps its
+ *   oldest months.
  * The headline strip still reads its money and signup rows on its own (`getHeadlineSnapshots`
  * says why). The unique key `(external_account_id, metric_key, snapshot_date)` means each row is
  * already the latest value of its day. Call only after `requireWorkspace` has confirmed membership.
