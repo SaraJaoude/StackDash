@@ -11,6 +11,7 @@ import { SiteNav } from "@/components/site-nav";
 import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
 import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
+import { HISTORY_DAYS } from "@/lib/public-metrics/history";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
   loadPublishedProjectHistory,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/public-metrics/published";
 import { CARD_SIZE, cardPath } from "@/lib/public-metrics/share";
 import { site } from "@/lib/site";
+import { socialMetadata } from "@/lib/site-metadata";
 
 /*
  * A public project page (#150), answered at /@<handle or workspace slug>/<page slug> (src/proxy.ts
@@ -44,14 +46,11 @@ import { site } from "@/lib/site";
  */
 export const instant = false;
 
-const HISTORY_WINDOWS = [
-  { days: 30, period: "last 30 days" },
-  { days: 90, period: "last 90 days" },
-] as const;
+// One chart per metric over the whole history the page reads (#344). The last 30 days are a
+// sentence beside it, not a second chart of the same line.
+const HISTORY_PERIOD = `last ${HISTORY_DAYS} days`;
+const RECENT_WINDOW = { days: 30, period: "last 30 days" } as const;
 const DESCRIPTION_METRICS = 3;
-
-// The public origin is configuration (root layout): unset means no absolute URLs in metadata.
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
 
 function isEngine(metric: PublishedMetric): metric is PublishedEngineMetric {
   return metric.kind === "engine";
@@ -68,26 +67,20 @@ export async function generateMetadata({ params }: PageProps<"/p/[workspace]/[sl
     .slice(0, DESCRIPTION_METRICS)
     .map((metric) => `${metric.label}: ${metric.kind === "engine" ? metric.value.text : metric.text}`);
   const description = `What ${page.projectName} publishes on ${site.name}. ${shown.join(". ")}.`;
-  const path = projectPagePath(page.workspace, page.pageSlug);
   const card = page.published.metrics.find(isEngine);
-  // The preview image is the badges and cards (#149) card of the first published engine metric.
+  // The preview image is the badges and cards (#149) card of the first published engine metric,
+  // and the site image (#338) when only self-reported values are published.
   const images =
     card === undefined
-      ? []
-      : [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }];
+      ? {}
+      : { images: [{ url: cardPath(page.published.projectId, card.metricId), ...CARD_SIZE, alt: `${card.label} for ${page.projectName}` }] };
 
   return {
     title,
     description,
     // Indexable only when the owner chose it (#150).
     robots: page.indexable ? { index: true, follow: true } : { index: false, follow: false },
-    ...(siteUrl
-      ? {
-          alternates: { canonical: path },
-          openGraph: { type: "website", siteName: site.name, title, description, url: path, images },
-          twitter: { card: images.length > 0 ? "summary_large_image" : "summary", title, description, images },
-        }
-      : {}),
+    ...socialMetadata({ title, description, path: projectPagePath(page.workspace, page.pageSlug), ...images }),
   };
 }
 
@@ -162,10 +155,8 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
             {history.histories.map((entry) => (
               <div key={entry.publicationId} className="mt-6">
                 <h3 className="font-medium">{entry.label}</h3>
-                <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                  {HISTORY_WINDOWS.map((window) => (
-                    <HistoryChart key={window.days} title={entry.label} period={window.period} points={entry.points.slice(-window.days)} />
-                  ))}
+                <div className="mt-3">
+                  <HistoryChart title={entry.label} period={HISTORY_PERIOD} recent={RECENT_WINDOW} points={entry.points} />
                 </div>
               </div>
             ))}

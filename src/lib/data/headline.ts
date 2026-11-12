@@ -40,12 +40,12 @@ export async function getHeadlineSnapshots(
  * Signup and deploy counts per connection and event type for both headline windows, and each
  * connection's oldest reading, for the included accounts the scope leaves in view. One
  * `headline_event_counts` call per window, each summing the daily event rollup behind one
- * membership check and returning at most one row per connection and type, and one single row
- * snapshot read per connection with accounts in view, all run together. The rollup's days are UTC
- * days, as the windows' are, so a window's count is the same as counting its events. The oldest
- * reading is read on its own rather than from the trend history, whose newest first page cap would
- * otherwise move it forward in a busy workspace. Call only after `requireWorkspace` has confirmed
- * membership.
+ * membership check and returning at most one row per connection and type, and one
+ * `headline_first_readings` call for every connection's oldest reading on or before the current
+ * window's first day, all run together. The rollup's days are UTC days, as the windows' are, so a
+ * window's count is the same as counting its events. The oldest reading is read on its own rather
+ * than from the trend history, whose newest first page cap would otherwise move it forward in a
+ * busy workspace. Call only after `requireWorkspace` has confirmed membership.
  */
 export async function getHeadlineEvents(
   workspaceId: string,
@@ -69,27 +69,15 @@ export async function getHeadlineEvents(
     return data;
   };
   // Only "on or before the current window's first day" matters, so later readings are not read.
-  const firstReading = async (connectionId: string, connectionAccounts: readonly string[]) => {
-    const { data, error } = await supabase
-      .from("usage_snapshots")
-      .select("snapshot_date")
-      .eq("workspace_id", workspaceId)
-      .eq("connection_id", connectionId)
-      .in("external_account_id", [...connectionAccounts])
-      .lte("snapshot_date", windows.current.start)
-      .order("snapshot_date", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    if (error) throw new Error("Failed to read a connection's first snapshot", { cause: error });
-    return data === null ? [] : [[connectionId, data.snapshot_date] as const];
+  const firstReadings = async (): Promise<Map<string, string>> => {
+    const { data, error } = await supabase.rpc("headline_first_readings", {
+      p_workspace_id: workspaceId,
+      p_account_ids: accountIds,
+      p_on_or_before: windows.current.start,
+    });
+    if (error) throw new Error("Failed to read the connections' first snapshots", { cause: error });
+    return new Map(data.map((row) => [row.connection_id, row.snapshot_date]));
   };
-  const accountsByConnection = Map.groupBy(accounts, (account) => account.connection_id);
-  const [current, previous, readings] = await Promise.all([
-    count(windows.current),
-    count(windows.previous),
-    Promise.all(
-      [...accountsByConnection].map(([connectionId, list]) => firstReading(connectionId, list.map((account) => account.id))),
-    ),
-  ]);
-  return { current, previous, firstReadings: new Map(readings.flat()) };
+  const [current, previous, readings] = await Promise.all([count(windows.current), count(windows.previous), firstReadings()]);
+  return { current, previous, firstReadings: readings };
 }

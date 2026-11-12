@@ -1,0 +1,10 @@
+{
+  "account_id": "acct_1001",
+  "period": {
+    "start": "2026-11-01T00:00:00Z",
+    "end": "2026-12-01T00:00:00Z"
+  },
+  "currency": "USD",
+  "month_to_date_minor": 1840,
+  "invoice_status": "open"
+}

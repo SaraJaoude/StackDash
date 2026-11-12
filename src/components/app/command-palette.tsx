@@ -343,6 +343,8 @@ export function CommandPalette({
           <label htmlFor={inputId} className="sr-only">
             Search commands
           </label>
+          {/* No outline utility here: the field has no border, so the global :focus-visible outline in
+              globals.css is its only focus indicator (#345). */}
           <input
             {...INITIAL_FOCUS}
             id={inputId}
@@ -363,7 +365,7 @@ export function CommandPalette({
               setActive(0);
             }}
             onKeyDown={onInputKeyDown}
-            className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted focus:outline-none"
+            className="min-h-10 min-w-0 flex-1 bg-transparent text-sm text-foreground placeholder:text-muted"
           />
           <DialogCloseButton initialFocus={false} className={buttonClass("secondary", "sm")}>
             Close

@@ -3,13 +3,14 @@ import { LiveRegion } from "@/components/ui/live-region";
 /**
  * Placeholder for a workspace page while it checks access and loads, shaped like PageHeader plus
  * a content panel so nothing jumps when the page arrives. Every page under /w/[workspace] renders
- * its content inside `<Suspense fallback={<PageSkeleton />}>`, which gives each navigation an
- * instant shell under Cache Components.
+ * its content inside `<Suspense fallback={<PageSkeleton label="Loading ..." />}>`, which gives each
+ * navigation an instant shell under Cache Components. `label` names what is loading ("Loading the
+ * timeline"), because a screen reader hears only that line.
  */
-export function PageSkeleton() {
+export function PageSkeleton({ label }: { label: string }) {
   return (
     <LiveRegion tone="status">
-      <span className="sr-only">Loading this page</span>
+      <span className="sr-only">{label}</span>
       <div aria-hidden="true">
         <div className="border-b border-line pb-6">
           <div className="h-8 w-48 rounded-md bg-panel-raised motion-safe:animate-pulse" />

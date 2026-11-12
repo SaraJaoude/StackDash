@@ -25,7 +25,7 @@ export const metadata: Metadata = { title: "Connect a provider" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectProviderPage(props: PageProps<"/w/[workspace]/connections/new/[provider]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the connection form" />}>
       <ConnectProviderContent {...props} />
     </Suspense>
   );

@@ -37,11 +37,19 @@ install it; self-hosters register their own ([Sentry provider page](docs/provide
 
 ## Run it locally
 
-Follow these steps in order from a fresh clone. Every command runs from the repository root.
+Follow these steps in order from a fresh clone. Every command runs from the repository root. Steps
+1 to 6 end in a demo workspace with 90 days of simulated history, signed in, without registering any
+OAuth app. Steps 7 to 12 add real GitHub sign-in, the fake provider, syncs, and email.
 
 ### 1. Prerequisites
 
-- Node.js 20.9 or later and npm (CI uses Node.js 22).
+- Node.js 22.13 or later in the 22 line, and npm. CI and the hosted app on Vercel both use Node.js
+  22, and `.nvmrc` says the same, so `nvm install` installs the latest 22 and selects it. The floor
+  comes from `package-lock.json`: `@supabase/supabase-js` and its packages need Node.js 22, Vite and
+  Rolldown (used by Vitest) and `@axe-core/playwright` need 22.12, and `eslint-visitor-keys` 5 (used
+  by typescript-eslint) needs 22.13. The `engines` field in `package.json` holds the same range,
+  `^22.13.0`: Vercel reads it to choose the Node.js version it deploys, so it stays on the version CI
+  tests. On Node.js 24 or later, `npm ci` warns `EBADENGINE` and carries on.
 - Docker running (Docker Desktop, OrbStack, or another Docker-compatible runtime).
 - The [Supabase CLI](https://supabase.com/docs/guides/local-development/cli/getting-started),
   version 2.120 or later, for example `brew install supabase/tap/supabase`. CI pins 2.120.0, the
@@ -51,7 +59,7 @@ Follow these steps in order from a fresh clone. Every command runs from the repo
 ### 2. Clone and install
 
 ```bash
-git clone git@github.com:eddiejaoude/DevMacro.git
+git clone https://github.com/eddiejaoude/DevMacro.git
 cd DevMacro
 npm ci
 ```
@@ -68,16 +76,14 @@ export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=local-placeholder
 supabase start
 ```
 
-Placeholders are enough for everything except signing in with GitHub in the browser (the checks
-and the end-to-end suite never sign in through GitHub, and `npm run demo` from step 11 signs you in
-as the demo account without it). To sign in locally with GitHub, register a separate GitHub OAuth
-app with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
-[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in),
-export its real client ID and secret instead (or put both lines in `supabase/.env.local`, which is
-git ignored), and run `supabase stop` then `supabase start` again.
+Placeholders are enough for everything except signing in with your own GitHub account: the demo in
+step 6 signs you in as the demo account without GitHub, and the checks and the end-to-end suite
+never sign in through GitHub. Step 7 sets up real GitHub sign-in.
 
 The first start downloads the images, applies every migration in `supabase/migrations/`, and loads
-`supabase/seed.sql`. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
+`supabase/seed.sql`. If the stack is already running, for example from another clone of this
+repository (they share the project id `devmacro`), `supabase start` says so and changes nothing:
+carry on with step 4. The stack uses ports 55420 to 55429, so it runs beside other local Supabase
 projects:
 
 | Service | Address |
@@ -117,10 +123,17 @@ openssl rand -base64 32   # DEVMACRO_ENCRYPTION_KEY: exactly 32 random bytes, ba
 openssl rand -hex 32      # CRON_SECRET: 64 hex characters
 ```
 
-Leave the provider variables empty for now; step 8 turns on the fake provider instead. Every
-variable is described in [Environment variables](#environment-variables) and in `.env.example`.
+Turn on the simulated providers, which the demo in step 6 connects instead of real ones (step 10
+says what they are). Set this line in `.env.local`:
 
-### 5. Apply migrations
+```bash
+DEVMACRO_SIMULATE_PROVIDERS=1
+```
+
+Leave the provider variables empty. Every variable is described in
+[Environment variables](#environment-variables) and in `.env.example`.
+
+### 5. Apply migrations and seed data
 
 ```bash
 supabase migration up
@@ -130,8 +143,6 @@ After a fresh `supabase start` this has nothing to do; run it after every pull t
 migrations without touching your data. Migrations are forward only: add one with
 `supabase migration new <name>`, never edit a merged one, and regenerate the types after any schema
 change with `npm run db:types` (writes `src/lib/supabase/database.types.ts`, commit it).
-
-### 6. Seed data
 
 `supabase/seed.sql` holds synthetic data (the users `owner@example.com` and `viewer@example.com`,
 the workspace Acme, one project, one fake connection, three days of snapshots, a few events). The
@@ -148,19 +159,63 @@ psql "postgresql://postgres:postgres@127.0.0.1:55422/postgres" -f supabase/seed.
 The seed uses fixed ids, so it fails on a database that already holds them. Seed users have no
 password; they exist for tests and for browsing data in Studio.
 
-### 7. Invite yourself and sign in
+### 6. Open the demo workspace
+
+Start the app in one terminal and leave it running:
+
+```bash
+npm run dev
+```
+
+Build the demo workspace in a second terminal:
+
+```bash
+npm run demo
+```
+
+It creates the account `demo@example.com` and a workspace called **Demo workspace** with every
+simulated provider connected and 90 days of history, then prints the dashboard, timeline, and
+public page links and a one-time sign-in link. Open the sign-in link in the browser: you land on
+the demo workspace's dashboard, signed in as the demo account. The landing page at
+<http://localhost:3000> works without signing in. Leave `npm run demo` running to keep data
+arriving live, and press Ctrl+C to stop it. The link works once and expires after an hour; run the
+command again for a new one, which deletes the demo workspace and builds it again from scratch, so
+anything you added to it is gone. Step 11 describes what the command builds and its options.
+
+The links assume the app is on port 3000. If 3000 is taken, do not use the port `npm run dev`
+moves to: local Auth returns a GitHub sign-in (step 7) only to port 3000 or a port from 3100 to 3199
+(`additional_redirect_urls` in `supabase/config.toml`). Pick a port from 3102 to 3199 (Playwright
+uses 3100 and 3101 by default), set `NEXT_PUBLIC_SITE_URL=http://localhost:<port>` in `.env.local`,
+start the app with `npm run dev -- --port <port>`, and run `npm run demo` again so the printed links
+point at it.
+
+### 7. Sign in with your own GitHub account
+
+Sign-in for real accounts is GitHub only. Register a separate GitHub OAuth app for your local stack
+with the callback URL `http://127.0.0.1:55421/auth/v1/callback`, as described in
+[OAuth apps, GitHub OAuth app for sign-in](docs/operations/oauth-apps.md#github-oauth-app-for-sign-in).
+Export its real client ID and secret instead of the placeholders from step 3 (or put both lines in
+`supabase/.env.local`, which is git ignored), and restart the stack so Auth reads them:
+
+```bash
+export SUPABASE_AUTH_EXTERNAL_GITHUB_CLIENT_ID=<client-id>
+export SUPABASE_AUTH_EXTERNAL_GITHUB_SECRET=<client-secret>
+supabase stop
+supabase start
+```
 
 Sign-up is invite only: the `before_user_created` auth hook lets Supabase create a user only when
 the email is in `public.access_invites`. Invite the primary verified email of your GitHub account:
 
 ```bash
 npm run invite -- you@example.com
-npm run dev
 ```
 
-Open <http://localhost:3000/sign-in> and continue with GitHub. This needs the real GitHub OAuth app
-from step 3. After sign-in you land on your personal workspace timeline. The landing page at
-<http://localhost:3000> works without signing in.
+Step 6 left the browser signed in as the demo account, and the sign-in page sends a signed-in
+visitor straight back to the app. Choose **Sign out** in the header first. Then, with `npm run dev`
+running, open <http://localhost:3000/sign-in> (or `http://localhost:<port>/sign-in` if step 6 moved
+the app to another port) and continue with GitHub. After sign-in you land on your personal
+workspace timeline.
 
 ### 8. Connect the fake provider
 
@@ -206,7 +261,8 @@ simulated item in a workspace that mixes real and simulated connections. While t
 catalog labels every provider **Simulated** too.
 It is for local use only: the app refuses it on a Vercel production deployment.
 
-1. Add the flag to `.env.local` and restart `npm run dev`:
+1. Check that `.env.local` has the flag from step 4, and restart `npm run dev` if you just added
+   it:
 
    ```bash
    DEVMACRO_SIMULATE_PROVIDERS=1
@@ -256,16 +312,12 @@ removed. That event's advice to reconnect applies only once `DEVMACRO_SIMULATE_P
 removed: while the flag is on, a reconnect is refused, so leave the connection alone and it
 recovers on its own after the flag is gone.
 
-### 11. Seed a demo workspace with 90 days of history (optional)
+### 11. What the demo command builds (optional)
 
-For a demo that is not mostly empty charts, one command builds a whole workspace on your local
-stack with every simulated provider connected and 90 days behind it, signs you in to it, and keeps
-it updating live. No GitHub OAuth app is needed. With the stack from step 3, `.env.local` from
-step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1` added (step 10), and `npm run dev` running:
-
-```bash
-npm run demo
-```
+`npm run demo` from step 6 builds a whole workspace on your local stack with every simulated
+provider connected and 90 days behind it, signs you in to it, and keeps it updating live, so a demo
+is not mostly empty charts. No GitHub OAuth app is needed. It needs the stack from step 3,
+`.env.local` from step 4 with `DEVMACRO_SIMULATE_PROVIDERS=1`, and `npm run dev` running.
 
 - It creates the account `demo@example.com` (once) and a workspace called **Demo workspace** owned
   by it, connects every simulated provider through the same code as the connect flow, spreads their
@@ -410,10 +462,13 @@ the simulator.
 the fake Resend API. Playwright starts the fake itself (`npm run email:fake`, on the app's port
 plus one, 3101 by default, or `E2E_RESEND_PORT`) and gives its dev server the fake's URL, a dummy
 key, and a sender, which take precedence over `.env.local`, so the spec needs no email settings
-and never reaches Resend. CI also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and
-`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`, because it runs a production build, which sends no alert
-message without the first and refuses to post to `e2e/alert-channels.spec.ts`'s receiver on
-127.0.0.1 without the second. The dev server needs neither.
+and never reaches Resend. Playwright also sets `NEXT_PUBLIC_SITE_URL` to the app server's own
+origin, locally and in CI, and that too takes precedence over `.env.local`:
+`e2e/social-metadata.spec.ts` reads absolute canonical and preview image addresses from it, and
+CI's production build sends no alert message without it. CI also writes
+`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
+post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without it. A local run on the dev
+server needs neither in `.env.local`.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
@@ -440,7 +495,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (including a project page's canonical address and preview image), provider callback URLs, the sitemap, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
@@ -500,12 +555,15 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
 - [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
   Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
-  eight provider apps, with per-provider details in [`docs/providers/`](docs/providers).
+  11 provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
 - [REST API](docs/api.md): read-only API keys with scopes, the `/api/v1` endpoints with `curl`
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
 - [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to
   a workspace with an API key, and the read-only tools it can call.
+- [Write a provider adapter](docs/adapters.md): the adapter contract, the example adapter to
+  copy, the test harness, every file a new provider touches, the provider page template, and how
+  adapters are reviewed. Ask for a new provider with the **Adapter request** issue template.
 
 ### Invite testers
 
@@ -548,7 +606,9 @@ src/
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
-    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
+    sitemap.ts                 /sitemap.xml: the landing page, /docs and every docs page, and indexable public project pages
+    robots.ts                  /robots.txt: public pages allowed, signed-in and API paths disallowed, the sitemap named
+    opengraph-image.tsx        /opengraph-image: the site's 1200 by 630 link preview image
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
@@ -585,7 +645,7 @@ src/
                                status and error announcements, DialogError
     *.tsx                      shared UI (site nav, footer, badges, icons)
   lib/
-    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated) and registry
+    adapters/                  provider adapters (github, vercel, stripe, supabase, resend, digitalocean, posthog, polar, sentry, railway, gitlab, fake, simulated), registry, the unregistered example adapter, and the contract test harness
     api/                       REST API: key hashing and checks, endpoint list, Zod schemas, OpenAPI document
     mcp/                       MCP server: the read-only tools and provider page resources, client setup snippets
     connections/               connect, OAuth state, revoke
@@ -613,6 +673,7 @@ supabase/
 scripts/                       invite.ts, rotate-encryption-key.ts, tick.ts, demo.ts, demo-seed.ts, demo-event.ts, fake-resend-api.ts
 e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
+  adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
@@ -620,6 +681,15 @@ docs/
   operations/                  deploy, OAuth apps, jobs
   providers/                   one page per provider: app setup, permissions, data read
 ```
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before you open an issue or a pull request: it covers the
+issue templates, setup and checks, branch and commit conventions, the review process, and the
+rules changes are reviewed against. The license and the contribution terms are not decided yet;
+CONTRIBUTING.md says what that means for you. Everyone taking part follows the
+[code of conduct](CODE_OF_CONDUCT.md). Report security vulnerabilities privately, as
+[SECURITY.md](SECURITY.md) describes, never in a public issue.
 
 ## Third-party marks
 

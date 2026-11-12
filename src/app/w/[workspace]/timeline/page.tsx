@@ -37,7 +37,7 @@ const HIDDEN_TYPE_IDS: readonly string[] = [];
 // has an instant shell; access checks and data reads stream in behind it.
 export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the timeline" />}>
       <TimelineContent {...props} />
     </Suspense>
   );

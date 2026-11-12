@@ -34,7 +34,7 @@ function first(value: string | string[] | undefined): string | undefined {
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionsPage(props: PageProps<"/w/[workspace]/connections">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading connections" />}>
       <ConnectionsContent {...props} />
     </Suspense>
   );

@@ -28,12 +28,14 @@ export function AnomalyToggle({ workspaceSlug, enabled }: { workspaceSlug: strin
       <input type="hidden" name="workspace" value={workspaceSlug} />
       <input type="hidden" name="enabled" value={enabled ? "false" : "true"} />
       <button type="submit" disabled={pending} className={buttonClass("raised")}>
-        {pending ? "Saving" : enabled ? "Turn off anomaly detection" : "Turn on anomaly detection"}
+        {pending ? "Saving" : enabled ? "Turn off unusual spend and usage checks" : "Turn on unusual spend and usage checks"}
       </button>
       <OutcomeAnnouncement
         outcome={outcomeOf(
           pending ? null : state,
-          enabled ? "Anomaly detection is on." : "Anomaly detection is off. No new unusual days are flagged.",
+          enabled
+            ? "Unusual spend and usage checks are on."
+            : "Unusual spend and usage checks are off. No new unusual days are flagged.",
         )}
         className="mt-2 text-sm"
       />

@@ -2,6 +2,7 @@ import "server-only";
 
 import { createHash, randomBytes } from "node:crypto";
 
+import { headers } from "next/headers";
 import { z } from "zod";
 
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
@@ -62,6 +63,18 @@ export function connectOrigin(requestUrl: string, siteUrl: string | undefined): 
     }
   }
   return new URL(requestUrl).origin;
+}
+
+/**
+ * This deployment's public origin while rendering a page or metadata route, which has no request
+ * URL: NEXT_PUBLIC_SITE_URL when set, otherwise the origin the request reached, from the proxy's
+ * forwarded host when there is one.
+ */
+export async function requestPublicOrigin(): Promise<string> {
+  const requestHeaders = await headers();
+  const host = requestHeaders.get("x-forwarded-host") ?? requestHeaders.get("host") ?? "localhost";
+  const protocol = requestHeaders.get("x-forwarded-proto") ?? "http";
+  return connectOrigin(`${protocol}://${host}`, process.env.NEXT_PUBLIC_SITE_URL);
 }
 
 export function callbackRedirectUri(origin: string, provider: ProviderId): string {

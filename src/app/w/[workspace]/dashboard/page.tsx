@@ -129,7 +129,7 @@ function dashboardHref(basePath: string, scope: ScopeFilters, view: DashboardVie
 // headline strip, cards, and By project do not wait for that read.
 export default function DashboardPage(props: PageProps<"/w/[workspace]/dashboard">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the dashboard" />}>
       <DashboardPageContent {...props} />
     </Suspense>
   );

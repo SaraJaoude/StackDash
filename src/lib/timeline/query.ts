@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { Severity } from "@/components/severity-badge";
+import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
   hasScopeFilters,
@@ -54,8 +55,14 @@ export function isEventTypeId(value: string): value is string {
   return value.length <= MAX_TYPE_ID_LENGTH && TYPE_ID_PATTERN.test(value);
 }
 
+// DevMacro's own types whose id reads differently from the product's name for them (#345): the
+// alerts page calls these "unusual spend and usage", so the timeline must not say "anomaly".
+const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([[ANOMALY_TYPE_ID, "Unusual spend or usage"]]);
+
 /** `vercel.deployment_failed` reads as "Deployment failed". The provider is shown beside it. */
 export function eventTypeLabel(typeId: string): string {
+  const named = DEVMACRO_TYPE_LABELS.get(typeId);
+  if (named !== undefined) return named;
   const rest = typeId.split(".").slice(1).join(" ").replaceAll("_", " ").trim();
   if (rest === "") return typeId;
   return rest.charAt(0).toUpperCase() + rest.slice(1);

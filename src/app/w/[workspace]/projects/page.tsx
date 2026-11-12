@@ -14,7 +14,7 @@ export const metadata: Metadata = { title: "Projects" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ProjectsPage(props: PageProps<"/w/[workspace]/projects">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading projects" />}>
       <ProjectsContent {...props} />
     </Suspense>
   );

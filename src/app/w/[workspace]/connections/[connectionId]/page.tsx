@@ -35,7 +35,7 @@ export const metadata: Metadata = { title: "Connection" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectionPage(props: PageProps<"/w/[workspace]/connections/[connectionId]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the connection" />}>
       <ConnectionContent {...props} />
     </Suspense>
   );

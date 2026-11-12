@@ -22,6 +22,7 @@ import {
   STORAGE_STATE,
   type PlaywrightCookie,
 } from "./fixtures/auth";
+import { personalWorkspace } from "./fixtures/db";
 
 function writeStorageState(file: string, cookies: PlaywrightCookie[]): void {
   mkdirSync(path.dirname(file), { recursive: true });
@@ -30,15 +31,7 @@ function writeStorageState(file: string, cookies: PlaywrightCookie[]): void {
 
 /** Adds the viewer to the owner's personal workspace so role checks have a shared workspace. */
 async function shareOwnerWorkspace(admin: SupabaseClient<Database>, ownerId: string, viewerId: string): Promise<void> {
-  const { data: workspace, error } = await admin
-    .from("workspaces")
-    .select("id")
-    .eq("created_by", ownerId)
-    .eq("is_personal", true)
-    .limit(1)
-    .maybeSingle();
-  if (error) throw new Error(`Finding the owner's workspace failed (code ${error.code}).`);
-  if (workspace === null) throw new Error("The e2e owner has no personal workspace.");
+  const workspace = await personalWorkspace(ownerId);
 
   const { error: memberError } = await admin
     .from("workspace_members")
