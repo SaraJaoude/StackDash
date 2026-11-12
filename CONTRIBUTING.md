@@ -60,7 +60,7 @@ Two things that differ from what you may know:
 - **This Next.js version has breaking changes.** APIs, conventions, and file structure may differ
   from your memory or your AI assistant's training data. Read the guide for the API you touch in
   `node_modules/next/dist/docs/` before writing code, and heed its deprecation notices.
-- **New migrations apply forward.** Run `npx supabase migration up` after pulling new migrations.
+- **New migrations apply forward.** Run `supabase migration up` after pulling new migrations.
   `supabase db reset` wipes your local data and every signed-in session; use it only when you mean
   to test that the migrations apply from scratch.
 
