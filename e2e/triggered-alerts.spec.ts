@@ -3,6 +3,8 @@ import type { Page } from "@playwright/test";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectHydrated } from "./fixtures/hydration";
+import { tabTo } from "./fixtures/keyboard";
 
 // Each test creates its own workspace and seeds only inside it.
 
@@ -61,6 +63,13 @@ async function acknowledgedBy(alertIds: readonly string[]): Promise<Array<string
 function triggeredList(page: Page) {
   return page.getByRole("list", { name: "Triggered alerts" });
 }
+
+// Every area of alert settings, and its forms, none of which belong on the inbox (#343).
+const SETTINGS_AREAS = ["Alert rules", "Budgets", "Alert emails", "Channels", "Unusual spend and usage"] as const;
+const SETTINGS_FORMS = ["Add an alert rule", "Add a budget", "Add a channel"] as const;
+
+// More Tab stops than the inbox has before Alert settings, or alert settings before New budget.
+const MAX_TAB_PRESSES = 60;
 
 ownerTest.describe("triggered alerts as the owner", () => {
   ownerTest("sees the alert on the alerts page, dashboard, and timeline, then acknowledges it", async ({ page }) => {
@@ -182,17 +191,108 @@ ownerTest.describe("triggered alerts as the owner", () => {
     }
   });
 
-  ownerTest("shows an empty state that links to adding an alert rule", async ({ page }) => {
+  ownerTest("shows an empty state that links to adding an alert rule, which opens ready to fill in", async ({ page }) => {
     const workspace = await createTestWorkspace("No triggered alerts");
     try {
       await page.goto(`/w/${workspace.slug}/alerts`);
       await expect(page.getByText("No alerts have fired")).toBeVisible();
       const triggered = page.getByRole("region", { name: "Triggered alerts" });
-      await expect(triggered.getByRole("link", { name: "Add an alert rule" })).toHaveAttribute("href", "#add-alert-rule");
+      const add = triggered.getByRole("link", { name: "Add an alert rule" });
+      await expect(add).toHaveAttribute("href", `/w/${workspace.slug}/alerts/settings#add-alert-rule`);
       await expect(triggered.getByRole("button", { name: "Acknowledge all" })).toHaveCount(0);
+
+      // The rule form is closed on alert settings (#343), but this link opens it at its first field.
+      await add.click();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/alerts/settings#add-alert-rule`);
+      const form = page.getByRole("form", { name: "Add an alert rule" });
+      await expect(form.getByRole("radio", { name: "Usage reaches a percentage of a provider allowance" })).toBeFocused();
 
       await page.goto(`/w/${workspace.slug}/dashboard`);
       await expect(page.getByRole("region", { name: "Alerts", exact: true })).toContainText("No unacknowledged alerts");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps settings off the inbox, one keyboard step away, with every create form closed (#343)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alerts inbox");
+    try {
+      await seedTriggeredAlert(workspace);
+      await page.goto(`/w/${workspace.slug}/alerts`);
+      await expect(triggeredList(page).getByRole("listitem")).toHaveCount(1);
+      for (const name of SETTINGS_AREAS) await expect(page.getByRole("region", { name, exact: true })).toHaveCount(0);
+      for (const name of SETTINGS_FORMS) await expect(page.getByRole("form", { name })).toHaveCount(0);
+      await expectNoAxeViolations(page);
+
+      // Keyboard only from here: Tab to Alert settings and press Enter.
+      await expectHydrated(page);
+      const settingsLink = page.getByRole("link", { name: "Alert settings" });
+      await tabTo(page, settingsLink, MAX_TAB_PRESSES);
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/alerts/settings`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
+      for (const name of SETTINGS_AREAS) await expect(page.getByRole("region", { name, exact: true })).toBeVisible();
+      for (const name of SETTINGS_FORMS) await expect(page.getByRole("form", { name })).toHaveCount(0);
+      await expectNoAxeViolations(page);
+
+      // New budget opens its form at the name field; Enter in a field adds it.
+      const newBudget = page.getByRole("button", { name: "New budget" });
+      await tabTo(page, newBudget, MAX_TAB_PRESSES);
+      await page.keyboard.press("Enter");
+      const form = page.getByRole("form", { name: "Add a budget" });
+      await expect(form.getByLabel("Budget name")).toBeFocused();
+      // Scanned open and at rest: right after a submit, the button is still fading back in from
+      // its pending opacity, which axe would measure mid-transition.
+      await expectNoAxeViolations(page);
+      await page.keyboard.type("Keyboard budget");
+      await page.keyboard.press("Tab");
+      await expect(form.getByLabel("Monthly amount")).toBeFocused();
+      await page.keyboard.type("40");
+      await page.keyboard.press("Enter");
+      await expect(form.getByRole("status")).toHaveText("Budget added.");
+      const budgets = page.getByRole("list", { name: "Budgets" });
+      await expect(budgets.getByRole("listitem").filter({ hasText: "Keyboard budget" })).toContainText("$40.00 a month");
+
+      // Cancel closes it and hands focus back to New budget.
+      await tabTo(page, form.getByRole("button", { name: "Cancel" }), MAX_TAB_PRESSES);
+      await page.keyboard.press("Enter");
+      await expect(form).toHaveCount(0);
+      await expect(newBudget).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("sends a link to a settings section of the old alerts page on to alert settings (#343)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Moved alert settings");
+    try {
+      // The address every alert email sent before #343 links to for the email setting.
+      await page.goto(`/w/${workspace.slug}/alerts#alert-emails`);
+      await expect(page).toHaveURL(`/w/${workspace.slug}/alerts/settings#alert-emails`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
+      // In view below the sticky header, and focused, so a screen reader says where the user landed.
+      const emails = page.getByRole("heading", { name: "Alert emails" });
+      await expect(emails).toBeInViewport();
+      await expect(emails).toBeFocused();
+      const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
+      await expect.poll(async () => (await emails.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
+      // A link straight to a section of alert settings, as new emails carry, lands on it the same way.
+      await page.goto(`/w/${workspace.slug}/alerts/settings#alert-channels`);
+      const channels = page.getByRole("heading", { name: "Channels", exact: true });
+      await expect(channels).toBeInViewport();
+      await expect(channels).toBeFocused();
+      // Replaced, not pushed: Back leaves the alerts pages rather than bouncing off the inbox.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.goto(`/w/${workspace.slug}/alerts#budgets-title`);
+      await expect(page).toHaveURL(`/w/${workspace.slug}/alerts/settings#budgets-title`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+
+      // The inbox's own fragment stays on the inbox.
+      await page.goto(`/w/${workspace.slug}/alerts#triggered-alerts-title`);
+      await expectHydrated(page);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alerts");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/alerts#triggered-alerts-title`);
     } finally {
       await deleteTestWorkspace(workspace);
     }

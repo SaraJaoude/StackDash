@@ -23,7 +23,7 @@ import { DEMO_USER_MARKER, isDemoAccount } from "./sign-in";
  * (the caller checks `demoCommandRefusal` first). A rerun deletes the workspaces the demo account
  * created, except its personal one, and builds a fresh one, so there is only ever one demo
  * workspace. Connections go through `completeConnection`, exactly as the OAuth callback makes
- * them; budgets and alert rules go through the alerts page's input schemas. Sample data (#257) is
+ * them; budgets and alert rules go through alert settings' input schemas. Sample data (#257) is
  * the one in-app caller: it connects the simulated providers to a member's own empty workspace,
  * behind the role check and `sampleDataRefusal` instead.
  */
@@ -295,7 +295,7 @@ const DEMO_THRESHOLD_PERCENT = "90";
 
 /**
  * A Vercel budget with a 90 percent alert, and a 90 percent alert on the Resend monthly quota,
- * validated by the same schemas as the alerts page. The replay then triggers them like a live
+ * validated by the same schemas as alert settings. The replay then triggers them like a live
  * sync would.
  */
 export async function createDemoAlerts(admin: Admin, input: Readonly<{ workspaceId: string; userId: string }>): Promise<void> {

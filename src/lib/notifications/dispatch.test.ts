@@ -115,6 +115,8 @@ describe("runAlertDispatchJob: coalescing", () => {
     expect(first?.headers?.["List-Unsubscribe"]).toBe(
       `<https://devmacro.test/api/notifications/unsubscribe?token=token-${WORKSPACE.id}-u-owner>`,
     );
+    // The email setting lives on alert settings, not the alerts inbox (#343).
+    expect(first?.text).toContain(`Change your alert emails: https://devmacro.test/w/${WORKSPACE.slug}/alerts/settings#alert-emails`);
     expect(store.alerts.every((item) => item.dispatchedAt === NOW.toISOString())).toBe(true);
     expect(store.deliveries).toHaveLength(4);
   });
@@ -301,7 +303,7 @@ describe("runAlertDispatchJob: channel needs attention", () => {
     const attention = store.events.filter((event) => event.type_id === CHANNEL_NEEDS_ATTENTION_TYPE_ID);
     expect(attention).toHaveLength(1);
     expect(attention[0]?.title).toBe("The channel #alerts-a needs attention");
-    expect(attention[0]?.body).toContain("send a test message from the alerts page");
+    expect(attention[0]?.body).toContain("send a test message from alert settings");
     // A channel that needs attention gets nothing more, so the alert is no longer held back.
     expect(store.alerts[0]?.dispatchedAt).toBe(NOW.toISOString());
   });
@@ -329,7 +331,7 @@ describe("runAlertDispatchJob: channel needs attention", () => {
     store.alerts.push(alert("10"));
     expect(await runAlertDispatchJob(job(), deps)).toEqual({ status: "succeeded" });
 
-    // The alerts page reads these: the channel shows as needing attention, with the reason.
+    // Alert settings reads these: the channel shows as needing attention, with the reason.
     const [destination] = store.destinations;
     expect(destination).toMatchObject({
       status: "needs_attention",
@@ -340,7 +342,7 @@ describe("runAlertDispatchJob: channel needs attention", () => {
     expect(store.events.map((event) => event.type_id).sort()).toEqual([CHANNEL_NEEDS_ATTENTION_TYPE_ID, NOTIFICATION_FAILED_TYPE_ID].sort());
     const attention = store.events.find((event) => event.type_id === CHANNEL_NEEDS_ATTENTION_TYPE_ID);
     expect(attention?.body).toContain("The webhook URL can no longer be read, so DevMacro stopped posting alerts to #alerts-a.");
-    expect(attention?.body).toContain("Remove the channel on the alerts page and add it again with its URL.");
+    expect(attention?.body).toContain("Remove the channel in alert settings and add it again with its URL.");
     expect(attention?.body).toContain("Reference REF-TEST0000.");
   });
 

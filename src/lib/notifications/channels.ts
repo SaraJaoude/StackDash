@@ -531,10 +531,10 @@ export function describeFailure(code: string): string {
 
 /**
  * What an admin does about a channel that needs attention after this failure. A test message
- * cannot repair an unreadable URL, so that one asks for the URL again. `onAlertsPage` drops the
- * pointer to the page the reader is already on.
+ * cannot repair an unreadable URL, so that one asks for the URL again. `onSettingsPage` drops the
+ * pointer to alert settings, where the channels are (#343), when the reader is already there.
  */
-export function repairStep(code: string, onAlertsPage: boolean): string {
-  if (code === SECRET_MISSING_CODE) return `Remove the channel${onAlertsPage ? "" : " on the alerts page"} and add it again with its URL`;
-  return `Fix the webhook, then send a test message${onAlertsPage ? "" : " from the alerts page"} to turn it back on, or remove it`;
+export function repairStep(code: string, onSettingsPage: boolean): string {
+  if (code === SECRET_MISSING_CODE) return `Remove the channel${onSettingsPage ? "" : " in alert settings"} and add it again with its URL`;
+  return `Fix the webhook, then send a test message${onSettingsPage ? "" : " from alert settings"} to turn it back on, or remove it`;
 }

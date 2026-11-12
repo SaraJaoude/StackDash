@@ -8,7 +8,7 @@ import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Alert rules and the lookups the alerts page needs. Reads and writes run as the signed-in user,
+ * Alert rules and the lookups alert settings needs. Reads and writes run as the signed-in user,
  * so row level security (viewer reads, admin writes) and the column grants apply on top of the
  * role check every Server Action makes first. Every write is filtered by `workspace_id`, so an id
  * from another workspace matches nothing and reads exactly like a missing one.

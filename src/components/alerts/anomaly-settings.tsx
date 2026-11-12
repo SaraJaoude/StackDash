@@ -4,19 +4,20 @@ import { ANOMALY_MIN_HISTORY_DAYS, ANOMALY_MIN_RATIO, ANOMALY_TYPE_ID, ANOMALY_W
 import { getAnomalyControls, listAnomalyMetrics, type AnomalyMetric } from "@/lib/data/anomalies";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { providerName } from "@/lib/providers";
-import { workspacePath } from "@/lib/workspaces/paths";
+import { ALERT_SETTINGS_IDS, workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AnomalyToggle, MuteMetricForm, UnmuteButton } from "./anomaly-controls";
 import { DeniedReason } from "./form-controls";
+import { FragmentHeading } from "./fragment-heading";
 
 /**
- * Anomaly detection on the alerts page (#169): whether it runs, and which metrics are muted.
+ * Anomaly detection in alert settings (#169): whether it runs, and which metrics are muted.
  * Detection needs no setup, so the section explains what it does and offers only the two
  * controls the issue asks for: a workspace switch and a per-metric mute.
  */
 
-export const ANOMALY_HEADING_ID = "unusual-activity-title";
+export const ANOMALY_HEADING_ID = ALERT_SETTINGS_IDS.unusual;
 const linkClass = "text-accent underline underline-offset-2";
 
 function metricName(metric: Pick<AnomalyMetric, "provider" | "label">): string {
@@ -36,9 +37,9 @@ export async function AnomalySettings({ workspace, role }: { workspace: Workspac
   return (
     <section aria-labelledby={ANOMALY_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
       <div className="border-b border-line px-6 py-4">
-        <h2 id={ANOMALY_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+        <FragmentHeading id={ANOMALY_HEADING_ID}>
           Unusual spend and usage
-        </h2>
+        </FragmentHeading>
         <p className="mt-1 text-sm text-muted">
           Every day, DevMacro compares each spend and usage metric with the {ANOMALY_WINDOW_DAYS} days before it. A day at
           least {ANOMALY_MIN_RATIO} times the usual amount adds an event to the timeline. A metric needs{" "}

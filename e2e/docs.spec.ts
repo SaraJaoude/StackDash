@@ -1,23 +1,13 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+import { tabTo } from "./fixtures/keyboard";
 
 // `#` and digits that are not part of a word (`PKCS#1`) or an entity: an issue number.
 const ISSUE_REFERENCE = /(?<![\w&])#\d+\b/;
 
 // More Tab stops than any docs page has before its first code block: header, docs list, then content.
 const MAX_TAB_PRESSES = 100;
-
-/**
- * Presses Tab from the top of the page until `target` has focus, the way a keyboard user reaches
- * it, and fails if it never does.
- */
-async function tabTo(page: Page, target: Locator) {
-  for (let presses = 0; presses < MAX_TAB_PRESSES; presses += 1) {
-    await page.keyboard.press("Tab");
-    if (await target.evaluate((element) => element === document.activeElement)) break;
-  }
-  await expect(target).toBeFocused();
-}
 
 test.describe("docs", () => {
   test("the landing page leads to an index that starts with getting started", async ({ page }) => {
@@ -121,7 +111,7 @@ test.describe("docs", () => {
       }).observe(element, { childList: true, characterData: true, subtree: true });
     });
 
-    await tabTo(page, copyButton);
+    await tabTo(page, copyButton, MAX_TAB_PRESSES);
     await page.keyboard.press("Enter");
 
     await expect(status).toHaveText("Copied the code.");
@@ -145,7 +135,7 @@ test.describe("docs", () => {
     const main = page.getByRole("main");
     const copyButton = main.getByRole("button", { name: "Copy code" }).first();
 
-    await tabTo(page, copyButton);
+    await tabTo(page, copyButton, MAX_TAB_PRESSES);
     await page.keyboard.press("Space");
 
     await expect(main.getByRole("alert").first()).toHaveText(
@@ -212,7 +202,7 @@ test.describe("docs", () => {
     await expect(firstDoc).toHaveText("Getting started");
 
     // Tab from the top of the page until focus lands on the first doc in the list.
-    await tabTo(page, firstDoc);
+    await tabTo(page, firstDoc, MAX_TAB_PRESSES);
 
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/getting-started");
@@ -223,13 +213,13 @@ test.describe("docs", () => {
     await page.goto("/docs");
     const guide = page.getByRole("region", { name: "Developers" }).getByRole("link", { name: "Write a provider adapter", exact: true });
 
-    await tabTo(page, guide);
+    await tabTo(page, guide, MAX_TAB_PRESSES);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/adapters");
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Write a provider adapter");
 
     const sectionLink = page.getByRole("main").getByRole("link", { name: "Register the provider", exact: true }).first();
-    await tabTo(page, sectionLink);
+    await tabTo(page, sectionLink, MAX_TAB_PRESSES);
     await page.keyboard.press("Enter");
     await expect(page).toHaveURL("/docs/adapters#register-the-provider");
     await expect(page.getByRole("heading", { name: "Register the provider", exact: true })).toBeInViewport();

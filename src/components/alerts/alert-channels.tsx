@@ -12,6 +12,7 @@ import {
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
 import { LiveRegion, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
+import { ALERT_SETTINGS_IDS } from "@/lib/workspaces/paths";
 
 import { ConfirmDelete } from "./confirm-delete";
 import {
@@ -22,7 +23,7 @@ import {
   TextField,
 } from "./form-controls";
 import { DESTINATION_KIND_LABELS, DIGEST_LABELS, type ChannelFormValues, type Option } from "./labels";
-import { Badge, EditableRow } from "./list-items";
+import { Badge, CreateDisclosure, EditableRow } from "./list-items";
 
 /*
  * Alert channels (#153): Discord, Slack, and generic webhooks. The URL is written once, when the
@@ -255,6 +256,27 @@ export function ChannelForm({
         ) : null}
       </LiveRegion>
     </form>
+  );
+}
+
+export function NewChannel({
+  workspaceSlug,
+  ruleOptions,
+  initial,
+}: {
+  workspaceSlug: string;
+  ruleOptions: Option[];
+  initial: ChannelFormValues;
+}) {
+  return (
+    <CreateDisclosure
+      id={ALERT_SETTINGS_IDS.newChannel}
+      label="New channel"
+      title="Add a channel"
+      renderForm={(close) => (
+        <ChannelForm workspaceSlug={workspaceSlug} ruleOptions={ruleOptions} initial={initial} title="Add a channel" onCancel={close} />
+      )}
+    />
   );
 }
 

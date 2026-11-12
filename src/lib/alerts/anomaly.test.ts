@@ -362,7 +362,7 @@ describe("checkedRows", () => {
     ]);
   });
 
-  it("leaves a declared projection out, so the alerts page never offers to mute it (#223)", () => {
+  it("leaves a declared projection out, so alert settings never offers to mute it (#223)", () => {
     const spent = row({ snapshot_date: DATE, metric_key: "posthog.spend.current", amount_minor: 0 });
     const projected = row({ snapshot_date: DATE, metric_key: "posthog.spend.projected", kind: "estimated_spend", amount_minor: 2986 });
     expect(checkedRows([spent, projected], declaredProjectedSpend).map((snapshot) => snapshot.metric_key)).toEqual(["posthog.spend.current"]);
@@ -394,7 +394,7 @@ describe("anomaly event", () => {
     expect(event.body).toBe(
       [
         "Vercel billed spend, month to date (verified) went up by $412.00 on 2026-10-20. The usual amount is $103.00 a day, the median of the 14 days before.",
-        "What to do next: open Vercel to see what drove it, check the timeline for deploys on 2026-10-20, or mute this metric on the Alerts page if it was expected.",
+        "What to do next: open Vercel to see what drove it, check the timeline for deploys on 2026-10-20, or mute this metric in alert settings if it was expected.",
       ].join("\n"),
     );
     expect(`${event.title} ${event.body}`).not.toMatch(/[\u2013\u2014]/);

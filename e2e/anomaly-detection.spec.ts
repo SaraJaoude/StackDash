@@ -63,7 +63,7 @@ async function seedAnomaly(workspace: TestWorkspace): Promise<void> {
     type_id: "devmacro.anomaly_detected",
     severity: "warning",
     title: ANOMALY_TITLE,
-    body: `${ANOMALY_BODY}\nWhat to do next: open Example provider to see what drove it, check the timeline for deploys on 2026-11-03, or mute this metric on the Alerts page if it was expected.`,
+    body: `${ANOMALY_BODY}\nWhat to do next: open Example provider to see what drove it, check the timeline for deploys on 2026-11-03, or mute this metric in alert settings if it was expected.`,
     occurred_at: new Date(now.getTime() - 3_600_000).toISOString(),
     dedupe_key: "anomaly:2026-11-03:fake:fake.spend.month:money:USD:verified",
   });
@@ -92,14 +92,14 @@ ownerTest.describe("anomaly detection as the owner", () => {
       await summary.getByRole("link", { name: "Show unusual days on the timeline" }).click();
       await expect(page).toHaveURL(/\/timeline\?type=devmacro\.anomaly_detected$/);
       await expect(page.getByRole("heading", { name: ANOMALY_TITLE })).toBeVisible();
-      // The page the link lands on names the type the way the alerts page names the feature (#345).
+      // The page the link lands on names the type the way alert settings names the feature (#345).
       await openFilters(page, "keyboard");
       const types = page.getByRole("group", { name: "Event type" });
       await expect(types.getByRole("checkbox", { name: "DevMacro: Unusual spend or usage" })).toBeChecked();
       await expect(types).not.toContainText(/anomal/i);
       await expectNoAxeViolations(page);
 
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const section = anomalySection(page);
       await expect(section).toContainText("Unusual spend and usage checks are on");
       // One name for the feature in the product (#345): the section never says "anomaly".
@@ -143,7 +143,7 @@ viewerTest.describe("anomaly detection as a viewer", () => {
     const workspace = await createTestWorkspace("Anomaly viewer");
     try {
       await seedAnomaly(workspace);
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
       const section = anomalySection(page);
       await expect(section).toContainText("Unusual spend and usage checks are on");
       await expect(section).toContainText("Only owners and admins can manage budgets and alert rules.");

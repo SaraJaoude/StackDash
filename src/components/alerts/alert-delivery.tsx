@@ -5,21 +5,22 @@ import { emailEnv } from "@/lib/env";
 import { formatDateTime } from "@/lib/format";
 import { logError } from "@/lib/log/logger";
 import { describeFailure, repairStep } from "@/lib/notifications/channels";
-import { ALERT_EMAILS_SECTION_ID } from "@/lib/notifications/links";
+import { ALERT_SETTINGS_IDS } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AlertEmailsForm } from "./alert-emails";
-import { ChannelForm, ChannelListItem, type ChannelRow } from "./alert-channels";
+import { ChannelListItem, NewChannel, type ChannelRow } from "./alert-channels";
 import { DeniedReason } from "./form-controls";
+import { FragmentHeading } from "./fragment-heading";
 import { defaultChannelValues, type Option } from "./labels";
 
 /*
  * Where alerts go (#152, #153): the signed-in member's alert emails, and the workspace's channels.
- * Part of the alerts page, below rules and budgets, because a channel picks the rules it receives.
+ * Part of alert settings, below rules and budgets, because a channel picks the rules it receives.
  */
 
-const CHANNELS_HEADING_ID = "alert-channels";
-const ADD_CHANNEL_HEADING_ID = "add-alert-channel";
+const EMAILS_HEADING_ID = ALERT_SETTINGS_IDS.emails;
+const CHANNELS_HEADING_ID = ALERT_SETTINGS_IDS.channels;
 
 /** Whether this instance can send email. A broken configuration is logged once per render with a reference. */
 function emailStatus(): { kind: "ready" } | { kind: "off" } | { kind: "broken"; referenceId: string } {
@@ -69,11 +70,9 @@ export async function AlertDelivery({
 
   return (
     <>
-      <section aria-labelledby={ALERT_EMAILS_SECTION_ID} className="mt-8 rounded-xl border border-line bg-panel">
+      <section aria-labelledby={EMAILS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={ALERT_EMAILS_SECTION_ID} tabIndex={-1} className="text-sm font-semibold">
-            Alert emails
-          </h2>
+          <FragmentHeading id={EMAILS_HEADING_ID}>Alert emails</FragmentHeading>
           <p className="mt-1 max-w-3xl text-sm text-muted">
             Alerts are emailed to the owners and admins of this workspace, each at most once per billing period. Several
             alerts found at the same time arrive in one email. Every email has a link to unsubscribe.
@@ -101,9 +100,7 @@ export async function AlertDelivery({
 
       <section aria-labelledby={CHANNELS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={CHANNELS_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
-            Channels
-          </h2>
+          <FragmentHeading id={CHANNELS_HEADING_ID}>Channels</FragmentHeading>
           <p className="mt-1 max-w-3xl text-sm text-muted">
             Post alerts and the digest to a Discord or Slack channel, or to any service that accepts a signed webhook. A
             channel that keeps failing is marked as needing attention and stops receiving alerts until a test message
@@ -111,21 +108,7 @@ export async function AlertDelivery({
           </p>
         </div>
 
-        {rows.length === 0 ? (
-          <div className="px-6 py-5 text-sm">
-            <p className="font-medium">No channels yet</p>
-            {canManage ? (
-              <p className="mt-1 text-muted">
-                <a href={`#${ADD_CHANNEL_HEADING_ID}`} className="text-accent underline underline-offset-2">
-                  Add a channel
-                </a>{" "}
-                to post alerts where your team already is.
-              </p>
-            ) : (
-              <DeniedReason>{actionDeniedReason("manage_alert_channels")}</DeniedReason>
-            )}
-          </div>
-        ) : (
+        {rows.length === 0 ? null : (
           <ul aria-label="Channels" className="divide-y divide-line">
             {rows.map((row) => (
               <ChannelListItem
@@ -141,18 +124,23 @@ export async function AlertDelivery({
         )}
 
         {canManage ? (
-          <div className="border-t border-line px-6 py-5">
-            <h3 id={ADD_CHANNEL_HEADING_ID} className="mb-4 text-sm font-semibold">
-              Add a channel
-            </h3>
-            <ChannelForm
-              workspaceSlug={workspace.slug}
-              ruleOptions={ruleOptions}
-              initial={defaultChannelValues()}
-              title="Add a channel"
-            />
+          // One place for the empty state and the New button, so adding the first channel keeps the
+          // open form, and the signing secret it shows once, mounted while the list appears above.
+          <div className={rows.length === 0 ? "px-6 py-5" : "border-t border-line px-6 py-5"}>
+            {rows.length === 0 ? (
+              <div className="mb-4 text-sm">
+                <p className="font-medium">No channels yet</p>
+                <p className="mt-1 text-muted">Add one to post alerts where your team already is.</p>
+              </div>
+            ) : null}
+            <NewChannel workspaceSlug={workspace.slug} ruleOptions={ruleOptions} initial={defaultChannelValues()} />
           </div>
-        ) : rows.length === 0 ? null : (
+        ) : rows.length === 0 ? (
+          <div className="px-6 py-5 text-sm">
+            <p className="font-medium">No channels yet</p>
+            <DeniedReason>{actionDeniedReason("manage_alert_channels")}</DeniedReason>
+          </div>
+        ) : (
           <div className="border-t border-line px-6 py-4">
             <DeniedReason>{actionDeniedReason("manage_alert_channels")}</DeniedReason>
           </div>

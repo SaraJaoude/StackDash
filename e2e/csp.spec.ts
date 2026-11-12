@@ -225,6 +225,7 @@ ownerTest.describe("signed in", () => {
         `/w/${workspace.slug}/connections`,
         `/w/${workspace.slug}/connections/new/fake`,
         `/w/${workspace.slug}/alerts`,
+        `/w/${workspace.slug}/alerts/settings`,
         `/w/${workspace.slug}/settings`,
         // The year in review (#151, slides #262): its slides hydrate under the nonce policy, and a
         // slide's image loads from this origin under img-src 'self' once its share dialog opens.

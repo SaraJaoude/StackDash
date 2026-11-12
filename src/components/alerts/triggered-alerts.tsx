@@ -13,12 +13,12 @@ import {
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { formatDateTime } from "@/lib/format";
 import { barPercent, usageBarClass } from "@/lib/realtime/arrivals";
-import { workspacePath } from "@/lib/workspaces/paths";
+import { ALERT_SETTINGS_IDS, alertSettingsPath, workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AcknowledgeAllButton, AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
 import { DeniedReason } from "./form-controls";
-import { PagedHeading } from "./paged-heading";
+import { FragmentHeading } from "./fragment-heading";
 
 /**
  * Triggered alerts, newest first: what fired, how bad, and whether someone has acknowledged it.
@@ -27,9 +27,6 @@ import { PagedHeading } from "./paged-heading";
  */
 
 const HEADING_ID = "triggered-alerts-title";
-// Anchors rendered by AlertSettings further down the same page.
-const ADD_RULE_ANCHOR = "#add-alert-rule";
-const RULES_ANCHOR = "#alert-rules-title";
 
 const linkClass = "text-accent underline underline-offset-2";
 
@@ -156,9 +153,9 @@ export async function TriggeredAlerts({
     <section aria-labelledby={HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
       <div className="flex flex-col gap-3 border-b border-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <PagedHeading id={HEADING_ID} cursor={after}>
+          <FragmentHeading id={HEADING_ID} cursor={after}>
             Triggered alerts
-          </PagedHeading>
+          </FragmentHeading>
           <p className="mt-1 text-sm text-muted">
             {showAcknowledged
               ? "Every alert that has fired, newest first, including acknowledged ones."
@@ -194,17 +191,17 @@ export async function TriggeredAlerts({
             <p className="mt-1 text-muted">
               {canManageRules ? (
                 <>
-                  <a href={ADD_RULE_ANCHOR} className={linkClass}>
+                  <Link href={alertSettingsPath(workspace.slug, ALERT_SETTINGS_IDS.newRule)} className={linkClass}>
                     Add an alert rule
-                  </a>{" "}
+                  </Link>{" "}
                   to hear about usage or spend before it becomes a problem.
                 </>
               ) : (
                 <>
                   Alerts appear here when an{" "}
-                  <a href={RULES_ANCHOR} className={linkClass}>
+                  <Link href={alertSettingsPath(workspace.slug, ALERT_SETTINGS_IDS.rules)} className={linkClass}>
                     alert rule
-                  </a>{" "}
+                  </Link>{" "}
                   crosses its threshold.
                 </>
               )}

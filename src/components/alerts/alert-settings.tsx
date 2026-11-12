@@ -27,28 +27,23 @@ import {
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
-import { workspacePath } from "@/lib/workspaces/paths";
+import { ALERT_SETTINGS_IDS, alertSettingsPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AddSuggestedAlerts } from "./add-suggested-alerts";
 import { AlertDelivery } from "./alert-delivery";
-import { BudgetForm } from "./budget-form";
 import { DeniedReason } from "./form-controls";
+import { FragmentHeading } from "./fragment-heading";
 import { defaultBudgetValues, defaultRuleValues, formatMinorAmount, ruleToFormValues, type AlertFormOptions } from "./labels";
-import { BudgetListItem, RuleListItem } from "./list-items";
-import { PagedHeading } from "./paged-heading";
-import { RuleForm } from "./rule-form";
+import { BudgetListItem, NewBudget, NewRule, RuleListItem } from "./list-items";
 
 /**
- * The configuration part of the alerts page: suggested alerts, alert rules, budgets, and where
- * alerts go (alert emails and channels). Exported as one body so the page can place the triggered
- * alerts list above it.
+ * Alert settings (#343): suggested alerts, alert rules, budgets, and where alerts go (alert emails
+ * and channels). Each create form stays closed behind its "New" button until it is wanted.
  */
 
-const RULES_HEADING_ID = "alert-rules-title";
-const BUDGETS_HEADING_ID = "budgets-title";
-const ADD_RULE_HEADING_ID = "add-alert-rule";
-const ADD_BUDGET_HEADING_ID = "add-budget";
+const RULES_HEADING_ID = ALERT_SETTINGS_IDS.rules;
+const BUDGETS_HEADING_ID = ALERT_SETTINGS_IDS.budgets;
 const FALLBACK_CURRENCY = "USD";
 
 type Scoped = {
@@ -215,7 +210,7 @@ export async function AlertSettings({
         ),
       ].sort();
 
-  const alertsPath = workspacePath(workspace.slug, "alerts");
+  const settingsPath = alertSettingsPath(workspace.slug);
   // A pager replaces its list, so it lands on that list's heading rather than the top of the page.
   const pageHref = (
     cursors: { rulesAfter: string | null; budgetsAfter: string | null },
@@ -225,18 +220,16 @@ export async function AlertSettings({
     if (cursors.rulesAfter !== null) query.set("rulesAfter", cursors.rulesAfter);
     if (cursors.budgetsAfter !== null) query.set("budgetsAfter", cursors.budgetsAfter);
     const text = query.toString();
-    return `${text === "" ? alertsPath : `${alertsPath}?${text}`}#${headingId}`;
+    return `${text === "" ? settingsPath : `${settingsPath}?${text}`}#${headingId}`;
   };
   const deniedReason = actionDeniedReason("manage_budgets");
 
   return (
     <>
       {canManage && suggestedProviders.length > 0 ? (
-        <section aria-labelledby="suggested-alerts-title" className="mt-8 rounded-xl border border-accent/40 bg-panel">
+        <section aria-labelledby={ALERT_SETTINGS_IDS.suggested} className="mt-8 rounded-xl border border-accent/40 bg-panel">
           <div className="border-b border-line px-6 py-4">
-            <h2 id="suggested-alerts-title" className="text-sm font-semibold">
-              Suggested alerts
-            </h2>
+            <FragmentHeading id={ALERT_SETTINGS_IDS.suggested}>Suggested alerts</FragmentHeading>
             <p className="mt-1 text-sm text-muted">
               These providers report allowances that no rule watches yet. Nothing is turned on until you add it.
             </p>
@@ -262,30 +255,16 @@ export async function AlertSettings({
 
       <section aria-labelledby={RULES_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <PagedHeading id={RULES_HEADING_ID} cursor={rulesAfter}>
+          <FragmentHeading id={RULES_HEADING_ID} cursor={rulesAfter}>
             Alert rules
-          </PagedHeading>
+          </FragmentHeading>
           <p className="mt-1 text-sm text-muted">
             Rules watch synced usage and spend and raise an alert in DevMacro when a threshold is crossed, at most once
             per billing period.
           </p>
         </div>
 
-        {rules.items.length === 0 ? (
-          <div className="px-6 py-5 text-sm">
-            <p className="font-medium">No alert rules yet</p>
-            {canManage ? (
-              <p className="mt-1 text-muted">
-                <a href={`#${ADD_RULE_HEADING_ID}`} className="text-accent underline underline-offset-2">
-                  Add an alert rule
-                </a>{" "}
-                to hear about usage or spend before it becomes a problem.
-              </p>
-            ) : (
-              <DeniedReason>{deniedReason}</DeniedReason>
-            )}
-          </div>
-        ) : (
+        {rules.items.length === 0 ? null : (
           <ul aria-label="Alert rules" className="divide-y divide-line">
             {rules.items.map((rule) => (
               <RuleListItem
@@ -321,13 +300,23 @@ export async function AlertSettings({
         )}
 
         {canManage ? (
-          <div className="border-t border-line px-6 py-5">
-            <h3 id={ADD_RULE_HEADING_ID} className="mb-4 text-sm font-semibold">
-              Add an alert rule
-            </h3>
-            <RuleForm options={options} initial={defaultRuleValues(defaultCurrency)} title="Add an alert rule" />
+          // One place for the empty state and the New button, so adding the first rule keeps the
+          // open form and its result mounted while the list appears above it.
+          <div className={rules.items.length === 0 ? "px-6 py-5" : "border-t border-line px-6 py-5"}>
+            {rules.items.length === 0 ? (
+              <div className="mb-4 text-sm">
+                <p className="font-medium">No alert rules yet</p>
+                <p className="mt-1 text-muted">Add one to hear about usage or spend before it becomes a problem.</p>
+              </div>
+            ) : null}
+            <NewRule options={options} initial={defaultRuleValues(defaultCurrency)} />
           </div>
-        ) : rules.items.length === 0 ? null : (
+        ) : rules.items.length === 0 ? (
+          <div className="px-6 py-5 text-sm">
+            <p className="font-medium">No alert rules yet</p>
+            <DeniedReason>{deniedReason}</DeniedReason>
+          </div>
+        ) : (
           <div className="border-t border-line px-6 py-4">
             <DeniedReason>{deniedReason}</DeniedReason>
           </div>
@@ -336,9 +325,9 @@ export async function AlertSettings({
 
       <section aria-labelledby={BUDGETS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <PagedHeading id={BUDGETS_HEADING_ID} cursor={budgetsAfter}>
+          <FragmentHeading id={BUDGETS_HEADING_ID} cursor={budgetsAfter}>
             Budgets
-          </PagedHeading>
+          </FragmentHeading>
           <p className="mt-1 max-w-3xl text-sm text-muted">
             Your budget is a monthly spending limit you set yourself. It is separate from provider allowances, which
             are the usage a provider plan includes before it charges more. Budgets reset on the first of each month
@@ -346,21 +335,7 @@ export async function AlertSettings({
           </p>
         </div>
 
-        {budgets.items.length === 0 ? (
-          <div className="px-6 py-5 text-sm">
-            <p className="font-medium">No budgets yet</p>
-            {canManage ? (
-              <p className="mt-1 text-muted">
-                <a href={`#${ADD_BUDGET_HEADING_ID}`} className="text-accent underline underline-offset-2">
-                  Add a budget
-                </a>{" "}
-                to alert on a percentage of what you plan to spend each month.
-              </p>
-            ) : (
-              <DeniedReason>{deniedReason}</DeniedReason>
-            )}
-          </div>
-        ) : (
+        {budgets.items.length === 0 ? null : (
           <ul aria-label="Budgets" className="divide-y divide-line">
             {budgets.items.map((budget) => (
               <BudgetListItem
@@ -411,13 +386,22 @@ export async function AlertSettings({
         )}
 
         {canManage ? (
-          <div className="border-t border-line px-6 py-5">
-            <h3 id={ADD_BUDGET_HEADING_ID} className="mb-4 text-sm font-semibold">
-              Add a budget
-            </h3>
-            <BudgetForm options={options} initial={defaultBudgetValues(defaultCurrency)} title="Add a budget" />
+          // The same single place as the rules section's, for the same reason.
+          <div className={budgets.items.length === 0 ? "px-6 py-5" : "border-t border-line px-6 py-5"}>
+            {budgets.items.length === 0 ? (
+              <div className="mb-4 text-sm">
+                <p className="font-medium">No budgets yet</p>
+                <p className="mt-1 text-muted">Add one to alert on a percentage of what you plan to spend each month.</p>
+              </div>
+            ) : null}
+            <NewBudget options={options} initial={defaultBudgetValues(defaultCurrency)} />
           </div>
-        ) : budgets.items.length === 0 ? null : (
+        ) : budgets.items.length === 0 ? (
+          <div className="px-6 py-5 text-sm">
+            <p className="font-medium">No budgets yet</p>
+            <DeniedReason>{deniedReason}</DeniedReason>
+          </div>
+        ) : (
           <div className="border-t border-line px-6 py-4">
             <DeniedReason>{deniedReason}</DeniedReason>
           </div>

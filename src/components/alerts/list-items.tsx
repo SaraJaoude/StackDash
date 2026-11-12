@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useCallback, useId, useState, type ReactNode } from "react";
+import { useActionState, useCallback, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import {
   deleteAlertRule,
@@ -11,6 +11,7 @@ import {
 import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "@/components/ui/button";
 import { LiveRegion, OutcomeAnnouncement, outcomeOf } from "@/components/ui/live-region";
+import { ALERT_SETTINGS_IDS } from "@/lib/workspaces/paths";
 
 import { BudgetForm } from "./budget-form";
 import { ConfirmDelete } from "./confirm-delete";
@@ -105,6 +106,124 @@ export function EditableRow({
         {message === null ? null : <p className="mt-2 text-success">{message}</p>}
       </LiveRegion>
     </li>
+  );
+}
+
+// What a form can start with. A hidden input carries the workspace, so it is never the first field.
+const FIELD_SELECTOR = "input:not([type='hidden']), select, textarea";
+
+/**
+ * Focuses a create form's first field when it opens: for a radio group, the chosen option, which
+ * is where the arrow keys start.
+ */
+function focusFirstField(node: HTMLElement) {
+  const first = node.querySelector<HTMLElement>(FIELD_SELECTOR);
+  if (first === null) return;
+  const checked =
+    first instanceof HTMLInputElement && first.type === "radio"
+      ? node.querySelector<HTMLInputElement>(`input[type='radio'][name='${CSS.escape(first.name)}']:checked`)
+      : null;
+  (checked ?? first).focus();
+}
+
+// The page's fragment, as an external store. The server has none, so the first render (and
+// hydration) matches it, and the browser's value follows straight after.
+function subscribeToHash(onChange: () => void) {
+  window.addEventListener("hashchange", onChange);
+  return () => window.removeEventListener("hashchange", onChange);
+}
+const currentHash = () => window.location.hash;
+const serverHash = () => "";
+
+/**
+ * A create form closed behind a "New" button (#343), so a section shows what it has before the
+ * form to add more. Opening it moves focus to the form's first field; Cancel closes it and
+ * returns focus to the button, as EditableRow does for its editor. `id` is the fragment links
+ * use: it names the button while the form is closed and the form's heading while it is open,
+ * and a page that loads with it opens the form, so "Add an alert rule" elsewhere arrives ready to
+ * type. Once open, by the button or the fragment, the form stays open until Cancel: a pager
+ * changes the fragment with a client navigation, which fires no `hashchange`, and the form must
+ * not close with what was typed in it on the next render.
+ */
+export function CreateDisclosure({
+  id,
+  label,
+  title,
+  renderForm,
+}: {
+  id: string;
+  label: string;
+  title: string;
+  renderForm: (close: () => void) => ReactNode;
+}) {
+  const hash = useSyncExternalStore(subscribeToHash, currentHash, serverHash);
+  const [chosen, setChosen] = useState<boolean | null>(null);
+  // True after the form closes: the button takes focus when it mounts again. Never true on first
+  // render, so loading the page does not steal focus.
+  const [returnFocus, setReturnFocus] = useState(false);
+  const buttonRef = useCallback(
+    (node: HTMLButtonElement | null) => {
+      if (node !== null && returnFocus) node.focus();
+    },
+    [returnFocus],
+  );
+  const open = chosen ?? hash === `#${id}`;
+  // Latches the form open when it mounts, however it opened. setChosen is stable, so this ref
+  // never changes identity and React never re-runs it, which would move focus back to the top.
+  const formRef = useCallback((node: HTMLElement | null) => {
+    if (node === null) return;
+    setChosen(true);
+    focusFirstField(node);
+  }, []);
+
+  if (!open) {
+    return (
+      <button
+        ref={buttonRef}
+        id={id}
+        type="button"
+        onClick={() => {
+          setReturnFocus(false);
+          setChosen(true);
+        }}
+        className={buttonClass("raised")}
+      >
+        {label}
+      </button>
+    );
+  }
+  return (
+    <div ref={formRef}>
+      <h3 id={id} className="mb-4 text-sm font-semibold">
+        {title}
+      </h3>
+      {renderForm(() => {
+        setReturnFocus(true);
+        setChosen(false);
+      })}
+    </div>
+  );
+}
+
+export function NewRule({ options, initial }: { options: AlertFormOptions; initial: RuleFormValues }) {
+  return (
+    <CreateDisclosure
+      id={ALERT_SETTINGS_IDS.newRule}
+      label="New alert rule"
+      title="Add an alert rule"
+      renderForm={(close) => <RuleForm options={options} initial={initial} title="Add an alert rule" onCancel={close} />}
+    />
+  );
+}
+
+export function NewBudget({ options, initial }: { options: AlertFormOptions; initial: BudgetFormValues }) {
+  return (
+    <CreateDisclosure
+      id={ALERT_SETTINGS_IDS.newBudget}
+      label="New budget"
+      title="Add a budget"
+      renderForm={(close) => <BudgetForm options={options} initial={initial} title="Add a budget" onCancel={close} />}
+    />
   );
 }
 

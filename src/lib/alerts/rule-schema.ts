@@ -4,7 +4,7 @@ import { currencyMinorDigits, decimalToMinorUnits, InvalidDecimalError } from "@
 import { Constants, type Database } from "@/lib/supabase/database.types";
 
 /**
- * Input validation for alert rules and budgets, shared by the Server Actions on the alerts page.
+ * Input validation for alert rules and budgets, shared by the Server Actions behind alert settings.
  *
  * Forms post strings. These schemas take the posted strings (empty fields already dropped, see
  * `pickFormFields`) and produce exactly the column values to write. Money arrives as a decimal the
