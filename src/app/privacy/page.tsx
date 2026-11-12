@@ -74,7 +74,18 @@ export default function PrivacyPage() {
           </li>
           <li>
             While {site.name} is invite only, your email address is checked against the list of invited email
-            addresses before your account is created. An address that is not on the list gets no account.
+            addresses before your account is created. An address that is not on the list gets no account. Your address
+            stays on the list until we remove it, including after you delete your account.
+          </li>
+          <li>
+            Supabase Auth keeps a record of each session you are signed in on, with the IP address and browser details
+            of the most recent request that signed you in or renewed the session. That request comes from your browser
+            or from the server that runs {site.name} on your behalf, so the record holds the address and details of
+            one or the other. Signing out deletes the record of that session.
+          </li>
+          <li>
+            Supabase Auth also keeps a log of sign-in events, such as signing up, signing in, renewing a session,
+            signing out, and deleting an account. Each entry names your email address.
           </li>
           <li>Your avatar image loads from GitHub, so GitHub sees that your browser asked for it.</li>
         </ul>
@@ -201,17 +212,30 @@ export default function PrivacyPage() {
           <li>A connect attempt you did not finish: until it expires, then the next daily cleanup deletes it.</li>
           <li>Triggered alerts: for as long as the alert rule that raised them exists.</li>
           <li>Your account, workspaces, connections, and settings: until you delete them.</li>
+          <li>The record of a signed-in session: until you sign out of it or delete your account.</li>
+          <li>
+            Your email address on the invite list: until we remove it. Deleting your account does not remove it.
+          </li>
+          <li>
+            The log of sign-in events: Supabase keeps it in its own logs for the period its service sets. Any copy in
+            the database stays until we delete it: nothing in {site.name} deletes it, and deleting your account does
+            not.
+          </li>
         </ul>
       </LegalSection>
 
       <LegalSection id="delete" title="Deleting your account">
         <p>
           You can delete your account at any time on the <LegalLink href="/account">account page</LegalLink>. Deleting
-          it removes your sign-in, your profile, the metrics you published, and every workspace only you belong to,
-          with its connections, tokens, and history. Before deleting a connection, {site.name} asks the service to
-          revoke its access where the service allows that, and then lists any service where you need to remove the
-          access yourself. If you are the only owner of a workspace other people belong to, transfer ownership or
-          delete that workspace first.
+          it removes your sign-in, every signed-in session, your profile, the metrics you published, and every
+          workspace only you belong to, with its connections, tokens, and history. Before deleting a connection,{" "}
+          {site.name} asks the service to revoke its access where the service allows that, and then lists any service
+          where you need to remove the access yourself. If you are the only owner of a workspace other people belong
+          to, transfer ownership or delete that workspace first.
+        </p>
+        <p>
+          Two records that hold your email address stay after you delete your account: your entry on the invite list,
+          and the log of sign-in events. To have them removed from the database, email {contact}.
         </p>
       </LegalSection>
 
