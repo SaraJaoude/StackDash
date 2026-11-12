@@ -3,6 +3,7 @@ import Link from "next/link";
 import { GitHubIcon } from "@/components/icons";
 import { StatusBadge } from "@/components/status-badge";
 import { Wordmark } from "@/components/wordmark";
+import { legalLinks } from "@/lib/legal";
 import { docsLink, sectionLinks, signInLink, site } from "@/lib/site";
 
 interface SiteFooterProps {
@@ -10,7 +11,10 @@ interface SiteFooterProps {
   anchorBase?: "" | "/";
 }
 
-/** Footer: the full section map, the docs and sign-in pages, the repository, and one founder credit. */
+/**
+ * Footer: the full section map, the docs and sign-in pages, the privacy policy and terms of use
+ * where this instance names an operator, the repository, and one founder credit.
+ */
 export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
   return (
     <footer className="border-t border-line">
@@ -39,7 +43,7 @@ export function SiteFooter({ anchorBase = "" }: SiteFooterProps) {
             ))}
           </ul>
           <ul className="flex flex-col gap-y-2.5">
-            {[docsLink, signInLink].map((link) => (
+            {[docsLink, signInLink, ...legalLinks()].map((link) => (
               <li key={link.href}>
                 <Link
                   href={link.href}

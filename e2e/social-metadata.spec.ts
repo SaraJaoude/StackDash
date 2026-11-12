@@ -34,7 +34,7 @@ function normalized(url: string | null): string | null {
 }
 
 test.describe("social metadata", () => {
-  test("the landing page, /docs, a docs page, and a public project page each have their own title and address", async ({ page, baseURL }) => {
+  test("the landing page, /docs, a docs page, the legal pages, and a public project page each have their own title and address", async ({ page, baseURL }) => {
     if (baseURL === undefined) throw new Error("baseURL is not configured");
     const workspace = await createTestWorkspace("Social metadata");
     try {
@@ -47,6 +47,9 @@ test.describe("social metadata", () => {
         { path: "/", ogTitle: "DevMacro · One timeline and one alert for your whole developer stack" },
         { path: "/docs", ogTitle: "Documentation" },
         { path: "/docs/providers/vercel", ogTitle: "Vercel" },
+        // Published because playwright.config.ts gives the app a synthetic operator (#339).
+        { path: "/privacy", ogTitle: "Privacy policy" },
+        { path: "/terms", ogTitle: "Terms of use" },
         { path: projectAddress, ogTitle: "Acme web: public metrics" },
       ];
       const heads = new Map<string, Head>();

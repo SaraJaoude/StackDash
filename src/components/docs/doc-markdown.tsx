@@ -76,9 +76,10 @@ function rehypeCodeBlockNames() {
   };
 }
 
-const LINK_CLASS =
+// Shared with the privacy policy and terms of use (src/components/legal), which read like a doc.
+export const LINK_CLASS =
   "font-medium text-accent underline decoration-accent/40 underline-offset-4 transition-colors hover:decoration-accent";
-const INLINE_CODE_CLASS = "rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.875em] text-foreground";
+export const INLINE_CODE_CLASS = "rounded bg-panel-raised px-1.5 py-0.5 font-mono text-[0.875em] text-foreground";
 const SUBHEADING_CLASS = "mt-8 scroll-mt-24 text-base font-semibold";
 
 function markdownComponents(doc: DocPage, docHrefs: ReadonlySet<string>): Components {

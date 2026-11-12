@@ -6,6 +6,7 @@ import { connection } from "next/server";
 import { Suspense } from "react";
 import { z } from "zod";
 
+import { LegalConsent } from "@/components/legal/legal-consent";
 import { Wordmark } from "@/components/wordmark";
 import { safeNextPath, SIGN_IN_ERROR_CODES, type SignInErrorCode } from "@/lib/auth/redirect";
 import { getCurrentUser } from "@/lib/auth/session";
@@ -124,6 +125,7 @@ export default async function SignInPage({ searchParams }: PageProps<"/sign-in">
         <Suspense fallback={<div className="min-h-11 rounded-lg bg-panel-raised" aria-hidden="true" />}>
           <SignInPanel searchParams={searchParams} />
         </Suspense>
+        <LegalConsent />
       </div>
     </main>
   );

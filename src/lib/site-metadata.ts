@@ -94,21 +94,30 @@ export function socialMetadata(
 
 /**
  * Public pages that are not data, listed first in the sitemap. A new static public page is added
- * here and nowhere else.
+ * here and nowhere else, unless it depends on configuration: the privacy policy and terms of use
+ * exist only where the instance names an operator (#339), so they come from `legalPages()` through
+ * `SitemapSources.legalPages`.
  */
 export const STATIC_PUBLIC_PATHS: readonly string[] = ["/", DOCS_ROUTE];
 
 export type SitemapSources = Readonly<{
   /** Paths of the published docs pages. */
   docPaths: readonly string[];
+  /** The privacy policy and terms of use with the date each last changed; none without an operator. */
+  legalPages: readonly Readonly<{ path: string; lastModified: string }>[];
   /** Indexable public project pages, newest change first. */
   projectPages: readonly Readonly<{ path: string; lastModified: Date }>[];
 }>;
 
-/** /sitemap.xml's entries: the static public pages, every docs page, then the project pages. */
+/**
+ * /sitemap.xml's entries: the static public pages, the legal pages, every docs page, then the
+ * project pages.
+ */
 export function sitemapEntries(origin: string, sources: SitemapSources): MetadataRoute.Sitemap {
   return [
-    ...[...STATIC_PUBLIC_PATHS, ...sources.docPaths].map((path) => ({ url: new URL(path, origin).href })),
+    ...STATIC_PUBLIC_PATHS.map((path) => ({ url: new URL(path, origin).href })),
+    ...sources.legalPages.map((page) => ({ url: new URL(page.path, origin).href, lastModified: page.lastModified })),
+    ...sources.docPaths.map((path) => ({ url: new URL(path, origin).href })),
     ...sources.projectPages.map((page) => ({ url: new URL(page.path, origin).href, lastModified: page.lastModified })),
   ];
 }
