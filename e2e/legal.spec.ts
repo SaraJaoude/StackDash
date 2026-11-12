@@ -1,6 +1,7 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page, type Response } from "@playwright/test";
 
+import { BASELINE_CSP } from "./fixtures/csp";
 import { E2E_OPERATOR } from "./fixtures/operator";
 
 /*
@@ -23,11 +24,25 @@ async function tabTo(page: Page, target: Locator): Promise<void> {
   expect(await target.evaluate((element) => getComputedStyle(element).outlineStyle)).not.toBe("none");
 }
 
+/**
+ * The policy's cookies section says these pages set no cookies. That holds because they are outside
+ * the proxy matcher (src/proxy.ts), so no session refresh runs there and next.config.ts sends the
+ * static policy: a page moved into the matcher fails here before the published claim turns false.
+ */
+async function expectNoCookies(page: Page, response: Response | null): Promise<void> {
+  if (response === null) throw new Error("Expected a response for the navigation.");
+  // headers() leaves out cookie headers (Response.headers in the Playwright types); headerValue reads them.
+  expect(await response.headerValue("set-cookie")).toBeNull();
+  expect(response.headers()["content-security-policy"]).toBe(BASELINE_CSP);
+  expect(await page.context().cookies()).toEqual([]);
+}
+
 test.describe("privacy policy and terms of use", () => {
   test("the privacy policy names the operator, how to reach them, and who processes data", async ({ page }) => {
     const response = await page.goto("/privacy");
 
     expect(response?.status()).toBe(200);
+    await expectNoCookies(page, response);
     await expect(page).toHaveTitle("Privacy policy · DevMacro");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toHaveText("Privacy policy");
@@ -46,6 +61,7 @@ test.describe("privacy policy and terms of use", () => {
     const response = await page.goto("/terms");
 
     expect(response?.status()).toBe(200);
+    await expectNoCookies(page, response);
     await expect(page).toHaveTitle("Terms of use · DevMacro");
     const main = page.getByRole("main");
     await expect(main.getByRole("heading", { level: 1 })).toHaveText("Terms of use");
@@ -69,8 +85,9 @@ test.describe("privacy policy and terms of use", () => {
     const sitemap = await request.get("/sitemap.xml");
     expect(sitemap.status()).toBe(200);
     const body = await sitemap.text();
-    expect(body).toContain("/privacy</loc>");
-    expect(body).toContain("/terms</loc>");
+    // Each with the date its text last changed (PRIVACY_UPDATED, TERMS_UPDATED in src/lib/legal.ts).
+    expect(body).toMatch(/\/privacy<\/loc>\n<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
+    expect(body).toMatch(/\/terms<\/loc>\n<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/);
   });
 
   for (const path of ["/privacy", "/terms", "/sign-in"]) {
