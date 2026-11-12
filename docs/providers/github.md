@@ -24,9 +24,9 @@ GitHub App, installed on a user or organization account, plus a one-time user au
 | API base URL | `https://api.github.com` |
 | API version header | `X-GitHub-Api-Version: 2026-03-10` (latest). `2022-11-28` is supported until 2028-03-10. Requests without the header get `2022-11-28` |
 | App JWT | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead, `iss` = client ID (recommended) or app ID |
-| Installation access token | 1 hour. Minted with the JWT. Prefix `ghs_`. Since 2026-04-27 new tokens roll out in a longer stateless format (`ghs_APPID_JWT`), so never assume 40 characters |
-| User access token | 8 hours (`expires_in: 28800`), prefix `ghu_`. Only when "Expire user authorization tokens" is on (the default) |
-| Refresh token | 6 months (`refresh_token_expires_in: 15897600`), prefix `ghr_`, rotates on every use |
+| Installation access token | 1 hour. Minted with the JWT. Starts with `ghs` and an underscore. Since 2026-04-27 new tokens roll out in a longer stateless format (that prefix, the app ID, an underscore, then a JWT), so never assume 40 characters |
+| User access token | 8 hours (`expires_in: 28800`), starts with `ghu` and an underscore. Only when "Expire user authorization tokens" is on (the default) |
+| Refresh token | 6 months (`refresh_token_expires_in: 15897600`), starts with `ghr` and an underscore, rotates on every use |
 | Private key | PEM, PKCS#1 (`BEGIN RSA PRIVATE KEY`). Never expires. Up to 25 keys per app, for rotation |
 
 ### Install
@@ -278,13 +278,13 @@ Setup URL redirect after install (from documentation, not recorded; `setup_actio
 }
 ```
 
-`POST https://github.com/login/oauth/access_token` (from documentation, not recorded; values synthetic):
+`POST https://github.com/login/oauth/access_token` (from documentation, not recorded; the tokens are shown as placeholders):
 
 ```json
 {
-  "access_token": "ghu_exampleexampleexample",
+  "access_token": "<user-access-token>",
   "expires_in": 28800,
-  "refresh_token": "ghr_exampleexampleexample",
+  "refresh_token": "<refresh-token>",
   "refresh_token_expires_in": 15897600,
   "scope": "",
   "token_type": "bearer"

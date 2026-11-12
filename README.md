@@ -425,7 +425,7 @@ npm run build            # production build
 CI also runs `supabase db lint --level error --fail-on error`,
 `npm audit --audit-level=high --omit=dev`, and a gitleaks scan of the full git history. GitHub
 secret scanning and push protection are not on for this repository yet: turning them on is a
-manual step in [Deploy, what stays Eddie's](docs/operations/deploy.md#what-stays-eddies), and until
+manual step in [Hosted instance runbook, what stays Eddie's](docs/internal/hosted-instance.md#what-stays-eddies), and until
 then the CI gitleaks scan is the only automated secret check. Run the scan locally from a normal
 clone (not a git worktree) with:
 
@@ -553,10 +553,11 @@ rest of the app keeps working. Each provider callback URL is
 
 ## Operations
 
-Every Markdown file under `docs/` is also published on the website at `/docs`, rendered at build time.
+Every Markdown file under `docs/` except `docs/internal/` is also published on the website at
+`/docs`, rendered at build time.
 
-- [Deploy the hosted app](docs/operations/deploy.md): Supabase project, forward-only migrations,
-  Auth settings, Vercel project, environment variables, secrets, and verification.
+- [Deploy to Vercel and Supabase](docs/operations/deploy.md): Supabase project, forward-only
+  migrations, Auth settings, Vercel project, environment variables, secrets, and verification.
 - [Register the OAuth apps](docs/operations/oauth-apps.md): the sign-in GitHub OAuth app and the
   11 provider apps, with per-provider details in [`docs/providers/`](docs/providers).
 - [Jobs](docs/operations/jobs.md): the sync scheduler, retries, retention, and the `pg_cron` job.
@@ -618,7 +619,7 @@ src/
                                scripts carry the policy nonce
     fonts.ts                   fonts shared by the root layout and global-not-found.tsx
     sign-in/                   GitHub sign-in page
-    docs/                      the Markdown in docs/ published at /docs, one page per file
+    docs/                      the Markdown in docs/ published at /docs, one page per file, except docs/internal/
     privacy/, terms/           privacy policy and terms of use, published only when the operator variables are set
     auth/                      OAuth callback, error page, sign-out
     app/                       entry after sign-in, sends you to a workspace
@@ -682,10 +683,13 @@ e2e/                           Playwright specs, global-setup.ts, fixtures/
 docs/
   adapters.md                  writing a provider adapter: contract, harness, registration, review
   api.md                       the REST API: keys, scopes, endpoints, errors, rate limit
+  getting-started.md           first steps for people using DevMacro, from sign-in to a published metric
+  mcp.md                       the MCP server: connecting an assistant, tools, resources, prompts
   architecture/concepts.md     workspaces, connections, accounts, projects: what each is for
   architecture/schema.md       tables, relationships, functions
   architecture/public-metrics.md  publishable metrics: rules, formulas, and the read API
   operations/                  deploy, OAuth apps, jobs
+  internal/                    hosted instance runbook, kept in the repository, not published at /docs
   providers/                   one page per provider: app setup, permissions, data read
 ```
 
