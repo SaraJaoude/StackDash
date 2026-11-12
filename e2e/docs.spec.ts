@@ -29,12 +29,12 @@ test.describe("docs", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Documentation");
 
     const main = page.getByRole("main");
-    await expect(main.getByRole("heading", { level: 2 })).toHaveText([
-      "Using DevMacro",
-      "Providers",
-      "Self-hosting and operations",
-      "Architecture",
-    ]);
+    // The leading four only: any other top-level page adds a Developers group after Architecture.
+    const groupHeadings = main.getByRole("heading", { level: 2 });
+    const leadingGroups = ["Using DevMacro", "Providers", "Self-hosting and operations", "Architecture"];
+    for (const [index, name] of leadingGroups.entries()) {
+      await expect(groupHeadings.nth(index)).toHaveText(name);
+    }
     await expect(main.getByRole("link").first()).toHaveText("Getting started");
     await expect(page.getByRole("region", { name: "Using DevMacro" }).getByRole("link")).toHaveText([
       "Getting started",
