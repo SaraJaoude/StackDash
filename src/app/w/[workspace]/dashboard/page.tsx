@@ -26,7 +26,7 @@ import {
   spendProviderIds,
 } from "@/lib/adapters/registry";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
-import { aggregateDashboard, type ProviderId, withStaleNotice } from "@/lib/dashboard/aggregate";
+import { aggregateDashboard, type ProviderId, snapshotWindowStart, withStaleNotice } from "@/lib/dashboard/aggregate";
 import {
   buildHeadline,
   chooseHeadline,
@@ -61,7 +61,7 @@ import {
 } from "@/lib/dashboard/trends";
 import { recentAnomalies, whatChanged } from "@/lib/dashboard/what-changed";
 import { getAnomalyControls, getRecentAnomalies, RECENT_ANOMALY_DAYS } from "@/lib/data/anomalies";
-import { type DashboardData, getDashboardData, getWorkspaceScope, snapshotWindowStart } from "@/lib/data/dashboard";
+import { type DashboardData, getDashboardData, getWorkspaceScope } from "@/lib/data/dashboard";
 import { getHeadlineEvents, getHeadlineSnapshots } from "@/lib/data/headline";
 import { getTrendData, getTrendEventCounts, type TrendData } from "@/lib/data/trends";
 import { getUnacknowledgedSummary } from "@/lib/data/triggered-alerts";

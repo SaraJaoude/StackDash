@@ -27,6 +27,18 @@ type Tables = Database["public"]["Tables"];
 export type ProviderId = Database["public"]["Enums"]["provider_id"];
 export type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
 
+/**
+ * Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months.
+ * The dashboard reads this window, and the daily trends read the same rows (#263); their 30 day
+ * chart sits inside it. An account with no row in it has stopped reporting (#308).
+ */
+const SNAPSHOT_WINDOW_DAYS = 45;
+
+/** First UTC date (`YYYY-MM-DD`) of the snapshot window ending at `now`; snapshot dates are UTC dates. */
+export function snapshotWindowStart(now: Date): string {
+  return new Date(now.getTime() - SNAPSHOT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
+
 export type SnapshotInput = Pick<
   Tables["usage_snapshots"]["Row"],
   | "connection_id"

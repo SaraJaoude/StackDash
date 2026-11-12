@@ -1,13 +1,13 @@
 import "server-only";
 
-import type { ConnectionInput, SnapshotInput } from "@/lib/dashboard/aggregate";
+import { snapshotWindowStart, type ConnectionInput, type SnapshotInput } from "@/lib/dashboard/aggregate";
 import { eventCountBucket, markerTypeIds, markerWindowStart, type EventCountRow, type MarkerCategory } from "@/lib/dashboard/markers";
 import { trendWindowStart, type TrendGranularity } from "@/lib/dashboard/trends";
 import { applyScope, type ScopeFilters } from "@/lib/filters/scope";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
-import { getWorkspaceScope, loadDashboardSnapshots, loadMonthlySnapshots, snapshotWindowStart } from "./dashboard";
+import { getWorkspaceScope, loadDashboardSnapshots, loadMonthlySnapshots } from "./dashboard";
 import { resolveTimelineScope } from "./timeline";
 
 export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: SnapshotInput[] }>;
@@ -15,13 +15,11 @@ export type TrendData = Readonly<{ connections: ConnectionInput[]; snapshots: Sn
 /**
  * Snapshot history for the trend charts, narrowed to `scope` with the same rules as the dashboard,
  * newest first.
- * - `"daily"` uses only the dashboard window's rows (`SNAPSHOT_WINDOW_DAYS`, which holds the 30 day
+ * - `"daily"` uses only the dashboard window's rows (`snapshotWindowStart`, which holds the 30 day
  *   chart) from `loadDashboardSnapshots`, the read `getDashboardData` already made with the same
- *   `now` (#263), and issues no query of its own. An account whose last row is older than that
- *   window therefore no longer counts as expected in a daily bucket, as on the dashboard's cards.
- *   The monthly view still reads 13 months, so it keeps expecting that account and shows the
- *   current month as unavailable: the two views disagree about an account that stopped reporting
- *   45 days to 13 months ago, until #308 gives both views one rule.
+ *   `now` (#263), and issues no query of its own. An account with no row in that window has
+ *   stopped reporting, and `buildTrends` expects a stopped account only up to its last row in
+ *   both views (#308), so leaving its older rows out of the daily read changes nothing.
  * - `"monthly"` reads `loadMonthlySnapshots` from `trendWindowStart(now)`: each account's latest
  *   row per metric and UTC month, grouped in the database (#317). That is every row `buildTrends`
  *   uses for a month (the latest per account, and the first month each account reported), so the
