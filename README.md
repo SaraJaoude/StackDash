@@ -410,10 +410,13 @@ the simulator.
 the fake Resend API. Playwright starts the fake itself (`npm run email:fake`, on the app's port
 plus one, 3101 by default, or `E2E_RESEND_PORT`) and gives its dev server the fake's URL, a dummy
 key, and a sender, which take precedence over `.env.local`, so the spec needs no email settings
-and never reaches Resend. CI also writes `NEXT_PUBLIC_SITE_URL=http://localhost:3100` and
-`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1`, because it runs a production build, which sends no alert
-message without the first and refuses to post to `e2e/alert-channels.spec.ts`'s receiver on
-127.0.0.1 without the second. The dev server needs neither.
+and never reaches Resend. Playwright also sets `NEXT_PUBLIC_SITE_URL` to the app server's own
+origin, locally and in CI, and that too takes precedence over `.env.local`:
+`e2e/social-metadata.spec.ts` reads absolute canonical and preview image addresses from it, and
+CI's production build sends no alert message without it. CI also writes
+`DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1` into `.env.local`, because its production build refuses to
+post to `e2e/alert-channels.spec.ts`'s receiver on 127.0.0.1 without it. A local run on the dev
+server needs neither in `.env.local`.
 
 The tick is instance-wide: it syncs the due connections of every workspace, including the ones
 other specs seed, so a spec that runs it would break them if it ran beside them. Such specs
@@ -440,7 +443,7 @@ only and must never get a `NEXT_PUBLIC_` prefix.
 
 | Variable | Purpose | Kind | Required |
 | --- | --- | --- | --- |
-| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (including a project page's canonical address and preview image), provider callback URLs, the sitemap, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
+| `NEXT_PUBLIC_SITE_URL` | Public origin for absolute metadata URLs (the canonical address, `og:url`, and preview image of the landing page, the docs, and public project pages, left out while it is unset), provider callback URLs, the sitemap and robots.txt, the `formulaUrl` links in the public metrics route, and the links in alert emails and channel messages; falls back to the request origin, and to `http://localhost:3000` for alert links in development | Public | Optional, but a production build sends no alert email or channel message without it |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | Public | Required |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Supabase publishable key; row level security limits what it can read | Public | Required |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key; bypasses row level security | Secret | Required |
@@ -548,7 +551,9 @@ src/
   instrumentation-client.ts    browser setup before hydration: Zod without eval, for the policy
   app/
     page.tsx, layout.tsx       landing page and root layout
-    sitemap.ts                 /sitemap.xml: the landing page and indexable public project pages
+    sitemap.ts                 /sitemap.xml: the landing page, /docs and every docs page, and indexable public project pages
+    robots.ts                  /robots.txt: public pages allowed, signed-in and API paths disallowed, the sitemap named
+    opengraph-image.tsx        /opengraph-image: the site's 1200 by 630 link preview image
     not-found.tsx              not-found page copy, for notFound() calls and unmatched URLs
     global-not-found.tsx       document for URLs that match no route, rendered per request so its
                                scripts carry the policy nonce
