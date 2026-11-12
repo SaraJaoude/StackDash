@@ -6,14 +6,16 @@ import { anonymous, pngSize } from "./fixtures/share";
 
 // Link previews and search metadata of the public pages (#338), read from the rendered <head> as a
 // crawler sees it: signed out. The canonical address, og:url, and og:image are absolute only when
-// NEXT_PUBLIC_SITE_URL is set; playwright.config.ts sets it to the server's own origin.
+// NEXT_PUBLIC_SITE_URL is set; playwright.config.ts sets it to the server's own origin. Every
+// locator is strict, so a duplicated tag fails the spec: the root opengraph-image.tsx convention
+// and the explicit SITE_IMAGE both rendering an og:image, or two layers each emitting an og:title.
 
 type Head = Readonly<{ ogTitle: string | null; canonical: string | null; ogUrl: string | null; ogImage: string | null }>;
 
 async function readHead(page: Page, path: string): Promise<Head> {
   const response = await page.goto(path);
   expect(response?.status()).toBe(200);
-  const content = (selector: string) => page.locator(selector).first().getAttribute("content");
+  const content = (selector: string) => page.locator(selector).getAttribute("content");
   return {
     ogTitle: await content('meta[property="og:title"]'),
     canonical: await page.locator('link[rel="canonical"]').getAttribute("href"),
@@ -71,12 +73,12 @@ test.describe("social metadata", () => {
       for (const path of ["/", "/docs"]) {
         const head = await readHead(page, path);
         expect(head.ogImage, path).not.toBeNull();
-        await expect(page.locator('meta[property="og:image:alt"]').first()).toHaveAttribute(
+        await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute(
           "content",
           "DevMacro: One timeline and one alert for your whole developer stack",
         );
         await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
-        await expect(page.locator('meta[name="twitter:image"]').first()).toHaveAttribute("content", head.ogImage ?? "");
+        await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute("content", head.ogImage ?? "");
 
         const image = await request.get(head.ogImage ?? "");
         expect(image.status(), path).toBe(200);
