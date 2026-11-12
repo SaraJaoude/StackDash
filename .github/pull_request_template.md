@@ -38,6 +38,8 @@ After evidence commit:
 - [ ] `npm run typecheck`:
 - [ ] `npm run lint`:
 - [ ] `npm test`:
+- [ ] Database change: `npm run test:db` and `npm run db:types:check`:
+- [ ] `npm run build`:
 - [ ] `npm run test:e2e` (or the specs you ran):
 - [ ] UI change: the axe scan (`expectNoAxeViolations`) on the changed screen, and a keyboard-only pass:
 
