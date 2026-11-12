@@ -122,10 +122,15 @@ ownerTest.describe("project pages as the owner", () => {
         await expect(publicPage.getByRole("img", { name: "Vercel", exact: true })).toHaveCount(0);
 
         // One history chart per published metric (#344), with a text alternative, the last 30 days
-        // stated in words beside it, and the values as a table.
+        // stated in words beside it, and the values as a table. Each metric in the section has its
+        // own level 3 heading, so the charts are counted against those headings; the fixture
+        // publishes one metric with history.
         const history = publicPage.getByRole("region", { name: "History" });
-        await expect(history.getByRole("figure")).toHaveCount(1);
-        await expect(history.getByRole("img")).toHaveCount(1);
+        const metrics = history.getByRole("heading", { level: 3 });
+        await expect(metrics).toHaveText(["GitHub stars"]);
+        const metricCount = await metrics.count();
+        await expect(history.getByRole("figure")).toHaveCount(metricCount);
+        await expect(history.getByRole("img")).toHaveCount(metricCount);
         await expect(history.getByRole("img", { name: /^GitHub stars, last 90 days: from .* to 1,204 stars on / })).toBeVisible();
         await expect(history.getByText(/^GitHub stars, last 30 days: from .* to 1,204 stars on .*\. Highest 1,204 stars on .*, lowest .* on /)).toBeVisible();
 
