@@ -1,0 +1,104 @@
+# Adapter request (docs/adapters.md, "Before you start"). A maintainer answers with go or no-go
+# before anyone writes the adapter.
+name: Adapter request
+description: Ask for DevMacro to connect a new provider.
+title: "Adapter request: <provider name>"
+labels: ["enhancement", "area: integrations"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Connections are OAuth only, polled on a schedule, and read only where the provider allows it. Read `docs/adapters.md` before you fill this in.
+
+        Never paste a token, client secret, API key, or a response from a real account here. Describe responses, or link to the provider's documented samples.
+  - type: input
+    id: provider
+    attributes:
+      label: Provider
+      description: The provider's name and website.
+      placeholder: Acme Cloud, https://acme.example
+    validations:
+      required: true
+  - type: input
+    id: api-docs
+    attributes:
+      label: API documentation
+      description: Link to the provider's API reference.
+    validations:
+      required: true
+  - type: dropdown
+    id: oauth
+    attributes:
+      label: OAuth support
+      description: DevMacro connects with the OAuth authorization code flow only. It never asks for a pasted API key.
+      options:
+        - Authorization code flow with PKCE
+        - Authorization code flow without PKCE
+        - No OAuth, or I do not know
+    validations:
+      required: true
+  - type: textarea
+    id: oauth-docs
+    attributes:
+      label: OAuth details
+      description: Links to the provider's OAuth documentation, and how an app is registered with it.
+    validations:
+      required: true
+  - type: checkboxes
+    id: capabilities
+    attributes:
+      label: What DevMacro would report
+      description: Tick every capability the provider's API can supply.
+      options:
+        - label: Usage (a quantity used in a period)
+        - label: Allowance (what the plan includes, and what is left)
+        - label: Spending (money charged, or enough to estimate it)
+        - label: Credits (prepaid credit or a balance owed)
+        - label: Revenue (money earned, or recurring revenue)
+        - label: Events (signups, deployments, failures, and the like, by polling)
+  - type: textarea
+    id: data
+    attributes:
+      label: Data collected
+      description: Each figure or event DevMacro would read, the endpoint it comes from, and its unit.
+    validations:
+      required: true
+  - type: textarea
+    id: scopes
+    attributes:
+      label: Scopes
+      description: The narrowest scopes that read that data. Say whether each is read only.
+    validations:
+      required: true
+  - type: textarea
+    id: risks
+    attributes:
+      label: Permission risks
+      description: Everything those scopes also allow beyond what DevMacro would read, such as writing, deleting, or reading personal data.
+    validations:
+      required: true
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Limitations
+      description: Rate limits, data retention, plans or roles the data needs, regions, and anything the API does not offer.
+    validations:
+      required: true
+  - type: dropdown
+    id: contribute
+    attributes:
+      label: Who would build it
+      options:
+        - I would like to write the adapter
+        - I am asking a maintainer to write it
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: I have read docs/adapters.md.
+          required: true
+        - label: This issue holds no token, secret, API key, or response from a real account.
+          required: true
