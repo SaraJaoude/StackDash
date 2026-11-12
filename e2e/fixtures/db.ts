@@ -84,6 +84,18 @@ export async function deleteTestWorkspace(workspace: TestWorkspace): Promise<voi
   if (error) throw new Error(`Deleting test workspace failed (code ${error.code}).`);
 }
 
+/** The personal workspace every user gets when their account is created. */
+export async function personalWorkspace(userId: string): Promise<Readonly<{ id: string; slug: string }>> {
+  const { data, error } = await adminClient()
+    .from("workspaces")
+    .select("id, slug")
+    .eq("created_by", userId)
+    .eq("is_personal", true)
+    .single();
+  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
+  return data;
+}
+
 /**
  * A key made the way src/lib/api/keys.ts makes one (that module is server-only), for rows the
  * service role inserts directly.

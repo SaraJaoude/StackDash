@@ -5,7 +5,7 @@ import { test, type Browser, type BrowserContext, type Page } from "@playwright/
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
-import { adminClient, type Admin } from "./fixtures/db";
+import { adminClient, personalWorkspace, type Admin } from "./fixtures/db";
 
 /*
  * Account deletion (#42) and the account's place in the headers (#175). Every test signs in as
@@ -16,17 +16,6 @@ import { adminClient, type Admin } from "./fixtures/db";
 
 async function signedInContext(browser: Browser, user: SyntheticUser): Promise<BrowserContext> {
   return browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
-}
-
-async function personalWorkspaceId(admin: Admin, userId: string): Promise<string> {
-  const { data, error } = await admin
-    .from("workspaces")
-    .select("id")
-    .eq("created_by", userId)
-    .eq("is_personal", true)
-    .single();
-  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
-  return data.id;
 }
 
 /** One of everything a workspace holds: a project, a fake connection and its data, rules, a job. */
@@ -339,7 +328,7 @@ test.describe("deleting an account", () => {
     const user = await createSyntheticUser("delete");
     const context = await signedInContext(browser, user);
     try {
-      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const workspaceId = (await personalWorkspace(user.id)).id;
       await seedWorkspace(admin, workspaceId);
 
       const page = await context.newPage();
@@ -428,7 +417,7 @@ test.describe("deleting an account", () => {
       const { data, error } = await admin.rpc("create_workspace", { p_user_id: owner.id, p_name: name, p_is_personal: false });
       if (error) throw new Error(`Creating the shared workspace failed (code ${error.code}).`);
       sharedId = z.object({ id: z.string() }).parse(data).id;
-      const personalId = await personalWorkspaceId(admin, owner.id);
+      const personalId = (await personalWorkspace(owner.id)).id;
       await seedWorkspace(admin, personalId);
 
       // The page is loaded while the owner is still the only member, so the form is offered.

@@ -12,7 +12,7 @@ import {
   STORAGE_STATE,
   type StoredSession,
 } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { adminClient, createTestWorkspace, deleteTestWorkspace, personalWorkspace } from "./fixtures/db";
 
 test.describe("signed out", () => {
   test("visiting the app redirects to sign-in and keeps where you were going", async ({ page }) => {
@@ -152,13 +152,7 @@ test("the app opens the last workspace while the user is still a member of it", 
     if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
     const { error: profileError } = await admin.from("profiles").update({ last_workspace_id: team.id }).eq("user_id", user.id);
     if (profileError) throw new Error(`Recording the last workspace failed (code ${profileError.code}).`);
-    const { data: personal, error: personalError } = await admin
-      .from("workspaces")
-      .select("slug")
-      .eq("created_by", user.id)
-      .eq("is_personal", true)
-      .single();
-    if (personalError) throw new Error(`Finding the personal workspace failed (code ${personalError.code}).`);
+    const personal = await personalWorkspace(user.id);
 
     const page = await context.newPage();
     await page.goto("/app");
