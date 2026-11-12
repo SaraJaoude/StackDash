@@ -4,7 +4,8 @@ This guide is for anyone contributing from outside the maintainer team, and for 
 they work with. It covers what to do before you start, how to set up and check your work, the
 branch, commit, and pull request conventions, how review works, and the rules your code is held to
 in review. The maintainers work from a longer set of house rules on their own machines; this file
-carries every rule from it that applies to you.
+carries the rules from it that your change is reviewed against. If a review cites a rule that is
+not written here, ask for it to be added.
 
 By taking part you agree to follow the [code of conduct](CODE_OF_CONDUCT.md).
 
@@ -55,8 +56,11 @@ prerequisites, `npm ci`, the local Supabase stack, `.env.local`, migrations, see
 and the fake provider. Fork the repository first and clone your fork instead of the main
 repository. If a step is missing or wrong, fix the README in the same pull request.
 
-Two things that differ from what you may know:
+Three things to know before you write code:
 
+- **Read the documentation for the installed version first.** Before writing code against a
+  library, read its documentation for the version in `package-lock.json`, and follow the approach
+  it recommends rather than what you or your AI assistant remember.
 - **This Next.js version has breaking changes.** APIs, conventions, and file structure may differ
   from your memory or your AI assistant's training data. Read the guide for the API you touch in
   `node_modules/next/dist/docs/` before writing code, and heed its deprecation notices.
@@ -238,7 +242,11 @@ eyesight.
 - A missing row and a row you do not own return the same response.
 - **Money is an integer in minor units with its ISO 4217 currency**, never a float. Timestamps are
   `timestamptz` in UTC; format dates and amounts only at the edge, with `Intl`.
+- Units live in the identifier: `timeoutMs`, `ttlSeconds`, `amountMinor`, never a bare `timeout`.
+- Ids are opaque: never parse one or sort by one. Order by `created_at`.
+- An enumeration has one home: a database enum or a literal union with generated types.
 - Personal data never goes into logs, analytics events, error messages, fixtures, or screenshots.
+- Never log a secret, a token, or a whole request body.
 
 ### Performance and data access
 
@@ -253,6 +261,8 @@ eyesight.
   pagination loops.
 - **Stop what you start**: unsubscribe realtime channels, clear intervals and listeners, and abort
   in-flight requests on unmount or navigation.
+- **Caching and revalidation are a stated decision per route**: say the revalidate value or tag
+  strategy and why.
 
 ### Database
 
