@@ -329,7 +329,7 @@ test.describe("an account with no workspace", () => {
     const context = await signedInContext(browser, user);
     try {
       // The only way to reach this page: the user's one workspace is gone.
-      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const workspaceId = (await personalWorkspace(user.id)).id;
       const { error } = await admin.from("workspaces").delete().eq("id", workspaceId);
       if (error) throw new Error(`Deleting the personal workspace failed (code ${error.code}).`);
 
