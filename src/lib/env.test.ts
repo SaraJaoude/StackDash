@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { emailEnv, isLoopbackUrl, operatorEnv } from "./env";
+import { emailEnv, isLoopbackUrl, onVercel, operatorEnv } from "./env";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -98,6 +98,23 @@ describe("operatorEnv", () => {
   ])("refuses %s", (_title, override, message) => {
     stubOperatorEnv({ ...OPERATOR, ...override });
     expect(() => operatorEnv()).toThrow(message);
+  });
+});
+
+describe("onVercel", () => {
+  it("is true for Vercel's own value, exactly 1", () => {
+    vi.stubEnv("VERCEL", "1");
+    expect(onVercel()).toBe(true);
+  });
+
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["0", "0"],
+    ["true", "true"],
+  ])("is false when VERCEL is %s", (_title, value) => {
+    vi.stubEnv("VERCEL", value);
+    expect(onVercel()).toBe(false);
   });
 });
 

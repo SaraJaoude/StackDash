@@ -21,6 +21,14 @@ function stubOperator(values: Partial<Record<keyof typeof OPERATOR, string>>): v
   for (const name of Object.keys(OPERATOR) as (keyof typeof OPERATOR)[]) vi.stubEnv(name, values[name] ?? "");
 }
 
+/** Where this instance runs and whether it sends email, which decide the processors the policy names. */
+function stubHosting({ vercel, email }: { vercel: boolean; email: boolean }): void {
+  vi.stubEnv("VERCEL", vercel ? "1" : "");
+  vi.stubEnv("DEVMACRO_RESEND_API_KEY", email ? "test-key" : "");
+  vi.stubEnv("DEVMACRO_RESEND_API_URL", "");
+  vi.stubEnv("DEVMACRO_EMAIL_FROM", email ? "DevMacro <alerts@example.com>" : "");
+}
+
 /** What `fn` threw; fails the test when it returned instead. */
 function thrownBy(fn: () => unknown): unknown {
   try {
@@ -41,6 +49,7 @@ afterEach(() => {
 describe("with an operator configured", () => {
   it("the privacy policy names the operator and its contact address, and links each provider page", () => {
     stubOperator(OPERATOR);
+    stubHosting({ vercel: false, email: false });
     const html = renderToStaticMarkup(createElement(PrivacyPage));
 
     expect(html).toContain("<h1");
@@ -62,8 +71,23 @@ describe("with an operator configured", () => {
     expect(termsMetadata()).toMatchObject({ title: "Terms of use" });
   });
 
+  it.each([
+    ["on Vercel with alert email", { vercel: true, email: true }, ["Vercel", "Resend"], ["Hosting"]],
+    ["on Vercel without alert email", { vercel: true, email: false }, ["Vercel"], ["Hosting", "Resend"]],
+    ["self-hosted with alert email", { vercel: false, email: true }, ["Hosting", "Resend"], ["Vercel"]],
+    ["self-hosted without alert email", { vercel: false, email: false }, ["Hosting"], ["Vercel", "Resend"]],
+  ])("the privacy policy names only the processors an instance %s uses", (_title, hosting, named, absent) => {
+    stubOperator(OPERATOR);
+    stubHosting(hosting);
+    const html = renderToStaticMarkup(createElement(PrivacyPage));
+
+    for (const processor of ["Supabase", "GitHub", ...named]) expect(html).toContain(`<strong>${processor}</strong>`);
+    for (const processor of absent) expect(html).not.toContain(`<strong>${processor}</strong>`);
+  });
+
   it("each page shows its own date, and the sitemap sends the same one", () => {
     stubOperator(OPERATOR);
+    stubHosting({ vercel: false, email: false });
 
     expect(renderToStaticMarkup(createElement(PrivacyPage))).toContain(`<time dateTime="${PRIVACY_UPDATED}">`);
     expect(renderToStaticMarkup(createElement(TermsPage))).toContain(`<time dateTime="${TERMS_UPDATED}">`);

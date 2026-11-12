@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { LegalCode, LegalDocument, LegalLink, LegalSection } from "@/components/legal/legal-document";
 import { listDocs } from "@/lib/docs";
+import { emailEnv, onVercel } from "@/lib/env";
 import { PRIVACY_UPDATED, requireOperator } from "@/lib/legal";
 import { site } from "@/lib/site";
 
@@ -9,10 +10,13 @@ import { site } from "@/lib/site";
  * The privacy policy (#339). Every statement about data describes what the code does; the pull
  * request that changes this text lists the code path behind each one, and so must the next. The
  * operator comes from server configuration (`operatorEnv`), and an instance without one answers 404.
+ * The processors follow this instance's own configuration too: Vercel only on Vercel (`onVercel`),
+ * Resend only where alert email is set up (`emailEnv`), so a self-hosted copy never lists a service
+ * it does not use.
  *
- * Prerendered: the text, the operator, and the provider list from docs/ are all known at build
- * time. 'navigation' makes the build fail if the page ever needs request-time rendering
- * (node_modules/next/dist/docs/01-app/02-guides/keeping-pages-static.md).
+ * Prerendered: the text, the operator, the processors, and the provider list from docs/ are all
+ * known at build time. 'navigation' makes the build fail if the page ever needs request-time
+ * rendering (node_modules/next/dist/docs/01-app/02-guides/keeping-pages-static.md).
  */
 export const ensureStatic = "navigation";
 
@@ -22,6 +26,9 @@ export function generateMetadata(): Metadata {
   requireOperator();
   return { title: "Privacy policy", description };
 }
+
+// What the request and server logs hold, wherever the app is hosted.
+const LOGS = "Our logs record what happened and a reference id, with tokens, keys, and other secrets masked.";
 
 export default function PrivacyPage() {
   const operator = requireOperator();
@@ -145,16 +152,24 @@ export default function PrivacyPage() {
           <li>
             <strong>Supabase</strong>: the database that holds everything above, sign-in, and live updates in the app.
           </li>
-          <li>
-            <strong>Vercel</strong>: hosts the app and keeps its request and server logs. Our logs record what
-            happened and a reference id, with tokens, keys, and other secrets masked.
-          </li>
+          {onVercel() ? (
+            <li>
+              <strong>Vercel</strong>: hosts the app and keeps its request and server logs. {LOGS}
+            </li>
+          ) : (
+            <li>
+              <strong>Hosting</strong>: the servers that run the app keep its request and server logs. {LOGS}
+            </li>
+          )}
           <li>
             <strong>GitHub</strong>: confirms who you are when you sign in, and serves your avatar.
           </li>
-          <li>
-            <strong>Resend</strong>: sends alert and digest emails, so it receives your email address and the message.
-          </li>
+          {emailEnv() !== null && (
+            <li>
+              <strong>Resend</strong>: sends alert and digest emails, so it receives your email address and the
+              message.
+            </li>
+          )}
         </ul>
         <p>
           The services you connect are yours, not our processors: {site.name} reads from them with the access you

@@ -60,12 +60,10 @@ const emailEnvSchema = z.object({
     .default(RESEND_API_URL),
 });
 
-// Where the public routes' per IP rate limit (#149) finds the client. VERCEL=1 is Vercel's system
-// environment variable (https://vercel.com/docs/environment-variables/system-environment-variables).
-// Elsewhere DEVMACRO_TRUSTED_PROXY_COUNT is how many proxies in front of the app append to
-// x-forwarded-for; one when unset.
+// Where the public routes' per IP rate limit (#149) finds the client: on Vercel (`onVercel`), its
+// own header. Elsewhere DEVMACRO_TRUSTED_PROXY_COUNT is how many proxies in front of the app append
+// to x-forwarded-for; one when unset.
 const clientIpEnvSchema = z.object({
-  VERCEL: z.string().optional(),
   DEVMACRO_TRUSTED_PROXY_COUNT: z
     .string()
     .regex(/^[1-9]$/, "use a whole number from 1 to 9: the proxies in front of the app that append to x-forwarded-for")
@@ -173,17 +171,23 @@ export function emailEnv(): EmailEnv | null {
 }
 
 /**
+ * Whether this deployment runs on Vercel. VERCEL=1 is Vercel's system environment variable, set at
+ * both build and run time (https://vercel.com/docs/environment-variables/system-environment-variables),
+ * so a prerendered page reads it as reliably as a request does.
+ */
+export function onVercel(): boolean {
+  return process.env.VERCEL === "1";
+}
+
+/**
  * Which request header holds the client IP and how many proxies appended to it. On Vercel,
  * `x-vercel-forwarded-for`, which Vercel sets to the client it saw and a proxy in front of Vercel
  * cannot overwrite (https://vercel.com/docs/headers/request-headers#x-vercel-forwarded-for).
  * Self-hosted, `x-forwarded-for` with DEVMACRO_TRUSTED_PROXY_COUNT proxies appending to it.
  */
 export function clientIpEnv(): ClientIpEnv {
-  const env = parseEnv(clientIpEnvSchema, {
-    VERCEL: process.env.VERCEL,
-    DEVMACRO_TRUSTED_PROXY_COUNT: process.env.DEVMACRO_TRUSTED_PROXY_COUNT,
-  });
-  if (env.VERCEL === "1") return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
+  const env = parseEnv(clientIpEnvSchema, { DEVMACRO_TRUSTED_PROXY_COUNT: process.env.DEVMACRO_TRUSTED_PROXY_COUNT });
+  if (onVercel()) return { header: "x-vercel-forwarded-for", trustedProxies: 1 };
   return { header: "x-forwarded-for", trustedProxies: Number(env.DEVMACRO_TRUSTED_PROXY_COUNT ?? "1") };
 }
 
