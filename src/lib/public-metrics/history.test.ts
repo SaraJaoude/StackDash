@@ -307,16 +307,24 @@ describe("starMilestones", () => {
 describe("historySummary", () => {
   const at = (index: number) => new Date(Date.UTC(2026, 10, 1 + index, 12));
 
-  it("says where the period starts and ends, its highest value, and the days with no value", () => {
+  it("says where the period starts and ends, its highest and lowest values, and the days with no value", () => {
     expect(
       historySummary("GitHub stars", "last 30 days", [
-        { asOf: at(0), value: 100, text: "100 stars" },
+        { asOf: at(0), value: 120, text: "120 stars" },
         { asOf: at(1), value: null, text: "Not synced in the last 2 days" },
         { asOf: at(2), value: 140, text: "140 stars" },
-        { asOf: at(3), value: 120, text: "120 stars" },
+        { asOf: at(3), value: 90, text: "90 stars" },
+        { asOf: at(4), value: 130, text: "130 stars" },
       ]),
     ).toBe(
-      "GitHub stars, last 30 days: from 100 stars on 2026-11-01 to 120 stars on 2026-11-04. Highest 140 stars on 2026-11-03. 1 day has no value.",
+      "GitHub stars, last 30 days: from 120 stars on 2026-11-01 to 130 stars on 2026-11-05. Highest 140 stars on 2026-11-03, lowest 90 stars on 2026-11-04. 1 day has no value.",
+    );
+  });
+
+  it("names the earliest day of a tied highest or lowest value (boundary)", () => {
+    const flat = [0, 1, 2].map((index) => ({ asOf: at(index), value: 5, text: "5 stars" }));
+    expect(historySummary("GitHub stars", "last 30 days", flat)).toBe(
+      "GitHub stars, last 30 days: from 5 stars on 2026-11-01 to 5 stars on 2026-11-03. Highest 5 stars on 2026-11-01, lowest 5 stars on 2026-11-01.",
     );
   });
 

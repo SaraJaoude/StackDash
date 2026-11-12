@@ -311,7 +311,7 @@ export type ChartPoint = Readonly<{ asOf: Date; value: number | null; text: stri
 
 /**
  * A chart's text alternative in one or two sentences: where the period starts and ends, the
- * highest value, and how many days have no value. Dates are UTC days, like the points.
+ * highest and lowest values, and how many days have no value. Dates are UTC days, like the points.
  */
 export function historySummary(title: string, period: string, points: readonly ChartPoint[]): string {
   const available = points.filter((point) => point.value !== null);
@@ -319,11 +319,12 @@ export function historySummary(title: string, period: string, points: readonly C
   const last = available.at(-1);
   if (first === undefined || last === undefined) return `${title}, ${period}: no values yet.`;
   const highest = available.reduce((best, point) => ((point.value ?? 0) > (best.value ?? 0) ? point : best), first);
+  const lowest = available.reduce((best, point) => ((point.value ?? 0) < (best.value ?? 0) ? point : best), first);
   const missing = points.length - available.length;
   const range =
     first === last
       ? `${last.text} on ${utcDate(last.asOf)}.`
-      : `from ${first.text} on ${utcDate(first.asOf)} to ${last.text} on ${utcDate(last.asOf)}. Highest ${highest.text} on ${utcDate(highest.asOf)}.`;
+      : `from ${first.text} on ${utcDate(first.asOf)} to ${last.text} on ${utcDate(last.asOf)}. Highest ${highest.text} on ${utcDate(highest.asOf)}, lowest ${lowest.text} on ${utcDate(lowest.asOf)}.`;
   const gaps = missing === 0 ? "" : ` ${missing === 1 ? "1 day has" : `${missing} days have`} no value.`;
   return `${title}, ${period}: ${range}${gaps}`;
 }
