@@ -90,17 +90,23 @@ describe("example adapter declaration", () => {
     expect(checkAdapterDeclaration(exampleAdapter)).toEqual([]);
   });
 
+  const DATA_CAPABILITIES = new Set<keyof AdapterCapabilities>([...Object.values(KIND_CAPABILITY), "events"]);
+
   // checkSyncResult rejects a kind whose capability is false; this is the other direction, so a
   // capability declared but never exercised fails here instead of passing unnoticed.
   it("emits a metric or an event for every data capability it declares", async () => {
     const { result } = await syncWith();
     const emitted = new Set<keyof AdapterCapabilities>(result.metrics.map((metric) => KIND_CAPABILITY[metric.kind]));
     if (result.events.length > 0) emitted.add("events");
-    const dataCapabilities = new Set<keyof AdapterCapabilities>([...Object.values(KIND_CAPABILITY), "events"]);
-    const declared = [...dataCapabilities].filter((capability) => exampleAdapter.capabilities[capability]);
+    const declared = [...DATA_CAPABILITIES].filter((capability) => exampleAdapter.capabilities[capability]);
 
-    expect(declared).toHaveLength(dataCapabilities.size);
     expect(declared.filter((capability) => !emitted.has(capability))).toEqual([]);
+  });
+
+  // True of Example Cloud only: most providers report no revenue or credits. Delete this case in a copy.
+  it("declares every data capability, so the example exercises the whole contract", () => {
+    const undeclared = [...DATA_CAPABILITIES].filter((capability) => !exampleAdapter.capabilities[capability]);
+    expect(undeclared).toEqual([]);
   });
 });
 

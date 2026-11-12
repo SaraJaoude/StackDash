@@ -33,7 +33,7 @@ The copy's tests pass and it type checks without a change to any shared file, be
 2. Replace the fixtures with your provider's responses (see [Fixtures](#fixtures)).
 3. Replace the schemas in `schemas.ts` with your provider's response shapes.
 4. Replace the OAuth details, the reads, and the mappings in `index.ts`.
-5. Rewrite the tests in `index.test.ts` for your provider's rules, keeping the contract checks.
+5. Rewrite the tests in `index.test.ts` for your provider's rules, keeping the contract checks. Delete the case "declares every data capability": it holds for Example Cloud only.
 
 The adapter is not offered to users until it is registered (see [Register the provider](#register-the-provider)).
 
