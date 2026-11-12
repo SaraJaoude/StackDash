@@ -52,9 +52,16 @@ describe("checkAdapterDeclaration", () => {
     expect(checkAdapterDeclaration(getAdapter(id))).toEqual([]);
   });
 
-  const unregistered = [...Object.values(simulatedAdapters), fakeAdapter, exampleAdapter];
+  // What `getAdapter` hands out besides the live adapters (the simulated twins and the fake
+  // provider), and the unregistered example. A twin carries its live adapter's id, so its title
+  // says it is the twin.
+  const otherAdapters = [
+    ...Object.entries(simulatedAdapters).map(([id, adapter]) => [`simulated ${id}`, adapter] as const),
+    ["fake", fakeAdapter] as const,
+    ["example", exampleAdapter] as const,
+  ];
 
-  it.each(unregistered.map((adapter) => [adapter.id, adapter] as const))("passes the %s adapter", (_id, adapter) => {
+  it.each(otherAdapters)("passes the %s adapter", (_name, adapter) => {
     expect(checkAdapterDeclaration(adapter)).toEqual([]);
   });
 
