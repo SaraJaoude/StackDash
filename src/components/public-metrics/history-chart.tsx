@@ -12,20 +12,25 @@ const PAD_Y = 10;
 const GAP_MARK = 6;
 
 /**
- * One window of a published metric's history (#150) as an inline SVG line chart, with the same
- * values in a table. Drawn like the dashboard's trend chart (src/components/dashboard/trend-chart.tsx)
- * but without its live arrival animation, which needs the signed-in app's realtime channel. The
- * chart is one image whose accessible name summarizes the window; the table holds every value.
- * Days without a value break the line and carry a mark on the baseline, said in words in the legend.
+ * A published metric's history (#150) as an inline SVG line chart, with the same values in a table.
+ * Drawn like the dashboard's trend chart (src/components/dashboard/trend-chart.tsx) but without its
+ * live arrival animation, which needs the signed-in app's realtime channel. The chart is one image
+ * whose accessible name summarizes the whole period; the table holds every value. The `recent`
+ * window at the end of the period is stated as a sentence rather than drawn again, so each metric
+ * has one chart (#344). Days without a value break the line and carry a mark on the baseline, said
+ * in words in the legend.
  */
 export function HistoryChart({
   title,
   period,
+  recent,
   points,
 }: {
   title: string;
-  /** "last 30 days", lowercase: it continues the title in sentences. */
+  /** "last 90 days", lowercase: it continues the title in sentences. */
   period: string;
+  /** The last `days` points, summarized in words above the chart under their own `period`. */
+  recent: Readonly<{ days: number; period: string }>;
   points: readonly PublishedHistoryPoint[];
 }) {
   const captionId = useId();
@@ -59,6 +64,7 @@ export function HistoryChart({
         </span>
         {simulated ? <SimulatedBadge /> : null}
       </figcaption>
+      <p className="mt-2 text-sm">{historySummary(title, recent.period, chartPoints.slice(-recent.days))}</p>
 
       <svg role="img" aria-label={historySummary(title, period, chartPoints)} viewBox={`0 0 ${WIDTH} ${HEIGHT}`} className="mt-4 h-auto w-full text-accent">
         <line x1={PAD_X} x2={WIDTH - PAD_X} y1={baseline} y2={baseline} className="stroke-line-strong" strokeWidth={1} />

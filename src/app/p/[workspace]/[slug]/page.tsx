@@ -12,6 +12,7 @@ import { loadPublicProjectPage } from "@/lib/data/project-pages";
 import { formatDateTime } from "@/lib/format";
 import { providerName, providerPlatform } from "@/lib/providers";
 import { FORMULAS_DOC_PATH, PROVENANCE_LABELS } from "@/lib/public-metrics/definitions";
+import { HISTORY_DAYS } from "@/lib/public-metrics/history";
 import { projectPagePath } from "@/lib/public-metrics/project-page";
 import {
   loadPublishedProjectHistory,
@@ -45,10 +46,10 @@ import { site } from "@/lib/site";
  */
 export const instant = false;
 
-const HISTORY_WINDOWS = [
-  { days: 30, period: "last 30 days" },
-  { days: 90, period: "last 90 days" },
-] as const;
+// One chart per metric over the whole history the page reads (#344). The last 30 days are a
+// sentence above it, not a second chart of the same line.
+const HISTORY_PERIOD = `last ${HISTORY_DAYS} days`;
+const RECENT_WINDOW = { days: 30, period: "last 30 days" } as const;
 const DESCRIPTION_METRICS = 3;
 
 // The public origin is configuration (root layout): unset means no absolute URLs in metadata.
@@ -177,10 +178,8 @@ export default async function ProjectPage({ params }: PageProps<"/p/[workspace]/
             {history.histories.map((entry) => (
               <div key={entry.publicationId} className="mt-6">
                 <h3 className="font-medium">{entry.label}</h3>
-                <div className="mt-3 grid gap-4 lg:grid-cols-2">
-                  {HISTORY_WINDOWS.map((window) => (
-                    <HistoryChart key={window.days} title={entry.label} period={window.period} points={entry.points.slice(-window.days)} />
-                  ))}
+                <div className="mt-3">
+                  <HistoryChart title={entry.label} period={HISTORY_PERIOD} recent={RECENT_WINDOW} points={entry.points} />
                 </div>
               </div>
             ))}

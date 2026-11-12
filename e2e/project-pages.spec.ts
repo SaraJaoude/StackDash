@@ -121,9 +121,13 @@ ownerTest.describe("project pages as the owner", () => {
         await expect(publicPage.getByRole("img", { name: "GitHub", exact: true })).toBeVisible();
         await expect(publicPage.getByRole("img", { name: "Vercel", exact: true })).toHaveCount(0);
 
-        // History charts with text alternatives, and the values as a table.
-        await expect(publicPage.getByRole("img", { name: /^GitHub stars, last 30 days: from .* to 1,204 stars on / })).toBeVisible();
-        await expect(publicPage.getByRole("img", { name: /^GitHub stars, last 90 days: from / })).toBeVisible();
+        // One history chart per published metric (#344), with a text alternative, the last 30 days
+        // stated in words above it, and the values as a table.
+        const history = publicPage.getByRole("region", { name: "History" });
+        await expect(history.getByRole("figure")).toHaveCount(1);
+        await expect(history.getByRole("img")).toHaveCount(1);
+        await expect(history.getByRole("img", { name: /^GitHub stars, last 90 days: from .* to 1,204 stars on / })).toBeVisible();
+        await expect(history.getByText(/^GitHub stars, last 30 days: from .* to 1,204 stars on .*\. Highest 1,204 stars on .*, lowest .* on /)).toBeVisible();
 
         const milestones = publicPage.getByRole("region", { name: "Milestones" });
         await expect(milestones).toContainText("Reached 100 GitHub stars");
@@ -142,9 +146,9 @@ ownerTest.describe("project pages as the owner", () => {
         await summary.focus();
         await expect(summary).toBeFocused();
         await publicPage.keyboard.press("Enter");
-        await expect(publicPage.getByRole("table", { name: "GitHub stars: daily values for the last 30 days" })).toBeVisible();
+        await expect(publicPage.getByRole("table", { name: "GitHub stars: daily values for the last 90 days" })).toBeVisible();
         await publicPage.keyboard.press("Tab");
-        await expect(publicPage.getByRole("region", { name: "GitHub stars, last 30 days, values" })).toBeFocused();
+        await expect(publicPage.getByRole("region", { name: "GitHub stars, last 90 days, values" })).toBeFocused();
       });
 
       const sitemap = await readPublic(baseURL, "/sitemap.xml");
