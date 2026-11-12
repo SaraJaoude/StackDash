@@ -112,11 +112,12 @@ async function HeaderControls({ params }: { params: WorkspaceParams }) {
             {roleLabel(membership.role)}
           </span>
         ) : null}
-        {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364). */}
+        {/* Rendered on the server for a super admin only, so nobody else's page carries the path (#364).
+            Below `sm` it would squeeze the workspace switcher to one letter; the palette offers it there. */}
         {showsAdminLink(user.email) ? (
           <Link
             href={ADMIN_PATH}
-            className="inline-flex min-h-9 items-center rounded-md px-1 py-1 text-sm text-muted transition-colors hover:text-foreground sm:px-2"
+            className="hidden min-h-9 items-center rounded-md px-2 py-1 text-sm text-muted transition-colors hover:text-foreground sm:inline-flex"
           >
             Admin
           </Link>
