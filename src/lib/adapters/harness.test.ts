@@ -280,15 +280,33 @@ describe("createAdapterHarness and checkTraffic", () => {
   });
 
   it("reports a log line that carries a secret, and passes one with a Secret (boundary)", () => {
-    const harness = createAdapterHarness({ now: NOW, routes: {}, extra: { privateKey: "synthetic-private-key-1" } });
-    harness.ctx.logger.info("example.safe", { secret: harness.ctx.client.clientSecret, key: harness.ctx.client.extra.privateKey });
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: {},
+      // Made-up keys in both forms an app's private key arrives in: one line with `\n` escapes,
+      // and two lines.
+      extra: { privateKey: "synthetic-key-a-1\\nsynthetic-key-a-2", multiLine: "synthetic-key-b-1\nsynthetic-key-b-2" },
+    });
+    harness.ctx.logger.info("example.safe", {
+      secret: harness.ctx.client.clientSecret,
+      key: harness.ctx.client.extra.multiLine,
+      error: new Error("token refused"),
+    });
     harness.ctx.logger.warn("example.leak", { token: "synthetic-access-token-1" });
     harness.ctx.logger.error("example.client", { value: harness.clientSecret });
     harness.ctx.logger.error("example.extra", { key: harness.ctx.client.extra.privateKey?.reveal() });
+    harness.ctx.logger.error("example.multiline", { key: harness.ctx.client.extra.multiLine?.reveal() });
+    harness.ctx.logger.error("example.error", { error: new Error("refused synthetic-access-token-1") });
+    harness.ctx.logger.error("example.cause", {
+      error: new Error("refused", { cause: new Error("synthetic-access-token-1 expired") }),
+    });
     expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([
       "log 1 (example.leak) contains a secret",
       "log 2 (example.client) contains a secret",
       "log 3 (example.extra) contains a secret",
+      "log 4 (example.multiline) contains a secret",
+      "log 5 (example.error) contains a secret",
+      "log 6 (example.cause) contains a secret",
     ]);
   });
 });

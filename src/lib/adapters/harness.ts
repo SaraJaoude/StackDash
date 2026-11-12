@@ -292,10 +292,17 @@ export function checkSyncResult(adapter: ProviderAdapter<string>, externalAccoun
   return problems;
 }
 
+// Writes an `Error` the way the app's logger does (`redactError`, src/lib/log/redact.ts): its name,
+// message, cause, and own fields. `JSON.stringify` alone writes an `Error` as `{}`.
+function writtenAsLogged(_key: string, value: unknown): unknown {
+  return value instanceof Error ? { ...value, name: value.name, message: value.message, cause: value.cause } : value;
+}
+
 /**
  * What the adapter sent and logged during the test: every request answered by a recording, sent
  * over https with a timeout, and no secret (every secret the harness handed the adapter, plus
- * `secrets`, normally the test credential's tokens) in any log line.
+ * `secrets`, normally the test credential's tokens) in any log line, including inside a logged
+ * `Error`.
  */
 export function checkTraffic(harness: AdapterHarness, secrets: readonly string[] = []): string[] {
   const problems: string[] = [];
@@ -307,10 +314,14 @@ export function checkTraffic(harness: AdapterHarness, secrets: readonly string[]
     if (request.url.protocol !== "https:") problems.push(`${key} is not https`);
     if (!request.hasTimeout) problems.push(`${key} was sent without a timeout; send it through fetchJson`);
   }
-  const values = [...harness.handedSecrets, ...secrets].filter((value) => value.length > 0);
+  // The line is JSON, where a newline, quote, or backslash inside a string is escaped, so each
+  // secret is compared in its escaped form: a multi line private key is found too.
+  const needles = [...harness.handedSecrets, ...secrets]
+    .filter((value) => value.length > 0)
+    .map((value) => JSON.stringify(value).slice(1, -1));
   harness.logs.forEach((entry, index) => {
-    const line = `${entry.event} ${JSON.stringify(entry.fields ?? {})}`;
-    if (values.some((value) => line.includes(value))) problems.push(`log ${index} (${entry.event}) contains a secret`);
+    const line = JSON.stringify([entry.event, entry.fields ?? {}], writtenAsLogged);
+    if (needles.some((needle) => line.includes(needle))) problems.push(`log ${index} (${entry.event}) contains a secret`);
   });
   return problems;
 }
