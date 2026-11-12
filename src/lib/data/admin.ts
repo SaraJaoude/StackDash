@@ -8,7 +8,7 @@ import { Constants, type Database } from "@/lib/supabase/database.types";
 
 /*
  * Instance-wide figures for the super admin page (#250), from the service role only functions in
- * 20261107120000_super_admin_overview.sql. Callers must have passed requireSuperAdmin(): nothing
+ * 20261112101200_super_admin_overview.sql. Callers must have passed requireSuperAdmin(): nothing
  * here checks who is asking, because the service role sees every workspace.
  */
 

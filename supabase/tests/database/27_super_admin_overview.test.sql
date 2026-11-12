@@ -1,4 +1,4 @@
--- Super admin figures (20261107120000_super_admin_overview.sql): service role only, instance-wide
+-- Super admin figures (20261112101200_super_admin_overview.sql): service role only, instance-wide
 -- counts that only count what they say, workspace pages that are bounded and resume after a
 -- cursor, and job health per kind. Totals and provider rows are compared with a snapshot taken
 -- before the fixtures, because the seed and earlier files may leave rows of their own.

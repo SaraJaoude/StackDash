@@ -32,7 +32,6 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261106090000_activity_event_daily_counts.sql` | `activity_event_daily_counts`, the event count rollup kept by triggers on `activity_events`, and `rebuild_activity_event_daily_counts` with its backfill; `activity_event_counts` reads the rollup |
 | `20261106144639_self_reported_metrics_limit.sql` | `publish_self_reported_metric` returns `limit_reached` for a 101st live self-reported value in a project |
 | `20261107090000_timeline_connection_event_counts.sql` | `timeline_connection_event_counts`: events per connection under the timeline's filters, grouped by provider for the timeline's title badges |
-| `20261107120000_super_admin_overview.sql` | Service role only figures for the super admin instance overview: `admin_instance_totals`, `admin_workspace_stats` (keyset pages, newest first, with `workspaces_created_at_id_idx`), `admin_provider_usage`, `admin_job_health`, `admin_job_failures`, and `admin_latest_migration` |
 | `20261110090000_timeline_title_search.sql` | `timeline_connection_event_counts` gains `p_title_pattern`, so the title badges count only events whose title matches the timeline's search |
 | `20261111090000_workspace_handles.sql` | `workspaces.handle` with its format check and case-insensitive unique index, `set_workspace_handle` and `remove_workspace_handle`; `public_project_page` and `public_project_page_sitemap` gain the workspace's handle, and `public_project_page` finds a page by handle or slug |
 | `20261111120000_year_review_slides.sql` | `year_review_event_counts` and `year_review_longest_run` for the year in review's slides, and `activity_events_workspace_type_time_idx` |
@@ -44,6 +43,7 @@ The schema lives in `supabase/migrations/`, forward-only:
 | `20261112100900_headline_first_readings.sql` | `headline_first_readings`: every connection's oldest snapshot on or before a day, in one call behind one membership check; `usage_snapshots_connection_date_idx` on `(connection_id, snapshot_date)` replaces `usage_snapshots_connection_id_idx` |
 | `20261112100901_latest_usage_resets_skip_scan.sql` | `latest_usage_resets` reads one row per metric of the account through the unique key instead of every snapshot of its history |
 | `20261112100902_headline_first_readings_connection_probe.sql` | `headline_first_readings` leaves the workspace out of the snapshot lookup, so the planner keeps to `usage_snapshots_connection_date_idx` when the table's statistics are out of date |
+| `20261112101200_super_admin_overview.sql` | Service role only figures for the super admin instance overview: `admin_instance_totals`, `admin_workspace_stats` (keyset pages, newest first, with `workspaces_created_at_id_idx`), `admin_provider_usage`, `admin_job_health`, `admin_job_failures`, and `admin_latest_migration` |
 
 `supabase/seed.sql` loads synthetic local data: two invited users, each with a personal workspace, sharing the workspace Acme (one owner, one viewer) with one project, one `fake` connection, three days of snapshots, and a few events. Its header lists the fixed UUIDs tests can use.
 
