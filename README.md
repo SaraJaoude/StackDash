@@ -506,8 +506,8 @@ Every Markdown file under `docs/` is also published on the website at `/docs`, r
   examples, and the OpenAPI document at `/docs/api/openapi.json`.
 - [MCP server](docs/mcp.md): connect Claude Code, Claude Desktop, Cursor, or another MCP client to
   a workspace with an API key, and the read-only tools it can call.
-- [Write a provider adapter](docs/adapters.md): copy the example adapter, the adapter contract,
-  the test harness, every file a new provider touches, the provider page template, and how
+- [Write a provider adapter](docs/adapters.md): the adapter contract, the example adapter to
+  copy, the test harness, every file a new provider touches, the provider page template, and how
   adapters are reviewed. Ask for a new provider with the **Adapter request** issue template.
 
 ### Invite testers
