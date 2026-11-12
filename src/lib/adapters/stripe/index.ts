@@ -6,7 +6,7 @@ import {
   PermissionMissingError,
   fetchJson,
 } from "@/lib/adapters/errors";
-import type { ActivityEvent, EventSeverity, EventType } from "@/lib/adapters/events";
+import { titleWithAmount, type ActivityEvent, type EventSeverity, type EventType } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import {
   Secret,
@@ -20,6 +20,7 @@ import {
   type SyncInput,
   type SyncResult,
 } from "@/lib/adapters/types";
+import { formatMoney } from "@/lib/format";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import {
   BalanceTransactionSchema,
@@ -108,6 +109,10 @@ export const timelineEvents = [
   },
 ] as const;
 
+// No `category` (#173): `customer.created` and `customer.subscription.created` are billing records,
+// made at checkout or by an invoice whether or not someone signed up to the product, and a free
+// signup makes neither. Counting them would mix payers into signups and count people twice
+// beside the product's own auth provider, so the headline's signups leave them out.
 const eventTypes: readonly EventType[] = timelineEvents.map((event) => ({
   id: `stripe.${event.stripeType}`,
   label: event.label,
@@ -392,7 +397,31 @@ function parseObject<T>(schema: z.ZodType<T>, value: unknown, eventType: string)
   return parsed.data;
 }
 
-const FAILURE_CODE_PATTERN = /^[a-z0-9_]{1,64}$/;
+// Stripe's charge `failure_code` values (https://docs.stripe.com/error-codes) as plain sentences
+// (#261). A code missing here reads as UNKNOWN_FAILURE: the code itself is never shown, so a
+// provider internal never reaches the timeline, and nor can text that is not one of Stripe's codes.
+// A Map rather than a Record because the key comes from Stripe: `constructor` must not find
+// Object.prototype.
+const FAILURE_SENTENCES: ReadonlyMap<string, string> = new Map([
+  ["account_closed", "The customer's bank account is closed."],
+  ["authentication_required", "The payment needed the customer to authenticate, and they did not."],
+  ["bank_account_declined", "The bank account cannot be charged: it is not verified yet or not supported."],
+  ["card_decline_rate_limit_exceeded", "The card had too many declines in a row. Stripe allows another try after 24 hours."],
+  ["card_declined", "The card issuer declined the payment."],
+  ["debit_not_authorized", "The customer told their bank the payment was not authorized."],
+  ["expired_card", "The card has expired."],
+  ["incorrect_cvc", "The card's security code was incorrect."],
+  ["incorrect_number", "The card number was incorrect."],
+  ["incorrect_zip", "The card's postal code was incorrect."],
+  ["insufficient_funds", "The customer's account did not have enough funds."],
+  ["invalid_cvc", "The card's security code was invalid."],
+  ["invalid_expiry_month", "The card's expiration month was invalid."],
+  ["invalid_expiry_year", "The card's expiration year was invalid."],
+  ["invalid_number", "The card number was invalid."],
+  ["no_account", "The bank account could not be found."],
+  ["processing_error", "An error occurred while processing the card."],
+]);
+const UNKNOWN_FAILURE = "Stripe gave a reason DevMacro does not recognize. Open the payment in your Stripe Dashboard to see it.";
 
 type TimelineEntry = { severity: EventSeverity; title: string; body?: string };
 
@@ -400,20 +429,27 @@ function timelineEntry(event: StripeEvent): TimelineEntry | undefined {
   const type = event.type;
   const object = event.data.object;
   switch (type) {
-    case "charge.succeeded":
-      parseObject(ChargeObjectSchema, object, type);
-      return { severity: "success", title: "Payment succeeded" };
+    case "charge.succeeded": {
+      const charge = parseObject(ChargeObjectSchema, object, type);
+      return { severity: "success", title: titleWithAmount("Payment succeeded", charge.amount, charge.currency) };
+    }
     case "charge.failed": {
       const charge = parseObject(ChargeObjectSchema, object, type);
+      const title = titleWithAmount("Payment failed", charge.amount, charge.currency);
       const code = charge.failure_code;
-      // Only Stripe's enum code; anything else could be free text.
-      return code !== undefined && code !== null && FAILURE_CODE_PATTERN.test(code)
-        ? { severity: "warning", title: "Payment failed", body: `Failure code: ${code}` }
-        : { severity: "warning", title: "Payment failed" };
+      return code === undefined || code === null
+        ? { severity: "warning", title }
+        : { severity: "warning", title, body: FAILURE_SENTENCES.get(code) ?? UNKNOWN_FAILURE };
     }
     case "charge.refunded": {
-      const charge = parseObject(ChargeObjectSchema, object, type);
-      return { severity: "info", title: charge.refunded === false ? "Payment partially refunded" : "Payment refunded" };
+      const { amount, amount_refunded: refundedMinor, currency, refunded } = parseObject(ChargeObjectSchema, object, type);
+      // A full refund returns the whole amount, so either field gives it.
+      if (refunded !== false) return { severity: "info", title: titleWithAmount("Payment refunded", refundedMinor ?? amount, currency) };
+      // `amount_refunded` totals every refund of the charge so far, not just this one, and the
+      // title says so: a second partial refund would otherwise read as one refund of the total.
+      const ofAmount =
+        refundedMinor === undefined || amount === undefined || currency === undefined ? "" : ` of ${formatMoney(amount, currency)} so far`;
+      return { severity: "info", title: `${titleWithAmount("Payment partially refunded", refundedMinor, currency)}${ofAmount}` };
     }
     case "customer.created":
       parseObject(CustomerObjectSchema, object, type);
@@ -525,7 +561,7 @@ export const stripeAdapter: ProviderAdapter = {
   dataCollected: [
     "Stripe fees per currency, this month and last 30 days",
     "Revenue net of refunds per currency, this month and last 30 days",
-    "Payment, refund, new customer, and subscription events with Stripe ids and dates",
+    "Payment, refund, new customer, and subscription events with Stripe ids, dates, and each payment's amount and currency",
     "Never customer names, emails, addresses, or card details",
   ],
   eventTypes,

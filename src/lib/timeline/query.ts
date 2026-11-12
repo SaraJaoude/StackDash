@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { Severity } from "@/components/severity-badge";
+import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
   hasScopeFilters,
@@ -12,7 +13,7 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
- * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&cursor=..`) and its
+ * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&q=..&cursor=..`) and its
  * keyset cursor. Nothing here touches the database, so every boundary is unit tested. Anything
  * invalid in the URL is dropped rather than failing the page: a hand-edited or stale link still
  * shows the timeline.
@@ -22,8 +23,13 @@ export type EventSeverity = Database["public"]["Enums"]["event_severity"];
 
 export const TIMELINE_PAGE_SIZE = 50;
 
-/** Most type ids one URL may filter on; the picker never offers more than this. */
-export const MAX_TYPE_FILTERS = 50;
+/**
+ * Most type ids one URL may filter on, and most the type picker offers (`listTimelineTypeIds`),
+ * so every offered type can be ticked at once. Every type comes from an adapter's declared types or
+ * DevMacro's own, about 60 today. The ids travel in the event list's PostgREST query string
+ * (`type_id=in.(...)`), so the bound also keeps that URL a few kilobytes long.
+ */
+export const MAX_TYPE_FILTERS = 100;
 
 export const EVENT_SEVERITIES = ["info", "success", "warning", "critical"] as const satisfies readonly EventSeverity[];
 
@@ -49,8 +55,14 @@ export function isEventTypeId(value: string): value is string {
   return value.length <= MAX_TYPE_ID_LENGTH && TYPE_ID_PATTERN.test(value);
 }
 
+// DevMacro's own types whose id reads differently from the product's name for them (#345): alert
+// settings calls these "unusual spend and usage", so the timeline must not say "anomaly".
+const DEVMACRO_TYPE_LABELS: ReadonlyMap<string, string> = new Map([[ANOMALY_TYPE_ID, "Unusual spend or usage"]]);
+
 /** `vercel.deployment_failed` reads as "Deployment failed". The provider is shown beside it. */
 export function eventTypeLabel(typeId: string): string {
+  const named = DEVMACRO_TYPE_LABELS.get(typeId);
+  if (named !== undefined) return named;
   const rest = typeId.split(".").slice(1).join(" ").replaceAll("_", " ").trim();
   if (rest === "") return typeId;
   return rest.charAt(0).toUpperCase() + rest.slice(1);
@@ -170,6 +182,19 @@ export function decodeCursor(token: string): TimelineCursor | null {
   return isCursor(cursor) ? cursor : null;
 }
 
+/** Longest title search the URL may carry; the search box stops at the same length. */
+export const MAX_SEARCH_LENGTH = 100;
+
+/**
+ * A case-insensitive Postgres regular expression (`~*`) matching titles that contain `search`
+ * literally: every regex metacharacter is escaped. The list query and the provider badges' count
+ * both filter with it, so they match the same events. A regex rather than ILIKE because PostgREST
+ * reads `*` in a LIKE pattern as `%`, so a search for `*` would match every title.
+ */
+export function titleSearchPattern(search: string): string {
+  return search.replace(/[\\^$.|?*+()[\]{}]/g, "\\$&");
+}
+
 export type TimelineQuery = {
   types: string[];
   severities: EventSeverity[];
@@ -177,6 +202,8 @@ export type TimelineQuery = {
   from: string | null;
   /** London calendar date `YYYY-MM-DD`, inclusive. */
   to: string | null;
+  /** Text every event title must contain, ignoring case; trimmed and never empty. */
+  search: string | null;
   cursor: TimelineCursor | null;
   /** Provider, project, and account filter shared with the dashboard. */
   scope: ScopeFilters;
@@ -202,6 +229,7 @@ const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
   severity: repeatedParam(isSeverity, EVENT_SEVERITIES.length),
   from: one((value) => (isIsoDate(value) ? value : null)),
   to: one((value) => (isIsoDate(value) ? value : null)),
+  q: one((value) => (value.length <= MAX_SEARCH_LENGTH ? value : null)),
   cursor: one(decodeCursor),
 });
 
@@ -213,6 +241,7 @@ export function parseTimelineSearchParams(searchParams: RawSearchParams): Timeli
     severities: parsed.severity,
     from: parsed.from,
     to: parsed.to,
+    search: parsed.q,
     cursor: parsed.cursor,
     scope: { providers: parsed.provider, projects: parsed.project, accounts: parsed.account },
   };
@@ -224,6 +253,7 @@ export function hasActiveFilters(query: TimelineQuery): boolean {
     query.severities.length > 0 ||
     query.from !== null ||
     query.to !== null ||
+    query.search !== null ||
     hasScopeFilters(query.scope)
   );
 }
@@ -235,6 +265,7 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   for (const severity of query.severities) params.append("severity", severity);
   if (query.from !== null) params.set("from", query.from);
   if (query.to !== null) params.set("to", query.to);
+  if (query.search !== null) params.set("q", query.search);
   appendScopeParams(params, query.scope);
   if (cursor !== null) params.set("cursor", encodeCursor(cursor));
   const search = params.toString();

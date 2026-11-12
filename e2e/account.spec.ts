@@ -1,30 +1,22 @@
 import { randomUUID } from "node:crypto";
 
-import { test, type Browser, type BrowserContext } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { test, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { z } from "zod";
 
 import { createSyntheticUser, expect, removeSyntheticUser, type SyntheticUser } from "./fixtures/auth";
-import { adminClient, type Admin } from "./fixtures/db";
+import { adminClient, personalWorkspace, type Admin } from "./fixtures/db";
+import { expectTopRowFits } from "./fixtures/header";
 
 /*
- * Account deletion (#42). Every test signs in as fresh synthetic users created here and removed
- * afterwards; the shared e2e owner and viewer are never deleted. The web server runs with
- * DEVMACRO_ENABLE_FAKE_PROVIDER=1, so the seeded fake connection never reaches a live provider.
+ * Account deletion (#42) and the account's place in the headers (#175). Every test signs in as
+ * fresh synthetic users created here and removed afterwards; the shared e2e owner and viewer are
+ * never deleted. The web server runs with DEVMACRO_ENABLE_FAKE_PROVIDER=1, so the seeded fake
+ * connection never reaches a live provider.
  */
 
 async function signedInContext(browser: Browser, user: SyntheticUser): Promise<BrowserContext> {
   return browser.newContext({ storageState: { cookies: user.cookies, origins: [] } });
-}
-
-async function personalWorkspaceId(admin: Admin, userId: string): Promise<string> {
-  const { data, error } = await admin
-    .from("workspaces")
-    .select("id")
-    .eq("created_by", userId)
-    .eq("is_personal", true)
-    .single();
-  if (error) throw new Error(`Finding the personal workspace failed (code ${error.code}).`);
-  return data.id;
 }
 
 /** One of everything a workspace holds: a project, a fake connection and its data, rules, a job. */
@@ -210,13 +202,136 @@ test.describe("the account header", () => {
   });
 });
 
+/*
+ * Who is signed in, in the workspace header (#175). Avatars are answered here, never fetched from
+ * GitHub: the browser loads them directly (the app CSP allows avatars.githubusercontent.com).
+ */
+const AVATAR_URL = "https://avatars.githubusercontent.com/u/1?v=4";
+const AVATAR_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><rect width="64" height="64" fill="#3b82f6"/></svg>';
+
+async function openWorkspace(context: BrowserContext): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto("/app");
+  await expect(page).toHaveURL(/\/w\/[a-z2-7]{10}\//);
+  await expect(page.getByRole("banner").getByRole("button", { name: "Sign out", exact: true })).toBeVisible();
+  return page;
+}
+
+test.describe("the workspace header identity", () => {
+  test("shows the GitHub display name and avatar, fits a phone, and opens the Account page by keyboard", async ({ browser }) => {
+    const user = await createSyntheticUser("identity", { full_name: "Ada Example", name: "Ada Example", avatar_url: AVATAR_URL });
+    const context = await signedInContext(browser, user);
+    await context.route("https://avatars.githubusercontent.com/**", (route) =>
+      route.fulfill({ status: 200, contentType: "image/svg+xml", body: AVATAR_SVG }),
+    );
+    try {
+      const page = await openWorkspace(context);
+      const account = page.getByRole("banner").getByRole("link", { name: "Account: Ada Example", exact: true });
+      await expect(account).toHaveAttribute("href", "/account");
+      await expect(account).toHaveText("Account: Ada Example");
+      await expect(account.getByText("Ada Example", { exact: true })).toBeVisible();
+
+      // The name beside it already says who this is, so the avatar is decorative, and it loaded.
+      const avatar = account.getByTestId("account-avatar");
+      await expect(avatar).toHaveAttribute("alt", "");
+      await expect(avatar).toHaveAttribute("src", `${AVATAR_URL}&s=64`);
+      await expect.poll(() => avatar.evaluate((image: HTMLImageElement) => image.complete && image.naturalWidth)).toBe(64);
+
+      const scan = await new AxeBuilder({ page }).include("header").analyze();
+      expect(scan.violations).toEqual([]);
+      await expectTopRowFits(page, "Account: Ada Example");
+
+      // Keyboard: tab forward from the workspace switcher until the identity link has focus.
+      await page.getByRole("banner").getByRole("button", { name: /^Workspace: / }).focus();
+      for (let presses = 0; presses < 10 && !(await account.evaluate((link) => link === document.activeElement)); presses++) {
+        await page.keyboard.press("Tab");
+      }
+      await expect(account).toBeFocused();
+      expect(await account.evaluate((link) => getComputedStyle(link).outlineStyle)).toBe("solid");
+
+      // On a phone the avatar stands for the link; the name is visually hidden (sr-only, so 1 px,
+      // which Playwright still counts as visible) and stays in the link's accessible name.
+      for (const width of [375, 320]) {
+        await page.setViewportSize({ width, height: 700 });
+        await expect
+          .poll(async () => (await account.getByText("Ada Example", { exact: true }).boundingBox())?.width)
+          .toBeLessThanOrEqual(1);
+        await expect(avatar).toBeVisible();
+        await expectTopRowFits(page, "Account: Ada Example");
+      }
+
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/\/account$/);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Account");
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+
+  test("falls back to the GitHub username and a person icon when there is no display name and the avatar fails", async ({
+    browser,
+  }) => {
+    const user = await createSyntheticUser("identity-fallback", { avatar_url: AVATAR_URL });
+    const context = await signedInContext(browser, user);
+    await context.route("https://avatars.githubusercontent.com/**", (route) => route.fulfill({ status: 404, body: "" }));
+    try {
+      const page = await openWorkspace(context);
+      const accountName = `Account: ${user.userName}`;
+      const account = page.getByRole("banner").getByRole("link", { name: accountName, exact: true });
+      await expect(account.getByText(user.userName, { exact: true })).toBeVisible();
+
+      // The failed avatar is removed rather than drawn broken, and the person icon shows instead.
+      await expect(account.getByTestId("account-avatar")).toHaveCount(0);
+      await expect(account.getByTestId("account-avatar-fallback")).toBeVisible();
+      await expectTopRowFits(page, accountName);
+
+      await account.click();
+      await expect(page).toHaveURL(/\/account$/);
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
+test.describe("an account with no workspace", () => {
+  test("explains why and who can help, in product words, and passes axe", async ({ browser }) => {
+    const admin = adminClient();
+    const user = await createSyntheticUser("no-workspace");
+    const context = await signedInContext(browser, user);
+    try {
+      // The only way to reach this page: the user's one workspace is gone.
+      const workspaceId = (await personalWorkspace(user.id)).id;
+      const { error } = await admin.from("workspaces").delete().eq("id", workspaceId);
+      if (error) throw new Error(`Deleting the personal workspace failed (code ${error.code}).`);
+
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto("/app");
+      const main = page.getByRole("main");
+      await expect(main.getByRole("heading", { level: 1 })).toHaveText("You are not a member of any workspace");
+      // #345: the product says "DevMacro", never "the DevMacro test".
+      await expect(main).toContainText("Contact the person who invited you to DevMacro, or sign out");
+      await expect(main).not.toContainText(/DevMacro test/);
+      await expect(main.getByRole("button", { name: "Sign out" })).toBeVisible();
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await context.close();
+      await removeSyntheticUser(user);
+    }
+  });
+});
+
 test.describe("deleting an account", () => {
   test("lists what goes, needs the email, then deletes the user and every row of their workspace", async ({ browser }) => {
     const admin = adminClient();
     const user = await createSyntheticUser("delete");
     const context = await signedInContext(browser, user);
     try {
-      const workspaceId = await personalWorkspaceId(admin, user.id);
+      const workspaceId = (await personalWorkspace(user.id)).id;
       await seedWorkspace(admin, workspaceId);
 
       const page = await context.newPage();
@@ -251,6 +366,11 @@ test.describe("deleting an account", () => {
       await expect(button).toBeDisabled();
       await confirmation.fill(user.email.toUpperCase());
       await expect(button).toBeEnabled();
+      // axe's color-contrast rule skips disabled controls, so the scan waits for the enabled
+      // button to finish its fade in and checks the state a person is about to press.
+      await expect(button).toHaveCSS("opacity", "1");
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
       await button.click();
 
       await expect(page).toHaveURL(/\/account\/deleted\?manual=fake$/);
@@ -300,7 +420,7 @@ test.describe("deleting an account", () => {
       const { data, error } = await admin.rpc("create_workspace", { p_user_id: owner.id, p_name: name, p_is_personal: false });
       if (error) throw new Error(`Creating the shared workspace failed (code ${error.code}).`);
       sharedId = z.object({ id: z.string() }).parse(data).id;
-      const personalId = await personalWorkspaceId(admin, owner.id);
+      const personalId = (await personalWorkspace(owner.id)).id;
       await seedWorkspace(admin, personalId);
 
       // The page is loaded while the owner is still the only member, so the form is offered.
@@ -315,7 +435,7 @@ test.describe("deleting an account", () => {
         .insert({ workspace_id: sharedId, user_id: member.id, role: "viewer" });
       if (memberError) throw new Error(`Adding the member failed (code ${memberError.code}).`);
       await page.getByRole("button", { name: "Delete my account" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Your account was not deleted." })).toContainText(
+      await expect(page.getByRole("alert").filter({ hasText: "Your account was not deleted." })).toContainText(
         `You are the only owner of ${name}, and other people belong to it. Transfer ownership to another member or delete that workspace first, then try again.`,
       );
       await expect(page).toHaveURL(/\/account$/);

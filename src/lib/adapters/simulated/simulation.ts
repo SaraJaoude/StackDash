@@ -1,6 +1,7 @@
 import type { ActivityEvent } from "@/lib/adapters/events";
 import type { AdapterMetric } from "@/lib/adapters/metrics";
 import type { AdapterContext, ExternalAccount, ProviderAdapter } from "@/lib/adapters/types";
+import { TREND_DAYS } from "@/lib/dashboard/trends";
 
 /*
  * Shared clock and randomness for the simulated providers (#131). Every value is a pure function
@@ -29,6 +30,17 @@ export type SimulatedProfile = Readonly<{
    * happen in that slot; a daily summary is seen at UTC midnight and dated like the real adapter's.
    */
   eventsInSlot: (accountId: string, slot: number) => ActivityEvent[];
+}>;
+
+/**
+ * One thing made to happen on cue by `npm run demo:event` (#256), on top of what the profile makes
+ * up. Its events are added to the sync it is built into, whatever slots that sync covers, and
+ * its metrics, when given, are read instead of the profile's.
+ */
+export type SimulatedIncident = Readonly<{
+  /** Events at `at`, the sync's clock. */
+  events: (accountId: string, at: Date) => ActivityEvent[];
+  metrics?: SimulatedProfile["metrics"];
 }>;
 
 /** 32-bit FNV-1a over the parts, then the murmur3 finalizer so nearby inputs spread apart. */
@@ -86,6 +98,40 @@ export function utcMonthStart(at: Date): Date {
 
 export function utcNextMonthStart(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth() + 1, 1));
+}
+
+/** True on a UTC Saturday or Sunday, when the simulated teams work less (#166). */
+export function isWeekend(ms: number): boolean {
+  const weekday = new Date(ms).getUTCDay();
+  return weekday === 0 || weekday === 6;
+}
+
+/**
+ * True on the account's launch day: one UTC day in every TREND_DAYS, at a phase set by the account
+ * id, so any window of that many days, such as the dashboard's daily trend, holds exactly one
+ * (#166). A profile raises its usage and its activity together on that day, so the spend spike
+ * lines up with a burst of events.
+ */
+export function isLaunchDay(accountId: string, ms: number): boolean {
+  const day = Math.floor(ms / DAY_MS);
+  return (day + between(0, TREND_DAYS - 1, accountId, "launch-day")) % TREND_DAYS === 0;
+}
+
+/**
+ * How many of a UTC day's `between(min, max)` occurrences land in the hour starting at `hourMs`,
+ * each at a stable hour of its day. Unlike independent hourly chances, the day's total is bounded,
+ * so a small product's few payments a day never add up to a spend spike by chance alone (#264),
+ * which anomaly detection (#169) would flag.
+ */
+export function dailyCountInHour(min: number, max: number, hourMs: number, ...parts: readonly (string | number)[]): number {
+  const dayMs = utcDayStart(hourMs);
+  const hour = new Date(hourMs).getUTCHours();
+  const count = between(min, max, ...parts, dayMs, "count");
+  let inHour = 0;
+  for (let index = 0; index < count; index += 1) {
+    if (between(0, 23, ...parts, dayMs, index, "hour") === hour) inHour += 1;
+  }
+  return inHour;
 }
 
 /**

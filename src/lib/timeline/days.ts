@@ -11,8 +11,13 @@ const LONDON_DATE = new Intl.DateTimeFormat("en-CA", {
 const LONDON_WEEKDAY = new Intl.DateTimeFormat("en-US", { timeZone: TIMELINE_TIME_ZONE, weekday: "long" });
 
 /** The London calendar date (`YYYY-MM-DD`) an instant falls on. */
-function londonDate(at: Date): string {
+export function londonDate(at: Date): string {
   return LONDON_DATE.format(at);
+}
+
+/** "Monday, 2026-06-15": the London calendar day an instant falls on, with its weekday. */
+export function londonDayLabel(at: Date): string {
+  return `${LONDON_WEEKDAY.format(at)}, ${londonDate(at)}`;
 }
 
 export type EventDay<T> = {
@@ -41,8 +46,7 @@ export function groupEventsByDay<T extends { occurred_at: string }>(events: read
       current.events.push(event);
       continue;
     }
-    const label =
-      date === today ? "Today" : date === yesterday ? "Yesterday" : `${LONDON_WEEKDAY.format(at)}, ${date}`;
+    const label = date === today ? "Today" : date === yesterday ? "Yesterday" : londonDayLabel(at);
     days.push({ label, date, events: [event] });
   }
   return days;

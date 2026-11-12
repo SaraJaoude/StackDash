@@ -8,9 +8,11 @@ import {
   between,
   chance,
   countOf,
+  dailyCountInHour,
   DAY_MS,
   HOUR_MS,
   MINUTE_MS,
+  SLOT_MS,
   instantInSlot,
   unit,
   utcMonthStart,
@@ -18,49 +20,84 @@ import {
 } from "./simulation";
 
 /*
- * Simulated Stripe account selling in USD and EUR. Payments, the odd failure and refund, new
- * customers, and subscriptions trickle in every few seconds (about 4,300 payments a day); fees
- * and revenue accrue hour by hour as balance transactions per currency. Both go through the real
- * adapter's `toActivityEvent` and `moneyMetrics`, so currencies stay apart and amounts are integer
- * minor units exactly as in a real sync.
+ * Simulated Stripe account of a small product selling in USD and EUR (#264): about three payments a
+ * day, a few thousand dollars a month, the odd failure and refund, about 50 new customers and a
+ * subscription started most days. Fees and revenue accrue hour by hour as balance transactions per
+ * currency. Both go through the real adapter's `toActivityEvent` and `moneyMetrics`, so currencies
+ * stay apart and amounts are integer minor units exactly as in a real sync.
  */
+
+/**
+ * New Stripe customers a day (#264, decided on pull request #290): in line with the simulated
+ * Supabase signups (about 52 on a weekday). A `customer.created` event carries no amount, but it is
+ * counted in more than the timeline, so its rate has to stay believable beside the money:
+ * - the "Signups" trend marker category (`src/lib/dashboard/markers.ts`), which also names the
+ *   events in the dashboard's "What changed" sentences (`src/lib/dashboard/what-changed.ts`);
+ * - the public metric "New customers in 30 days" (`stripe-customers-30d` in
+ *   `src/lib/public-metrics/definitions.ts`), which the demo seed publishes on its project page.
+ * The headline's signups leave it out (`eventTypes` in src/lib/adapters/stripe/index.ts).
+ */
+export const NEW_CUSTOMERS_PER_DAY = 50;
 
 type StripeType = (typeof timelineEvents)[number]["stripeType"];
 
-// Chance of each event type in one 10 second slot; payments can come two or three at a time.
+// Chance of each event type in one 10 second slot (8,640 a day). Payments match CURRENCIES below,
+// about 3 a day, and the money events are scaled to them.
 const EVENT_CHANCES: Readonly<Record<StripeType, readonly number[]>> = {
-  "charge.succeeded": [0.35, 0.12, 0.03],
-  "charge.failed": [0.02],
-  "charge.refunded": [0.015],
-  "customer.created": [0.15],
-  "customer.subscription.created": [0.04],
-  "customer.subscription.deleted": [0.01],
+  "charge.succeeded": [0.00036],
+  "charge.failed": [0.00003],
+  "charge.refunded": [0.00001],
+  "customer.created": [NEW_CUSTOMERS_PER_DAY / (DAY_MS / SLOT_MS)],
+  "customer.subscription.created": [0.00012],
+  "customer.subscription.deleted": [0.00004],
 };
 
 type CurrencyShape = Readonly<{
   currency: "USD" | "EUR";
-  maxPaymentsPerHour: number;
+  /** The fewest and most payments in a UTC day. */
+  paymentsPerDay: readonly [number, number];
+  refundChancePerHour: number;
   feePerThousand: number;
   fixedFeeMinor: number;
 }>;
 
-// About 180 payments an hour across both currencies, in line with the payment events above.
+// 1 to 3 USD and up to 2 EUR payments a day at 19 to 49 a payment: roughly $2,000 and €1,000 a
+// month, the order of the demo's $600 Vercel budget (src/lib/demo/workspace.ts), with a refund
+// every few weeks. A day's fees never pass $6, so they never look like a spend spike (#169).
 const CURRENCIES: readonly CurrencyShape[] = [
-  { currency: "USD", maxPaymentsPerHour: 240, feePerThousand: 29, fixedFeeMinor: 30 },
-  { currency: "EUR", maxPaymentsPerHour: 120, feePerThousand: 15, fixedFeeMinor: 25 },
+  { currency: "USD", paymentsPerDay: [1, 3], refundChancePerHour: 0.002, feePerThousand: 29, fixedFeeMinor: 30 },
+  { currency: "EUR", paymentsPerDay: [0, 2], refundChancePerHour: 0.001, feePerThousand: 15, fixedFeeMinor: 25 },
 ];
+const PRICE_MINOR = [1900, 4900] as const;
 
 // Long enough for the real adapter's month and last 30 days windows.
 const MONEY_LOOKBACK_MS = 31 * DAY_MS;
 
+/**
+ * A charge at one of PRICE_MINOR's prices, in USD twice as often as EUR like CURRENCIES, so the
+ * timeline prints amounts (#261) on the same scale as the revenue they add up to.
+ */
+function chargeFor(id: string, parts: readonly (string | number)[]): { id: string; amount: number; currency: string } {
+  return {
+    id: `ch_${id}`,
+    amount: chance(0.5, ...parts, "price") ? PRICE_MINOR[0] : PRICE_MINOR[1],
+    currency: chance(1 / 3, ...parts, "currency") ? "eur" : "usd",
+  };
+}
+
 function objectFor(type: StripeType, id: string, parts: readonly (string | number)[]): Record<string, unknown> {
   switch (type) {
     case "charge.succeeded":
-      return { id: `ch_${id}` };
+      return chargeFor(id, parts);
     case "charge.failed":
-      return { id: `ch_${id}`, failure_code: chance(0.5, ...parts, "code") ? "card_declined" : "insufficient_funds" };
-    case "charge.refunded":
-      return { id: `ch_${id}`, refunded: chance(0.7, ...parts, "full") };
+      return { ...chargeFor(id, parts), failure_code: chance(0.5, ...parts, "code") ? "card_declined" : "insufficient_funds" };
+    case "charge.refunded": {
+      const charge = chargeFor(id, parts);
+      const full = chance(0.7, ...parts, "full");
+      // A partial refund is a whole number of units, at least one and short of the price.
+      const refundedMinor = full ? charge.amount : 100 * between(1, charge.amount / 100 - 1, ...parts, "refunded");
+      return { ...charge, refunded: full, amount_refunded: refundedMinor };
+    }
     case "customer.created":
       return { id: `cus_${id}` };
     case "customer.subscription.created":
@@ -97,9 +134,9 @@ function hourTransactions(accountId: string, hourMs: number, nowMs: number): Bal
   const transactions: BalanceTransaction[] = [];
   for (const shape of CURRENCIES) {
     const parts = [accountId, shape.currency, hourMs] as const;
-    const payments = between(0, shape.maxPaymentsPerHour, ...parts, "payments");
+    const payments = dailyCountInHour(shape.paymentsPerDay[0], shape.paymentsPerDay[1], hourMs, accountId, shape.currency, "payments");
     if (payments > 0) {
-      const gross = Math.floor(payments * between(1900, 7900, ...parts, "price") * share);
+      const gross = Math.floor(payments * between(PRICE_MINOR[0], PRICE_MINOR[1], ...parts, "price") * share);
       const fee = Math.floor((gross * shape.feePerThousand) / 1000) + Math.floor(payments * shape.fixedFeeMinor * share);
       transactions.push({
         id: `txn_sim${shape.currency}${hourMs.toString(36)}`,
@@ -110,12 +147,12 @@ function hourTransactions(accountId: string, hourMs: number, nowMs: number): Bal
         type: "charge",
       });
     }
-    // Refunds for the hour land at a fixed minute of it, once that minute has passed.
+    // A refund of one payment lands at a fixed minute of the hour, once that minute has passed.
     const refundAt = hourMs + between(0, 59, ...parts, "refund-at") * MINUTE_MS;
-    if (chance(0.9, ...parts, "refund") && refundAt <= nowMs) {
+    if (chance(shape.refundChancePerHour, ...parts, "refund") && refundAt <= nowMs) {
       transactions.push({
         id: `txn_simrefund${shape.currency}${hourMs.toString(36)}`,
-        amount: -between(2000, 20000, ...parts, "refund-amount"),
+        amount: -between(PRICE_MINOR[0], PRICE_MINOR[1], ...parts, "refund-amount"),
         created: Math.floor(refundAt / 1000),
         currency: shape.currency,
         fee_details: [],

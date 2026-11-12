@@ -2,10 +2,13 @@ import "server-only";
 
 import { SIMULATED_SCOPE } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import { ANOMALY_KINDS, type AnomalyMute, type AnomalyRow } from "@/lib/alerts/anomaly";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { loadCredential, saveCredential } from "@/lib/data/credentials";
+import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Tables, TablesInsert, TablesUpdate } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
 /*
  * Persistence for the job system (#44). The runner, scheduler, and retention job only talk to a
@@ -56,9 +59,18 @@ export type JobFailure = Readonly<{ errorCode: string; errorReference: string | 
 export type SummaryConnection = Pick<Tables<"connections">, "id" | "provider">;
 export type SummarySnapshot = SnapshotInput;
 
-// One workspace's connections, or one workspace's snapshots for one day. Far above any MVP
-// workspace (a few connections, tens of metrics each).
-const SUMMARY_ROW_LIMIT = 5000;
+// One workspace's connections, or one workspace's snapshots for the summary's history window, read
+// in pages of the Data API's row cap (readAllPages). Far above any MVP workspace (a few
+// connections, tens of metrics each, one row a day).
+export const SUMMARY_ROW_LIMIT = 5000;
+
+export type AnomalySettings = Readonly<{ enabled: boolean; mutes: readonly AnomalyMute[] }>;
+
+// Anomaly detection reads 17 days of spend and usage rows in pages of the Data API's row cap
+// (readAllPages). The total bound is far above any MVP workspace.
+export const ANOMALY_ROW_LIMIT = 20_000;
+// Mutes per workspace: one per metric a person chose to silence.
+const ANOMALY_MUTE_LIMIT = 1000;
 
 export type ConnectionKey = Readonly<{ workspaceId: string; connectionId: string }>;
 
@@ -105,12 +117,32 @@ export interface JobStore {
   purgeJobs(before: Date, limit: number): Promise<number>;
   /** Deletes OAuth states whose expires_at is at or before `before` (abandoned connect flows). */
   purgeOAuthStates(before: Date, limit: number): Promise<number>;
+  /** Deletes public rate limit counters whose minute started before `before` (#149). */
+  purgeRateLimitCounters(before: Date, limit: number): Promise<number>;
+  /** Deletes published metric view counts of UTC days before `beforeDate` (#149). */
+  purgeMetricViews(beforeDate: string, limit: number): Promise<number>;
+  /** Deletes digest delivery records delivered before `before`; alert records go with their alert. */
+  purgeNotificationDeliveries(before: Date, limit: number): Promise<number>;
 
   /** Queues one daily_summary job per workspace with a connection, keyed by the summarized date. */
   enqueueDailySummaries(date: string): Promise<number>;
   /** Connections that count for the summary (everything but revoked). */
   listSummaryConnections(workspaceId: string): Promise<SummaryConnection[]>;
-  listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]>;
+  /** Snapshots dated `fromDate` to `toDate` (UTC dates, both inclusive), newest first. */
+  listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]>;
+  /** Whether anomaly detection is on for the workspace, and its muted metrics (#169). */
+  getAnomalySettings(workspaceId: string): Promise<AnomalySettings>;
+  /**
+   * Spend and usage rows over a period (not point in time), `fromDate` to `toDate` inclusive, oldest
+   * day first, then by id: findAnomalies keeps the first of two rows of one day it cannot tell
+   * apart. A read stopped at its bound leaves out the oldest days, never the newest (#219).
+   */
+  listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]>;
+
+  /** Queues an alert_dispatch job for each workspace with an undispatched alert, one open (queued or running) per workspace (#152). */
+  enqueueAlertDispatches(): Promise<number>;
+  /** Queues one digest job per workspace with a connection, keyed by the summarized date (#152). */
+  enqueueDigests(date: string): Promise<number>;
 }
 
 // Errors carry the operation and the Postgres code only, never row data.
@@ -357,6 +389,36 @@ export function createSupabaseJobStore(): JobStore {
       return data;
     },
 
+    async purgeRateLimitCounters(before, limit) {
+      const { data, error } = await db.rpc("purge_public_rate_limit_counters", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_public_rate_limit_counters", error);
+      return data;
+    },
+
+    async purgeMetricViews(beforeDate, limit) {
+      const { data, error } = await db.rpc("purge_published_metric_views", { p_before: beforeDate, p_limit: limit });
+      if (error) throw failure("purge_published_metric_views", error);
+      return data;
+    },
+
+    async purgeNotificationDeliveries(before, limit) {
+      const { data, error } = await db.rpc("purge_notification_deliveries", { p_before: before.toISOString(), p_limit: limit });
+      if (error) throw failure("purge_notification_deliveries", error);
+      return data;
+    },
+
+    async enqueueAlertDispatches() {
+      const { data, error } = await db.rpc("enqueue_alert_dispatches");
+      if (error) throw failure("enqueue_alert_dispatches", error);
+      return data;
+    },
+
+    async enqueueDigests(date) {
+      const { data, error } = await db.rpc("enqueue_digests", { p_date: date });
+      if (error) throw failure("enqueue_digests", error);
+      return data;
+    },
+
     async enqueueDailySummaries(date) {
       const { data, error } = await db.rpc("enqueue_daily_summaries", { p_date: date });
       if (error) throw failure("enqueue_daily_summaries", error);
@@ -364,29 +426,86 @@ export function createSupabaseJobStore(): JobStore {
     },
 
     async listSummaryConnections(workspaceId) {
-      const { data, error } = await db
-        .from("connections")
-        .select("id, provider")
-        .eq("workspace_id", workspaceId)
-        .neq("status", "revoked")
-        .order("id")
-        .limit(SUMMARY_ROW_LIMIT);
-      if (error) throw failure("summary connections read", error);
-      return data;
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("connections")
+          .select("id, provider")
+          .eq("workspace_id", workspaceId)
+          .neq("status", "revoked")
+          .order("id")
+          .range(from, to);
+        if (error) throw failure("summary connections read", error);
+        return data;
+      }, SUMMARY_ROW_LIMIT);
+      if (!complete) log.warn("daily_summary.connections_truncated", { workspaceId, rows: rows.length });
+      return rows;
     },
 
-    async listSnapshotsForDate(workspaceId, date) {
-      const { data, error } = await db
-        .from("usage_snapshots")
-        .select(
-          "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
-        )
-        .eq("workspace_id", workspaceId)
-        .eq("snapshot_date", date)
-        .order("id")
-        .limit(SUMMARY_ROW_LIMIT);
-      if (error) throw failure("summary snapshots read", error);
-      return data;
+    async listSnapshotsBetween(workspaceId, fromDate, toDate) {
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select(
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+          )
+          .eq("workspace_id", workspaceId)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          // The (workspace_id, snapshot_date desc) index. Newest first, so if the bound is reached
+          // the oldest days are the ones cut, and the projections lose history before the day's
+          // values. `id` last makes the order total, so pages neither skip nor repeat a row.
+          .order("snapshot_date", { ascending: false })
+          .order("id")
+          .range(from, to);
+        if (error) throw failure("summary snapshots read", error);
+        return data;
+      }, SUMMARY_ROW_LIMIT);
+      if (!complete) log.warn("daily_summary.snapshots_truncated", { workspaceId, rows: rows.length });
+      return rows;
+    },
+
+    async getAnomalySettings(workspaceId) {
+      const [workspace, mutes] = await Promise.all([
+        db.from("workspaces").select("anomaly_detection_enabled").eq("id", workspaceId).maybeSingle(),
+        db
+          .from("anomaly_mutes")
+          .select("provider, metric_key")
+          .eq("workspace_id", workspaceId)
+          .order("created_at")
+          .limit(ANOMALY_MUTE_LIMIT),
+      ]);
+      if (workspace.error) throw failure("anomaly settings read", workspace.error);
+      if (mutes.error) throw failure("anomaly mutes read", mutes.error);
+      // A workspace deleted since the job was queued has nothing left to check.
+      return { enabled: workspace.data?.anomaly_detection_enabled ?? false, mutes: mutes.data };
+    },
+
+    async listAnomalySnapshots(workspaceId, fromDate, toDate) {
+      // Pages newest first over usage_snapshots_workspace_date_idx (workspace_id, snapshot_date
+      // desc), bounded by ANOMALY_ROW_LIMIT: a cut read loses the oldest history, never the
+      // checked day (#219).
+      const { rows, complete } = await readAllPages(async (from, to) => {
+        const { data, error } = await db
+          .from("usage_snapshots")
+          .select(
+            "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source",
+          )
+          .eq("workspace_id", workspaceId)
+          .in("kind", [...ANOMALY_KINDS])
+          .is("point_at", null)
+          .gte("snapshot_date", fromDate)
+          .lte("snapshot_date", toDate)
+          .order("snapshot_date", { ascending: false })
+          .order("id")
+          .range(from, to);
+        if (error) throw failure("anomaly snapshots read", error);
+        return data;
+      }, ANOMALY_ROW_LIMIT);
+      if (!complete) log.warn("anomaly.snapshots_truncated", { workspaceId, rows: rows.length });
+      // Back to oldest first, then by id, the order a complete read gave the rules: findAnomalies
+      // keeps the first of two rows of one day it cannot tell apart. The sort is stable, so the
+      // id order within each day stays.
+      return rows.sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     },
   };
 }

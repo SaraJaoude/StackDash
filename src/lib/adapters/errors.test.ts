@@ -8,6 +8,7 @@ import {
   ProviderUnavailableError,
   RateLimitedError,
   fetchJson,
+  readOAuthErrorCode,
 } from "./errors";
 import type { FetchLike } from "./types";
 
@@ -152,5 +153,29 @@ describe("fetchJson", () => {
     await expect(promise).rejects.toBeInstanceOf(AuthRevokedError);
     await expect(promise).rejects.not.toHaveProperty("message", expect.stringContaining("tok_secret_value"));
     await expect(promise).rejects.toMatchObject({ endpoint });
+  });
+});
+
+describe("readOAuthErrorCode", () => {
+  it("returns the RFC 6749 error code from a token endpoint error body", async () => {
+    const response = Response.json({ error: "invalid_grant", error_description: "expired" }, { status: 400 });
+    await expect(readOAuthErrorCode(response)).resolves.toBe("invalid_grant");
+  });
+
+  it.each([
+    { name: "a non-JSON body", body: "<html>bad request</html>" },
+    { name: "an empty body", body: "" },
+    { name: "a JSON body without error", body: JSON.stringify({ message: "bad request" }) },
+    { name: "an empty error code", body: JSON.stringify({ error: "" }) },
+    { name: "a non-string error code", body: JSON.stringify({ error: 400 }) },
+    { name: "a JSON null body", body: "null" },
+  ])("returns undefined for $name", async ({ body }) => {
+    await expect(readOAuthErrorCode(new Response(body, { status: 400 }))).resolves.toBeUndefined();
+  });
+
+  it("rethrows a read failure that is not a parse error, such as a body already read", async () => {
+    const response = Response.json({ error: "invalid_grant" }, { status: 400 });
+    await response.text();
+    await expect(readOAuthErrorCode(response)).rejects.toBeInstanceOf(TypeError);
   });
 });

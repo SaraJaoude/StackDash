@@ -3,10 +3,10 @@
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 
 import { deleteAccount, type DeleteAccountResult } from "@/app/account/actions";
+import { GuardedButton } from "@/components/guarded-button";
+import { buttonClass } from "@/components/ui/button";
+import { OutcomeAnnouncement } from "@/components/ui/live-region";
 import { confirmationMatches, type AccountIdentity } from "@/lib/account/delete-account";
-
-const DANGER =
-  "inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-danger px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-85 disabled:cursor-not-allowed disabled:opacity-50";
 
 /**
  * The last step of account deletion: typing the account email or GitHub username enables the
@@ -72,26 +72,23 @@ export function DeleteAccountForm({ identity }: { identity: AccountIdentity }) {
         </p>
       )}
       <div>
-        <button type="submit" disabled={!matches || pending} className={DANGER}>
+        {/* Native disabled until the confirmation matches, while focus is still in the field;
+            only unavailable while deleting, so a keyboard press keeps focus on the button (#161). */}
+        <GuardedButton type="submit" disabled={!matches} unavailable={pending} className={`shrink-0 ${buttonClass("danger")}`}>
           {pending ? "Deleting your account" : "Delete my account"}
-        </button>
+        </GuardedButton>
       </div>
       {/* Always mounted, so screen readers announce progress and the result. */}
-      <div role="status" aria-live="polite" className="text-sm">
-        {pending ? (
-          <p className="text-muted">Deleting your account. This can take a few seconds while providers respond.</p>
-        ) : state === null || fieldError !== undefined ? null : (
-          <p className="text-danger">
-            {state.message}
-            {state.referenceId === undefined ? null : (
-              <>
-                {" "}
-                Reference <code className="font-mono text-xs text-foreground">{state.referenceId}</code>.
-              </>
-            )}
-          </p>
-        )}
-      </div>
+      <OutcomeAnnouncement
+        outcome={
+          pending
+            ? { tone: "info", message: "Deleting your account. This can take a few seconds while providers respond." }
+            : state === null || fieldError !== undefined
+              ? null
+              : { tone: "error", message: state.message, referenceId: state.referenceId }
+        }
+        className="text-sm"
+      />
     </form>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { PlatformLogo } from "@/components/icons";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { SeverityBadge, type Severity } from "@/components/severity-badge";
 import type { Platform } from "@/lib/site";
 
@@ -19,11 +19,11 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Supabase", severity: "Success", text: "New signup on acme-app" },
   { platform: "Stripe", severity: "Success", text: "Payment of $49.00 received for the Pro plan" },
   { platform: "GitHub", severity: "Success", text: "acme/cli reached 1,000 stars" },
-  { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 80%" },
+  { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 75%" },
   { platform: "Supabase", severity: "Summary", text: "Yesterday: 312 logins from 148 active users" },
   { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
   { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
-  { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 75%" },
+  { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 50%" },
   { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
   { platform: "GitHub", severity: "Success", text: "Pull request #128 merged in acme/api" },
   { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
@@ -32,9 +32,10 @@ const feedEvents: readonly FeedEvent[] = [
   { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
 ];
 
-// Ten rows match the height of the month column beside the feed. Below the lg breakpoint the
-// columns stack, so only the first COMPACT_ROWS show, and the row pushed to COMPACT_ROWS closes
-// as the new row opens, the same way the row at VISIBLE_ROWS does in the wide layout.
+// Ten rows match the height of the alerts, allowances, and spend column beside the feed. Below
+// the lg breakpoint the columns stack, so only the first COMPACT_ROWS show, and the row pushed to
+// COMPACT_ROWS closes as the new row opens, the same way the row at VISIBLE_ROWS does in the wide
+// layout.
 const VISIBLE_ROWS = 10;
 const COMPACT_ROWS = 6;
 const TICK_SECONDS = 3;
@@ -160,9 +161,7 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border border-line bg-panel text-white">
-                    <PlatformLogo platform={event.platform} className="size-3.5" />
-                  </span>
+                  <ProviderMark platform={event.platform} size="sm" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-mono text-xs text-muted">{event.platform}</span>

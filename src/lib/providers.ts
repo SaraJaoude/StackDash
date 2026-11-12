@@ -14,6 +14,12 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  digitalocean: "DigitalOcean",
+  posthog: "PostHog",
+  polar: "Polar",
+  sentry: "Sentry",
+  railway: "Railway",
+  gitlab: "GitLab",
   fake: "Example provider",
 };
 
@@ -24,6 +30,12 @@ const PROVIDER_PLATFORMS: Record<ProviderId, Platform | null> = {
   resend: "Resend",
   stripe: "Stripe",
   supabase: "Supabase",
+  digitalocean: "DigitalOcean",
+  posthog: "PostHog",
+  polar: "Polar",
+  sentry: "Sentry",
+  railway: "Railway",
+  gitlab: "GitLab",
   fake: null,
 };
 

@@ -1,8 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Page } from "@playwright/test";
 
+import { openCreateForm } from "./fixtures/alerts";
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
+import { expectHydrated } from "./fixtures/hydration";
 
 // Each test creates its own workspace and seeds only inside it.
 
@@ -59,11 +63,14 @@ ownerTest.describe("alert rules as the owner", () => {
   ownerTest("creates a percent rule from a preset, then pauses, resumes, and deletes it", async ({ page }) => {
     const workspace = await createTestWorkspace("Alert rules");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alerts");
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
       await expect(page.getByText("No alert rules yet")).toBeVisible();
 
-      const form = page.getByRole("form", { name: "Add an alert rule" });
+      // Closed until asked for (#343); opening it lands on its first field, the chosen option.
+      await expect(page.getByRole("form", { name: "Add an alert rule" })).toHaveCount(0);
+      const form = await openCreateForm(page, "New alert rule", "Add an alert rule");
+      await expect(form.getByRole("radio", { name: "Usage reaches a percentage of a provider allowance" })).toBeFocused();
       await expect(
         form.getByRole("radio", { name: "Usage reaches a percentage of a provider allowance" }),
       ).toBeChecked();
@@ -98,11 +105,37 @@ ownerTest.describe("alert rules as the owner", () => {
     }
   });
 
+  ownerTest("shows a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Alert rule delete failure");
+    try {
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      const form = await openCreateForm(page, "New alert rule", "Add an alert rule");
+      await form.getByRole("radio", { name: "90%" }).check();
+      await form.getByRole("button", { name: "Add alert rule" }).click();
+      await expect(form.getByRole("status").filter({ hasText: "Alert rule added." })).toBeVisible();
+
+      const item = rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 90% of every allowance" });
+      await expectFailureInDialog(page, {
+        trigger: item.getByRole("button", { name: /^Delete rule/ }),
+        dialog: page.getByRole("dialog", { name: "Delete this alert rule?" }),
+        confirmName: "Delete rule",
+        // Deleted behind the open dialog, so the action finds nothing to delete.
+        breakIt: async () => {
+          const { error } = await adminClient().from("alert_rules").delete().eq("workspace_id", workspace.id);
+          if (error) throw new Error(`Deleting the rule failed (code ${error.code}).`);
+        },
+        message: "This alert rule no longer exists. Reload the page to see the current rules.",
+      });
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("rejects a zero custom spend amount, then saves 12.50 and edits it", async ({ page }) => {
     const workspace = await createTestWorkspace("Spend rule");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
-      const form = page.getByRole("form", { name: "Add an alert rule" });
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      const form = await openCreateForm(page, "New alert rule", "Add an alert rule");
       await form.getByRole("radio", { name: "Spend reaches an amount" }).check();
       await expect(form.getByLabel("Currency")).toHaveValue("USD");
       await form.getByRole("radio", { name: "Custom" }).check();
@@ -145,8 +178,9 @@ ownerTest.describe("alert rules as the owner", () => {
   ownerTest("adds a budget and a budget percent rule that uses it", async ({ page }) => {
     const workspace = await createTestWorkspace("Budget rule");
     try {
-      await page.goto(`/w/${workspace.slug}/alerts`);
-      const budgetForm = page.getByRole("form", { name: "Add a budget" });
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      const budgetForm = await openCreateForm(page, "New budget", "Add a budget");
+      await expect(budgetForm.getByLabel("Budget name")).toBeFocused();
       await budgetForm.getByLabel("Budget name").fill("Production apps");
       await budgetForm.getByLabel("Monthly amount").fill("250");
       await budgetForm.getByRole("button", { name: "Add budget" }).click();
@@ -155,7 +189,7 @@ ownerTest.describe("alert rules as the owner", () => {
       await expect(budget).toContainText("Your budget");
       await expect(budget).toContainText("$250.00 a month");
 
-      const ruleForm = page.getByRole("form", { name: "Add an alert rule" });
+      const ruleForm = await openCreateForm(page, "New alert rule", "Add an alert rule");
       await ruleForm.getByRole("radio", { name: "Spend reaches a percentage of your budget" }).check();
       await ruleForm.getByRole("radio", { name: "100%" }).check();
       await ruleForm.getByRole("button", { name: "Add alert rule" }).click();
@@ -170,8 +204,7 @@ ownerTest.describe("alert rules as the owner", () => {
       ).toBeVisible();
 
       // Owner view with a budget, a rule, and both add forms on screen.
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -181,7 +214,7 @@ ownerTest.describe("alert rules as the owner", () => {
     const workspace = await createTestWorkspace("Suggested alerts");
     try {
       await seedAllowanceConnection(workspace);
-      await page.goto(`/w/${workspace.slug}/alerts`);
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
 
       const suggestions = page.getByRole("region", { name: "Suggested alerts" });
       await expect(suggestions).toContainText("Example provider: alert at 75%, 90%, and 100% of each allowance.");
@@ -195,6 +228,56 @@ ownerTest.describe("alert rules as the owner", () => {
         ).toContainText("Applies to Example provider");
       }
       await expect(suggestions).toHaveCount(0);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("pages budgets from the keyboard onto the Budgets heading, with focus on it (#312, #313, #343)", async ({ page }) => {
+    const workspace = await createTestWorkspace("Budget pages");
+    try {
+      // One more than a page of budgets (BUDGETS_PAGE_SIZE is 50), so "Show more budgets" appears.
+      const { error } = await adminClient()
+        .from("budgets")
+        .insert(
+          Array.from({ length: 51 }, (_, index) => ({
+            workspace_id: workspace.id,
+            name: `Budget ${String(index + 1).padStart(2, "0")}`,
+            scope: "workspace" as const,
+            amount_minor: 10_000,
+            currency: "USD",
+          })),
+        );
+      if (error) throw new Error(`Seeding budgets failed (code ${error.code}).`);
+      // Opened by its fragment, as the inbox's "Add an alert rule" link opens it (#343).
+      await page.goto(`/w/${workspace.slug}/alerts/settings#add-alert-rule`);
+      // A client navigation, as a user gets once the page has hydrated: before that the link is a
+      // plain anchor and the browser itself handles the fragment.
+      await expectHydrated(page);
+      const ruleForm = page.getByRole("form", { name: "Add an alert rule" });
+      await ruleForm.getByRole("radio", { name: "90%" }).check();
+      const showMore = page.getByRole("link", { name: "Show more budgets" });
+      await showMore.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(/[?&]budgetsAfter=[^#]+#budgets-title$/);
+      await expect(page.getByRole("link", { name: "Show the first budgets" })).toBeVisible();
+      const heading = page.getByRole("heading", { name: "Budgets", exact: true });
+      await expect(heading).toBeInViewport();
+      // Below the sticky header, not under it.
+      const headerBottom = await page.getByRole("banner").evaluate((element) => element.getBoundingClientRect().bottom);
+      await expect.poll(async () => (await heading.boundingBox())?.y ?? -1).toBeGreaterThanOrEqual(headerBottom);
+      // The link that had focus is gone with the old list. The heading takes focus, so a screen
+      // reader announces where the user landed (#313), and it is the last stop before the new list.
+      await expect(heading).toBeFocused();
+      await page.keyboard.press("Tab");
+      await expect(page.getByRole("list", { name: "Budgets" }).getByRole("button", { name: /^Edit budget/ }).first()).toBeFocused();
+      await expectNoAxeViolations(page);
+      // The pager moved the fragment off #add-alert-rule without a hashchange. The rule form stays
+      // open with what was chosen in it, and the refresh after adding keeps it and its status.
+      await expect(ruleForm.getByRole("radio", { name: "90%" })).toBeChecked();
+      await ruleForm.getByRole("button", { name: "Add alert rule" }).click();
+      await expect(ruleForm.getByRole("status").filter({ hasText: "Alert rule added." })).toBeVisible();
+      await expect(rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 90% of every allowance" })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -214,11 +297,12 @@ viewerTest.describe("alert rules as a viewer", () => {
       });
       if (error) throw new Error(`Seeding a rule failed (code ${error.code}).`);
 
-      await page.goto(`/w/${workspace.slug}/alerts`);
-      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alerts");
+      await page.goto(`/w/${workspace.slug}/alerts/settings`);
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Alert settings");
       await expect(rulesList(page).getByRole("listitem").filter({ hasText: "Alert at 75% of every allowance" })).toBeVisible();
       await expect(page.getByText("Only owners and admins can manage budgets and alert rules.").first()).toBeVisible();
 
+      await expect(page.getByRole("button", { name: /^New (alert rule|budget|channel)$/ })).toHaveCount(0);
       await expect(page.getByRole("form", { name: "Add an alert rule" })).toHaveCount(0);
       await expect(page.getByRole("form", { name: "Add a budget" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: /^(Edit|Pause|Delete) rule/ })).toHaveCount(0);

@@ -2,17 +2,28 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
 
+import { ArrivalScope } from "@/components/app/arrivals";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { EmptyState } from "@/components/app/empty-state";
 import { PageHeader } from "@/components/app/page-header";
+import { SampleDataForm } from "@/components/connections/connection-controls";
+import { FeedbackBanner } from "@/components/connections/feedback-banner";
+import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
+import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { buttonClass } from "@/components/ui/button";
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
+import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
+import { timelineEmptyKind } from "@/lib/timeline/empty-state";
 import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Timeline" };
@@ -26,7 +37,7 @@ const HIDDEN_TYPE_IDS: readonly string[] = [];
 // has an instant shell; access checks and data reads stream in behind it.
 export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the timeline" />}>
       <TimelineContent {...props} />
     </Suspense>
   );
@@ -35,29 +46,71 @@ export default function TimelinePage(props: PageProps<"/w/[workspace]/timeline">
 async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspace]/timeline">) {
   const { workspace: slug } = await params;
   const { workspace, role } = await requireWorkspace(slug, "viewer");
-  const query = parseTimelineSearchParams(await searchParams);
+  const rawQuery = await searchParams;
+  const query = parseTimelineSearchParams(rawQuery);
   const basePath = workspacePath(workspace.slug, "timeline");
 
-  const [page, typeIds, workspaceScope] = await Promise.all([
-    listTimelineEvents(workspace.id, { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS }),
+  const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
+  const [page, connectionCounts, typeIds, workspaceScope] = await Promise.all([
+    listTimelineEvents(workspace.id, filters),
+    listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
   ]);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
 
-  // The type sample covers the newest events, so it is empty only when there are none at all.
+  // The type ids come from the daily event count rollup, which its triggers keep equal to every
+  // event the workspace has, so they are empty only when there are no events at all.
   if (typeIds.length === 0) {
+    // Something is connected (#322): say whether events are coming instead of asking for a provider.
+    // Every role can read the Connections page, so neither control is ever denied.
+    const emptyKind = timelineEmptyKind(workspaceScope.connections);
+    if (emptyKind !== "no_connections") {
+      const connectionsPath = workspacePath(workspace.slug, "connections");
+      return (
+        <>
+          <PageHeader title="Timeline" description={DESCRIPTION} />
+          {emptyKind === "first_sync" ? (
+            <EmptyState
+              icon={<TimelineIcon width={20} height={20} />}
+              title="Events are on their way"
+              description="The first sync is queued or running. Its events appear here as they arrive, without a reload. While you wait, see its status on the Connections page."
+              action={{ href: connectionsPath, label: "Check connection status" }}
+            />
+          ) : (
+            <EmptyState
+              icon={<TimelineIcon width={20} height={20} />}
+              title="No activity yet"
+              description="Your connected providers have not reported any events yet. New events appear here as they happen. To see whether each connection is syncing, check the Connections page."
+              action={{ href: connectionsPath, label: "Check connections" }}
+            />
+          )}
+        </>
+      );
+    }
     const canConnect = canPerform(role, "manage_connections");
+    // Offered to owners and admins of a workspace with nothing connected, while simulation is on.
+    const offerSampleData =
+      canConnect &&
+      sampleDataRefusal({
+        simulationEnabled: isProviderSimulationEnabled(),
+        connectionCount: workspaceScope.connections.length,
+      }) === null;
     return (
       <>
         <PageHeader title="Timeline" description={DESCRIPTION} />
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
           title="No activity yet"
-          description="Events appear here after you connect a provider and its first sync finishes."
+          description={
+            offerSampleData
+              ? "Events appear here after you connect a provider and its first sync finishes. To look around first, explore with sample data: made-up activity from simulated providers, labeled Simulated."
+              : "Events appear here after you connect a provider and its first sync finishes."
+          }
           action={{ href: workspacePath(workspace.slug, "connections"), label: "Connect a provider" }}
           deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
+          secondaryAction={offerSampleData ? <SampleDataForm workspaceSlug={workspace.slug} /> : undefined}
         />
       </>
     );
@@ -71,11 +124,33 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const scopeDescription = describeScope(query.scope, scopeOptions);
   const shown =
     count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
-  const status = scopeDescription === null ? shown : `${shown} for ${scopeDescription}`;
+  const matching = query.search === null ? shown : `${shown} with “${query.search}” in the title`;
+  const status = scopeDescription === null ? matching : `${matching} for ${scopeDescription}`;
+  // Events with a connection are the connections in view; DevMacro's own events have none (#269).
+  const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
   return (
     <>
-      <PageHeader title="Timeline" description={DESCRIPTION} />
+      <PageHeader
+        title="Timeline"
+        description={DESCRIPTION}
+        titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
+      />
+      {rawQuery[SAMPLE_DATA_ADDED_PARAM] === "added" ? (
+        <FeedbackBanner tone="success" title="Sample data added">
+          <p>
+            Every simulated provider is connected to this workspace. Their data is made up, and everything it shows is
+            labeled Simulated. Delete the simulated connections on the{" "}
+            <Link
+              href={workspacePath(workspace.slug, "connections")}
+              className="font-medium text-foreground underline underline-offset-4"
+            >
+              Connections page
+            </Link>{" "}
+            when you are done.
+          </p>
+        </FeedbackBanner>
+      ) : null}
       <SeverityLinks action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
@@ -102,7 +177,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           />
         )
       ) : (
-        <EventList events={page.events} now={now} />
+        <>
+          {allSimulated ? <SimulatedNotice /> : null}
+          {/* The list's URL is its scope: new filters or another page reset what counts as arrived. */}
+          <ArrivalScope scope={timelineHref(basePath, query, query.cursor)}>
+            <EventList events={page.events} now={now} markSimulated={!allSimulated} />
+          </ArrivalScope>
+        </>
       )}
 
       {page.nextCursor === null && !showNewestLink ? null : (
@@ -110,7 +191,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           {showNewestLink ? (
             <Link
               href={timelineHref(basePath, query, null)}
-              className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+              className={buttonClass("secondary")}
             >
               Show newest events
             </Link>
@@ -118,7 +199,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           {page.nextCursor === null ? null : (
             <Link
               href={timelineHref(basePath, query, page.nextCursor)}
-              className="inline-flex min-h-10 items-center gap-2 rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+              className={`gap-2 ${buttonClass("primary")}`}
             >
               Load older events
               <ArrowRightIcon />

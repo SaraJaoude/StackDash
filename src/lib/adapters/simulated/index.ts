@@ -14,10 +14,16 @@ import {
 } from "@/lib/adapters/types";
 import { PROVIDER_NAMES } from "@/lib/providers";
 
+import { digitaloceanProfile } from "./digitalocean";
 import { githubProfile } from "./github";
+import { postHogProfile } from "./posthog";
+import { gitlabProfile } from "./gitlab";
 import { resendProfile } from "./resend";
 import { isSimulatedCredential, SIMULATED_SCOPE, simulatedCredentialMetadata } from "./marker";
-import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedProfile } from "./simulation";
+import { polarProfile } from "./polar";
+import { sentryProfile } from "./sentry";
+import { railwayProfile } from "./railway";
+import { simulatedEndpoint, SLOT_MS, slotOf, type SimulatedIncident, type SimulatedProfile } from "./simulation";
 import { stripeProfile } from "./stripe";
 import { supabaseProfile } from "./supabase";
 import { vercelProfile } from "./vercel";
@@ -74,12 +80,18 @@ function readCursor(cursor: string | undefined, provider: LiveProviderId, ctx: O
   return undefined;
 }
 
-export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId): ProviderAdapter {
+// Every adapter createSimulatedAdapter built: the registry's, and the one `npm run demo:event`
+// builds with an incident (#256). Membership, not the id, is what makes an adapter simulated.
+const builtBySimulator = new WeakSet<ProviderAdapter>();
+
+/** A simulated adapter for `provider`; with an `incident`, every sync also carries it. */
+export function createSimulatedAdapter(profile: SimulatedProfile, provider: LiveProviderId, incident?: SimulatedIncident): ProviderAdapter {
   const { real } = profile;
   const name = PROVIDER_NAMES[provider];
   const endpoint = (path: string) => simulatedEndpoint(provider, path);
+  const metrics = incident?.metrics ?? profile.metrics;
 
-  return {
+  const adapter: ProviderAdapter = {
     id: provider,
     displayName: name,
     capabilities: real.capabilities,
@@ -92,6 +104,9 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
     ],
     dataCollected: real.dataCollected,
     eventTypes: real.eventTypes,
+    ...(real.signupDailyTotals === undefined ? {} : { signupDailyTotals: real.signupDailyTotals }),
+    ...(real.projectedSpend === undefined ? {} : { projectedSpend: real.projectedSpend }),
+    ...(real.beta === undefined ? {} : { beta: real.beta }),
     oauth: {
       authorizeUrl: FAKE_AUTHORIZE_PATH,
       // Never requested: `exchangeCode` mints the credential in memory.
@@ -156,15 +171,19 @@ export function createSimulatedAdapter(profile: SimulatedProfile, provider: Live
       for (let slot = firstSlot; slot <= lastSlot; slot += 1) {
         events.push(...profile.eventsInSlot(externalAccountId, slot));
       }
+      // Outside the slot loop, so the incident arrives even when this slot was already synced.
+      if (incident !== undefined) events.push(...incident.events(externalAccountId, ctx.now()));
       // A clock that moved back keeps the cursor where it was, so no slot is replayed.
       const covered = previous === undefined ? lastSlot : Math.max(previous, lastSlot);
       return {
-        metrics: profile.metrics(externalAccountId, new Date(currentSlot * SLOT_MS), ctx),
+        metrics: metrics(externalAccountId, new Date(currentSlot * SLOT_MS), ctx),
         events,
         cursor: new Date(covered * SLOT_MS).toISOString(),
       };
     },
   };
+  builtBySimulator.add(adapter);
+  return adapter;
 }
 
 export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>> = {
@@ -173,9 +192,18 @@ export const simulatedAdapters: Readonly<Record<LiveProviderId, ProviderAdapter>
   resend: createSimulatedAdapter(resendProfile, "resend"),
   stripe: createSimulatedAdapter(stripeProfile, "stripe"),
   supabase: createSimulatedAdapter(supabaseProfile, "supabase"),
+  digitalocean: createSimulatedAdapter(digitaloceanProfile, "digitalocean"),
+  posthog: createSimulatedAdapter(postHogProfile, "posthog"),
+  polar: createSimulatedAdapter(polarProfile, "polar"),
+  sentry: createSimulatedAdapter(sentryProfile, "sentry"),
+  railway: createSimulatedAdapter(railwayProfile, "railway"),
+  gitlab: createSimulatedAdapter(gitlabProfile, "gitlab"),
 };
 
-/** True only for the registry's own simulated adapters, compared by identity rather than id. */
+/**
+ * True only for an adapter createSimulatedAdapter built, compared by identity rather than id, so
+ * a real adapter, or a copy of a simulated one, is never treated as simulated.
+ */
 export function isSimulatedAdapter(adapter: ProviderAdapter): boolean {
-  return adapter.id !== "fake" && simulatedAdapters[adapter.id] === adapter;
+  return builtBySimulator.has(adapter);
 }

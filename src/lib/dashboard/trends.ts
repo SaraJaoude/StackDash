@@ -7,18 +7,28 @@
  * - A series is one provider, one metric key, and one currency or unit. Currencies and units are
  *   never mixed in a series; the same metric reported in two currencies is two series.
  * - Each account contributes its latest row in a bucket (day or month). A bucket's value is the
- *   sum over the series' accounts. If any account that had started reporting by the end of the
- *   bucket has no row in it, the bucket is unavailable (null), never zero and never a partial sum.
+ *   sum over the series' accounts. If any account expected in the bucket has no row in it, the
+ *   bucket is unavailable (null), never zero and never a partial sum.
+ * - An account is expected in a bucket from its first row on. One that has stopped reporting (no
+ *   row since `snapshotWindowStart(now)`, the dashboard's window) is expected only up to the
+ *   bucket of its last row, in both granularities (#308), so a stopped account never makes a
+ *   later day or month unavailable, and the daily and monthly views agree about it. The cost, in
+ *   the monthly view only: the comparison across that account's last month compares a sum that
+ *   includes it with one that no longer does, so it can show a fall that is only the account
+ *   leaving. A stopped account's last day is more than 45 days back, outside the 30 day chart.
  * - A point is estimated when any row behind it is estimated. A series is simulated when any
  *   connection behind a point in the window was made by the provider simulator (#131).
  * - The comparison is the last bucket against the one before it. A missing bucket on either side
  *   means no comparison; a previous value of zero gives a direction but no percent.
+ * - The default set (#263, option A2): per provider, the money behind the dashboard's spending and
+ *   revenue cards, by the rules those cards and the headline strip apply. Every other series opens
+ *   on demand, one disclosure per provider.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import { formatMoney, formatQuantity, formatUtcMonth } from "@/lib/format";
 import { providerName } from "@/lib/providers";
 
-import { isEstimated, type ProviderId, type SnapshotInput } from "./aggregate";
+import { ACCUMULATING_KINDS, countedSnapshots, isCurrentPeriod, isEstimated, snapshotWindowStart, type ProviderId, type SnapshotInput } from "./aggregate";
 
 export type TrendGranularity = "daily" | "monthly";
 
@@ -104,6 +114,10 @@ function measureOf(row: TrendRow): TrendMeasure | null {
   return null;
 }
 
+function seriesKey(provider: ProviderId, metricKey: string, measure: TrendMeasure): string {
+  return `${provider} ${metricKey} ${measure.type === "money" ? `money:${measure.currency}` : `quantity:${measure.unit}`}`;
+}
+
 function newer(a: TrendRow, b: TrendRow): boolean {
   return a.snapshot_date > b.snapshot_date || (a.snapshot_date === b.snapshot_date && Date.parse(a.retrieved_at) > Date.parse(b.retrieved_at));
 }
@@ -113,22 +127,25 @@ type SeriesBuilder = {
   metricKey: string;
   measure: TrendMeasure;
   latest: TrendRow;
-  /** First date each account reported this metric, within the loaded rows. */
-  firstDates: Map<string, string>;
+  /** First and last date each account reported this metric, within the loaded rows. */
+  spans: Map<string, { first: string; last: string }>;
   /** Bucket, then account, then that account's latest row in the bucket. */
   cells: Map<string, Map<string, TrendRow>>;
   simulated: boolean;
 };
 
-/** Last bucket against the one before it. */
-export function compareToPrevious(points: readonly TrendPoint[]): TrendComparison {
-  const current = points.at(-1)?.value ?? null;
-  const previous = points.at(-2)?.value ?? null;
+/** `current` against `previous`; a missing value on either side means no comparison. */
+export function compareValues(current: number | null, previous: number | null): TrendComparison {
   if (current === null) return { status: "unavailable", missing: "current" };
   if (previous === null) return { status: "unavailable", missing: "previous" };
   const direction = current > previous ? "up" : current < previous ? "down" : "same";
   const percent = previous === 0 ? null : (Math.abs(current - previous) / Math.abs(previous)) * 100;
   return { status: "change", direction, percent, previous };
+}
+
+/** Last bucket against the one before it. */
+export function compareToPrevious(points: readonly TrendPoint[]): TrendComparison {
+  return compareValues(points.at(-1)?.value ?? null, points.at(-2)?.value ?? null);
 }
 
 /**
@@ -144,6 +161,7 @@ export function buildTrends(
 ): TrendSeries[] {
   const byId = new Map(connections.map((connection) => [connection.id, connection]));
   const buckets = trendBuckets(granularity, now);
+  const reportingSince = snapshotWindowStart(now);
   const inWindow = new Set(buckets);
   const builders = new Map<string, SeriesBuilder>();
 
@@ -152,16 +170,17 @@ export function buildTrends(
     const measure = measureOf(row);
     if (connection === undefined || measure === null) continue;
     const { provider } = connection;
-    const measureKey = measure.type === "money" ? `money:${measure.currency}` : `quantity:${measure.unit}`;
-    const key = `${provider} ${row.metric_key} ${measureKey}`;
+    const key = seriesKey(provider, row.metric_key, measure);
     let builder = builders.get(key);
     if (builder === undefined) {
-      builder = { provider, metricKey: row.metric_key, measure, latest: row, firstDates: new Map(), cells: new Map(), simulated: false };
+      builder = { provider, metricKey: row.metric_key, measure, latest: row, spans: new Map(), cells: new Map(), simulated: false };
       builders.set(key, builder);
     }
     if (newer(row, builder.latest)) builder.latest = row;
-    const first = builder.firstDates.get(row.external_account_id);
-    if (first === undefined || row.snapshot_date < first) builder.firstDates.set(row.external_account_id, row.snapshot_date);
+    const span = builder.spans.get(row.external_account_id);
+    if (span === undefined) builder.spans.set(row.external_account_id, { first: row.snapshot_date, last: row.snapshot_date });
+    else if (row.snapshot_date < span.first) span.first = row.snapshot_date;
+    else if (row.snapshot_date > span.last) span.last = row.snapshot_date;
 
     const bucket = granularity === "daily" ? row.snapshot_date : row.snapshot_date.slice(0, 7);
     if (!inWindow.has(bucket)) continue;
@@ -178,9 +197,12 @@ export function buildTrends(
   const series: TrendSeries[] = [];
   for (const [key, builder] of builders) {
     const points = buckets.map((bucket): TrendPoint => {
+      const bucketStart = granularity === "daily" ? bucket : `${bucket}-01`;
       // "YYYY-MM-31" sorts after every real date in the month, so it stands for the month's end.
       const bucketEnd = granularity === "daily" ? bucket : `${bucket}-31`;
-      const expected = [...builder.firstDates].filter(([, first]) => first <= bucketEnd).map(([account]) => account);
+      const expected = [...builder.spans]
+        .filter(([, { first, last }]) => first <= bucketEnd && (last >= reportingSince || last >= bucketStart))
+        .map(([account]) => account);
       const cell = builder.cells.get(bucket);
       let value = 0;
       let estimated = false;
@@ -211,6 +233,69 @@ export function buildTrends(
       a.label.localeCompare(b.label) ||
       measureName(a.measure).localeCompare(measureName(b.measure)),
   );
+}
+
+/**
+ * Keys of the series shown on first load, decided on #263 (option A2): per provider, the money
+ * series (`ACCUMULATING_KINDS`: verified spend, estimated spend, revenue) behind the spending and
+ * revenue cards, read exactly as the cards read them: `countedSnapshots` (declared projections
+ * left out, the latest row per account and metric, breakdowns and sub-windows dropped), then
+ * `isCurrentPeriod`. So the trends, the cards, and the headline strip never disagree. Breakdowns
+ * (GitHub's SKUs and days, DigitalOcean's SKU days), finished periods (an invoice), rolling
+ * windows (Stripe's last 30 days), usage, allowances, and projections are left for the
+ * provider's disclosure. A breakdown is dropped only beside its total in the same account, so
+ * another account's only figure stays. Keys match `buildTrends`.
+ */
+export function defaultSeriesKeys(
+  rows: readonly SnapshotInput[],
+  connections: readonly TrendConnection[],
+  projectedSpend: readonly string[],
+  now: Date,
+): Set<string> {
+  const byId = new Map(connections.map((connection) => [connection.id, connection]));
+  const money = rows.filter((row) => ACCUMULATING_KINDS.has(row.kind));
+  const keys = new Set<string>();
+  for (const row of countedSnapshots(money, projectedSpend)) {
+    const connection = byId.get(row.connection_id);
+    const measure = measureOf(row);
+    if (connection === undefined || measure === null || !isCurrentPeriod(row, now)) continue;
+    keys.add(seriesKey(connection.provider, row.metric_key, measure));
+  }
+  return keys;
+}
+
+/** One provider's trends: the default set, and the rest behind its disclosure. */
+export type ProviderTrends = Readonly<{
+  provider: ProviderId;
+  defaults: readonly TrendSeries[];
+  more: readonly TrendSeries[];
+}>;
+
+/** `series` per provider, in the order `buildTrends` sorted them, split by `defaultKeys`. */
+export function groupTrends(series: readonly TrendSeries[], defaultKeys: ReadonlySet<string>): ProviderTrends[] {
+  const groups = new Map<ProviderId, { defaults: TrendSeries[]; more: TrendSeries[] }>();
+  for (const entry of series) {
+    let group = groups.get(entry.provider);
+    if (group === undefined) {
+      group = { defaults: [], more: [] };
+      groups.set(entry.provider, group);
+    }
+    (defaultKeys.has(entry.key) ? group.defaults : group.more).push(entry);
+  }
+  return [...groups].map(([provider, { defaults, more }]) => ({ provider, defaults, more }));
+}
+
+/** The repeated search param naming each provider whose disclosure is open. */
+export const EXPAND_TRENDS_PARAM = "expand";
+
+/** `expanded` without duplicates and sorted, so equal states have equal URLs. */
+export function canonicalExpanded(expanded: readonly ProviderId[]): ProviderId[] {
+  return [...new Set(expanded)].sort();
+}
+
+/** The open providers after toggling `provider`'s disclosure. */
+export function toggleExpanded(expanded: readonly ProviderId[], provider: ProviderId): ProviderId[] {
+  return canonicalExpanded(expanded.includes(provider) ? expanded.filter((entry) => entry !== provider) : [...expanded, provider]);
 }
 
 // Formatting. US English; days are UTC dates because snapshot days are UTC.

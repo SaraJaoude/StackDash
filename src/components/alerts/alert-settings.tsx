@@ -1,8 +1,15 @@
 import Link from "next/link";
+import { connection } from "next/server";
+import type { ReactNode } from "react";
 
+import { ProjectionNote } from "@/components/dashboard/value-meta";
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
 import { liveProviderIds } from "@/lib/adapters/types";
+import { inScope, scopedItem } from "@/lib/alerts/evaluate";
 import { DEFAULT_CURRENCIES, minorUnitsToDecimalString, type AlertScope, type ProviderId } from "@/lib/alerts/rule-schema";
+import { budgetProjectionText, projectSpend } from "@/lib/dashboard/projection";
 import {
+  listAlertRuleChoices,
   listAlertRules,
   listAllowanceMetrics,
   listAllowanceRuleCoverage,
@@ -10,35 +17,33 @@ import {
   type AlertRule,
   type ConnectionOption,
 } from "@/lib/data/alert-rules";
-import { listBudgetOptions, listBudgets, listSnapshotCurrencies } from "@/lib/data/budgets";
+import {
+  getBudgetSpendRows,
+  listBudgetOptions,
+  listBudgets,
+  listSnapshotCurrencies,
+  type Budget,
+} from "@/lib/data/budgets";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { PROVIDER_NAMES } from "@/lib/providers";
 import { Constants } from "@/lib/supabase/database.types";
-import { workspacePath } from "@/lib/workspaces/access";
+import { ALERT_SETTINGS_IDS, alertSettingsPath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
 import { AddSuggestedAlerts } from "./add-suggested-alerts";
-import { BudgetForm } from "./budget-form";
+import { AlertDelivery } from "./alert-delivery";
 import { DeniedReason } from "./form-controls";
-import {
-  defaultBudgetValues,
-  defaultRuleValues,
-  formatMinorAmount,
-  ruleToFormValues,
-  type AlertFormOptions,
-} from "./labels";
-import { BudgetListItem, RuleListItem } from "./list-items";
-import { RuleForm } from "./rule-form";
+import { FragmentHeading } from "./fragment-heading";
+import { defaultBudgetValues, defaultRuleValues, formatMinorAmount, ruleToFormValues, type AlertFormOptions } from "./labels";
+import { BudgetListItem, NewBudget, NewRule, RuleListItem } from "./list-items";
 
 /**
- * The configuration part of the alerts page: suggested alerts, alert rules, and budgets. Exported
- * as one body so the page can place the triggered alerts list above it.
+ * Alert settings (#343): suggested alerts, alert rules, budgets, and where alerts go (alert emails
+ * and channels). Each create form stays closed behind its "New" button until it is wanted.
  */
 
-const RULES_HEADING_ID = "alert-rules-title";
-const BUDGETS_HEADING_ID = "budgets-title";
-const ADD_RULE_HEADING_ID = "add-alert-rule";
-const ADD_BUDGET_HEADING_ID = "add-budget";
+const RULES_HEADING_ID = ALERT_SETTINGS_IDS.rules;
+const BUDGETS_HEADING_ID = ALERT_SETTINGS_IDS.budgets;
 const FALLBACK_CURRENCY = "USD";
 
 type Scoped = {
@@ -51,16 +56,21 @@ type Scoped = {
 export async function AlertSettings({
   workspace,
   role,
+  userId,
   rulesAfter,
   budgetsAfter,
 }: {
   workspace: WorkspaceRef;
   role: WorkspaceRole;
+  userId: string;
   rulesAfter: string | null;
   budgetsAfter: string | null;
 }) {
   const canManage = canPerform(role, "manage_budgets");
-  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies] = await Promise.all([
+  // Request data first: reading the clock before it would fail the prerender.
+  await connection();
+  const now = new Date();
+  const [rules, budgets, targets, metrics, coverage, budgetOptions, snapshotCurrencies, ruleChoices, spendRows] = await Promise.all([
     listAlertRules(workspace.id, rulesAfter),
     listBudgets(workspace.id, budgetsAfter),
     listScopeTargets(workspace.id),
@@ -68,7 +78,28 @@ export async function AlertSettings({
     listAllowanceRuleCoverage(workspace.id),
     listBudgetOptions(workspace.id),
     listSnapshotCurrencies(workspace.id),
+    listAlertRuleChoices(workspace.id),
+    getBudgetSpendRows(workspace.id, now),
   ]);
+
+  /**
+   * Where the budget's spend is heading by the end of the period (#167), with "Projected to
+   * cross" when it reaches the amount. Shown only; it never raises an alert. Nothing when the
+   * budget's scope has no current spend in its currency.
+   */
+  function budgetProjection(budget: Budget): ReactNode {
+    const scoped = spendRows.filter((row) => row.currency === budget.currency && inScope(budget, scopedItem(row)));
+    const spend = projectSpend(scoped, declaredProjectedSpend, now).find((projection) => projection.currency === budget.currency);
+    if (spend === undefined) return null;
+    const text = budgetProjectionText(spend, budget.amount_minor);
+    return (
+      <ProjectionNote
+        text={text}
+        estimate={spend.projection.status === "projected"}
+        {...(text.crosses ? { flag: "Projected to cross" } : {})}
+      />
+    );
+  }
 
   const projectNames = new Map(targets.projects.map((project) => [project.id, project.name]));
   const connectionsById = new Map(targets.connections.map((connection) => [connection.id, connection]));
@@ -179,24 +210,26 @@ export async function AlertSettings({
         ),
       ].sort();
 
-  const alertsPath = workspacePath(workspace.slug, "alerts");
-  const pageHref = (cursors: { rulesAfter: string | null; budgetsAfter: string | null }) => {
+  const settingsPath = alertSettingsPath(workspace.slug);
+  // A pager replaces its list, so it lands on that list's heading rather than the top of the page.
+  const pageHref = (
+    cursors: { rulesAfter: string | null; budgetsAfter: string | null },
+    headingId: typeof RULES_HEADING_ID | typeof BUDGETS_HEADING_ID,
+  ) => {
     const query = new URLSearchParams();
     if (cursors.rulesAfter !== null) query.set("rulesAfter", cursors.rulesAfter);
     if (cursors.budgetsAfter !== null) query.set("budgetsAfter", cursors.budgetsAfter);
     const text = query.toString();
-    return text === "" ? alertsPath : `${alertsPath}?${text}`;
+    return `${text === "" ? settingsPath : `${settingsPath}?${text}`}#${headingId}`;
   };
   const deniedReason = actionDeniedReason("manage_budgets");
 
   return (
     <>
       {canManage && suggestedProviders.length > 0 ? (
-        <section aria-labelledby="suggested-alerts-title" className="mt-8 rounded-xl border border-accent/40 bg-panel">
+        <section aria-labelledby={ALERT_SETTINGS_IDS.suggested} className="mt-8 rounded-xl border border-accent/40 bg-panel">
           <div className="border-b border-line px-6 py-4">
-            <h2 id="suggested-alerts-title" className="text-sm font-semibold">
-              Suggested alerts
-            </h2>
+            <FragmentHeading id={ALERT_SETTINGS_IDS.suggested}>Suggested alerts</FragmentHeading>
             <p className="mt-1 text-sm text-muted">
               These providers report allowances that no rule watches yet. Nothing is turned on until you add it.
             </p>
@@ -222,30 +255,16 @@ export async function AlertSettings({
 
       <section aria-labelledby={RULES_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={RULES_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <FragmentHeading id={RULES_HEADING_ID} cursor={rulesAfter}>
             Alert rules
-          </h2>
+          </FragmentHeading>
           <p className="mt-1 text-sm text-muted">
             Rules watch synced usage and spend and raise an alert in DevMacro when a threshold is crossed, at most once
             per billing period.
           </p>
         </div>
 
-        {rules.items.length === 0 ? (
-          <div className="px-6 py-5 text-sm">
-            <p className="font-medium">No alert rules yet</p>
-            {canManage ? (
-              <p className="mt-1 text-muted">
-                <a href={`#${ADD_RULE_HEADING_ID}`} className="text-accent underline underline-offset-2">
-                  Add an alert rule
-                </a>{" "}
-                to hear about usage or spend before it becomes a problem.
-              </p>
-            ) : (
-              <DeniedReason>{deniedReason}</DeniedReason>
-            )}
-          </div>
-        ) : (
+        {rules.items.length === 0 ? null : (
           <ul aria-label="Alert rules" className="divide-y divide-line">
             {rules.items.map((rule) => (
               <RuleListItem
@@ -265,13 +284,13 @@ export async function AlertSettings({
         {rules.nextCursor === null && rulesAfter === null ? null : (
           <nav aria-label="Alert rule pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {rulesAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter: null, budgetsAfter })} className="text-accent underline underline-offset-2">
+              <Link href={pageHref({ rulesAfter: null, budgetsAfter }, RULES_HEADING_ID)} className="text-accent underline underline-offset-2">
                 Show the first rules
               </Link>
             )}
             {rules.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter: rules.nextCursor, budgetsAfter })}
+                href={pageHref({ rulesAfter: rules.nextCursor, budgetsAfter }, RULES_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more rules
@@ -281,13 +300,23 @@ export async function AlertSettings({
         )}
 
         {canManage ? (
-          <div className="border-t border-line px-6 py-5">
-            <h3 id={ADD_RULE_HEADING_ID} className="mb-4 text-sm font-semibold">
-              Add an alert rule
-            </h3>
-            <RuleForm options={options} initial={defaultRuleValues(defaultCurrency)} title="Add an alert rule" />
+          // One place for the empty state and the New button, so adding the first rule keeps the
+          // open form and its result mounted while the list appears above it.
+          <div className={rules.items.length === 0 ? "px-6 py-5" : "border-t border-line px-6 py-5"}>
+            {rules.items.length === 0 ? (
+              <div className="mb-4 text-sm">
+                <p className="font-medium">No alert rules yet</p>
+                <p className="mt-1 text-muted">Add one to hear about usage or spend before it becomes a problem.</p>
+              </div>
+            ) : null}
+            <NewRule options={options} initial={defaultRuleValues(defaultCurrency)} />
           </div>
-        ) : rules.items.length === 0 ? null : (
+        ) : rules.items.length === 0 ? (
+          <div className="px-6 py-5 text-sm">
+            <p className="font-medium">No alert rules yet</p>
+            <DeniedReason>{deniedReason}</DeniedReason>
+          </div>
+        ) : (
           <div className="border-t border-line px-6 py-4">
             <DeniedReason>{deniedReason}</DeniedReason>
           </div>
@@ -296,9 +325,9 @@ export async function AlertSettings({
 
       <section aria-labelledby={BUDGETS_HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-6 py-4">
-          <h2 id={BUDGETS_HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <FragmentHeading id={BUDGETS_HEADING_ID} cursor={budgetsAfter}>
             Budgets
-          </h2>
+          </FragmentHeading>
           <p className="mt-1 max-w-3xl text-sm text-muted">
             Your budget is a monthly spending limit you set yourself. It is separate from provider allowances, which
             are the usage a provider plan includes before it charges more. Budgets reset on the first of each month
@@ -306,21 +335,7 @@ export async function AlertSettings({
           </p>
         </div>
 
-        {budgets.items.length === 0 ? (
-          <div className="px-6 py-5 text-sm">
-            <p className="font-medium">No budgets yet</p>
-            {canManage ? (
-              <p className="mt-1 text-muted">
-                <a href={`#${ADD_BUDGET_HEADING_ID}`} className="text-accent underline underline-offset-2">
-                  Add a budget
-                </a>{" "}
-                to alert on a percentage of what you plan to spend each month.
-              </p>
-            ) : (
-              <DeniedReason>{deniedReason}</DeniedReason>
-            )}
-          </div>
-        ) : (
+        {budgets.items.length === 0 ? null : (
           <ul aria-label="Budgets" className="divide-y divide-line">
             {budgets.items.map((budget) => (
               <BudgetListItem
@@ -329,6 +344,7 @@ export async function AlertSettings({
                 name={budget.name}
                 amountLabel={formatMinorAmount(budget.amount_minor, budget.currency)}
                 scopeLabel={scopeLabel(budget)}
+                projection={budgetProjection(budget)}
                 manage={
                   canManage
                     ? {
@@ -354,13 +370,13 @@ export async function AlertSettings({
         {budgets.nextCursor === null && budgetsAfter === null ? null : (
           <nav aria-label="Budget pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
             {budgetsAfter === null ? null : (
-              <Link href={pageHref({ rulesAfter, budgetsAfter: null })} className="text-accent underline underline-offset-2">
+              <Link href={pageHref({ rulesAfter, budgetsAfter: null }, BUDGETS_HEADING_ID)} className="text-accent underline underline-offset-2">
                 Show the first budgets
               </Link>
             )}
             {budgets.nextCursor === null ? null : (
               <Link
-                href={pageHref({ rulesAfter, budgetsAfter: budgets.nextCursor })}
+                href={pageHref({ rulesAfter, budgetsAfter: budgets.nextCursor }, BUDGETS_HEADING_ID)}
                 className="text-accent underline underline-offset-2"
               >
                 Show more budgets
@@ -370,18 +386,34 @@ export async function AlertSettings({
         )}
 
         {canManage ? (
-          <div className="border-t border-line px-6 py-5">
-            <h3 id={ADD_BUDGET_HEADING_ID} className="mb-4 text-sm font-semibold">
-              Add a budget
-            </h3>
-            <BudgetForm options={options} initial={defaultBudgetValues(defaultCurrency)} title="Add a budget" />
+          // The same single place as the rules section's, for the same reason.
+          <div className={budgets.items.length === 0 ? "px-6 py-5" : "border-t border-line px-6 py-5"}>
+            {budgets.items.length === 0 ? (
+              <div className="mb-4 text-sm">
+                <p className="font-medium">No budgets yet</p>
+                <p className="mt-1 text-muted">Add one to alert on a percentage of what you plan to spend each month.</p>
+              </div>
+            ) : null}
+            <NewBudget options={options} initial={defaultBudgetValues(defaultCurrency)} />
           </div>
-        ) : budgets.items.length === 0 ? null : (
+        ) : budgets.items.length === 0 ? (
+          <div className="px-6 py-5 text-sm">
+            <p className="font-medium">No budgets yet</p>
+            <DeniedReason>{deniedReason}</DeniedReason>
+          </div>
+        ) : (
           <div className="border-t border-line px-6 py-4">
             <DeniedReason>{deniedReason}</DeniedReason>
           </div>
         )}
       </section>
+
+      <AlertDelivery
+        workspace={workspace}
+        role={role}
+        userId={userId}
+        ruleOptions={ruleChoices.map((rule) => ({ value: rule.id, label: `${ruleSummary(rule)}, for ${scopeLabel(rule)}` }))}
+      />
     </>
   );
 }

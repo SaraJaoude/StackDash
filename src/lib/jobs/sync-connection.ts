@@ -11,6 +11,7 @@ import type {
   ProviderId,
 } from "@/lib/adapters/types";
 import type { LogFields, Logger } from "@/lib/log/logger";
+import type { NotificationDeps } from "@/lib/notifications/dispatch";
 import { providerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -46,6 +47,9 @@ export type SyncDeps = Readonly<{
   log: Logger;
   // evaluateWorkspaceAlerts from src/lib/alerts/run.ts in production; injected so tests stub it.
   evaluateAlerts: (workspaceId: string, now: Date) => Promise<unknown>;
+  // Built per alert_dispatch or digest job (createNotificationDeps in production), so a broken
+  // email configuration fails that job only.
+  notifications: () => NotificationDeps;
 }>;
 
 /** A failure that is ours or the instance's, not the provider's. */
@@ -69,7 +73,8 @@ const PERMANENT_CODES: Record<string, true> = {
 
 // Healthy means syncing normally. needs_attention and failed are the two failure states; an
 // episode starts when a connection leaves `active` for one of them.
-const SYNCABLE_STATUSES: Partial<Record<ConnectionStatus, true>> = { active: true, failed: true };
+export const SYNCABLE_CONNECTION_STATUSES = ["active", "failed"] as const satisfies readonly ConnectionStatus[];
+const SYNCABLE_STATUSES: ReadonlySet<ConnectionStatus> = new Set(SYNCABLE_CONNECTION_STATUSES);
 
 function addMs(at: Date, ms: number): Date {
   return new Date(at.getTime() + ms);
@@ -83,7 +88,7 @@ export async function runSyncJob(job: ClaimedJob, deps: SyncDeps): Promise<JobOu
   const key: ConnectionKey = { workspaceId: job.workspace_id, connectionId: job.connection_id };
   const connection = await deps.store.getConnection(key);
   // Deleted, disconnected, or waiting for the user: nothing to do, and nothing went wrong.
-  if (connection === null || SYNCABLE_STATUSES[connection.status] !== true) {
+  if (connection === null || !SYNCABLE_STATUSES.has(connection.status)) {
     deps.log.info("sync.skipped", { jobId: job.id, connectionId: key.connectionId, status: connection?.status ?? "missing" });
     return { status: "succeeded" };
   }

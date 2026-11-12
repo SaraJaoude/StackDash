@@ -12,7 +12,7 @@ import type { WorkspaceRole } from "@/lib/workspaces/permissions";
 
 type WorkspaceRow = Database["public"]["Tables"]["workspaces"]["Row"];
 
-export type WorkspaceRef = Pick<WorkspaceRow, "id" | "slug" | "name">;
+export type WorkspaceRef = Pick<WorkspaceRow, "id" | "slug" | "name" | "handle">;
 
 export type WorkspaceSummary = Pick<WorkspaceRow, "id" | "slug" | "name" | "is_personal"> & {
   role: WorkspaceRole;
@@ -37,14 +37,14 @@ export const getWorkspaceMembership = cache(
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("workspaces")
-      .select("id, slug, name, workspace_members!inner(role)")
+      .select("id, slug, name, handle, workspace_members!inner(role)")
       .eq("slug", slug)
       .eq("workspace_members.user_id", userId)
       .maybeSingle();
     if (error) throw new Error("Failed to load workspace membership", { cause: error });
     const role = data?.workspace_members[0]?.role;
     if (!data || role === undefined) return null;
-    return { workspace: { id: data.id, slug: data.slug, name: data.name }, role };
+    return { workspace: { id: data.id, slug: data.slug, name: data.name, handle: data.handle }, role };
   },
 );
 
@@ -70,29 +70,21 @@ export const listMyWorkspaces = cache(async (): Promise<WorkspaceSummary[]> => {
 
 /**
  * Slug of the workspace the user last opened, or null when none is recorded or they have since
- * lost access to it.
+ * lost access to it. One read: the profile with its last workspace embedded only while the user
+ * is still a member, so it never waits on a second request (#346).
  */
 export const getLastWorkspaceSlug = cache(async (): Promise<string | null> => {
   const user = await getCurrentUser();
   if (!user) return null;
   const supabase = await createClient();
-  const { data: profile, error: profileError } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
-    .select("last_workspace_id")
+    .select("last_workspace:workspaces!profiles_last_workspace_id_fkey(slug, workspace_members!inner(user_id))")
     .eq("user_id", user.id)
-    .maybeSingle();
-  if (profileError) throw new Error("Failed to load profile", { cause: profileError });
-  const lastWorkspaceId = profile?.last_workspace_id ?? null;
-  if (lastWorkspaceId === null) return null;
-
-  const { data: workspace, error } = await supabase
-    .from("workspaces")
-    .select("slug, workspace_members!inner(user_id)")
-    .eq("id", lastWorkspaceId)
-    .eq("workspace_members.user_id", user.id)
+    .eq("last_workspace.workspace_members.user_id", user.id)
     .maybeSingle();
   if (error) throw new Error("Failed to load last workspace", { cause: error });
-  return workspace?.slug ?? null;
+  return data?.last_workspace?.slug ?? null;
 });
 
 /**

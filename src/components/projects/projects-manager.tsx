@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/app/empty-state";
@@ -8,6 +9,8 @@ import { CreateProjectForm } from "@/components/projects/create-project-form";
 import { DeleteProjectDialog } from "@/components/projects/delete-project-dialog";
 import { accountCountLabel, type ProjectDeletionImpact } from "@/components/projects/project-rules";
 import { RenameProjectForm } from "@/components/projects/rename-project-form";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 
 export type ProjectItem = { id: string; name: string } & ProjectDeletionImpact;
 
@@ -46,9 +49,9 @@ export function ProjectsManager({
 
   const statusRegion = (
     // Always mounted so screen readers announce changes to it.
-    <div role="status" aria-live="polite" className="text-sm text-success">
+    <LiveRegion tone="status" className="text-sm text-success">
       {status === "" ? null : <p className="mt-6">{status}</p>}
-    </div>
+    </LiveRegion>
   );
 
   function onCreated(name: string) {
@@ -189,19 +192,28 @@ function ProjectRow({
         <p className="break-words text-sm font-medium">{project.name}</p>
         <p className="mt-1 text-sm text-muted">{accountCountLabel(project.accountCount)}</p>
       </div>
-      {canManage ? (
-        <div className="flex shrink-0 gap-2">
-          <button
-            ref={renameButtonRef}
-            type="button"
-            onClick={onRename}
-            className="inline-flex min-h-9 items-center rounded-md border border-line-strong px-3 py-1.5 text-sm text-muted transition-colors hover:text-foreground"
-          >
-            Rename<span className="sr-only"> {project.name}</span>
-          </button>
-          <DeleteProjectDialog workspaceSlug={workspaceSlug} project={project} onDeleted={onDeleted} />
-        </div>
-      ) : null}
+      <div className="flex shrink-0 flex-wrap gap-2">
+        {/* Every role: viewers see what is published, owners and admins publish (#148). */}
+        <Link
+          href={`/w/${workspaceSlug}/projects/${project.id}/public-metrics`}
+          className={buttonClass("secondary", "sm")}
+        >
+          Public metrics<span className="sr-only"> for {project.name}</span>
+        </Link>
+        {canManage ? (
+          <>
+            <button
+              ref={renameButtonRef}
+              type="button"
+              onClick={onRename}
+              className={buttonClass("secondary", "sm")}
+            >
+              Rename<span className="sr-only"> {project.name}</span>
+            </button>
+            <DeleteProjectDialog workspaceSlug={workspaceSlug} project={project} onDeleted={onDeleted} />
+          </>
+        ) : null}
+      </div>
     </li>
   );
 }

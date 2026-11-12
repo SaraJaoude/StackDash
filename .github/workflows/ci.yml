@@ -193,6 +193,13 @@ jobs:
             echo "DEVMACRO_ENABLE_FAKE_PROVIDER=1"
             echo "FAKE_PROVIDER_CLIENT_ID=fake-client"
             echo "FAKE_PROVIDER_CLIENT_SECRET=fake-secret"
+            # Alert email (#152) needs nothing here: playwright.config.ts starts the fake
+            # Resend API (#244) and gives the app its URL and a dummy key. Nor does the public
+            # origin: playwright.config.ts sets NEXT_PUBLIC_SITE_URL to the app server's own,
+            # which the production build and its alert links and metadata use (#338).
+            # The e2e channel test posts to a webhook receiver on 127.0.0.1, which a
+            # production build refuses unless this is set (#153).
+            echo "DEVMACRO_ALLOW_PRIVATE_WEBHOOKS=1"
           } > .env.local
 
       - name: End-to-end tests

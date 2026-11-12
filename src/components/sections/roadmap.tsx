@@ -9,39 +9,43 @@ interface Phase {
 const phases: readonly Phase[] = [
   {
     name: "First release",
-    summary: "Prove that one view of usage and spend is worth connecting accounts for.",
+    summary:
+      "One timeline and one alert across your stack, with stats you choose to share and an API and MCP server to read it all.",
     items: [
-      "Connections through OAuth, no API keys",
-      "Usage and spending dashboard",
-      "Allowances, remaining quota, and reset dates",
+      "Provider connections through OAuth, no pasted keys",
+      "Timeline of deploys, stars, signups, logins, payments, and errors",
+      "Alerts by email, Slack, Discord, and webhook",
+      "Daily and weekly digests on the same channels",
       "Percentage and dollar thresholds",
-      "Daily usage summaries",
-      "Timeline of signups, payments, deploys, and stars",
+      "Unusual daily spend and usage flagged with no setup, and a mute per metric",
+      "Publish chosen metrics, one at a time",
+      "Opt-in public project pages",
+      "README badges and shareable milestone cards",
+      "A card of your year so far",
+      "Read-only REST API with scoped keys",
+      "Read-only MCP server for AI assistants, on the same keys",
+      "Allowances, remaining quota, and reset dates",
+      "Spend where the provider reports it",
+      "Spend and quota projected to the end of the period, labeled as estimates",
       "Usage history",
+      "Deploys, payments, signups, stars, and alerts marked on the trend charts",
+      "Revenue against spend, signups, cost per signup, and deploys for the week or month so far",
     ],
   },
   {
     name: "Straight after",
-    summary: "Open the code, share it with a team, and query it from your own tools.",
+    summary: "Connect more of your stack, run it yourself, and share it with a team.",
     items: [
+      "More integrations, starting with ElevenLabs",
       "Open source release with self-hosting on Docker",
       "Team workspaces with owner, admin, and viewer roles",
       "Hide the event types you do not care about",
-      "More integrations, starting with GitLab, Railway, and Polar",
-      "Public REST API with scoped keys",
-      "Read-only MCP server for AI assistants",
     ],
   },
   {
     name: "Later",
     summary: "Ideas we will build only if users ask for them.",
-    items: [
-      "Anomaly detection and spend forecasts",
-      "Alerts by email, Slack, Discord, and webhook",
-      "Shareable milestone cards and opt-in public project pages",
-      "Cost optimization suggestions",
-      "Many more integrations",
-    ],
+    items: ["Cost optimization suggestions", "Many more integrations"],
   },
 ];
 
@@ -51,7 +55,7 @@ export function Roadmap() {
       id="roadmap"
       eyebrow="Roadmap"
       title="Small first release, clear next steps"
-      intro="The first release stays focused. Self-hosting, teams, an API, and MCP follow once the core is solid."
+      intro="The first release covers the timeline, alerts, flags for unusual spend and usage, spend and quota projections, a read-only API and MCP server, and badges, cards, and a public page for the stats you choose. More integrations and self-hosting follow."
     >
       <ol className="grid gap-6 md:grid-cols-3">
         {phases.map((phase, index) => (

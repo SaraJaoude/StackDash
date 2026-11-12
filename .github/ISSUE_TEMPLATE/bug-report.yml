@@ -1,0 +1,84 @@
+# Bug report (CONTRIBUTING.md, "Before you start"). Security vulnerabilities go through
+# SECURITY.md instead, never through this form.
+name: Bug report
+description: Tell us about something in DevMacro that does not work.
+title: "Bug: <short summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search the open and closed issues first: the bug may already be reported or fixed.
+
+        Found a security vulnerability? Do not file it here. Follow `SECURITY.md` to report it privately.
+
+        Never paste a token, client secret, API key, email address, or real account data here. Use synthetic values, and crop or blur screenshots before you attach them.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, including the exact text of any message on screen.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: What should have happened instead, and why you expected it.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps from a page or command anyone can start from.
+      placeholder: |
+        1. Open the timeline of a workspace with a connected provider.
+        2. Open the filters and tick one provider.
+        3. Choose Apply filters.
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it happened
+      options:
+        - My local setup, following the README
+        - My self-hosted deployment
+        - The hosted DevMacro instance
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Commit
+      description: The commit you ran (`git rev-parse --short HEAD`), if you run DevMacro yourself.
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 140 on macOS 26
+  # Two fields because `render` turns a textarea into a code block that cannot take file
+  # attachments: logs keep `render` so their lines stay literal, screenshots need attachments.
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag images in or paste them. Crop or blur tokens, emails, and account details first.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste the log lines or error output. Remove tokens, emails, and account details first.
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you submit
+      options:
+        - label: I searched the open and closed issues for this bug.
+          required: true
+        - label: This is not a security vulnerability.
+          required: true
+        - label: This issue holds no token, secret, API key, or personal or real account data.
+          required: true

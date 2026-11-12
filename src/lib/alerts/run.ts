@@ -2,17 +2,18 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { availableProviders } from "@/lib/adapters/registry";
+import { availableProviders, declaredProjectedSpend } from "@/lib/adapters/registry";
 import type { SnapshotInput } from "@/lib/dashboard/aggregate";
 import { log } from "@/lib/log/logger";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/database.types";
+import { readAllPages } from "@/lib/supabase/paging";
 
 import {
   ALERT_TRIGGERED_TYPE_ID,
   alertDedupeKey,
   evaluateAlerts,
-  type AlertSnapshotInput,
+  joinAlertSnapshots,
   type ProviderId,
 } from "./evaluate";
 
@@ -33,10 +34,8 @@ type Tables = Database["public"]["Tables"];
 /** Snapshots older than this cannot belong to a current billing cycle; retention keeps 13 months. */
 const SNAPSHOT_WINDOW_DAYS = 45;
 
-// PostgREST returns at most 1000 rows per request (supabase/config.toml max_rows), so snapshots
-// are read in pages of that size, up to a hard cap.
-const SNAPSHOT_PAGE_SIZE = 1000;
-const SNAPSHOT_MAX_PAGES = 10;
+// Snapshots are read in pages of PostgREST's row cap (readAllPages), up to a hard cap.
+const SNAPSHOT_MAX_ROWS = 10_000;
 
 // Bounds for the small lists. A workspace in the MVP has a handful of each.
 const RULES_LIMIT = 500;
@@ -51,14 +50,13 @@ const BUDGET_COLUMNS = "id, name, scope, provider, project_id, connection_id, am
 const SNAPSHOT_COLUMNS =
   "connection_id, external_account_id, metric_key, kind, label, snapshot_date, value, unit, amount_minor, currency, period_start, period_end, point_at, resets_at, retrieved_at, provenance_source, pricing_source";
 
-async function loadSnapshots(
+/** The workspace's snapshots dated `sinceDate` or later, newest first, as the service role. */
+export async function loadSnapshots(
   db: SupabaseClient<Database>,
   workspaceId: string,
   sinceDate: string,
 ): Promise<SnapshotInput[]> {
-  const rows: SnapshotInput[] = [];
-  for (let page = 0; page < SNAPSHOT_MAX_PAGES; page += 1) {
-    const from = page * SNAPSHOT_PAGE_SIZE;
+  const { rows, complete } = await readAllPages(async (from, to) => {
     const { data, error } = await db
       .from("usage_snapshots")
       .select(SNAPSHOT_COLUMNS)
@@ -66,13 +64,12 @@ async function loadSnapshots(
       .gte("snapshot_date", sinceDate)
       .order("snapshot_date", { ascending: false })
       .order("id", { ascending: true })
-      .range(from, from + SNAPSHOT_PAGE_SIZE - 1);
+      .range(from, to);
     if (error) throw new Error("Failed to load usage snapshots for alerts", { cause: error });
-    rows.push(...data);
-    if (data.length < SNAPSHOT_PAGE_SIZE) return rows;
-  }
+    return data;
+  }, SNAPSHOT_MAX_ROWS);
   // Newest first, so what was left out is the oldest history; current values are still evaluated.
-  log.warn("alerts.snapshots_truncated", { workspaceId, rows: rows.length });
+  if (!complete) log.warn("alerts.snapshots_truncated", { workspaceId, rows: rows.length });
   return rows;
 }
 
@@ -120,16 +117,8 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
   if (accounts.error) throw new Error("Failed to load external accounts", { cause: accounts.error });
   if (projects.error) throw new Error("Failed to load projects", { cause: projects.error });
 
-  const providerOf = new Map(connections.data.map((connection) => [connection.id, connection.provider]));
-  const accountById = new Map(accounts.data.map((account) => [account.id, account]));
-  const joined: AlertSnapshotInput[] = [];
-  for (const row of snapshots) {
-    const account = accountById.get(row.external_account_id);
-    const provider = providerOf.get(row.connection_id);
-    // Excluded accounts and rows whose account moved connection are skipped, as on the dashboard.
-    if (account === undefined || provider === undefined || account.connection_id !== row.connection_id) continue;
-    joined.push({ ...row, provider, projectId: account.project_id });
-  }
+  // Excluded accounts and rows whose account moved connection are skipped, as on the dashboard.
+  const joined = joinAlertSnapshots(snapshots, connections.data, accounts.data);
 
   const triggers = evaluateAlerts({
     rules: rules.data,
@@ -140,6 +129,7 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
       projects: new Map(projects.data.map((project) => [project.id, project.name])),
       connections: new Map(connections.data.map((connection) => [connection.id, connection.display_name])),
     },
+    projectedSpend: declaredProjectedSpend,
     now,
   });
   if (triggers.length === 0) return { triggered: 0 };
@@ -182,6 +172,11 @@ export async function evaluateWorkspaceAlerts(workspaceId: string, now: Date): P
           threshold_label: trigger.thresholdLabel,
           is_estimated: trigger.isEstimated,
           message: trigger.message,
+          title: trigger.title,
+          provider: trigger.provider,
+          project_id: trigger.projectId,
+          resets_at: trigger.resetsAt,
+          // dispatched_at stays null: the next tick's alert dispatch sends it (src/lib/notifications).
         }),
       ),
       { onConflict: "rule_id,cycle_key", ignoreDuplicates: true },

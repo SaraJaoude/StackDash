@@ -4,6 +4,8 @@ import {
   addDecimals,
   currencyMinorDigits,
   decimalToMinorUnits,
+  divideMinorUnits,
+  multiplyDecimals,
   parseDecimal,
   toMinorUnits,
 } from "./money";
@@ -57,5 +59,46 @@ describe("addDecimals rounds once at the end", () => {
 
   it("empty list is zero", () => {
     expect(toMinorUnits(addDecimals([]), "USD")).toBe(0);
+  });
+});
+
+describe("divideMinorUnits", () => {
+  it.each([
+    ["exact", 500, 4, 125],
+    ["below half rounds down", 500, 3, 167],
+    ["half rounds to even, down", 500, 8, 62],
+    ["half rounds to even, up", 300, 8, 38],
+    ["one share", 41, 1, 41],
+    ["zero", 0, 7, 0],
+    ["negative half rounds to even", -500, 8, -62],
+    ["negative below half", -500, 3, -167],
+  ])("%s", (_name, amountMinor, divisor, expected) => {
+    expect(divideMinorUnits(amountMinor, divisor)).toBe(expected);
+  });
+
+  it.each([
+    ["a zero divisor", 100, 0],
+    ["a negative divisor", 100, -2],
+    ["a fractional divisor", 100, 1.5],
+    ["a fractional amount", 10.5, 2],
+  ])("rejects %s", (_name, amountMinor, divisor) => {
+    expect(() => divideMinorUnits(amountMinor, divisor)).toThrow(InvalidDecimalError);
+  });
+});
+
+describe("multiplyDecimals is exact until the one rounding", () => {
+  it("a quantity times a sub-cent unit price keeps every digit", () => {
+    // 43,200 vCPU-minutes at $0.000463 is exactly $20.0016.
+    const product = multiplyDecimals(parseDecimal("43200"), parseDecimal("0.000463"));
+    expect(product).toEqual({ coefficient: 20001600n, scale: 6 });
+    expect(toMinorUnits(product, "USD")).toBe(2000);
+  });
+
+  it.each([
+    ["zero quantity", "0", "0.000231", 0],
+    ["negative times positive", "-2.5", "0.5", -125],
+    ["two long fractions past 18 places", "0.000000047683716", "0.000003472222222", 0],
+  ])("%s", (_name, a, b, expected) => {
+    expect(toMinorUnits(multiplyDecimals(parseDecimal(a), parseDecimal(b)), "USD")).toBe(expected);
   });
 });

@@ -3,12 +3,14 @@ import "server-only";
 import { cache } from "react";
 
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { projectSelection, timelineScope, type ScopeFilters } from "@/lib/filters/scope";
+import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
 import {
+  MAX_TYPE_FILTERS,
   occurredRange,
   TIMELINE_PAGE_SIZE,
+  titleSearchPattern,
   type EventSeverity,
   type TimelineCursor,
 } from "@/lib/timeline/query";
@@ -17,7 +19,16 @@ type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
 
 export type TimelineEvent = Pick<
   ActivityEventRow,
-  "id" | "type_id" | "severity" | "title" | "body" | "url" | "occurred_at" | "provider"
+  | "id"
+  | "type_id"
+  | "severity"
+  | "title"
+  | "body"
+  | "url"
+  | "occurred_at"
+  | "provider"
+  | "external_account_id"
+  | "connection_id"
 > & {
   accountName: string | null;
   connectionName: string | null;
@@ -32,6 +43,8 @@ export type TimelineFilters = {
   /** London calendar dates, inclusive; converted to UTC instants here. */
   from: string | null;
   to: string | null;
+  /** Text the title must contain, ignoring case. */
+  search: string | null;
   /** Event types the viewer chose to hide (#119); excluded from every page. */
   hiddenTypeIds: readonly string[];
   cursor: TimelineCursor | null;
@@ -80,6 +93,17 @@ async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): P
 }
 
 /**
+ * The providers and accounts `scope` leaves in view, with its projects resolved to their accounts.
+ * Shared by the event list, its connection counts, and the trend markers, which all count what the
+ * timeline would list. Cached per request: the timeline page passes the same parsed `scope` object
+ * to the list and the counts, so a project filter costs one lookup, not two.
+ */
+export const resolveTimelineScope = cache(
+  async (workspaceId: string, scope: ScopeFilters): Promise<TimelineScope> =>
+    timelineScope(scope, await accountIdsInProjects(workspaceId, scope)),
+);
+
+/**
  * One page of the workspace's activity, newest first, keyset paginated on
  * (occurred_at desc, id desc) to match the table's index. Provider account and connection names
  * come from the same request as embedded resources, so a page is always one round trip. Type ids
@@ -88,13 +112,13 @@ async function accountIdsInProjects(workspaceId: string, scope: ScopeFilters): P
  */
 export async function listTimelineEvents(workspaceId: string, filters: TimelineFilters): Promise<TimelinePage> {
   const supabase = await createClient();
-  const scope = timelineScope(filters.scope, await accountIdsInProjects(workspaceId, filters.scope));
+  const scope = await resolveTimelineScope(workspaceId, filters.scope);
   // No account can match, so no event can either.
   if (scope.accountIds !== null && scope.accountIds.length === 0) return { events: [], nextCursor: null };
   let query = supabase
     .from("activity_events")
     .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_accounts(display_name), connections(display_name, granted_scopes)",
+      "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)",
     )
     .eq("workspace_id", workspaceId);
 
@@ -103,6 +127,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (filters.severities.length > 0) query = query.in("severity", [...filters.severities]);
   if (scope.providers.length > 0) query = query.in("provider", [...scope.providers]);
   if (scope.accountIds !== null) query = query.in("external_account_id", [...scope.accountIds]);
+  if (filters.search !== null) query = query.regexIMatch("title", titleSearchPattern(filters.search));
   const range = occurredRange(filters.from, filters.to);
   if (range.from !== null) query = query.gte("occurred_at", range.from);
   if (range.toExclusive !== null) query = query.lt("occurred_at", range.toExclusive);
@@ -129,24 +154,70 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   };
 }
 
-// PostgREST has no DISTINCT, so the type picker samples the newest events. Types older than the
-// sample are rare in practice and still filterable through the URL.
-const TYPE_SAMPLE_SIZE = 1000;
-const MAX_TYPE_OPTIONS = 50;
+/** One connection with events in view: its provider and how many of those events it holds. */
+export type ConnectionEventCount = Readonly<{
+  provider: Database["public"]["Enums"]["provider_id"];
+  events: number;
+}>;
+
+// One row per connection, and a workspace holds a handful; this bounds the read all the same.
+const CONNECTION_COUNT_LIMIT = 100;
 
 /**
- * Up to 50 distinct event type ids seen in the workspace's newest 1,000 events, sorted. Empty
- * exactly when the workspace has no activity at all.
+ * How many events each connection holds under `filters`, across every page of the timeline (the
+ * cursor is ignored), one row per connection, most events first. Connections with no matching
+ * event are left out, and so are events with no connection. Counted in the database
+ * (`timeline_connection_event_counts`), which counts nothing for a non-member. Only the provider
+ * and the count are read: the title badges group by provider.
+ */
+export async function listTimelineConnectionCounts(
+  workspaceId: string,
+  filters: Omit<TimelineFilters, "cursor">,
+): Promise<ConnectionEventCount[]> {
+  const scope = await resolveTimelineScope(workspaceId, filters.scope);
+  // No account can match, so no event can either.
+  if (scope.accountIds !== null && scope.accountIds.length === 0) return [];
+  const range = occurredRange(filters.from, filters.to);
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .rpc("timeline_connection_event_counts", {
+      p_workspace_id: workspaceId,
+      p_type_ids: [...filters.types],
+      p_hidden_type_ids: [...filters.hiddenTypeIds],
+      p_severities: [...filters.severities],
+      p_providers: [...scope.providers],
+      ...(scope.accountIds === null ? {} : { p_account_ids: [...scope.accountIds] }),
+      ...(range.from === null ? {} : { p_from: range.from }),
+      ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
+      ...(filters.search === null ? {} : { p_title_pattern: titleSearchPattern(filters.search) }),
+    })
+    // PostgREST orders a function's rows only by selected columns. Order matters only for which
+    // rows CONNECTION_COUNT_LIMIT keeps; rows that tie on both are the same provider and count, so
+    // which of them it keeps changes nothing the badges show.
+    .select("provider, events")
+    .order("events", { ascending: false })
+    .order("provider", { ascending: true })
+    .limit(CONNECTION_COUNT_LIMIT);
+  if (error) throw new Error("Failed to load timeline event counts per connection", { cause: error });
+  return data;
+}
+
+/**
+ * Every distinct event type id the workspace has events of, sorted, up to `MAX_TYPE_FILTERS` (the
+ * most one URL may filter on, so every offered type can be ticked). Read from the daily event
+ * count rollup (`timeline_type_ids`), so a type whose only event is years older than the rest is
+ * still offered, and a non-member gets none. The rollup holds one row per day, type, provider, and
+ * account, and the function reads all of the workspace's rows: far fewer than its events, but not
+ * bounded by the number of types. The rollup is kept equal to `activity_events` by its triggers, so
+ * this is empty exactly when the workspace has no activity at all.
  */
 export const listTimelineTypeIds = cache(async (workspaceId: string): Promise<string[]> => {
   const supabase = await createClient();
   const { data, error } = await supabase
-    .from("activity_events")
+    .rpc("timeline_type_ids", { p_workspace_id: workspaceId })
     .select("type_id")
-    .eq("workspace_id", workspaceId)
-    .order("occurred_at", { ascending: false })
-    .order("id", { ascending: false })
-    .limit(TYPE_SAMPLE_SIZE);
+    .order("type_id", { ascending: true })
+    .limit(MAX_TYPE_FILTERS);
   if (error) throw new Error("Failed to load timeline event types", { cause: error });
-  return [...new Set(data.map((row) => row.type_id))].sort().slice(0, MAX_TYPE_OPTIONS);
+  return data.map((row) => row.type_id);
 });

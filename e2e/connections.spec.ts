@@ -1,8 +1,10 @@
-import AxeBuilder from "@axe-core/playwright";
 import { test, type APIResponse, type Page } from "@playwright/test";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
-import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { expectNoAxeViolations } from "./fixtures/axe";
+import { adminClient, CONNECTION_URL, createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
+import { expectFailureInDialog } from "./fixtures/dialogs";
+import { expectHydrated } from "./fixtures/hydration";
 
 /*
  * Connecting a provider (#40), end to end against the fake provider: the web server runs with
@@ -11,7 +13,6 @@ import { adminClient, createTestWorkspace, deleteTestWorkspace } from "./fixture
  */
 
 const PROVIDER_NAME = "Example provider";
-const CONNECTION_URL = /\/connections\/([0-9a-f-]{36})(\?|$)/;
 
 function connectionIdFrom(page: Page): string {
   const id = CONNECTION_URL.exec(page.url())?.[1];
@@ -30,6 +31,32 @@ function postStart(page: Page, provider: string, form: Record<string, string>) {
     maxRedirects: 0,
   });
 }
+
+// Seeded rather than connected through the UI: the failure tests force a failure by deleting the
+// row behind the open dialog, and Realtime refreshes the page on inserts and updates only.
+async function seedConnection(workspaceId: string): Promise<string> {
+  const { data, error } = await adminClient()
+    .from("connections")
+    .insert({
+      workspace_id: workspaceId,
+      provider: "fake",
+      status: "active",
+      display_name: `${PROVIDER_NAME} (Seeded team)`,
+      authorized_account_label: "Seeded team",
+      poll_interval_seconds: 3600,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(`Seeding a connection failed (code ${error.code}).`);
+  return data.id;
+}
+
+async function deleteConnectionRow(id: string): Promise<void> {
+  const { error } = await adminClient().from("connections").delete().eq("id", id);
+  if (error) throw new Error(`Deleting the connection failed (code ${error.code}).`);
+}
+
+const GONE_MESSAGE = "That item no longer exists in this workspace. Reload the page to see what is current.";
 
 /**
  * Reads the authorize URL from the start route's handoff page: the target of its "Continue to"
@@ -127,7 +154,12 @@ ownerTest.describe("connecting a provider as the owner", () => {
 
       const connectionId = await connectThroughUi(page, workspace.slug);
       await expect(page.getByRole("heading", { level: 1 })).toContainText(PROVIDER_NAME);
-      await expect(page.getByRole("status").filter({ hasText: `${PROVIDER_NAME} connected` })).toBeVisible();
+      const connected = page.getByRole("status").filter({ hasText: `${PROVIDER_NAME} connected` });
+      await expect(connected).toBeVisible();
+      // The banner names the next step (#322): the timeline, where the first sync's events arrive.
+      const openTimeline = connected.getByRole("link", { name: "Open the timeline" });
+      await expect(openTimeline).toHaveAttribute("href", `/w/${workspace.slug}/timeline`);
+      await expectNoAxeViolations(page);
       await expect(page.getByText("Status: Active").first()).toBeVisible();
       const accounts = page.getByRole("list", { name: "Accounts" });
       await expect(accounts.getByRole("listitem")).toHaveCount(2);
@@ -144,12 +176,46 @@ ownerTest.describe("connecting a provider as the owner", () => {
       expect(credential?.connection_id).toBe(connectionId);
       expect(await page.content()).not.toContain("fake-at-");
 
+      // Keyboard only: the banner's link opens the timeline, which says the first sync is coming.
+      await openTimeline.focus();
+      await expect(openTimeline).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await expect(page.getByRole("region", { name: "Events are on their way" })).toBeVisible();
+
       // The list shows it with its status in words.
       await page.goto(`/w/${workspace.slug}/connections`);
       const row = page.getByRole("list", { name: "Connections" }).getByRole("listitem").first();
       await expect(row.getByText("Status: Active")).toBeVisible();
       // Exact: the display name link contains the same words in parentheses.
       await expect(row.getByText("Example team, Example sandbox", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("marks Resend as beta in the catalog with a reason a keyboard or screen reader user reaches", async ({ page }) => {
+    const workspace = await createTestWorkspace("Beta badge");
+    try {
+      await page.goto(`/w/${workspace.slug}/connections`);
+      const providers = page.getByRole("list", { name: "Providers" });
+      const cards = providers.getByRole("listitem");
+      const reason = "DevMacro is still checking how Resend returns you here after you approve access, so connecting may fail.";
+
+      // The word and the reason as visible text, and the reason as the connect link's description.
+      const resend = cards.filter({ has: page.getByRole("heading", { level: 3, name: "Resend", exact: true }) });
+      await expect(resend.getByText("Beta", { exact: true })).toBeVisible();
+      await expect(resend.getByText(reason)).toBeVisible();
+      await expect(resend.getByRole("link", { name: "Connect Resend" })).toHaveAccessibleDescription(reason);
+
+      // Declared by the Resend adapter only: another card has neither.
+      const vercel = cards.filter({ has: page.getByRole("heading", { level: 3, name: "Vercel", exact: true }) });
+      await expect(vercel.getByRole("link", { name: "Connect Vercel" })).toBeVisible();
+      await expect(vercel.getByText("Beta", { exact: true })).toHaveCount(0);
+      await expect(vercel.getByRole("link", { name: "Connect Vercel" })).toHaveAccessibleDescription("");
+      await expect(providers.getByText("Beta", { exact: true })).toHaveCount(1);
+
+      await expectNoAxeViolations(page);
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -241,11 +307,10 @@ ownerTest.describe("connecting a provider as the owner", () => {
         .eq("display_name", "Example team")
         .single();
       expect(account?.project_id).toBe(project.id);
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+      await expectNoAxeViolations(page);
 
-      // Back to no project, from the keyboard: the empty value survives the reset too. Focus order
-      // is checked before the save, since the pending button drops focus (#161).
+      // Back to no project, from the keyboard: the empty value survives the reset too, and focus
+      // stays on the button through the save instead of dropping to the page (#161).
       await select.selectOption({ label: "No project" });
       await select.focus();
       await page.keyboard.press("Tab");
@@ -257,6 +322,7 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await page.keyboard.press("Enter");
       await expect(row.getByRole("status").filter({ hasText: "Project removed." })).toBeVisible();
       await expect(select).toHaveValue("");
+      await expect(save).toBeFocused();
 
       // Exclude's message sits below it, in the status row, not above it beside the label.
       await exclude.click();
@@ -382,6 +448,91 @@ ownerTest.describe("connecting a provider as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  ownerTest("shows a failed disconnect and a failed delete inside the open dialog", async ({ page }) => {
+    const workspace = await createTestWorkspace("Connection failures");
+    try {
+      const main = page.getByRole("main");
+      const disconnectId = await seedConnection(workspace.id);
+      await page.goto(`/w/${workspace.slug}/connections/${disconnectId}`);
+      await expectFailureInDialog(page, {
+        trigger: main.getByRole("button", { name: "Disconnect", exact: true }),
+        dialog: page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` }),
+        confirmName: "Disconnect",
+        breakIt: () => deleteConnectionRow(disconnectId),
+        message: GONE_MESSAGE,
+      });
+
+      const deleteId = await seedConnection(workspace.id);
+      await page.goto(`/w/${workspace.slug}/connections/${deleteId}`);
+      await expectFailureInDialog(page, {
+        trigger: main.getByRole("button", { name: "Delete connection and history", exact: true }),
+        dialog: page.getByRole("dialog", { name: "Delete this connection and its history?" }),
+        confirmName: "Delete connection and history",
+        breakIt: () => deleteConnectionRow(deleteId),
+        message: GONE_MESSAGE,
+      });
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  for (const reopened of [false, true]) {
+    const when = reopened ? "dismissed and reopened" : "dismissed";
+    ownerTest(`shows a failure beside the opener when its dialog was ${when} while working (#367)`, async ({ page }) => {
+      const workspace = await createTestWorkspace("Dismissed failure");
+      try {
+        const connectionId = await seedConnection(workspace.id);
+        const connectionPath = `/w/${workspace.slug}/connections/${connectionId}`;
+        // Holds the server action (a POST to the page) until the dialog is dismissed, so "Working"
+        // stays on screen for as long as the test needs it, with no sleep.
+        const held = Promise.withResolvers<void>();
+        await page.route(`**${connectionPath}`, async (route) => {
+          if (route.request().method() !== "POST") return route.fallback();
+          await held.promise;
+          return route.continue();
+        });
+        await page.goto(connectionPath);
+        await expectHydrated(page);
+        const main = page.getByRole("main");
+        const opener = main.getByRole("button", { name: "Disconnect", exact: true });
+        const dialog = page.getByRole("dialog", { name: `Disconnect ${PROVIDER_NAME}?` });
+
+        await opener.click();
+        await deleteConnectionRow(connectionId);
+        await dialog.getByRole("button", { name: "Disconnect", exact: true }).click();
+        await expect(dialog.getByRole("button", { name: "Working" })).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(dialog).toBeHidden();
+        await expect(opener).toBeFocused();
+        if (reopened) {
+          // The confirmation that ran the action is gone, and the page behind the open dialog is
+          // inert, so the new confirmation reports the failure, focused and announced.
+          await opener.click();
+          await expect(dialog.getByRole("button", { name: "Disconnect", exact: true })).toBeVisible();
+          held.resolve();
+          await expect(dialog.getByRole("alert")).toHaveText(GONE_MESSAGE);
+          await expect(dialog.getByText(GONE_MESSAGE)).toBeFocused();
+          await expectNoAxeViolations(page);
+          await page.keyboard.press("Escape");
+          await expect(dialog).toBeHidden();
+        } else {
+          held.resolve();
+        }
+
+        // The closed dialog's own alert is hidden, so a visible one is the alert beside the opener.
+        await expect(main.getByRole("alert").filter({ hasText: GONE_MESSAGE })).toBeVisible();
+        await expectNoAxeViolations(page);
+
+        // Opening the dialog again starts fresh, beside the opener too.
+        await opener.click();
+        await expect(dialog).toBeVisible();
+        await expect(page.getByText(GONE_MESSAGE)).toHaveCount(0);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 });
 
 viewerTest.describe("connections as a viewer", () => {

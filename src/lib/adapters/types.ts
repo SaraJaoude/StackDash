@@ -10,7 +10,7 @@ import type { AdapterMetric } from "./metrics";
  * on provider id).
  */
 
-export const liveProviderIds = ["vercel", "github", "resend", "stripe", "supabase"] as const;
+export const liveProviderIds = ["vercel", "github", "resend", "stripe", "supabase", "digitalocean", "posthog", "polar", "sentry", "railway", "gitlab"] as const;
 
 /**
  * `fake` is an in-memory adapter for unit tests and Playwright e2e: it lets the
@@ -202,14 +202,34 @@ export type SyncResult = {
   partialErrors?: PermissionMissingError[];
 };
 
-export interface ProviderAdapter {
-  readonly id: ProviderId;
+/**
+ * `Id` is a registered `ProviderId` everywhere the app reads an adapter. It is wider only for an
+ * adapter `liveProviderIds` does not name yet: the example adapter (`example/index.ts`) and a copy
+ * of it run the contract harness (`harness.ts`) under their own id before any shared file changes
+ * (docs/adapters.md). Registering the id makes `ProviderAdapter<"acme">` a `ProviderAdapter`.
+ */
+export interface ProviderAdapter<Id extends string = ProviderId> {
+  readonly id: Id;
   readonly displayName: string;
   readonly capabilities: AdapterCapabilities;
   readonly permissions: readonly Permission[];
   // Plain-language list for the connect screen, e.g. "Emails sent per day".
   readonly dataCollected: readonly string[];
   readonly eventTypes: readonly EventType[];
+  // Usage metric keys whose reading is the signups of one whole UTC day (its timeframe is that
+  // day), for a provider that reports a daily total rather than one event per signup. The
+  // dashboard headline (#173) sums these readings as the provider's signups. Omitted when none.
+  readonly signupDailyTotals?: readonly string[];
+  // Estimated spend metric keys whose reading is a projection for the whole billing period (what
+  // the period is expected to cost), not money spent so far. Every reading of spend (dashboard,
+  // headline, digests, alerts, anomaly detection, projections, daily summary) leaves them out,
+  // whatever their period looks like on the day they are read (`isDeclaredProjection`, #223).
+  // Omitted when none.
+  readonly projectedSpend?: readonly string[];
+  // Set while the adapter is in beta: the connections catalog shows a "Beta" badge on its card with
+  // this reason beside it (#242), so a member knows before connecting. The reason is one sentence in
+  // plain language, read by members: no internal ids or standards numbers. Omitted when not in beta.
+  readonly beta?: Readonly<{ reason: string }>;
   readonly oauth: OAuthDescriptor;
   // Decided on #37: each adapter declares how often it polls, hourly unless its provider's
   // limits or retention need otherwise. Must be at least 60.

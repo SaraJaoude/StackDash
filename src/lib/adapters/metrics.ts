@@ -3,7 +3,6 @@ import {
   AdapterScopedKeySchema,
   issuesFromZod,
   type BatchValidation,
-  type ProviderId,
   type ValidationIssue,
 } from "./types";
 
@@ -28,13 +27,16 @@ const signedMoneyShape = {
   currency: CurrencySchema,
 };
 
+// Exported so an adapter that maps a provider's unit can test it against the same rule.
+export const UnitSchema = z
+  .string()
+  .max(32)
+  .regex(/^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/, "must be a unit like emails, minutes, GB");
+
 const quantityShape = {
   // z.number() already rejects NaN and Infinity.
   value: z.number().nonnegative(),
-  unit: z
-    .string()
-    .max(32)
-    .regex(/^[A-Za-z][A-Za-z0-9_/-]*(?: [A-Za-z0-9_/-]+)*$/, "must be a unit like emails, minutes, GB"),
+  unit: UnitSchema,
 };
 
 export const TimeframeSchema = z.discriminatedUnion("type", [
@@ -113,6 +115,14 @@ const RevenueSchema = z.strictObject({
   kind: z.literal("revenue"),
 });
 
+// A run rate at a point in time (Polar MRR and ARR), not money earned in a period. Its own kind so
+// it can never be summed into revenue or spend, which the dashboard selects by kind (#114).
+const RecurringRevenueSchema = z.strictObject({
+  ...baseShape,
+  ...nonNegativeMoneyShape,
+  kind: z.literal("recurring_revenue"),
+});
+
 // Set by a user in DevMacro. Part of the model so budgets compare against spend, never adapter output.
 const BudgetSchema = z.strictObject({
   ...baseShape,
@@ -128,6 +138,7 @@ const adapterMetricSchemas = [
   UsageSchema,
   CreditBalanceSchema,
   RevenueSchema,
+  RecurringRevenueSchema,
 ] as const;
 
 export const MetricSchema = z.discriminatedUnion("kind", [...adapterMetricSchemas, BudgetSchema]);
@@ -143,9 +154,11 @@ export type Provenance = z.infer<typeof ProvenanceSchema>;
  * Gate between an adapter's `sync` output and storage. All or nothing: a
  * batch with one malformed metric points at an adapter bug, and storing the
  * rest would show a dashboard that looks complete but is not.
+ * `providerId` is the adapter's id, registered or not (`ProviderAdapter`), so
+ * the contract harness applies the same gate to an adapter before it is registered.
  */
 export function validateAdapterMetrics(
-  providerId: ProviderId,
+  providerId: string,
   candidates: readonly unknown[],
 ): BatchValidation<AdapterMetric> {
   const items: AdapterMetric[] = [];

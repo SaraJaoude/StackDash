@@ -1,3 +1,4 @@
+import type { AcknowledgeAllResult } from "@/app/w/[workspace]/alerts/actions";
 import {
   AMOUNT_PRESETS,
   CUSTOM_CHOICE,
@@ -8,10 +9,11 @@ import {
   type ProviderId,
 } from "@/lib/alerts/rule-schema";
 import { currencyMinorDigits, decimalToMinorUnits } from "@/lib/money";
+import type { DestinationKind, DigestFrequency, EmailFrequency } from "@/lib/notifications/model";
 
 /**
- * Copy and serializable shapes shared by the server-rendered alerts page and its client forms.
- * Everything here is plain data or pure functions, safe on either side.
+ * Copy and serializable shapes shared by the server-rendered alerts inbox and alert settings and
+ * their client forms. Everything here is plain data or pure functions, safe on either side.
  */
 
 export const KIND_LABELS: Record<AlertRuleKind, string> = {
@@ -136,4 +138,63 @@ export function formatMajorAmount(amount: number, currency: string): string {
 /** Formats integer minor units: 25050 GBP is "£250.50". Never sums across currencies. */
 export function formatMinorAmount(minor: number, currency: string): string {
   return formatMajorAmount(minor / 10 ** currencyMinorDigits(currency), currency);
+}
+
+// ── Alert delivery (#152, #153) ────────────────────────────────────────────────────────────────
+
+export const EMAIL_FREQUENCY_CHOICES: ReadonlyArray<{ value: EmailFrequency; label: string; hint: string }> = [
+  { value: "immediate", label: "As each alert happens", hint: "One email per alert, at most once each billing period." },
+  { value: "daily", label: "Daily digest", hint: "One email each morning with new alerts, usage, and spend." },
+  { value: "weekly", label: "Weekly digest", hint: "One email each Monday covering the week before." },
+  { value: "off", label: "Off", hint: "No alert emails. Alerts still show in DevMacro." },
+];
+
+export const DESTINATION_KIND_LABELS: Record<DestinationKind, string> = {
+  discord: "Discord",
+  slack: "Slack",
+  webhook: "Webhook",
+};
+
+export const DIGEST_LABELS: Record<DigestFrequency, string> = {
+  off: "No digest",
+  daily: "Daily digest",
+  weekly: "Weekly digest",
+};
+
+/** Form state for the channel form, one string per field. */
+export type ChannelFormValues = {
+  kind: DestinationKind;
+  name: string;
+  url: string;
+  rules: "all" | "chosen";
+  ruleIds: string[];
+  digest: DigestFrequency;
+};
+
+export function defaultChannelValues(): ChannelFormValues {
+  return { kind: "discord", name: "", url: "", rules: "all", ruleIds: [], digest: "off" };
+}
+
+/**
+ * What the triggered list's live region says after "Acknowledge all": how many, where they went,
+ * and what is left. Nothing acknowledged with alerts still waiting happens when another member got
+ * there first and more fired meanwhile, so it says this call did nothing rather than "none left".
+ */
+export function acknowledgedAllMessage(
+  { acknowledged, remaining }: Pick<Extract<AcknowledgeAllResult, { ok: true }>, "acknowledged" | "remaining">,
+  showAcknowledged: boolean,
+): string {
+  let message: string;
+  if (acknowledged === 0) {
+    message = remaining === 0 ? "No alerts were left to acknowledge." : "No alerts were acknowledged this time.";
+  } else {
+    const [count, pronoun] = acknowledged === 1 ? ["1 alert", "It stays"] : [`${acknowledged} alerts`, "They stay"];
+    message = `${count} acknowledged. ${pronoun} in the alert history.`;
+    if (!showAcknowledged) message += ` Choose Show acknowledged alerts to see ${acknowledged === 1 ? "it" : "them"}.`;
+  }
+  if (remaining > 0) {
+    const [count, pronoun] = remaining === 1 ? ["1 alert is", "it"] : [`${remaining} alerts are`, "them"];
+    message += ` ${count} still unacknowledged. Choose Acknowledge all again to acknowledge ${pronoun}.`;
+  }
+  return message;
 }

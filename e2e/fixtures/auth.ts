@@ -1,9 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { test as base } from "@playwright/test";
-import { createServerClient, type CookieOptions } from "@supabase/ssr";
+import {
+  combineChunks,
+  createChunks,
+  createServerClient,
+  stringFromBase64URL,
+  stringToBase64URL,
+  type CookieOptions,
+} from "@supabase/ssr";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
@@ -72,16 +79,18 @@ export function authAdminClient(env: AuthEnv): Admin {
   });
 }
 
-export type PlaywrightCookie = {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  expires: number;
-  httpOnly: boolean;
-  secure: boolean;
-  sameSite: "Strict" | "Lax" | "None";
-};
+const playwrightCookieSchema = z.object({
+  name: z.string(),
+  value: z.string(),
+  domain: z.string(),
+  path: z.string(),
+  expires: z.number(),
+  httpOnly: z.boolean(),
+  secure: z.boolean(),
+  sameSite: z.enum(["Strict", "Lax", "None"]),
+});
+
+export type PlaywrightCookie = z.infer<typeof playwrightCookieSchema>;
 
 function toSameSite(value: CookieOptions["sameSite"]): PlaywrightCookie["sameSite"] {
   if (value === "strict" || value === true) return "Strict";
@@ -96,8 +105,17 @@ export async function findUserId(admin: Admin, email: string): Promise<string | 
   return data.users.find((user) => user.email === email)?.id ?? null;
 }
 
+/** GitHub profile fields Supabase Auth keeps in `user_metadata`, beside the username. */
+export type GitHubMetadata = Readonly<{ full_name?: string; name?: string; avatar_url?: string }>;
+
 /** Creates the user or resets the password of the existing one. Returns the user id. */
-export async function ensureUser(admin: Admin, email: string, userName: string, password: string): Promise<string> {
+export async function ensureUser(
+  admin: Admin,
+  email: string,
+  userName: string,
+  password: string,
+  metadata: GitHubMetadata = {},
+): Promise<string> {
   // The invite comes first: the before-user-created hook refuses emails that are not invited.
   const { error: inviteError } = await admin
     .from("access_invites")
@@ -115,7 +133,7 @@ export async function ensureUser(admin: Admin, email: string, userName: string, 
     email,
     password,
     email_confirm: true,
-    user_metadata: { user_name: userName },
+    user_metadata: { ...metadata, user_name: userName },
   });
   if (error) throw new Error(`Creating ${email} failed: ${error.message}`);
   return data.user.id;
@@ -157,6 +175,50 @@ export async function signInCookies(env: AuthEnv, email: string, password: strin
   }));
 }
 
+// The parts of a stored Supabase session a test rewrites; the rest passes through unchanged.
+const storedSessionSchema = z.looseObject({
+  access_token: z.string(),
+  refresh_token: z.string(),
+  expires_at: z.number(),
+});
+
+export type StoredSession = z.infer<typeof storedSessionSchema>;
+
+// The auth cookie @supabase/ssr writes, `sb-<host label>-auth-token`, split into `.0`, `.1`, ...
+// when the session is too long for one cookie.
+const AUTH_COOKIE = /^sb-[^.]+-auth-token(?:\.\d+)?$/;
+// @supabase/ssr's default cookie encoding prefixes the base64url session with this.
+const BASE64_PREFIX = "base64-";
+
+/**
+ * The cookies of a signed-in storage state with the Supabase session rewritten by `edit`, in the
+ * cookie format the app reads. Reads the state file and never writes it, so the session it came
+ * from stays valid for every other test.
+ */
+export async function editedSessionCookies(
+  stateFile: string,
+  edit: (session: StoredSession) => StoredSession,
+): Promise<PlaywrightCookie[]> {
+  const { cookies } = z
+    .object({ cookies: z.array(playwrightCookieSchema) })
+    .parse(JSON.parse(readFileSync(stateFile, "utf8")));
+  const first = cookies.find((cookie) => AUTH_COOKIE.test(cookie.name));
+  if (first === undefined) throw new Error(`${stateFile} holds no Supabase auth cookie.`);
+  const key = first.name.replace(/\.\d+$/, "");
+
+  const stored = await combineChunks(key, (name) => cookies.find((cookie) => cookie.name === name)?.value);
+  if (stored === null || stored === undefined || !stored.startsWith(BASE64_PREFIX)) {
+    throw new Error(`${stateFile} holds an auth cookie in an unexpected format.`);
+  }
+  const session = storedSessionSchema.parse(JSON.parse(stringFromBase64URL(stored.slice(BASE64_PREFIX.length))));
+
+  const chunks = createChunks(key, `${BASE64_PREFIX}${stringToBase64URL(JSON.stringify(edit(session)))}`);
+  return [
+    ...cookies.filter((cookie) => !AUTH_COOKIE.test(cookie.name)),
+    ...chunks.map(({ name, value }) => ({ ...first, name, value })),
+  ];
+}
+
 export type SyntheticUser = Readonly<{
   id: string;
   email: string;
@@ -167,16 +229,17 @@ export type SyntheticUser = Readonly<{
 
 /**
  * A brand new invited user with its own personal workspace, signed in, for tests that must not
- * touch the shared e2e users (account deletion). Remove it with `removeSyntheticUser`.
+ * touch the shared e2e users (account deletion). `metadata` stands in for the profile a GitHub
+ * sign-in would write. Remove it with `removeSyntheticUser`.
  */
-export async function createSyntheticUser(label: string): Promise<SyntheticUser> {
+export async function createSyntheticUser(label: string, metadata: GitHubMetadata = {}): Promise<SyntheticUser> {
   const env = authEnv();
   const admin = authAdminClient(env);
   const suffix = randomUUID().slice(0, 8);
   const email = `e2e-${label}-${suffix}@example.com`;
   const userName = `e2e-${label}-${suffix}`;
   const password = randomBytes(24).toString("base64url");
-  const id = await ensureUser(admin, email, userName, password);
+  const id = await ensureUser(admin, email, userName, password, metadata);
   return { id, email, userName, cookies: await signInCookies(env, email, password) };
 }
 

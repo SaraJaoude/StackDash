@@ -16,6 +16,7 @@ import {
   DAY_MS,
   HOUR_MS,
   instantInSlot,
+  isWeekend,
   SLOT_MS,
   SLOTS_PER_HOUR,
   simulatedEndpoint,
@@ -24,19 +25,21 @@ import {
 } from "./simulation";
 
 /*
- * Simulated Supabase organization on the Pro plan with two projects. Signups trickle in every few
- * seconds (about 3,600 a day on the main project), a daily auth summary for the day before lands
- * at UTC midnight, and now and then a service is unhealthy for a few minutes. Plan limits use the
- * real adapter's allowance keys, and daily active users its metric key.
+ * Simulated Supabase organization of a small product on the Pro plan with two projects (#264).
+ * Signups trickle in a few an hour (about 50 on a weekday on the main project, 40 percent fewer on
+ * weekends, #166) from a few hundred daily active users, a daily auth summary for the day before
+ * lands at UTC midnight, and now and then a service is unhealthy for a few minutes. Plan limits use
+ * the real adapter's allowance keys, and daily active users its metric key.
  */
 
 type SupabaseTypeId = (typeof eventTypes)[number]["id"];
 
 const PLAN = "pro";
-// Signup chances are per 10 second slot.
+const WEEKEND_SIGNUP_PERCENT = 60;
+// Signup chances are per 10 second slot (8,640 a day) on a weekday.
 const PROJECTS = [
-  { suffix: "a", name: "Example app", signupChances: [0.3, 0.12] },
-  { suffix: "b", name: "Example app staging", signupChances: [0.01] },
+  { suffix: "a", name: "Example app", signupChances: [0.006] },
+  { suffix: "b", name: "Example app staging", signupChances: [0.0005] },
 ] as const;
 const SERVICES = ["auth", "db", "rest", "storage", "realtime"] as const;
 const ENTITLEMENTS_ENDPOINT = "GET /v1/organizations/{slug}/entitlements";
@@ -55,7 +58,9 @@ function project(accountId: string): (typeof PROJECTS)[number] {
 }
 
 function signupsInSlot(accountId: string, slot: number): number {
-  return countOf(project(accountId).signupChances, accountId, "signups", slot);
+  const chances = project(accountId).signupChances;
+  const scaled = isWeekend(slot * SLOT_MS) ? chances.map((p) => (p * WEEKEND_SIGNUP_PERCENT) / 100) : chances;
+  return countOf(scaled, accountId, "signups", slot);
 }
 
 /**
@@ -73,7 +78,7 @@ function incident(accountId: string, hourMs: number): { startSlot: number; endSl
 }
 
 function dailyActiveUsers(accountId: string, dayStartMs: number): number {
-  return between(2000, 6000, accountId, "active-users", dayStartMs);
+  return between(150, 450, accountId, "active-users", dayStartMs);
 }
 
 function dailySummary(accountId: string, dayStartMs: number): ActivityEvent {

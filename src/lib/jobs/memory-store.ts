@@ -1,9 +1,12 @@
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
 import type { OAuthCredential } from "@/lib/adapters/types";
+import type { AnomalyMute, AnomalyRow } from "@/lib/alerts/anomaly";
+import { digestJobKey } from "@/lib/notifications/model";
 import type { Tables } from "@/lib/supabase/database.types";
 
 import { dailySummaryJobKey } from "./daily-summary";
 import type {
+  AnomalySettings,
   ClaimedJob,
   ConnectionPatch,
   ConnectionKey,
@@ -28,6 +31,8 @@ export type MemoryJob = Tables<"sync_jobs">;
 export type MemorySnapshot = SnapshotRow & { id: string };
 export type MemoryEvent = EventRow & { id: string };
 export type MemoryOAuthState = Pick<Tables<"oauth_states">, "state" | "workspace_id" | "expires_at">;
+export type MemoryRateLimitCounter = Tables<"public_rate_limit_counters">;
+export type MemoryMetricView = Tables<"published_metric_views">;
 
 function isOpenSync(job: MemoryJob, connectionId: string): boolean {
   return job.kind === "sync" && job.connection_id === connectionId && (job.status === "queued" || job.status === "running");
@@ -40,8 +45,16 @@ export class MemoryJobStore implements JobStore {
   snapshots: MemorySnapshot[] = [];
   events: MemoryEvent[] = [];
   oauthStates: MemoryOAuthState[] = [];
+  rateLimitCounters: MemoryRateLimitCounter[] = [];
+  metricViews: MemoryMetricView[] = [];
   credentials = new Map<string, OAuthCredential>();
   savedCredentials: OAuthCredential[] = [];
+  /** Workspaces with anomaly detection turned off; every other workspace has it on (#169). */
+  anomalyDisabled = new Set<string>();
+  anomalyMutes: Array<AnomalyMute & { workspace_id: string }> = [];
+  /** Workspaces with a triggered alert not dispatched yet, as triggered_alerts would answer. */
+  undispatchedAlertWorkspaces: string[] = [];
+  notificationDeliveries: Array<{ id: string; triggered_alert_id: string | null; delivered_at: string }> = [];
 
   constructor(private readonly now: () => Date) {}
 
@@ -379,6 +392,63 @@ export class MemoryJobStore implements JobStore {
     return doomed.size;
   }
 
+  async purgeRateLimitCounters(before: Date, limit: number): Promise<number> {
+    const doomed = new Set(
+      this.rateLimitCounters
+        .filter((row) => Date.parse(row.window_start) < before.getTime())
+        .sort((a, b) => Date.parse(a.window_start) - Date.parse(b.window_start) || a.ip_hash.localeCompare(b.ip_hash))
+        .slice(0, limit),
+    );
+    this.rateLimitCounters = this.rateLimitCounters.filter((row) => !doomed.has(row));
+    return doomed.size;
+  }
+
+  async purgeMetricViews(beforeDate: string, limit: number): Promise<number> {
+    const doomed = new Set(
+      this.metricViews
+        .filter((row) => row.view_date < beforeDate)
+        .sort((a, b) => a.view_date.localeCompare(b.view_date) || a.project_id.localeCompare(b.project_id))
+        .slice(0, limit),
+    );
+    this.metricViews = this.metricViews.filter((row) => !doomed.has(row));
+    return doomed.size;
+  }
+
+  async purgeNotificationDeliveries(before: Date, limit: number): Promise<number> {
+    const { kept, deleted } = this.#purge(
+      this.notificationDeliveries,
+      (row) => row.triggered_alert_id === null && new Date(row.delivered_at).getTime() < before.getTime(),
+      limit,
+    );
+    this.notificationDeliveries = kept;
+    return deleted;
+  }
+
+  async enqueueAlertDispatches(): Promise<number> {
+    let queued = 0;
+    for (const workspaceId of new Set(this.undispatchedAlertWorkspaces)) {
+      const open = this.jobs.some(
+        (job) => job.kind === "alert_dispatch" && job.workspace_id === workspaceId && (job.status === "queued" || job.status === "running"),
+      );
+      if (open) continue;
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "alert_dispatch" }));
+      queued += 1;
+    }
+    return queued;
+  }
+
+  async enqueueDigests(date: string): Promise<number> {
+    const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
+    let queued = 0;
+    for (const workspaceId of workspaceIds) {
+      const dedupeKey = digestJobKey(workspaceId, date);
+      if (this.jobs.some((job) => job.dedupe_key === dedupeKey)) continue;
+      this.jobs.push(this.newJob({ workspace_id: workspaceId, connection_id: null, kind: "digest", dedupe_key: dedupeKey }));
+      queued += 1;
+    }
+    return queued;
+  }
+
   async enqueueDailySummaries(date: string): Promise<number> {
     const workspaceIds = new Set(this.connections.filter((row) => row.status !== "revoked").map((row) => row.workspace_id));
     let queued = 0;
@@ -397,27 +467,55 @@ export class MemoryJobStore implements JobStore {
       .map(({ id, provider }) => ({ id, provider }));
   }
 
-  async listSnapshotsForDate(workspaceId: string, date: string): Promise<SummarySnapshot[]> {
+  async listSnapshotsBetween(workspaceId: string, fromDate: string, toDate: string): Promise<SummarySnapshot[]> {
     return this.snapshots
-      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date === date)
-      .map((row) => ({
-        connection_id: row.connection_id,
-        external_account_id: row.external_account_id,
-        metric_key: row.metric_key,
-        kind: row.kind,
-        label: row.label,
-        snapshot_date: row.snapshot_date,
-        value: row.value ?? null,
-        unit: row.unit ?? null,
-        amount_minor: row.amount_minor ?? null,
-        currency: row.currency ?? null,
-        period_start: row.period_start ?? null,
-        period_end: row.period_end ?? null,
-        point_at: row.point_at ?? null,
-        resets_at: row.resets_at ?? null,
-        retrieved_at: row.retrieved_at,
-        provenance_source: row.provenance_source,
-        pricing_source: row.pricing_source ?? null,
-      }));
+      .filter((row) => row.workspace_id === workspaceId && row.snapshot_date >= fromDate && row.snapshot_date <= toDate)
+      .sort((a, b) => b.snapshot_date.localeCompare(a.snapshot_date))
+      .map((row) => this.#toSnapshotInput(row));
+  }
+
+  async getAnomalySettings(workspaceId: string): Promise<AnomalySettings> {
+    return {
+      enabled: !this.anomalyDisabled.has(workspaceId),
+      mutes: this.anomalyMutes
+        .filter((mute) => mute.workspace_id === workspaceId)
+        .map(({ provider, metric_key }) => ({ provider, metric_key })),
+    };
+  }
+
+  async listAnomalySnapshots(workspaceId: string, fromDate: string, toDate: string): Promise<AnomalyRow[]> {
+    return this.snapshots
+      .filter(
+        (row) =>
+          row.workspace_id === workspaceId &&
+          (row.kind === "verified_spend" || row.kind === "estimated_spend" || row.kind === "usage") &&
+          (row.point_at ?? null) === null &&
+          row.snapshot_date >= fromDate &&
+          row.snapshot_date <= toDate,
+      )
+      .sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date) || a.id.localeCompare(b.id))
+      .map((row) => this.#toSnapshotInput(row));
+  }
+
+  #toSnapshotInput(row: MemorySnapshot): SummarySnapshot {
+    return {
+      connection_id: row.connection_id,
+      external_account_id: row.external_account_id,
+      metric_key: row.metric_key,
+      kind: row.kind,
+      label: row.label,
+      snapshot_date: row.snapshot_date,
+      value: row.value ?? null,
+      unit: row.unit ?? null,
+      amount_minor: row.amount_minor ?? null,
+      currency: row.currency ?? null,
+      period_start: row.period_start ?? null,
+      period_end: row.period_end ?? null,
+      point_at: row.point_at ?? null,
+      resets_at: row.resets_at ?? null,
+      retrieved_at: row.retrieved_at,
+      provenance_source: row.provenance_source,
+      pricing_source: row.pricing_source ?? null,
+    };
   }
 }

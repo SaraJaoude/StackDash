@@ -1,4 +1,8 @@
-import { expect, test, type Locator } from "@playwright/test";
+import AxeBuilder from "@axe-core/playwright";
+import { expect, test, type Locator, type Page } from "@playwright/test";
+
+import { ownerTest } from "./fixtures/auth";
+import { createTestWorkspace, deleteTestWorkspace } from "./fixtures/db";
 
 // textContent, not innerText: toHaveText compares textContent, and innerText applies CSS such as
 // line breaks.
@@ -18,7 +22,9 @@ test.describe("landing page", () => {
   test("states the product and sends the primary action to the GitHub repository", async ({ page }) => {
     await page.goto("/");
 
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("The big picture of your developer stack.");
+    // The promise, not the brand tagline, in both the heading and the tab title (#305).
+    await expect(page).toHaveTitle("DevMacro · One timeline and one alert for your whole developer stack");
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("One timeline and one alert for your whole developer stack.");
     await expect(page.getByRole("heading", { level: 1 })).toHaveCount(1);
 
     const ctas = page.getByRole("link", { name: "Follow on GitHub" });
@@ -28,7 +34,7 @@ test.describe("landing page", () => {
     }
   });
 
-  test("the header and footer show the brand and lead to the docs and sign in", async ({ page }) => {
+  test("the header and footer show the same brand and lead to the docs and sign in", async ({ page }) => {
     await page.goto("/");
 
     for (const region of [page.getByRole("banner"), page.getByRole("contentinfo")]) {
@@ -36,6 +42,14 @@ test.describe("landing page", () => {
       await expect(region.getByRole("link", { name: "Docs", exact: true })).toHaveAttribute("href", "/docs");
       await expect(region.getByRole("link", { name: "Sign in", exact: true })).toHaveAttribute("href", "/sign-in");
     }
+    // The footer wordmark is the header's image, so it reads "DevMacro" as one word (#127).
+    const [headerSrc, footerSrc] = await Promise.all(
+      [page.getByRole("banner"), page.getByRole("contentinfo")].map((region) =>
+        region.getByRole("img", { name: "DevMacro", exact: true }).getAttribute("src"),
+      ),
+    );
+    expect(headerSrc).toBeTruthy();
+    expect(footerSrc).toBe(headerSrc);
 
     await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).click();
     await expect(page).toHaveURL("/sign-in");
@@ -78,6 +92,41 @@ test.describe("landing page", () => {
     await page.goto("/");
 
     await expect(page.getByText("Example data.", { exact: false }).first()).toBeVisible();
+  });
+
+  test("the preview names Copilot spend in AI Credits, not premium requests", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByText("AI Credits beyond the plan")).toBeVisible();
+    await expect(page.getByText(/premium requests/i)).toHaveCount(0);
+  });
+
+  test("every built integration states its spend requirement and links to its provider page", async ({ page }) => {
+    await page.goto("/");
+
+    const integrations = page.locator("#integrations");
+    const built = await integrations
+      .getByRole("region", { name: "First" })
+      .getByRole("listitem")
+      .allTextContents();
+    // "GitHub and GitHub Actions" is one connection, listed as GitHub in the spend list.
+    const builtProviders = built.map((name) => name.replace(/ and GitHub Actions$/, ""));
+    const spendProviders = await integrations.getByRole("term").allTextContents();
+    expect(spendProviders).toEqual(builtProviders);
+    await expect(integrations.getByRole("definition")).toHaveCount(spendProviders.length);
+    for (const answer of await integrations.getByRole("definition").all()) {
+      await expect(answer).toContainText("Spend:");
+      await expect(answer).toContainText("Every plan:");
+    }
+
+    // Boundary: a planned provider gets no spend line until its adapter is built.
+    const planned = await integrations.getByRole("region", { name: "Next" }).getByRole("listitem").allTextContents();
+    expect(planned.length).toBeGreaterThan(0);
+    for (const provider of planned) expect(spendProviders).not.toContain(provider);
+
+    await integrations.getByRole("term").getByRole("link", { name: "Vercel", exact: true }).click();
+    await expect(page).toHaveURL("/docs/providers/vercel");
+    await expect(page.getByRole("heading", { level: 1, name: "Vercel" })).toBeVisible();
   });
 
   test.describe("live events feed", () => {
@@ -123,8 +172,8 @@ test.describe("landing page", () => {
       }).toPass();
     });
 
-    // 64rem is the lg breakpoint: from it the feed sits beside the month column and shows ten
-    // rows, below it the columns stack and the feed shows six.
+    // 64rem is the lg breakpoint: from it the feed sits beside the allowances and spend column and
+    // shows ten rows, below it the columns stack and the feed shows six.
     const layouts = [
       { name: "a phone", viewport: { width: 390, height: 844 }, rows: 6 },
       { name: "one pixel below the lg breakpoint", viewport: { width: 1023, height: 900 }, rows: 6 },
@@ -172,6 +221,74 @@ test.describe("landing page", () => {
         }
         await expect(rows, "the closed row leaves the accessibility tree").toHaveCount(layout.rows);
       });
+    }
+  });
+});
+
+/**
+ * Keyboard only, from a fresh load: the first Tab reaches the skip link, Enter moves focus onto
+ * the main landmark, and the next Tab continues inside it rather than at the page navigation.
+ * Focus leaving the landmark takes its tabindex with it, and the skip costs no accessibility
+ * violation either.
+ */
+async function expectSkipToContent(page: Page): Promise<void> {
+  const skip = page.getByRole("link", { name: "Skip to content" });
+  const main = page.getByRole("main");
+  await page.keyboard.press("Tab");
+  await expect(skip).toBeFocused();
+  // Focus only moves once the link has hydrated; before that Enter only scrolls, so retry.
+  await expect(async () => {
+    await skip.focus();
+    await page.keyboard.press("Enter");
+    await expect(main).toBeFocused({ timeout: 1000 });
+  }).toPass();
+  await expect(page).toHaveURL(/#main$/);
+  // A landmark, not a control: the skip target is not outlined (src/app/globals.css).
+  expect(await main.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("main :focus")).toHaveCount(1);
+  await expect(main).not.toHaveAttribute("tabindex");
+  const scan = await new AxeBuilder({ page }).analyze();
+  expect(scan.violations).toEqual([]);
+}
+
+test.describe("skip to content", () => {
+  // The landing page fades its hero in; a scan mid-fade reports contrast the settled page has not.
+  test.use({ reducedMotion: "reduce" });
+
+  for (const route of ["/", "/docs", "/sign-in", "/privacy", "/terms"]) {
+    test(`moves keyboard focus to the main content on ${route}`, async ({ page }) => {
+      await page.goto(route);
+      await expectSkipToContent(page);
+    });
+  }
+
+  test("moves focus again when the address already ends in #main", async ({ page }) => {
+    await page.goto("/");
+    await expectSkipToContent(page);
+    // A second press is a navigation to the fragment already in the address bar.
+    await page.getByRole("link", { name: "Skip to content" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("main")).toBeFocused();
+  });
+
+  test("a click inside the content after a skip does not focus the landmark", async ({ page }) => {
+    await page.goto("/docs");
+    await expectSkipToContent(page);
+    const main = page.getByRole("main");
+    await main.getByRole("heading", { level: 1 }).click();
+    await expect(main).not.toBeFocused();
+    await expect(main).not.toHaveAttribute("tabindex");
+  });
+
+  ownerTest("moves keyboard focus past the workspace navigation", async ({ page }) => {
+    const workspace = await createTestWorkspace("Skip link");
+    try {
+      await page.goto(`/w/${workspace.slug}/dashboard`);
+      await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      await expectSkipToContent(page);
+    } finally {
+      await deleteTestWorkspace(workspace);
     }
   });
 });

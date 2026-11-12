@@ -1,13 +1,15 @@
+import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
+
 import { runTick, type TickResult } from "./runner";
 import type { JobStore } from "./store";
 import type { SyncDeps } from "./sync-connection";
 
 /*
- * `npm run jobs:tick -- --watch` (#131): runs the normal tick in a loop for local use, so open
- * screens keep updating. With provider simulation on, each iteration first makes the simulated
- * connections due, so they sync every few seconds instead of once a minute. Everything it touches
- * (the tick, the clock, sleeping, output, the stop signal) is injected so the loop is tested
- * without a database.
+ * `npm run jobs:tick -- --watch` (#131), also started by `npm run demo` once it has seeded (#260):
+ * runs the normal tick in a loop for local use, so open screens keep updating. With provider
+ * simulation on, each iteration first makes the simulated connections due, so they sync every few
+ * seconds instead of once a minute. Everything it touches (the tick, the clock, sleeping, output,
+ * the stop signal) is injected so the loop is tested without a database.
  */
 
 export const WATCH_DEFAULT_INTERVAL_SECONDS = 10;
@@ -125,6 +127,43 @@ export async function runWatch(deps: WatchDeps, intervalSeconds: number): Promis
     await deps.sleep(intervalSeconds * 1000, deps.signal);
   }
   deps.print("Stopped.");
+}
+
+/** The live wiring for `runWatch` around the job deps a script made, printing through `print`. */
+export function liveWatchDeps(deps: SyncDeps, print: (line: string) => void): Omit<WatchDeps, "signal"> {
+  return {
+    tick: () => runWatchTick(deps),
+    simulationEnabled: isProviderSimulationEnabled,
+    // Only connections the simulator made (by their granted scope), never a real connection,
+    // whatever its provider: the simulated adapters refuse real credentials.
+    markSimulatedDue: () => deps.store.markSimulatedSyncsDue(new Date()),
+    now: () => new Date(),
+    sleep: abortableSleep,
+    print,
+  };
+}
+
+/** Where Ctrl+C (SIGINT) and SIGTERM arrive: the process, or an emitter in tests. */
+export type StopSignals = Readonly<{
+  once(event: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+  off(event: "SIGINT" | "SIGTERM", listener: () => void): unknown;
+}>;
+
+/**
+ * `runWatch` until Ctrl+C or SIGTERM, which stop it after the tick in progress. The listeners go
+ * when it returns, so a second Ctrl+C after "Stopped." ends the process as usual.
+ */
+export async function watchUntilStopped(deps: Omit<WatchDeps, "signal">, intervalSeconds: number, signals: StopSignals = process): Promise<void> {
+  const controller = new AbortController();
+  const stop = () => controller.abort();
+  signals.once("SIGINT", stop);
+  signals.once("SIGTERM", stop);
+  try {
+    await runWatch({ ...deps, signal: controller.signal }, intervalSeconds);
+  } finally {
+    signals.off("SIGINT", stop);
+    signals.off("SIGTERM", stop);
+  }
 }
 
 const SIMULATION_OFF_HINT =

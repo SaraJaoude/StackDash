@@ -7,6 +7,7 @@ import { DeleteAccountForm } from "@/components/account/delete-account-form";
 import { ManualRevokeList } from "@/components/account/manual-revoke-list";
 import { PageHeader } from "@/components/app/page-header";
 import { SignOutButton } from "@/components/app/sign-out-button";
+import { LiveRegion } from "@/components/ui/live-region";
 import { Wordmark } from "@/components/wordmark";
 import {
   blockedMessage,
@@ -19,9 +20,13 @@ import { requireUser } from "@/lib/auth/session";
 import { manualRevokeStep } from "@/lib/connections/revoke";
 import { loadAccountIdentity, loadDeletionPreview, loadMembershipFacts, type WorkspaceDeletionSummary } from "@/lib/data/account";
 import { PROVIDER_NAMES } from "@/lib/providers";
-import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/access";
+import { isWorkspaceSlug, workspacePath } from "@/lib/workspaces/paths";
 
 export const metadata: Metadata = { title: "Account" };
+
+// The enforced CSP nonce (src/proxy.ts) needs this page's HTML rendered per request, so the page
+// awaits `connection()` before anything renders and allows an empty static shell (#125).
+export const instant = false;
 
 const numberFormat = new Intl.NumberFormat("en-US");
 
@@ -30,10 +35,11 @@ function count(value: number, one: string, many: string): string {
 }
 
 /**
- * The signed-in account page (#42). The shell prerenders; everything that needs the session
- * streams in behind Suspense, as Cache Components requires.
+ * The signed-in account page (#42). The header renders first; everything that needs the session
+ * streams in behind Suspense.
  */
-export default function AccountPage() {
+export default async function AccountPage() {
+  await connection();
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-line">
@@ -65,10 +71,10 @@ export default function AccountPage() {
 
 function LoadingAccount() {
   return (
-    <div role="status" aria-live="polite" className="mt-8">
+    <LiveRegion tone="status" className="mt-8">
       <span className="sr-only">Loading your account</span>
       <div aria-hidden="true" className="h-64 rounded-xl border border-dashed border-line bg-panel motion-safe:animate-pulse" />
-    </div>
+    </LiveRegion>
   );
 }
 
@@ -146,7 +152,7 @@ async function DeletionDetails({
         <p className="mt-1 text-muted">This cannot be undone.</p>
         <ul aria-label="What is deleted" className="mt-3 flex flex-col gap-3">
           <li className="rounded-lg border border-line bg-panel-raised px-4 py-3">
-            Your profile, your sign-in, and your membership of every workspace.
+            Your profile, your sign-in, your membership of every workspace, and every metric you published.
           </li>
           {preview.workspaces.map((workspace) => (
             <WorkspaceDeletion key={workspace.workspaceId} workspace={workspace} />
@@ -159,7 +165,7 @@ async function DeletionDetails({
           <h3 className="font-semibold">Workspaces you leave</h3>
           <p className="mt-1 text-muted">
             Other people keep these. The connections, budgets, and alert rules you created in them stay with the
-            workspace.
+            workspace. Metrics you published in them are removed and stop being public.
           </p>
           <ul aria-label="Workspaces you leave" className="mt-2 list-disc space-y-1 pl-5">
             {plan.leaving.map((workspace) => (

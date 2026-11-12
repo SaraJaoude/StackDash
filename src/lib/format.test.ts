@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   formatDateTime,
+  formatList,
+  formatLondonTime,
   formatMoney,
   formatPercent,
   formatPeriod,
@@ -39,6 +41,17 @@ describe("formatQuantity and formatPercent", () => {
   });
 });
 
+describe("formatList", () => {
+  it.each([
+    [[], ""],
+    [["Vercel"], "Vercel"],
+    [["GitHub", "Vercel"], "GitHub and Vercel"],
+    [["GitHub", "Stripe", "Vercel"], "GitHub, Stripe, and Vercel"],
+  ])("lists %j as %j", (values, expected) => {
+    expect(formatList(values)).toBe(expected);
+  });
+});
+
 describe("formatPeriod", () => {
   it("shows an exclusive period end as the previous UTC day, also in British summer time", () => {
     expect(formatPeriod({ start: "2026-10-01T00:00:00.000Z", end: "2026-11-01T00:00:00.000Z" })).toBe(
@@ -68,6 +81,16 @@ describe("formatDateTime", () => {
 
   it("uses the London date when it differs from the UTC date", () => {
     expect(formatDateTime("2026-06-30T23:30:00.000Z")).toBe("2026-07-01 00:30 BST");
+  });
+});
+
+describe("formatLondonTime", () => {
+  it("shows the London time of day to the second, an hour ahead of UTC in summer", () => {
+    expect(formatLondonTime("2026-07-01T13:05:09.400Z")).toBe("14:05:09");
+  });
+
+  it("matches UTC in winter and writes midnight as 00, not 24", () => {
+    expect(formatLondonTime(new Date("2026-11-05T00:00:00.000Z"))).toBe("00:00:00");
   });
 });
 

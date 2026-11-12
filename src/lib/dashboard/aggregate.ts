@@ -4,19 +4,40 @@
  *
  * Rules decided here, once:
  * - The latest row per (external account, metric key) is the current value.
+ * - A declared projection (`ProviderAdapter.projectedSpend`) is what the whole billing period is
+ *   expected to cost, not money spent so far, so no reading of current values counts it
+ *   (`isDeclaredProjection`, applied by `countedSnapshots` and the headline strip alike).
+ * - Each amount is counted once (`countedSnapshots`): a total supersedes its breakdown, and a
+ *   longer billing window supersedes a day inside it.
  * - Money is grouped by currency and never added across currencies. Verified (from the provider)
  *   and estimated (calculated by DevMacro from a price list) amounts are kept apart.
+ * - One spend total (spend and budget alerts, projections) counts verified spend per account and
+ *   currency, and estimated spend only for an account with none (`spendToCount`).
+ * - Allowance rows pair by account, key prefix, and unit (`allowanceGroups`, `allowanceUsage`).
  * - A value that is missing is `null` and shown as "Unavailable", never as 0.
  * - A value is stale when it was retrieved more than two poll intervals ago.
  */
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
-import { formatRelative } from "@/lib/format";
+import type { AdapterCapabilities } from "@/lib/adapters/types";
+import { formatDateTime, formatList, formatRelative } from "@/lib/format";
 import type { Database } from "@/lib/supabase/database.types";
 
 type Tables = Database["public"]["Tables"];
 
 export type ProviderId = Database["public"]["Enums"]["provider_id"];
 export type ConnectionStatus = Database["public"]["Enums"]["connection_status"];
+
+/**
+ * Snapshots older than this cannot hold a current value worth showing; retention keeps 13 months.
+ * The dashboard reads this window, and the daily trends read the same rows (#263); their 30 day
+ * chart sits inside it. An account with no row in it has stopped reporting (#308).
+ */
+const SNAPSHOT_WINDOW_DAYS = 45;
+
+/** First UTC date (`YYYY-MM-DD`) of the snapshot window ending at `now`; snapshot dates are UTC dates. */
+export function snapshotWindowStart(now: Date): string {
+  return new Date(now.getTime() - SNAPSHOT_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+}
 
 export type SnapshotInput = Pick<
   Tables["usage_snapshots"]["Row"],
@@ -41,7 +62,14 @@ export type SnapshotInput = Pick<
 
 export type ConnectionInput = Pick<
   Tables["connections"]["Row"],
-  "id" | "provider" | "display_name" | "status" | "last_synced_at" | "poll_interval_seconds" | "granted_scopes"
+  | "id"
+  | "provider"
+  | "display_name"
+  | "status"
+  | "last_synced_at"
+  | "last_sync_requested_at"
+  | "poll_interval_seconds"
+  | "granted_scopes"
 >;
 
 export type AccountInput = Pick<Tables["external_accounts"]["Row"], "id" | "connection_id" | "display_name" | "project_id">;
@@ -54,6 +82,8 @@ export type DashboardInput = Readonly<{
   /** Only the accounts included in the dashboard; snapshots of any other account are ignored. */
   accounts: readonly AccountInput[];
   projects: readonly ProjectInput[];
+  /** Estimated spend metric keys the adapters declare projections (`ProviderAdapter.projectedSpend`). */
+  projectedSpend: readonly string[];
   now: Date;
 }>;
 
@@ -117,6 +147,13 @@ export type Allowance = Readonly<{
   resetsAt: string | null;
 }>;
 
+/**
+ * One run rate (MRR, ARR) per metric, currency, and provenance, summed over the connection's
+ * accounts. A rate is not money earned in a period, so it is never added into revenue or spend,
+ * and two rates (MRR and ARR) are never added to each other.
+ */
+export type RecurringRevenue = Readonly<{ key: string; label: string; value: MoneyValue }>;
+
 export type ProviderSummary = Readonly<{
   connectionId: string;
   provider: ProviderId;
@@ -125,15 +162,41 @@ export type ProviderSummary = Readonly<{
   simulated: boolean;
   status: ConnectionStatus;
   lastSyncedAt: string | null;
+  /** The last "Sync now" request, for the dashboard's cooldown hint (#267); null when never asked. */
+  lastSyncRequestedAt: string | null;
   /** True when the connection has synced before but not within two poll intervals. */
   stale: boolean;
   spend: readonly CurrencyAmounts[];
   revenue: readonly CurrencyAmounts[];
+  recurringRevenue: readonly RecurringRevenue[];
   credits: readonly MoneyValue[];
   allowances: readonly Allowance[];
   billingPeriod: Period | null;
   resetsAt: string | null;
 }>;
+
+/** What a provider's adapter declares it reports (`ProviderAdapter.capabilities`), as its card reads it. */
+export type DeclaredFields = Pick<AdapterCapabilities, "spending" | "credits">;
+
+/** Which of a provider card's fixed rows to show (#269). */
+export type ProviderCardFields = Readonly<{ billingPeriod: boolean; resetsAt: boolean; spend: boolean; credits: boolean }>;
+
+/**
+ * A provider card shows a row only when it can hold a value for that provider (#269), so no row
+ * reads "Unavailable" forever. Spend, the billing period it is read over, and the credit balance
+ * show when the adapter declares them, with "Unavailable" until the first reading. A reset comes
+ * with the reading itself (a quota reading carries when it resets) and no adapter declares one up
+ * front, so it shows only with a value. A row that has a value always shows, whatever the
+ * declaration says, so nothing a provider reported is ever hidden.
+ */
+export function providerCardFields(summary: ProviderSummary, declared: DeclaredFields): ProviderCardFields {
+  return {
+    billingPeriod: summary.billingPeriod !== null || declared.spending,
+    resetsAt: summary.resetsAt !== null,
+    spend: summary.spend.length > 0 || declared.spending,
+    credits: summary.credits.length > 0 || declared.credits,
+  };
+}
 
 export type ProjectSpend = Readonly<{
   /** null is the bucket for accounts not assigned to a project. */
@@ -193,21 +256,161 @@ export function isCurrentPeriod(row: SnapshotInput, now: Date): boolean {
 }
 
 /**
- * When an account reports both a total (`<prefix>.total`) and its breakdown (`<prefix>.<part>`)
- * for the same kind and currency, only the total is kept, so nothing is counted twice.
+ * Rows PostHog stored before #204 named each product's spend `posthog.<type>.spend`; it is now
+ * `posthog.spend.current.<type>`, a breakdown of the organization's `posthog.spend.current`. Old rows
+ * stay in the read windows for weeks (`SNAPSHOT_WINDOW_DAYS` on the dashboard), so they are read as
+ * the breakdowns they are. Decided on #204: delete this once no stored row carries the old name.
+ */
+const LEGACY_POSTHOG_PRODUCT_SPEND = /^posthog\.[a-z0-9_]+\.spend$/;
+
+/**
+ * Breakdowns are dropped so nothing is counted twice. Within one account, kind, and currency:
+ * - a total (`<prefix>.total`) supersedes its parts (`<prefix>.<part>`), as Vercel reports them;
+ * - a metric supersedes the keys one segment below it, as GitHub reports per product
+ *   (`github.spend.actions`) and per SKU (`github.spend.actions.actions_linux`), and PostHog per
+ *   organization (`posthog.spend.current`) and per product (`posthog.spend.current.session_replay`).
  */
 export function dropSupersededBreakdowns<T extends SnapshotInput>(rows: readonly T[]): T[] {
-  const totals = new Set<string>();
-  const groupOf = (row: T, prefix: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${prefix}`;
+  const groupOf = (row: T, key: string) => `${row.external_account_id} ${row.kind} ${row.currency ?? ""} ${key}`;
+  const parents = new Set<string>();
   for (const row of rows) {
-    if (row.metric_key.endsWith(".total")) totals.add(groupOf(row, row.metric_key.slice(0, -".total".length)));
+    parents.add(groupOf(row, row.metric_key.endsWith(".total") ? row.metric_key.slice(0, -".total".length) : row.metric_key));
   }
-  if (totals.size === 0) return [...rows];
   return rows.filter((row) => {
-    if (row.metric_key.endsWith(".total")) return true;
-    const prefix = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
-    return !totals.has(groupOf(row, prefix));
+    const key = row.metric_key;
+    if (key.endsWith(".total")) return true;
+    const parent = LEGACY_POSTHOG_PRODUCT_SPEND.test(key) ? "posthog.spend.current" : key.slice(0, key.lastIndexOf("."));
+    return !parents.has(groupOf(row, parent));
   });
+}
+
+/** Money spent and money coming in: the kinds that accumulate over a period, and the trends' default set (#263). */
+export const ACCUMULATING_KINDS: ReadonlySet<SnapshotInput["kind"]> = new Set(["verified_spend", "estimated_spend", "revenue"]);
+
+/**
+ * Drops money that another row of the same account, kind, and currency already covers for a
+ * longer window: GitHub reports each product's spend for the month and again for each day of it
+ * (`github.daily_spend.<product>`), and the day is part of the month. Only a window that starts on
+ * a UTC day boundary covers others, so a rolling window (Stripe's last 30 days) never hides the
+ * month inside it; `isCurrentPeriod` then leaves the rolling window out. No clock, so it holds for
+ * one day of history as well as for the latest rows.
+ */
+export function dropSubWindows<T extends SnapshotInput>(rows: readonly T[]): T[] {
+  type Span = Readonly<{ group: string; start: number; end: number }>;
+  const spanOf = (row: T): Span | null =>
+    !ACCUMULATING_KINDS.has(row.kind) || row.currency === null || row.period_start === null || row.period_end === null
+      ? null
+      : {
+          group: `${row.external_account_id} ${row.kind} ${row.currency}`,
+          start: Date.parse(row.period_start),
+          end: Date.parse(row.period_end),
+        };
+  const covering = new Map<string, Span[]>();
+  for (const row of rows) {
+    const span = spanOf(row);
+    if (span === null || span.start % DAY_MS !== 0) continue;
+    const list = covering.get(span.group);
+    if (list === undefined) covering.set(span.group, [span]);
+    else list.push(span);
+  }
+  return rows.filter((row) => {
+    const span = spanOf(row);
+    if (span === null) return true;
+    return !(covering.get(span.group) ?? []).some(
+      (outer) => outer.start <= span.start && span.end <= outer.end && (outer.start < span.start || span.end < outer.end),
+    );
+  });
+}
+
+/**
+ * Whether an adapter declares the row's metric a projection for the whole billing period (PostHog's
+ * projected spend, Railway's estimated bill, the Example provider's month estimate): what the
+ * period is expected to cost, not money spent so far, on every day it is read, its period's last
+ * day included. The one rule for every reading of spend, the headline strip's included.
+ */
+export function isDeclaredProjection(row: Pick<SnapshotInput, "metric_key">, projectedSpend: readonly string[]): boolean {
+  return projectedSpend.includes(row.metric_key);
+}
+
+/**
+ * The rows every reading of current values starts from (dashboard, digests, alerts, projections,
+ * daily summary): declared projections left out, then the latest row per account and metric, with
+ * breakdowns and sub-windows dropped so each amount is counted once. A projection goes first, so
+ * its whole-period window never hides a day's estimate inside it.
+ */
+export function countedSnapshots<T extends SnapshotInput>(rows: readonly T[], projectedSpend: readonly string[]): T[] {
+  return dropSubWindows(dropSupersededBreakdowns(latestSnapshots(rows.filter((row) => !isDeclaredProjection(row, projectedSpend)))));
+}
+
+/**
+ * The spend one total counts, for spend and budget alerts and for projections (the dashboard shows
+ * verified and estimated apart instead): money rows of the current billing period, and per
+ * external account and currency verified spend, with estimated spend only for an account that has
+ * no current verified spend in that currency, so the two are never added for the same money.
+ * Expects rows already reduced by `countedSnapshots`.
+ */
+export function spendToCount<T extends SnapshotInput>(rows: readonly T[], now: Date): T[] {
+  const accountCurrency = (row: T) => `${row.external_account_id} ${row.currency ?? ""}`;
+  const current = rows.filter(
+    (row) =>
+      (row.kind === "verified_spend" || row.kind === "estimated_spend") &&
+      row.currency !== null &&
+      row.amount_minor !== null &&
+      isCurrentPeriod(row, now),
+  );
+  const verified = new Set(current.filter((row) => row.kind === "verified_spend").map(accountCurrency));
+  return current.filter((row) => row.kind === "verified_spend" || !verified.has(accountCurrency(row)));
+}
+
+/** One allowance's rows, paired by `allowanceGroups`, before any value is read. */
+export type AllowanceGroup<T extends SnapshotInput> = Readonly<{
+  accountId: string;
+  /** The metric key without its last segment, shared by every row of the group. */
+  prefix: string;
+  keys: ReadonlySet<string>;
+  included: T | undefined;
+  remaining: T | undefined;
+  usage: readonly T[];
+}>;
+
+/**
+ * The allowance pairing rule, shared by the dashboard, alerts, and projections: `included_allowance`,
+ * `remaining_allowance`, and `usage` rows of one external account belong to one allowance when
+ * their keys share everything before the last segment (`resend.emails.month.limit` with
+ * `resend.emails.month.used`). The first included and remaining row of a group are kept; see
+ * `allowanceUsage` for the used amount.
+ */
+export function allowanceGroups<T extends SnapshotInput>(rows: readonly T[]): AllowanceGroup<T>[] {
+  type Group = { accountId: string; prefix: string; keys: Set<string>; included: T | undefined; remaining: T | undefined; usage: T[] };
+  const groups = new Map<string, Group>();
+  for (const row of rows) {
+    if (row.kind !== "included_allowance" && row.kind !== "remaining_allowance" && row.kind !== "usage") continue;
+    const prefix = row.metric_key.slice(0, row.metric_key.lastIndexOf("."));
+    const key = `${row.external_account_id} ${prefix}`;
+    let group = groups.get(key);
+    if (group === undefined) {
+      group = { accountId: row.external_account_id, prefix, keys: new Set(), included: undefined, remaining: undefined, usage: [] };
+      groups.set(key, group);
+    }
+    group.keys.add(row.metric_key);
+    if (row.kind === "included_allowance") group.included ??= row;
+    else if (row.kind === "remaining_allowance") group.remaining ??= row;
+    else group.usage.push(row);
+  }
+  return [...groups.values()];
+}
+
+/**
+ * The usage row an allowance counts against: the first by key among the group's usage rows in the
+ * allowance's unit (a used amount only counts against an allowance measured in the same unit) that
+ * `usable` accepts.
+ */
+export function allowanceUsage<T extends SnapshotInput>(
+  group: AllowanceGroup<T>,
+  unit: string,
+  usable: (row: T) => boolean = () => true,
+): T | undefined {
+  return group.usage.filter((row) => row.unit === unit && usable(row)).sort((a, b) => a.metric_key.localeCompare(b.metric_key))[0];
 }
 
 /** Calculated by DevMacro from a price list (or otherwise derived), not reported by the provider. */
@@ -279,9 +482,8 @@ function sumByCurrency(entries: readonly Entry[], now: Date): CurrencyAmounts[] 
     }));
 }
 
-function quantityValue(entry: Entry | undefined, now: Date): QuantityValue | null {
-  if (entry === undefined) return null;
-  const { row, connection } = entry;
+function quantityValue(row: SnapshotInput | undefined, connection: ConnectionInput, now: Date): QuantityValue | null {
+  if (row === undefined) return null;
   if (row.value === null || row.unit === null) return null;
   return {
     value: row.value,
@@ -307,58 +509,35 @@ function periodOf(row: SnapshotInput): Period | null {
   return row.period_start === null || row.period_end === null ? null : { start: row.period_start, end: row.period_end };
 }
 
-/**
- * Allowance cards for one connection. Metrics pair by account and key prefix (the key without its
- * last segment, as in `resend.emails.month.limit` and `resend.emails.month.used`) and by unit: a
- * used amount only counts against an allowance measured in the same unit.
- */
+/** Allowance cards for one connection, from its rows, paired by `allowanceGroups`. */
 function buildAllowances(
-  entries: readonly Entry[],
+  connection: ConnectionInput,
+  rows: readonly SnapshotInput[],
   accountNames: ReadonlyMap<string, string>,
   now: Date,
 ): Allowance[] {
-  type Group = { accountId: string; prefix: string; included?: Entry; remaining?: Entry; usage: Entry[] };
-  const groups = new Map<string, Group>();
-  for (const entry of entries) {
-    const { kind, metric_key: metricKey, external_account_id: accountId } = entry.row;
-    if (kind !== "included_allowance" && kind !== "remaining_allowance" && kind !== "usage") continue;
-    const prefix = metricKey.slice(0, metricKey.lastIndexOf("."));
-    const key = `${accountId} ${prefix}`;
-    let group = groups.get(key);
-    if (group === undefined) {
-      group = { accountId, prefix, usage: [] };
-      groups.set(key, group);
-    }
-    if (kind === "included_allowance") group.included ??= entry;
-    else if (kind === "remaining_allowance") group.remaining ??= entry;
-    else group.usage.push(entry);
-  }
-
   const allowances: Allowance[] = [];
-  for (const group of groups.values()) {
+  for (const group of allowanceGroups(rows)) {
     const anchor = group.included ?? group.remaining;
-    if (anchor === undefined || anchor.row.unit === null) continue;
-    const unit = anchor.row.unit;
-    const usedEntry = group.usage
-      .filter(({ row }) => row.unit === unit)
-      .sort((a, b) => a.row.metric_key.localeCompare(b.row.metric_key))[0];
-    const remainingEntry = group.remaining?.row.unit === unit ? group.remaining : undefined;
-    const included = quantityValue(group.included, now);
-    const used = quantityValue(usedEntry, now);
-    const remaining = quantityValue(remainingEntry, now);
+    if (anchor === undefined || anchor.unit === null) continue;
+    const unit = anchor.unit;
+    const usedRow = allowanceUsage(group, unit);
+    const remainingRow = group.remaining?.unit === unit ? group.remaining : undefined;
+    const included = quantityValue(group.included, connection, now);
+    const used = quantityValue(usedRow, connection, now);
+    const remaining = quantityValue(remainingRow, connection, now);
     const resetsAt =
-      [group.included, usedEntry, remainingEntry].map((entry) => entry?.row.resets_at ?? null).find((value) => value !== null) ??
-      null;
+      [group.included, usedRow, remainingRow].map((row) => row?.resets_at ?? null).find((value) => value !== null) ?? null;
     allowances.push({
       key: `${group.accountId}:${group.prefix}`,
       accountName: accountNames.get(group.accountId) ?? "Unknown account",
-      label: anchor.row.label,
+      label: anchor.label,
       unit,
       included,
       used,
       remaining,
       percentUsed: percentUsed(included, used),
-      period: periodOf(anchor.row),
+      period: periodOf(anchor),
       resetsAt,
     });
   }
@@ -374,16 +553,46 @@ function earliestFutureReset(entries: readonly Entry[], now: Date): string | nul
   return earliest;
 }
 
+function recurringRevenueOf(entries: readonly Entry[], now: Date): RecurringRevenue[] {
+  const byMetric = new Map<string, { label: string; estimated: boolean; entries: Entry[] }>();
+  for (const entry of entries) {
+    const { row } = entry;
+    if (row.kind !== "recurring_revenue" || row.currency === null || row.amount_minor === null) continue;
+    const estimated = isEstimated(row);
+    const key = `${row.metric_key} ${row.currency} ${estimated ? "estimated" : "verified"}`;
+    const group = byMetric.get(key);
+    if (group === undefined) byMetric.set(key, { label: row.label, estimated, entries: [entry] });
+    else group.entries.push(entry);
+  }
+  const rates: RecurringRevenue[] = [];
+  for (const [key, group] of byMetric) {
+    const value = moneyValue(group.entries, group.estimated, now);
+    if (value !== null) rates.push({ key, label: group.label, value });
+  }
+  return rates.sort((a, b) => a.label.localeCompare(b.label) || a.key.localeCompare(b.key));
+}
+
 function providerSummary(
   connection: ConnectionInput,
   entries: readonly Entry[],
+  projections: readonly Entry[],
   accountNames: ReadonlyMap<string, string>,
   now: Date,
 ): ProviderSummary {
   const currentMoney = entries.filter(({ row }) => isCurrentPeriod(row, now));
   const spend = currentMoney.filter(({ row }) => row.kind === "verified_spend" || row.kind === "estimated_spend");
-  const firstSpendPeriod = spend.map(({ row }) => periodOf(row)).find((period) => period !== null) ?? null;
-  const allowances = buildAllowances(entries, accountNames, now);
+  // The widest period of the spend and of the declared projections (earliest start, then latest
+  // end), so row order never decides it. A projection is not spend, but the period it projects is
+  // the billing period: the Example provider's spend so far ends tomorrow, its estimate with the month.
+  const periodRows = [...spend, ...projections.filter(({ row }) => isCurrentPeriod(row, now))];
+  const spendPeriod = periodRows.reduce<Period | null>((widest, { row }) => {
+    const period = periodOf(row);
+    if (period === null) return widest;
+    if (widest === null) return period;
+    const start = Date.parse(period.start) - Date.parse(widest.start);
+    return start < 0 || (start === 0 && Date.parse(period.end) > Date.parse(widest.end)) ? period : widest;
+  }, null);
+  const allowances = buildAllowances(connection, entries.map(({ row }) => row), accountNames, now);
   return {
     connectionId: connection.id,
     provider: connection.provider,
@@ -391,18 +600,20 @@ function providerSummary(
     simulated: isSimulatedConnection(connection),
     status: connection.status,
     lastSyncedAt: connection.last_synced_at,
+    lastSyncRequestedAt: connection.last_sync_requested_at,
     stale: connection.last_synced_at !== null && isStale(connection.last_synced_at, connection.poll_interval_seconds, now),
     spend: sumByCurrency(spend, now),
     revenue: sumByCurrency(
       currentMoney.filter(({ row }) => row.kind === "revenue"),
       now,
     ),
+    recurringRevenue: recurringRevenueOf(currentMoney, now),
     credits: sumByCurrency(
       entries.filter(({ row }) => row.kind === "credit_balance"),
       now,
     ).flatMap(({ verified, estimated }) => [verified, estimated].filter((value) => value !== null)),
     allowances,
-    billingPeriod: firstSpendPeriod ?? allowances.map((allowance) => allowance.period).find((p) => p !== null) ?? null,
+    billingPeriod: spendPeriod ?? allowances.map((allowance) => allowance.period).find((p) => p !== null) ?? null,
     resetsAt: earliestFutureReset(entries, now),
   };
 }
@@ -420,25 +631,32 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
   const accountNames = new Map([...accounts.values()].map((account) => [account.id, account.display_name]));
   const projectNames = new Map(input.projects.map((project) => [project.id, project.name]));
 
-  const entries: Entry[] = [];
-  for (const row of dropSupersededBreakdowns(latestSnapshots(input.snapshots))) {
-    const account = accounts.get(row.external_account_id);
-    const connection = connections.get(row.connection_id);
-    // Excluded accounts and rows whose account moved connection are skipped.
-    if (account === undefined || connection === undefined || account.connection_id !== connection.id) continue;
-    entries.push({ row, connection });
-  }
+  // Excluded accounts and rows whose account moved connection are skipped.
+  const joined = (rows: readonly SnapshotInput[]): Entry[] =>
+    rows.flatMap((row) => {
+      const account = accounts.get(row.external_account_id);
+      const connection = connections.get(row.connection_id);
+      return account === undefined || connection === undefined || account.connection_id !== connection.id ? [] : [{ row, connection }];
+    });
+  const entries = joined(countedSnapshots(input.snapshots, input.projectedSpend));
+  // Read for the billing period only (`providerSummary`), never counted.
+  const projections = joined(latestSnapshots(input.snapshots.filter((row) => isDeclaredProjection(row, input.projectedSpend))));
 
   const currentSpend = entries.filter(
     ({ row }) => (row.kind === "verified_spend" || row.kind === "estimated_spend") && isCurrentPeriod(row, now),
   );
 
-  const byConnection = new Map<string, Entry[]>();
-  for (const entry of entries) {
-    const list = byConnection.get(entry.connection.id);
-    if (list === undefined) byConnection.set(entry.connection.id, [entry]);
-    else list.push(entry);
-  }
+  const byConnection = (list: readonly Entry[]): Map<string, Entry[]> => {
+    const grouped = new Map<string, Entry[]>();
+    for (const entry of list) {
+      const group = grouped.get(entry.connection.id);
+      if (group === undefined) grouped.set(entry.connection.id, [entry]);
+      else group.push(entry);
+    }
+    return grouped;
+  };
+  const entriesByConnection = byConnection(entries);
+  const projectionsByConnection = byConnection(projections);
 
   const byProjectEntries = new Map<string | null, Entry[]>();
   for (const entry of currentSpend) {
@@ -467,7 +685,15 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
       entries.filter(({ row }) => row.kind === "revenue" && isCurrentPeriod(row, now)),
       now,
     ),
-    byProvider: visible.map((connection) => providerSummary(connection, byConnection.get(connection.id) ?? [], accountNames, now)),
+    byProvider: visible.map((connection) =>
+      providerSummary(
+        connection,
+        entriesByConnection.get(connection.id) ?? [],
+        projectionsByConnection.get(connection.id) ?? [],
+        accountNames,
+        now,
+      ),
+    ),
     byProject,
   };
 }
@@ -476,4 +702,103 @@ export function aggregateDashboard(input: DashboardInput): DashboardView {
 export function freshnessLabel(retrievedAt: string, stale: boolean, now: Date): string {
   const relative = formatRelative(retrievedAt, now);
   return stale ? `Stale: last updated ${relative}` : `Updated ${relative}`;
+}
+
+/**
+ * The dashboard's one stale notice (#267), shown when most or all of the connections in view that
+ * can sync have not synced within two poll intervals (`ProviderSummary.stale`). A connection that
+ * never synced or is disconnected cannot be brought up to date by a sync, so it is not counted.
+ */
+export type StaleNotice = Readonly<{
+  connections: readonly Readonly<{ connectionId: string; name: string }>[];
+  /** Connections in view that have synced and can sync again. */
+  total: number;
+  /** The newest last sync among the stale connections: none of them has synced since. */
+  lastSyncedAt: string;
+  /**
+   * The earliest of the stale connections' last "Sync now" requests, or null when one has none: the
+   * button waits out the cooldown only while every one of them is in it (#161).
+   */
+  syncRequestedAt: string | null;
+}>;
+
+function withoutStaleMark<T extends Freshness>(value: T): T {
+  return { ...value, stale: false };
+}
+
+function amountsWithoutStaleMarks(list: readonly CurrencyAmounts[]): CurrencyAmounts[] {
+  return list.map((amounts) => ({
+    ...amounts,
+    verified: amounts.verified === null ? null : withoutStaleMark(amounts.verified),
+    estimated: amounts.estimated === null ? null : withoutStaleMark(amounts.estimated),
+  }));
+}
+
+/**
+ * The notice for `view`, and the view to show under it. With a notice, the stale connections' cards
+ * and values, and the totals that mix connections, carry no stale mark of their own, because the
+ * notice says it once for the page; each still says when it was read. A connection the notice does
+ * not name keeps its own marks. Without a notice (half or fewer stale), the view is returned as it
+ * is, so a lone stale value stands out.
+ */
+export function withStaleNotice(view: DashboardView): Readonly<{ view: DashboardView; notice: StaleNotice | null }> {
+  const syncable = view.byProvider.flatMap((summary) =>
+    summary.lastSyncedAt === null || summary.status === "revoked" ? [] : [{ summary, lastSyncedAt: summary.lastSyncedAt }],
+  );
+  const stale = syncable.filter(({ summary }) => summary.stale);
+  if (stale.length === 0 || stale.length * 2 <= syncable.length) return { view, notice: null };
+  const newest = stale.reduce((latest, entry) => (Date.parse(entry.lastSyncedAt) > Date.parse(latest.lastSyncedAt) ? entry : latest));
+  const requests = stale.flatMap(({ summary }) => (summary.lastSyncRequestedAt === null ? [] : [summary.lastSyncRequestedAt]));
+  const named = new Set(stale.map(({ summary }) => summary.connectionId));
+  return {
+    notice: {
+      connections: stale.map(({ summary }) => ({ connectionId: summary.connectionId, name: summary.name })),
+      total: syncable.length,
+      lastSyncedAt: newest.lastSyncedAt,
+      syncRequestedAt:
+        requests.length < stale.length ? null : requests.reduce((earliest, at) => (Date.parse(at) < Date.parse(earliest) ? at : earliest)),
+    },
+    view: {
+      totals: amountsWithoutStaleMarks(view.totals),
+      revenue: amountsWithoutStaleMarks(view.revenue),
+      byProvider: view.byProvider.map((summary) =>
+        named.has(summary.connectionId)
+          ? {
+              ...summary,
+              stale: false,
+              spend: amountsWithoutStaleMarks(summary.spend),
+              revenue: amountsWithoutStaleMarks(summary.revenue),
+              recurringRevenue: summary.recurringRevenue.map((rate) => ({ ...rate, value: withoutStaleMark(rate.value) })),
+              credits: summary.credits.map(withoutStaleMark),
+              allowances: summary.allowances.map((allowance) => ({
+                ...allowance,
+                included: allowance.included === null ? null : withoutStaleMark(allowance.included),
+                used: allowance.used === null ? null : withoutStaleMark(allowance.used),
+                remaining: allowance.remaining === null ? null : withoutStaleMark(allowance.remaining),
+              })),
+            }
+          : summary,
+      ),
+      byProject: view.byProject.map((project) => ({ ...project, spend: amountsWithoutStaleMarks(project.spend) })),
+    },
+  };
+}
+
+/**
+ * The notice in words: "Data last synced 3 days ago", and which connections, since when. The time
+ * is in Europe/London, as every time the app prints.
+ */
+export function staleNoticeText(notice: StaleNotice, now: Date): Readonly<{ title: string; body: string }> {
+  const count = notice.connections.length;
+  const since = formatDateTime(notice.lastSyncedAt);
+  const title = `Data last synced ${formatRelative(notice.lastSyncedAt, now)}`;
+  if (count === notice.total) {
+    const who = count === 1 ? "The only connection in view has" : `None of the ${count} connections in view has`;
+    return { title, body: `${who} ${count === 1 ? "not synced" : "synced"} since ${since}, so every figure on this page is from then or earlier.` };
+  }
+  const names = formatList(notice.connections.map((connection) => connection.name));
+  return {
+    title,
+    body: `${count} of ${notice.total} connections in view have not synced since ${since}: ${names}. Their figures on this page are from then or earlier.`,
+  };
 }

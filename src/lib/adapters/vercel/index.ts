@@ -65,12 +65,14 @@ export const eventTypes = [
     label: "Deployment succeeded",
     description: "A Vercel deployment finished building and is ready.",
     shownByDefault: true,
+    category: "deploy_succeeded",
   },
   {
     id: "vercel.deployment.failed",
     label: "Deployment failed",
     description: "A Vercel deployment failed to build or deploy.",
     shownByDefault: true,
+    category: "deploy_failed",
   },
 ] as const satisfies readonly EventType[];
 

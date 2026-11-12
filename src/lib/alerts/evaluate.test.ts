@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { declaredProjectedSpend } from "@/lib/adapters/registry";
+
 import {
   alertDedupeKey,
   evaluateAlerts,
+  joinAlertSnapshots,
   quantityCycleKey,
   type AlertNames,
   type AlertRuleInput,
@@ -140,7 +143,14 @@ function evaluate(
   snapshots: readonly AlertSnapshotInput[],
   options: { budgets?: readonly BudgetInput[]; now?: Date } = {},
 ) {
-  return evaluateAlerts({ rules, snapshots, budgets: options.budgets ?? [BUDGET], names: NAMES, now: options.now ?? NOW });
+  return evaluateAlerts({
+    rules,
+    snapshots,
+    budgets: options.budgets ?? [BUDGET],
+    names: NAMES,
+    projectedSpend: declaredProjectedSpend,
+    now: options.now ?? NOW,
+  });
 }
 
 describe("allowance_percent thresholds", () => {
@@ -437,6 +447,15 @@ describe("spend_amount", () => {
     expect(evaluate([spendRule(1, "USD")], [estimatedSpend(3000, september)])).toEqual([]);
   });
 
+  // PostHog's projected spend, Railway's estimated bill, and the Example provider's month estimate.
+  it.each(declaredProjectedSpend)("never counts %s, a declared projection, as spend, even with no verified spend", (metricKey) => {
+    // The declared key decides, whichever provider reports it: alone, and beside verified spend.
+    const projection = estimatedSpend(3000, { metric_key: metricKey, period_end: "2026-11-01T00:00:00Z" });
+    expect(evaluate([spendRule(1, "USD")], [projection])).toEqual([]);
+    const [trigger] = evaluate([spendRule(1, "USD")], [spend(2000, "USD"), projection]);
+    expect(trigger).toMatchObject({ isEstimated: false, observed: { amountMinor: 2000, currency: "USD" } });
+  });
+
   it("does not call verified spend estimated", () => {
     const [trigger] = evaluate([spendRule(2500, "USD")], [spend(3000, "USD")]);
     expect(trigger?.isEstimated).toBe(false);
@@ -451,6 +470,37 @@ describe("spend_amount", () => {
   it("ignores spend from a past period", () => {
     const september = { period_start: "2026-09-01T00:00:00Z", period_end: "2026-10-01T00:00:00Z" };
     expect(evaluate([spendRule(1, "USD")], [spend(3000, "USD", september)])).toEqual([]);
+  });
+});
+
+describe("GitHub spend levels (#137)", () => {
+  // The same money per product month to date, per SKU, and per product for today.
+  const github = { connection_id: "conn-github", external_account_id: "acct-github", provider: "github" as const };
+  const levels = [
+    spend(1252, "USD", { ...github, metric_key: "github.daily_spend.actions", period_start: "2026-10-20T00:00:00Z", period_end: "2026-10-21T00:00:00Z" }),
+    spend(5175, "USD", { ...github, metric_key: "github.spend.actions", period_end: "2026-11-01T00:00:00Z" }),
+    spend(5175, "USD", { ...github, metric_key: "github.spend.actions.actions_linux", period_end: "2026-11-01T00:00:00Z" }),
+  ];
+
+  it("counts the month to date product spend once and keys the cycle by the month", () => {
+    expect(evaluate([spendRule(5176, "USD")], levels)).toEqual([]);
+    const [trigger] = evaluate([spendRule(5175, "USD")], levels);
+    expect(trigger).toMatchObject({ cycleKey: OCTOBER, observed: { amountMinor: 5175, currency: "USD" } });
+  });
+
+  it("measures a budget against the month to date product spend once", () => {
+    const githubBudget: BudgetInput = { ...BUDGET, provider: "github", amount_minor: 10_000 };
+    expect(evaluate([budgetRule(52)], levels, { budgets: [githubBudget] })).toEqual([]);
+    const [trigger] = evaluate([budgetRule(51)], levels, { budgets: [githubBudget] });
+    expect(trigger?.observed).toEqual({ value: 51.75, amountMinor: 5175, currency: "USD" });
+  });
+
+  it("counts a GitHub day on its own when the month is unavailable, keyed by that day", () => {
+    const [daily] = levels;
+    if (daily === undefined) throw new Error("expected the daily row");
+    expect(evaluate([spendRule(1253, "USD")], [daily])).toEqual([]);
+    const [trigger] = evaluate([spendRule(1252, "USD")], [daily]);
+    expect(trigger).toMatchObject({ cycleKey: "2026-10-20", observed: { amountMinor: 1252 } });
   });
 });
 
@@ -487,5 +537,23 @@ describe("budget_percent", () => {
 
   it("never fires on spend in another currency", () => {
     expect(evaluate([budgetRule(1)], [spend(1_000_000, "EUR")])).toEqual([]);
+  });
+});
+
+describe("joinAlertSnapshots", () => {
+  const { provider: _provider, projectId: _projectId, ...stored } = used(10);
+  const connections = [{ id: "conn-resend", provider: "resend" as const }];
+
+  it("joins a row to its connection's provider and its account's project", () => {
+    const accounts = [{ id: "acct-resend", connection_id: "conn-resend", project_id: "project-acme" }];
+    expect(joinAlertSnapshots([stored], connections, accounts)).toEqual([{ ...stored, provider: "resend", projectId: "project-acme" }]);
+  });
+
+  it.each([
+    ["its account is not included", [], connections],
+    ["its account moved to another connection", [{ id: "acct-resend", connection_id: "conn-other", project_id: null }], connections],
+    ["its connection is not listed", [{ id: "acct-resend", connection_id: "conn-resend", project_id: null }], []],
+  ])("skips a row when %s", (_name, accounts, listed) => {
+    expect(joinAlertSnapshots([stored], listed, accounts)).toEqual([]);
   });
 });

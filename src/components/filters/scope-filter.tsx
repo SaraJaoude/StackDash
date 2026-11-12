@@ -3,6 +3,8 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 
 import { ChevronDownIcon, FilterIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
+import { LiveRegion } from "@/components/ui/live-region";
 import type { ScopeFilters, ScopeOption, ScopeOptions } from "@/lib/filters/scope";
 
 const CHECKBOX_LABEL = "flex min-h-6 cursor-pointer items-center gap-2 px-1 text-sm";
@@ -75,8 +77,11 @@ export function ScopeFilter({
   status: string;
   /** Active screen-specific filters (the timeline's types, severities, and dates). */
   extraActiveCount?: number | undefined;
-  /** Other URL state the form must carry, such as the dashboard's trend period. */
-  hidden?: Readonly<Record<string, string>> | undefined;
+  /**
+   * Other URL state the form must carry, such as the dashboard's trend period. A list becomes one
+   * input per value, the repeated-parameter shape the URL schemas read.
+   */
+  hidden?: Readonly<Record<string, string | readonly string[]>> | undefined;
   /** Changes when the screen's own fields change, so their uncontrolled inputs reset too. */
   resetKey?: string | undefined;
   children?: ReactNode;
@@ -88,26 +93,28 @@ export function ScopeFilter({
   // leave the old boxes ticked and the form open over the new result.
   const formKey = JSON.stringify([scope.providers, scope.projects, scope.accounts, resetKey ?? ""]);
   return (
-    <section aria-labelledby={titleId} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] rounded-xl border border-line bg-panel">
+    <section aria-labelledby={titleId} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] grid-rows-[auto_auto] rounded-xl border border-line bg-panel">
       {/* The status sits outside the disclosure so it is announced as a live region and does not
           become part of the toggle's accessible name (a summary's children are presentational).
-          The status and the details both sit in row 1 on purpose: the details spans both columns
-          (a subgrid) so its form opens full width below, and its summary sits in column 2 beside
-          the status. `self-start` keeps the status on the summary's line while the form is open.
-          Browsers that grid a `details` wrap its content in `::details-content`, so the span goes
-          on that box too; without it the open form lands in column 1 beside the summary. */}
-      <p
-        role="status"
-        aria-live="polite"
-        className="col-start-1 row-start-1 flex min-h-12 items-center self-start break-words px-4 py-2 text-sm text-muted"
+          The details spans both columns and both rows as a subgrid: its summary sits in row 1,
+          column 2, beside the status, and its form opens full width in row 2. Sharing the rows
+          means row 1 grows with a status that wraps, so the open form always starts below the
+          status's last line (#164); both row 1 items stretch, and `items-center` keeps "Filters"
+          level with the status. Browsers that grid a `details` wrap its content in
+          `::details-content`, so the span goes on that box too; without it the open form lands in
+          column 1 beside the summary. */}
+      <LiveRegion
+        tone="status"
+        as="p"
+        className="col-start-1 row-start-1 flex min-h-12 items-center break-words px-4 py-2 text-sm text-muted"
       >
         {status}
-      </p>
+      </LiveRegion>
       <details
         key={formKey}
-        className="group col-span-2 col-start-1 row-start-1 grid grid-cols-subgrid details-content:col-span-2"
+        className="group col-span-2 col-start-1 row-span-2 row-start-1 grid grid-cols-subgrid grid-rows-subgrid details-content:col-span-2"
       >
-        <summary className="col-start-2 flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm [&::-webkit-details-marker]:hidden">
+        <summary className="col-start-2 row-start-1 flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 text-sm [&::-webkit-details-marker]:hidden">
           <FilterIcon className="size-4 text-muted" />
           <span id={titleId} className="font-semibold">
             Filters
@@ -120,9 +127,11 @@ export function ScopeFilter({
           <ChevronDownIcon className="size-4 shrink-0 text-muted transition-transform motion-reduce:transition-none group-open:rotate-180" />
         </summary>
         <Form action={action} className="col-span-2 grid gap-6 border-t border-line px-4 py-4">
-          {Object.entries(hidden ?? {}).map(([name, value]) => (
-            <input key={name} type="hidden" name={name} value={value} />
-          ))}
+          {Object.entries(hidden ?? {}).flatMap(([name, value]) =>
+            (typeof value === "string" ? [value] : value).map((item) => (
+              <input key={`${name}=${item}`} type="hidden" name={name} value={item} />
+            )),
+          )}
         <div className="grid gap-6 md:grid-cols-3">
           <OptionGroup
             legend="Provider"
@@ -150,13 +159,13 @@ export function ScopeFilter({
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            className="inline-flex min-h-10 items-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+            className={buttonClass("primary")}
           >
             Apply filters
           </button>
           <Link
             href={action}
-            className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm text-muted transition-colors hover:text-foreground"
+            className={buttonClass("secondary")}
           >
             Clear filters
           </Link>

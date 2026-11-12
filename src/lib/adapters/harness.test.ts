@@ -1,0 +1,310 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PermissionMissingError } from "./errors";
+import { eventTypes, exampleAdapter, metricKeys } from "./example";
+import { fakeAdapter } from "./fake";
+import {
+  checkAdapterDeclaration,
+  checkSyncResult,
+  checkTraffic,
+  createAdapterHarness,
+  routeKey,
+} from "./harness";
+import type { AdapterMetric } from "./metrics";
+import { getAdapter } from "./registry";
+import { simulatedAdapters } from "./simulated";
+import { liveProviderIds, type ProviderAdapter, type SyncResult } from "./types";
+
+const NOW = new Date("2026-11-16T00:00:00.000Z");
+const ACCOUNT = "acct_1001";
+const API = "https://api.example.com";
+// Made up, and built from parts so CI's secret scan (gitleaks) does not read it as a credential.
+const PRIVATE_KEY = ["synthetic", "private", "key", "1"].join("-");
+
+const usage: AdapterMetric = {
+  kind: "usage",
+  metricKey: metricKeys.requestsUsed,
+  label: "Requests this billing period",
+  value: 10,
+  unit: "requests",
+  timeframe: { type: "point", at: NOW },
+  externalAccountId: ACCOUNT,
+  retrievedAt: NOW,
+  provenance: { source: "provider_api" },
+};
+
+const signup = {
+  typeId: "example.signup",
+  occurredAt: NOW,
+  severity: "info",
+  title: "New signup",
+  externalAccountId: ACCOUNT,
+  dedupeKey: "example.signup:evt_1",
+} as const;
+
+function adapterWith(change: Partial<ProviderAdapter<string>>): ProviderAdapter<string> {
+  return { ...exampleAdapter, ...change };
+}
+
+describe("checkAdapterDeclaration", () => {
+  // The live adapters whatever the developer's shell exports: with simulation on, `getAdapter`
+  // hands out the simulated twins, which are checked on their own below.
+  beforeEach(() => {
+    vi.stubEnv("DEVMACRO_SIMULATE_PROVIDERS", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each(liveProviderIds)("passes the live %s adapter", (id) => {
+    expect(checkAdapterDeclaration(getAdapter(id))).toEqual([]);
+  });
+
+  // What `getAdapter` hands out besides the live adapters (the simulated twins and the fake
+  // provider), and the unregistered example. A twin carries its live adapter's id, so its title
+  // says it is the twin.
+  const otherAdapters = [
+    ...Object.entries(simulatedAdapters).map(([id, adapter]) => [`simulated ${id}`, adapter] as const),
+    ["fake", fakeAdapter] as const,
+    ["example", exampleAdapter] as const,
+  ];
+
+  it.each(otherAdapters)("passes the %s adapter", (_name, adapter) => {
+    expect(checkAdapterDeclaration(adapter)).toEqual([]);
+  });
+
+  it.each<[string, Partial<ProviderAdapter<string>>, string]>([
+    ["an id with a dot", { id: "example.cloud" }, 'id "example.cloud" must be lowercase letters and digits'],
+    ["a blank display name", { displayName: "  " }, "displayName is empty"],
+    ["no permissions", { permissions: [] }, "permissions is empty: the connect screen has nothing to show"],
+    [
+      "a permission without a description",
+      { permissions: [{ scope: "accounts:read", access: "read", description: " " }] },
+      "permission accounts:read has no description",
+    ],
+    [
+      "a full access scope without a reason",
+      { permissions: [...exampleAdapter.permissions, { scope: "admin", access: "full", description: "Admin", fullAccessReason: "" }] },
+      "permission admin is full access without a fullAccessReason",
+    ],
+    [
+      "a requested scope the connect screen does not explain",
+      { oauth: { ...exampleAdapter.oauth, scopes: [...exampleAdapter.oauth.scopes, "admin"] } },
+      "requested scope admin has no permission entry for the connect screen",
+    ],
+    ["no data collected", { dataCollected: [] }, "dataCollected must list what the adapter reads, one non-empty line each"],
+    [
+      "an event type owned by another provider",
+      { eventTypes: [{ ...eventTypes[0], id: "vercel.signup" }] },
+      "event type vercel.signup must start with example.",
+    ],
+    [
+      "an event type declared twice",
+      { eventTypes: [eventTypes[0], eventTypes[0]] },
+      "event type example.signup is declared twice",
+    ],
+    ["events without event types", { eventTypes: [] }, "capabilities.events is true but no event types are declared"],
+    [
+      "event types without the events capability",
+      { capabilities: { ...exampleAdapter.capabilities, events: false } },
+      "event types are declared but capabilities.events is false",
+    ],
+    ["a projection owned by another provider", { projectedSpend: ["railway.cost"] }, "projectedSpend key railway.cost must start with example."],
+    [
+      "a projection without the spending capability",
+      { capabilities: { ...exampleAdapter.capabilities, spending: false } },
+      "projectedSpend is declared but capabilities.spending is false",
+    ],
+    [
+      "a daily signup total without the usage capability",
+      { signupDailyTotals: ["example.signups.daily"], capabilities: { ...exampleAdapter.capabilities, usage: false } },
+      "signupDailyTotals is declared but capabilities.usage is false",
+    ],
+    ["a beta without a reason", { beta: { reason: " " } }, "beta is set without a reason"],
+    ["a poll interval of 59 seconds", { pollIntervalSeconds: 59 }, "pollIntervalSeconds must be a whole number of at least 60"],
+    ["a fractional poll interval", { pollIntervalSeconds: 60.5 }, "pollIntervalSeconds must be a whole number of at least 60"],
+    [
+      "a client id the browser would see",
+      { oauth: { ...exampleAdapter.oauth, clientIdEnv: "NEXT_PUBLIC_EXAMPLE_CLIENT_ID" } },
+      "NEXT_PUBLIC_EXAMPLE_CLIENT_ID would be sent to the browser; drop NEXT_PUBLIC_",
+    ],
+    [
+      "a lowercase variable name",
+      { oauth: { ...exampleAdapter.oauth, clientSecretEnv: "example_secret" } },
+      "environment variable name example_secret must be UPPER_SNAKE_CASE",
+    ],
+    [
+      "an optional extra that is not an extra",
+      { oauth: { ...exampleAdapter.oauth, optionalExtraKeys: ["slug"] } },
+      "optional extra slug is not a key of extraEnv",
+    ],
+  ])("reports %s (boundary)", (_case, change, problem) => {
+    expect(checkAdapterDeclaration(adapterWith(change))).toContain(problem);
+  });
+
+  it("reports an event type the schema rejects (boundary)", () => {
+    const problems = checkAdapterDeclaration(adapterWith({ eventTypes: [{ ...eventTypes[0], label: "" }] }));
+    // The message ends with zod's wording, so only its start is pinned.
+    expect(problems).toContainEqual(expect.stringMatching(/^event type example\.signup is invalid: \S/));
+  });
+});
+
+describe("checkSyncResult", () => {
+  it("passes a result the sync runner would store", () => {
+    expect(checkSyncResult(exampleAdapter, ACCOUNT, { metrics: [usage], events: [signup] })).toEqual([]);
+  });
+
+  it("passes an empty result (boundary)", () => {
+    expect(checkSyncResult(exampleAdapter, ACCOUNT, { metrics: [], events: [] })).toEqual([]);
+  });
+
+  it.each<[string, ProviderAdapter<string>, SyncResult, string[]]>([
+    [
+      "a metric key owned by another provider",
+      exampleAdapter,
+      { metrics: [{ ...usage, metricKey: "vercel.requests" }], events: [] },
+      ["metrics[0].metricKey: must start with example."],
+    ],
+    [
+      "an undeclared event type",
+      exampleAdapter,
+      { metrics: [], events: [{ ...signup, typeId: "example.unknown" }] },
+      ["events[0].typeId: is not one of the adapter's declared event types"],
+    ],
+    [
+      "data for another account",
+      exampleAdapter,
+      { metrics: [{ ...usage, externalAccountId: "acct_9" }], events: [{ ...signup, externalAccountId: "acct_9" }] },
+      ["metrics[0] belongs to account acct_9, not acct_1001", "events[0] belongs to account acct_9, not acct_1001"],
+    ],
+    [
+      "a metric kind the adapter does not declare",
+      adapterWith({ capabilities: { ...exampleAdapter.capabilities, usage: false } }),
+      { metrics: [usage], events: [] },
+      ["metrics[0] is usage but capabilities.usage is false"],
+    ],
+    [
+      "a declared projection that is not estimated spend",
+      adapterWith({ projectedSpend: [metricKeys.requestsUsed] }),
+      { metrics: [usage], events: [] },
+      ["metrics[0] example.requests.used is declared in projectedSpend but is usage"],
+    ],
+    [
+      "a declared daily signup total that is not usage",
+      adapterWith({ signupDailyTotals: [metricKeys.creditBalance] }),
+      {
+        metrics: [
+          {
+            kind: "credit_balance",
+            metricKey: metricKeys.creditBalance,
+            label: "Account credit",
+            amountMinor: 5,
+            currency: "USD",
+            timeframe: { type: "point", at: NOW },
+            externalAccountId: ACCOUNT,
+            retrievedAt: NOW,
+            provenance: { source: "provider_api" },
+          },
+        ],
+        events: [],
+      },
+      ["metrics[0] example.credits.balance is declared in signupDailyTotals but is credit_balance"],
+    ],
+    [
+      "a partial error naming a scope the adapter never requests",
+      exampleAdapter,
+      { metrics: [], events: [], partialErrors: [new PermissionMissingError("refused", ["admin"])] },
+      ["partialErrors[0] names admin, which the adapter never requests, so reconnecting cannot fix it"],
+    ],
+  ])("reports %s (boundary)", (_case, adapter, result, problems) => {
+    expect(checkSyncResult(adapter, ACCOUNT, result)).toEqual(problems);
+  });
+});
+
+describe("createAdapterHarness and checkTraffic", () => {
+  it("answers from the recordings, keyed without the query, and records every request", async () => {
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: {
+        [`GET ${API}/v1/items`]: (request) => ({ body: { page: request.url.searchParams.get("page") } }),
+        [`DELETE ${API}/v1/items`]: { status: 204, body: { ignored: true } },
+      },
+    });
+    const response = await harness.ctx.fetch(`${API}/v1/items?page=2`, { signal: AbortSignal.timeout(1000) });
+    const empty = await harness.ctx.fetch(`${API}/v1/items`, { method: "delete", signal: AbortSignal.timeout(1000) });
+
+    expect(await response.json()).toEqual({ page: "2" });
+    expect(empty.status).toBe(204);
+    expect(await empty.text()).toBe("");
+    expect(harness.requests.map((request) => routeKey(request.method, request.url))).toEqual([
+      `GET ${API}/v1/items`,
+      `DELETE ${API}/v1/items`,
+    ]);
+    expect(harness.ctx.now()).toEqual(NOW);
+    expect(checkTraffic(harness)).toEqual([]);
+  });
+
+  it("answers an unrecorded request with a 404 and reports it (boundary)", async () => {
+    const harness = createAdapterHarness({ now: NOW, routes: {} });
+    const response = await harness.ctx.fetch(`${API}/v1/unknown`, { signal: AbortSignal.timeout(1000) });
+    expect(response.status).toBe(404);
+    expect(checkTraffic(harness)).toEqual([`GET ${API}/v1/unknown has no recorded response`]);
+  });
+
+  it("hands the adapter the client id, timeout, and extra settings a test passes", () => {
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: {},
+      clientId: "acme-client-id",
+      timeoutMs: 250,
+      extra: { privateKey: PRIVATE_KEY },
+    });
+    expect(harness.ctx.client.clientId).toBe("acme-client-id");
+    expect(harness.ctx.timeoutMs).toBe(250);
+    expect(harness.ctx.client.extra.privateKey?.reveal()).toBe(PRIVATE_KEY);
+  });
+
+  it("reports a request over http or without a timeout (boundary)", async () => {
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: { "GET http://api.example.com/v1/items": { body: [] }, [`GET ${API}/v1/items`]: { body: [] } },
+    });
+    await harness.ctx.fetch("http://api.example.com/v1/items", { signal: AbortSignal.timeout(1000) });
+    await harness.ctx.fetch(`${API}/v1/items`);
+    expect(checkTraffic(harness)).toEqual([
+      "GET http://api.example.com/v1/items is not https",
+      `GET ${API}/v1/items was sent without a timeout; send it through fetchJson`,
+    ]);
+  });
+
+  it("reports a log line that carries a secret, and passes one with a Secret (boundary)", () => {
+    const harness = createAdapterHarness({
+      now: NOW,
+      routes: {},
+      // Made-up keys in both forms an app's private key arrives in: one line with `\n` escapes,
+      // and two lines.
+      extra: { privateKey: "synthetic-key-a-1\\nsynthetic-key-a-2", multiLine: "synthetic-key-b-1\nsynthetic-key-b-2" },
+    });
+    harness.ctx.logger.info("example.safe", {
+      secret: harness.ctx.client.clientSecret,
+      key: harness.ctx.client.extra.multiLine,
+      error: new Error("token refused"),
+    });
+    harness.ctx.logger.warn("example.leak", { token: "synthetic-access-token-1" });
+    harness.ctx.logger.error("example.client", { value: harness.clientSecret });
+    harness.ctx.logger.error("example.extra", { key: harness.ctx.client.extra.privateKey?.reveal() });
+    harness.ctx.logger.error("example.multiline", { key: harness.ctx.client.extra.multiLine?.reveal() });
+    harness.ctx.logger.error("example.error", { error: new Error("refused synthetic-access-token-1") });
+    harness.ctx.logger.error("example.cause", {
+      error: new Error("refused", { cause: new Error("synthetic-access-token-1 expired") }),
+    });
+    expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([
+      "log 1 (example.leak) contains a secret",
+      "log 2 (example.client) contains a secret",
+      "log 3 (example.extra) contains a secret",
+      "log 4 (example.multiline) contains a secret",
+      "log 5 (example.error) contains a secret",
+      "log 6 (example.cause) contains a secret",
+    ]);
+  });
+});

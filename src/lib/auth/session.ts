@@ -5,18 +5,25 @@ import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { cache } from "react";
 
+import { accountProfile, type AccountProfile } from "@/lib/account/profile";
 import { safeNextPath } from "@/lib/auth/redirect";
 import { log } from "@/lib/log/logger";
 import { createClient } from "@/lib/supabase/server";
 
-export type SessionUser = { id: string; email: string | null };
+export type SessionUser = { id: string; email: string | null; profile: AccountProfile };
 
 /**
  * The signed-in user for this request, or null.
  *
  * Uses `getClaims()`, which verifies the access token signature (and refreshes it when close to
- * expiry), never `getSession()`, which trusts whatever the cookie says. Cached per request so a
- * page, its layout, and its data loaders share one verification.
+ * expiry), never `getSession()`, which trusts whatever the cookie says. With an asymmetric signing
+ * key (the local stack's default, and the hosted setup in docs/operations/deploy.md) it verifies
+ * against the project's public keys, which supabase-js caches in memory for 10 minutes, with no
+ * Auth server call; with the legacy HS256 secret it asks the Auth server every time (#318). The
+ * local check cannot see a session ended on the server (sign-out of all devices, account deleted
+ * elsewhere, a ban): such a token is accepted until its `exp`, up to the JWT expiry (3600 s by
+ * default), where the Auth server call would refuse it at once. Cached per request so a page, its
+ * layout, and its data loaders share one verification.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   // The session is per request and the auth client reads the clock (token expiry) while it sets
@@ -36,8 +43,13 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   }
   if (data === null) return null;
 
-  const { sub, email } = data.claims;
-  return { id: sub, email: typeof email === "string" && email !== "" ? email : null };
+  const { sub, email, user_metadata: metadata } = data.claims;
+  return {
+    id: sub,
+    email: typeof email === "string" && email !== "" ? email : null,
+    // As of the token's issue; each GitHub sign-in rewrites the metadata and issues a new token.
+    profile: accountProfile(metadata),
+  };
 });
 
 /**

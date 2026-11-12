@@ -12,12 +12,12 @@ const steps: readonly IconCardItem[] = [
   {
     icon: RadarIcon,
     title: "Collect",
-    body: `${site.name} reads usage, costs, and events through official APIs, signed webhooks, and scheduled syncs, and keeps daily snapshots so you have history, not just today's number.`,
+    body: `${site.name} reads events, usage, and costs through official APIs, signed webhooks, and scheduled syncs, and keeps daily snapshots so you have history, not just today's number.`,
   },
   {
     icon: GaugeIcon,
     title: "Know",
-    body: "One dashboard for spend and allowances, one timeline for activity, and alerts when a threshold is crossed: once per billing period, not every hour.",
+    body: "One timeline for activity. When a threshold is crossed, one alert on the channel you read, once per billing period and not every hour. Allowances and spend show where each provider reports them.",
   },
 ];
 

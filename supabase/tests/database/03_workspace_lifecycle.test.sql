@@ -326,6 +326,7 @@ select is_empty(
     union all select 'external_accounts' from public.external_accounts where workspace_id = (select id from team)
     union all select 'usage_snapshots' from public.usage_snapshots where workspace_id = (select id from team)
     union all select 'activity_events' from public.activity_events where workspace_id = (select id from team)
+    union all select 'activity_event_daily_counts' from public.activity_event_daily_counts where workspace_id = (select id from team)
     union all select 'budgets' from public.budgets where workspace_id = (select id from team)
     union all select 'alert_rules' from public.alert_rules where workspace_id = (select id from team)
     union all select 'triggered_alerts' from public.triggered_alerts where workspace_id = (select id from team)

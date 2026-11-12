@@ -2,10 +2,11 @@
 
 import { REALTIME_SUBSCRIBE_STATES, type RealtimeChannel } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef, useTransition } from "react";
 
+import { useArrivalControls } from "@/components/app/arrivals";
 import { redactFields } from "@/lib/log/redact";
-import { createRefreshScheduler } from "@/lib/realtime/refresh-scheduler";
+import { createRefreshScheduler, type RefreshScheduler } from "@/lib/realtime/refresh-scheduler";
 import { createClient } from "@/lib/supabase/client";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -36,20 +37,49 @@ let mountCount = 0;
  *
  * Renders nothing. If the subscription fails, the failure is logged at error level and the page
  * behaves as it did before live updates: it shows new data on the next navigation or reload.
+ * It tells the ArrivalProvider whether the channel is live and when each batch arrives, which the
+ * live indicator in the header shows (#171).
+ *
+ * One refresh runs at a time (#309, src/lib/realtime/refresh-scheduler.ts). `router.refresh()`
+ * returns nothing, and its router action settles as soon as the request is spawned
+ * (node_modules/next/dist/client/components/app-router-state.js, `navigateToKnownRoute`), so the
+ * router itself never holds a second refresh back. What does wait is the render: the router sets
+ * its state in a transition (app-router-instance.js, `dispatchAction`) that joins the one started
+ * here, and the new tree suspends on the refreshed payload. So `isPending` turns false once that
+ * payload is on screen. A navigation during a refresh updates the same router state, and React
+ * entangles transition updates to one state (`entangleTransitionUpdate` in react-dom), so both
+ * commit together and the refresh still ends. e2e/realtime.spec.ts covers both cases.
  */
 export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
   // `refresh` is the app router's own method, stable across renders, unlike the object around it.
   const { refresh } = useRouter();
+  const arrivals = useArrivalControls();
+  const [refreshing, startRefresh] = useTransition();
+  const schedulerRef = useRef<RefreshScheduler | null>(null);
+
+  useEffect(() => {
+    if (!refreshing) schedulerRef.current?.settled();
+  }, [refreshing]);
 
   useEffect(() => {
     // The browser client is a singleton, so this channel shares the one socket of the page.
     const supabase = createClient();
+    // The newest commit among the changes delivered so far: the database's clock, not the browser's.
+    let lastCommitAt: string | null = null;
     const scheduler = createRefreshScheduler({
-      refresh,
+      refresh: () => {
+        arrivals?.arrived(lastCommitAt);
+        startRefresh(() => refresh());
+      },
       isHidden: () => document.visibilityState === "hidden",
     });
+    schedulerRef.current = scheduler;
     const onVisibilityChange = () => scheduler.visibilityChanged();
     document.addEventListener("visibilitychange", onVisibilityChange);
+    const onChange = ({ commit_timestamp: committedAt }: { commit_timestamp: string }) => {
+      if (lastCommitAt === null || Date.parse(committedAt) > Date.parse(lastCommitAt)) lastCommitAt = committedAt;
+      scheduler.notify();
+    };
 
     let channel: RealtimeChannel | undefined;
     let active = true;
@@ -59,13 +89,15 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       channel = supabase.channel(`workspace-live:${workspaceId}:${++mountCount}`);
       for (const table of LIVE_TABLES) {
         for (const event of LIVE_EVENTS) {
-          channel.on("postgres_changes", { event, schema: "public", table, filter }, scheduler.notify);
+          channel.on("postgres_changes", { event, schema: "public", table, filter }, onChange);
         }
       }
       channel.subscribe((status, error) => {
+        if (status === REALTIME_SUBSCRIBE_STATES.SUBSCRIBED) arrivals?.setStatus("live");
         if (status !== REALTIME_SUBSCRIBE_STATES.CHANNEL_ERROR && status !== REALTIME_SUBSCRIBE_STATES.TIMED_OUT) {
           return;
         }
+        arrivals?.setStatus("offline");
         // One JSON line per failure, shaped like the server logger's (src/lib/log/logger.ts, which
         // is server only), so it reads the same in devtools and in the Playwright console. The
         // fields hold no token; redaction masks one if a future error carries it.
@@ -92,8 +124,9 @@ export function LiveRefresh({ workspaceId }: { workspaceId: string }) {
       scheduler.dispose();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       if (channel !== undefined) void supabase.removeChannel(channel);
+      arrivals?.setStatus("connecting");
     };
-  }, [refresh, workspaceId]);
+  }, [refresh, workspaceId, arrivals]);
 
   return null;
 }

@@ -1,12 +1,14 @@
 # GitHub
 
-Provider id: `github`. Issues: #51 (adapter), #11 (research). Docs checked 2026-10-31.
+Provider id: `github`. Verification: documentation only. Docs checked 2026-10-31.
+
+DevMacro reads your GitHub billing usage by product, including Actions minutes, storage, and Copilot, plus stars, star history, and forks. It installs as a GitHub App with three read-only permissions.
 
 ## Go or no-go
 
-**Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything #51 asks for: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
+**Go for the MVP, with one scope correction.** A GitHub App with three read-only permissions covers everything DevMacro reads: organization billing usage by product and SKU (Actions minutes, storage, Copilot, and every other metered product), star count, star history, and forks. Organization data uses short-lived installation access tokens. Personal account billing is only readable with a user access token, so personal accounts also need the user authorization step.
 
-The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. #51 should be updated to say so. The landing page row "Copilot premium requests" (PR #122) is out of date for the same reason.
+The correction: **since 2026-06-01 every Copilot plan is billed in GitHub AI Credits, not premium requests** ([changelog](https://github.blog/changelog/2026-06-01-updates-to-github-copilot-billing-and-plans/)). Premium requests now only apply to Copilot Pro and Pro+ annual plans that stayed on legacy billing. The adapter should read `GET /organizations/{org}/settings/billing/ai_credit/usage` for Copilot spend and keep `premium_request/usage` only as a legacy fallback. The landing page's Copilot row names AI Credits for the same reason.
 
 ## Connection
 
@@ -22,9 +24,9 @@ GitHub App, installed on a user or organization account, plus a one-time user au
 | API base URL | `https://api.github.com` |
 | API version header | `X-GitHub-Api-Version: 2026-03-10` (latest). `2022-11-28` is supported until 2028-03-10. Requests without the header get `2022-11-28` |
 | App JWT | RS256, signed with the app private key. `iat` 60 seconds in the past, `exp` at most 10 minutes ahead, `iss` = client ID (recommended) or app ID |
-| Installation access token | 1 hour. Minted with the JWT. Prefix `ghs_`. Since 2026-04-27 new tokens roll out in a longer stateless format (`ghs_APPID_JWT`), so never assume 40 characters |
-| User access token | 8 hours (`expires_in: 28800`), prefix `ghu_`. Only when "Expire user authorization tokens" is on (the default) |
-| Refresh token | 6 months (`refresh_token_expires_in: 15897600`), prefix `ghr_`, rotates on every use |
+| Installation access token | 1 hour. Minted with the JWT. Starts with `ghs` and an underscore. Since 2026-04-27 new tokens roll out in a longer stateless format (that prefix, the app ID, an underscore, then a JWT), so never assume 40 characters |
+| User access token | 8 hours (`expires_in: 28800`), starts with `ghu` and an underscore. Only when "Expire user authorization tokens" is on (the default) |
+| Refresh token | 6 months (`refresh_token_expires_in: 15897600`), starts with `ghr` and an underscore, rotates on every use |
 | Private key | PEM, PKCS#1 (`BEGIN RSA PRIVATE KEY`). Never expires. Up to 25 keys per app, for rotation |
 
 ### Install
@@ -106,6 +108,8 @@ Granularity: per day, product, SKU, and repository where the product has one. `n
 ### Billing usage summary, organization: `GET /organizations/{org}/settings/billing/usage/summary`
 
 Public preview, subject to change. Aggregated over the requested period (default: current month). Extra filters: `repository` (`owner/repo`), `product`, `sku`. Response: `timePeriod` (`year`, `month`, `day`), `organization`, and `usageItems[]` with `product`, `sku`, `unitType`, `pricePerUnit`, `grossQuantity`, `grossAmount`, `discountQuantity`, `discountAmount`, `netQuantity`, `netAmount`. Only the last 24 months are available. Use it for the month-to-date total per product; use `/usage` for the daily chart.
+
+DevMacro stores the same money at three levels: month to date per product (`github.spend.<product>`), per SKU (`github.spend.<product>.<sku>`), and per product per UTC day (`github.daily_spend.<product>`). Spend totals, alerts, and the daily summary count only the month to date per product. A SKU row is a breakdown of its product, and a day row lies inside the month, so neither is added again (`countedSnapshots` in `src/lib/dashboard/aggregate.ts`).
 
 ### AI credits, organization: `GET /organizations/{org}/settings/billing/ai_credit/usage`
 
@@ -274,13 +278,13 @@ Setup URL redirect after install (from documentation, not recorded; `setup_actio
 }
 ```
 
-`POST https://github.com/login/oauth/access_token` (from documentation, not recorded; values synthetic):
+`POST https://github.com/login/oauth/access_token` (from documentation, not recorded; the tokens are shown as placeholders):
 
 ```json
 {
-  "access_token": "ghu_exampleexampleexample",
+  "access_token": "<user-access-token>",
   "expires_in": 28800,
-  "refresh_token": "ghr_exampleexampleexample",
+  "refresh_token": "<refresh-token>",
   "refresh_token_expires_in": 15897600,
   "scope": "",
   "token_type": "bearer"

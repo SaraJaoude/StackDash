@@ -49,3 +49,5 @@ next-env.d.ts
 # supabase cli local state
 /supabase/.branches
 /supabase/.temp
+# A private JWT signing key, if you set auth.signing_keys_path (supabase/config.toml)
+/supabase/signing_keys.json

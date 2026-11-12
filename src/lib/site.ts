@@ -1,9 +1,15 @@
+// Who the landing page speaks to (#305). An assumption until #141 question 3 is answered.
+const audience = "solo developers running side projects and small products";
+
 /** Single source of truth for site-wide constants. Update links here, nowhere else. */
 export const site = {
   name: "DevMacro",
+  /** The brand line: the footer and the README. Not the page heading, which says what DevMacro does. */
   tagline: "The big picture of your developer stack",
-  description:
-    "DevMacro is an open-source dashboard for the usage, spending, quotas, and activity of the developer services you build on. See what you have spent, how much allowance is left, and when it resets, and get alerted before a limit or budget becomes a problem.",
+  /** The promise: the hero heading and the document title (#144, #305). */
+  headline: "One timeline and one alert for your whole developer stack",
+  audience,
+  description: `DevMacro is an open-source dashboard for ${audience}: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish. Spend and allowances show where each provider reports them.`,
   githubUrl: "https://github.com/eddiejaoude/DevMacro",
   founder: {
     name: "Eddie Jaoude",
@@ -11,8 +17,21 @@ export const site = {
   },
 } as const;
 
-/** Every platform the landing page names, shared by the hero preview and the live feed. */
-export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase";
+/** Every platform with a brand mark: the landing page's hero preview and live feed, and each provider. */
+export type Platform =
+  | "Vercel"
+  | "GitHub"
+  | "GitHub Actions"
+  | "GitHub Copilot"
+  | "Resend"
+  | "Stripe"
+  | "Supabase"
+  | "DigitalOcean"
+  | "PostHog"
+  | "Polar"
+  | "Sentry"
+  | "Railway"
+  | "GitLab";
 
 export interface NavLink {
   label: string;
@@ -44,3 +63,6 @@ if (navLinks.length !== HEADER_LABELS.size) {
 // Pages outside the landing page. Kept apart from sectionLinks, which are all in-page anchors.
 export const docsLink: NavLink = { label: "Docs", href: "/docs" };
 export const signInLink: NavLink = { label: "Sign in", href: "/sign-in" };
+// The privacy policy and terms of use (#339). Only rendered where `operatorEnv()` names an operator.
+export const privacyLink: NavLink = { label: "Privacy policy", href: "/privacy" };
+export const termsLink: NavLink = { label: "Terms of use", href: "/terms" };

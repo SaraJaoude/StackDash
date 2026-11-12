@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatMoney } from "@/lib/format";
 import {
   AdapterScopedKeySchema,
   issuesFromZod,
@@ -7,14 +8,27 @@ import {
 } from "./types";
 
 /**
+ * What an event stands for across providers, for figures that count one kind of event (the
+ * dashboard headline's signups and deploys, #173). Declared by the adapter, so a new provider's
+ * events are counted without a second list to keep in step. Only for one event per signup or
+ * deploy: the figures count events, so a daily summary (`supabase.auth.daily_summary`,
+ * `posthog.signups.daily`) has no category. A provider that reports signups only as a daily total
+ * declares the usage metric holding it instead (`ProviderAdapter.signupDailyTotals`), and the
+ * headline sums that metric's daily readings.
+ */
+export const EventCategorySchema = z.enum(["signup", "deploy_succeeded", "deploy_failed"]);
+
+/**
  * Declared by each adapter. Events carry the id so members can hide event
- * types later (#119) without reworking stored events.
+ * types later (#119) without reworking stored events. `category` is left out
+ * for events that are none of the categories.
  */
 export const EventTypeSchema = z.strictObject({
   id: AdapterScopedKeySchema,
   label: z.string().trim().min(1).max(80),
   description: z.string().trim().min(1).max(280),
   shownByDefault: z.boolean(),
+  category: EventCategorySchema.optional(),
 });
 
 export const EventSeveritySchema = z.enum(["info", "success", "warning", "critical"]);
@@ -36,6 +50,7 @@ export const ActivityEventSchema = z.strictObject({
   url: z.url({ protocol: /^https$/ }).optional(),
 });
 
+export type EventCategory = z.infer<typeof EventCategorySchema>;
 export type EventType = z.infer<typeof EventTypeSchema>;
 export type EventSeverity = z.infer<typeof EventSeveritySchema>;
 export type ActivityEvent = z.infer<typeof ActivityEventSchema>;
@@ -66,4 +81,14 @@ export function validateAdapterEvents(
   });
 
   return issues.length === 0 ? { ok: true, items } : { ok: false, issues };
+}
+
+/**
+ * An event title with the money the event moved (#261): "Payment succeeded: $49.00". The amount is
+ * integer minor units in `currency` (ISO 4217), formatted with that currency's own minor digits,
+ * so 1900 JPY is "¥1,900". One amount per title, never a sum. Without the amount or its currency
+ * the title stands alone: no placeholder, no zero.
+ */
+export function titleWithAmount(title: string, amountMinor: number | undefined, currency: string | undefined): string {
+  return amountMinor === undefined || currency === undefined ? title : `${title}: ${formatMoney(amountMinor, currency)}`;
 }

@@ -1,25 +1,32 @@
 import Link from "next/link";
 
+import { ChevronDownIcon } from "@/components/icons";
 import { SeverityBadge } from "@/components/severity-badge";
 import type { AlertSeverity } from "@/lib/alerts/evaluate";
-import { hasTriggeredAlerts, listTriggeredAlerts, type TriggeredAlert } from "@/lib/data/triggered-alerts";
+import type { AlertHeadline } from "@/lib/alerts/headline";
+import {
+  countUnacknowledgedAlerts,
+  hasTriggeredAlerts,
+  listTriggeredAlerts,
+  type TriggeredAlert,
+} from "@/lib/data/triggered-alerts";
 import type { WorkspaceRef } from "@/lib/data/workspaces";
 import { formatDateTime } from "@/lib/format";
-import { workspacePath } from "@/lib/workspaces/access";
+import { barPercent, usageBarClass } from "@/lib/realtime/arrivals";
+import { ALERT_SETTINGS_IDS, alertSettingsPath, workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform, type WorkspaceRole } from "@/lib/workspaces/permissions";
 
-import { AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
+import { AcknowledgeAllButton, AcknowledgeAnnouncer, AcknowledgeButton } from "./acknowledge-button";
 import { DeniedReason } from "./form-controls";
+import { FragmentHeading } from "./fragment-heading";
 
 /**
  * Triggered alerts, newest first: what fired, how bad, and whether someone has acknowledged it.
- * Acknowledged alerts stay in the history and show with `?acknowledged=show`.
+ * Acknowledged alerts stay in the history and show with `?acknowledged=show`. Each alert leads with
+ * its short title and value (#268); the full sentence is one disclosure away.
  */
 
 const HEADING_ID = "triggered-alerts-title";
-// Anchors rendered by AlertSettings further down the same page.
-const ADD_RULE_ANCHOR = "#add-alert-rule";
-const RULES_ANCHOR = "#alert-rules-title";
 
 const linkClass = "text-accent underline underline-offset-2";
 
@@ -64,6 +71,43 @@ export function AlertTime({ iso }: { iso: string }) {
   return <time dateTime={new Date(iso).toISOString()}>{formatDateTime(iso)}</time>;
 }
 
+/**
+ * The observed value in words, with a bar before it when there is a percent. The words are the
+ * accessible value; the bar only repeats them, colored by `usageBarClass` like the dashboard's.
+ */
+export function AlertValue({ headline }: { headline: AlertHeadline }) {
+  const { percent, value } = headline;
+  if (value === null) return null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+      {percent === null ? null : (
+        <span aria-hidden="true" className="block h-1.5 w-32 overflow-hidden rounded-full bg-line">
+          <span
+            className={`block h-full rounded-full ${usageBarClass(percent)}`}
+            style={{ width: `${barPercent(percent)}%` }}
+          />
+        </span>
+      )}
+      <span>{value}</span>
+    </span>
+  );
+}
+
+/** The alert's full sentence behind a native disclosure, named after the alert it belongs to. */
+export function AlertFullMessage({ title, message }: { title: string; message: string }) {
+  return (
+    <details className="group mt-2">
+      <summary className="inline-flex min-h-6 cursor-pointer list-none items-center gap-1 text-sm text-accent underline-offset-4 hover:underline [&::-webkit-details-marker]:hidden">
+        <span className="group-open:hidden">Show the full alert</span>
+        <span className="hidden group-open:inline">Hide the full alert</span>
+        <span className="sr-only">: {title}</span>
+        <ChevronDownIcon className="size-4 shrink-0 transition-transform motion-reduce:transition-none group-open:rotate-180" />
+      </summary>
+      <p className="mt-1 break-words text-sm leading-6">{message}</p>
+    </details>
+  );
+}
+
 function acknowledgedByLabel(acknowledgedBy: string | null, userId: string): string {
   if (acknowledgedBy === null) return "a former member";
   return acknowledgedBy === userId ? "you" : "another member";
@@ -84,10 +128,12 @@ export async function TriggeredAlerts({
 }) {
   const canAcknowledge = canPerform(role, "acknowledge_alert");
   const canManageRules = canPerform(role, "manage_budgets");
-  const [page, anyFired] = await Promise.all([
+  const [page, anyFired, unacknowledged] = await Promise.all([
     listTriggeredAlerts(workspace.id, showAcknowledged, after),
     // Only needed to tell "nothing ever fired" from "everything is acknowledged".
     showAcknowledged ? null : hasTriggeredAlerts(workspace.id),
+    // Only needed for "Acknowledge all", which only members who can acknowledge see.
+    canAcknowledge ? countUnacknowledgedAlerts(workspace.id) : 0,
   ]);
 
   const alertsPath = workspacePath(workspace.slug, "alerts");
@@ -107,9 +153,9 @@ export async function TriggeredAlerts({
     <section aria-labelledby={HEADING_ID} className="mt-8 rounded-xl border border-line bg-panel">
       <div className="flex flex-col gap-3 border-b border-line px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 id={HEADING_ID} tabIndex={-1} className="text-sm font-semibold">
+          <FragmentHeading id={HEADING_ID} cursor={after}>
             Triggered alerts
-          </h2>
+          </FragmentHeading>
           <p className="mt-1 text-sm text-muted">
             {showAcknowledged
               ? "Every alert that has fired, newest first, including acknowledged ones."
@@ -117,29 +163,45 @@ export async function TriggeredAlerts({
           </p>
           {canAcknowledge ? null : <DeniedReason>{actionDeniedReason("acknowledge_alert")}</DeniedReason>}
         </div>
-        <Link href={hrefFor(!showAcknowledged, null)} className={`shrink-0 text-sm ${linkClass}`}>
+        <Link
+          href={hrefFor(!showAcknowledged, null)}
+          scroll={false}
+          className={`inline-flex min-h-6 shrink-0 items-center text-sm ${linkClass}`}
+        >
           {showAcknowledged ? "Hide acknowledged alerts" : "Show acknowledged alerts"}
         </Link>
       </div>
 
       <AcknowledgeAnnouncer>
+        {unacknowledged === 0 ? null : (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-3 text-sm">
+            <p className="font-medium">
+              {unacknowledged === 1 ? "1 unacknowledged alert" : `${unacknowledged} unacknowledged alerts`}
+            </p>
+            <AcknowledgeAllButton
+              workspaceSlug={workspace.slug}
+              showAcknowledged={showAcknowledged}
+              afterAcknowledgeFocusId={HEADING_ID}
+            />
+          </div>
+        )}
         {nothingFired ? (
           <div className="px-6 py-5 text-sm">
             <p className="font-medium">No alerts have fired</p>
             <p className="mt-1 text-muted">
               {canManageRules ? (
                 <>
-                  <a href={ADD_RULE_ANCHOR} className={linkClass}>
+                  <Link href={alertSettingsPath(workspace.slug, ALERT_SETTINGS_IDS.newRule)} className={linkClass}>
                     Add an alert rule
-                  </a>{" "}
+                  </Link>{" "}
                   to hear about usage or spend before it becomes a problem.
                 </>
               ) : (
                 <>
                   Alerts appear here when an{" "}
-                  <a href={RULES_ANCHOR} className={linkClass}>
+                  <Link href={alertSettingsPath(workspace.slug, ALERT_SETTINGS_IDS.rules)} className={linkClass}>
                     alert rule
-                  </a>{" "}
+                  </Link>{" "}
                   crosses its threshold.
                 </>
               )}
@@ -168,15 +230,16 @@ export async function TriggeredAlerts({
         )}
       </AcknowledgeAnnouncer>
 
+      {/* A pager replaces the list, so it lands on the list's heading rather than the top of the page. */}
       {page.nextCursor === null && after === null ? null : (
         <nav aria-label="Triggered alert pages" className="flex flex-wrap gap-4 border-t border-line px-6 py-3 text-sm">
           {after === null ? null : (
-            <Link href={hrefFor(showAcknowledged, null)} className={linkClass}>
+            <Link href={`${hrefFor(showAcknowledged, null)}#${HEADING_ID}`} className={linkClass}>
               Show the newest alerts
             </Link>
           )}
           {page.nextCursor === null ? null : (
-            <Link href={hrefFor(showAcknowledged, page.nextCursor)} className={linkClass}>
+            <Link href={`${hrefFor(showAcknowledged, page.nextCursor)}#${HEADING_ID}`} className={linkClass}>
               Show older alerts
             </Link>
           )}
@@ -195,15 +258,17 @@ function TriggeredAlertItem({
   userId: string;
   acknowledge: { workspaceSlug: string; successMessage: string; afterAcknowledgeFocusId: string } | null;
 }) {
+  const { headline } = alert;
   return (
     <li className="flex flex-col gap-3 px-6 py-4 sm:flex-row sm:items-start sm:justify-between">
       <article className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
+        <h3 className="break-words text-sm font-semibold leading-6">{headline.title}</h3>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <AlertSeverityLabel severity={alert.severity} />
           {alert.is_estimated ? <EstimatedBadge /> : null}
+          <AlertValue headline={headline} />
         </div>
-        <p className="mt-2 break-words text-sm leading-6">{alert.message}</p>
-        <p className="mt-1 text-sm text-muted">
+        <p className="mt-2 text-sm text-muted">
           Threshold {alert.threshold_label}
           <span aria-hidden="true"> · </span>
           <span className="sr-only">. </span>
@@ -219,12 +284,13 @@ function TriggeredAlertItem({
             </span>
           )}
         </p>
+        <AlertFullMessage title={headline.title} message={alert.message} />
       </article>
       {acknowledge === null || alert.acknowledged_at !== null ? null : (
         <AcknowledgeButton
           workspaceSlug={acknowledge.workspaceSlug}
           alertId={alert.id}
-          accessibleSuffix={alert.message}
+          accessibleSuffix={`${headline.title}, triggered ${formatDateTime(alert.triggered_at)}`}
           successMessage={acknowledge.successMessage}
           afterAcknowledgeFocusId={acknowledge.afterAcknowledgeFocusId}
         />

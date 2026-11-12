@@ -1,11 +1,34 @@
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_USERS } from "./e2e/fixtures/auth";
+import { FAKE_RESEND } from "./e2e/fixtures/fake-resend";
+import { E2E_OPERATOR } from "./e2e/fixtures/operator";
+
 // E2E_PORT lets parallel local runs (and agents) avoid each other and the default dev port.
 const port = Number(process.env.E2E_PORT ?? 3100);
 const baseURL = `http://localhost:${port}`;
 
 // Specs that run the job tick, which touches every workspace; see `projects` below.
-const INSTANCE_WIDE_SPECS = ["simulated-providers.spec.ts"];
+const INSTANCE_WIDE_SPECS = [
+  "simulated-providers.spec.ts",
+  "alert-email.spec.ts",
+  "simulated-sentry.spec.ts",
+  "demo-event.spec.ts",
+];
+
+// Pass this process's environment through (CI sets the Supabase variables here). Locally the dev
+// server loads .env.local itself, and variables already set here take precedence over it.
+const inherited = Object.fromEntries(
+  Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
+);
+
+// Alert email goes to the fake Resend API (#244) that the first web server runs, never to Resend:
+// the app and the fake get the same URL and dummy key, whatever .env.local says.
+const fakeResendEnv = {
+  DEVMACRO_EMAIL_FROM: FAKE_RESEND.from,
+  DEVMACRO_RESEND_API_KEY: FAKE_RESEND.apiKey,
+  DEVMACRO_RESEND_API_URL: FAKE_RESEND.url,
+};
 
 export default defineConfig({
   testDir: "./e2e",
@@ -43,24 +66,42 @@ export default defineConfig({
       dependencies: ["chromium"],
     },
   ],
-  webServer: {
-    // CI tests the production build: it is what users get, it caught the nonce CSP blocking
-    // hydration that dev mode hides, and it has no on-demand route compilation to race the first
-    // test that reaches a route. Local runs keep the dev server for fast iteration.
-    command: process.env.CI ? `npm run build && npm run start -- --port ${port}` : `npm run dev -- --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: false,
-    timeout: process.env.CI ? 300_000 : 120_000,
-    // Pass this process's environment through (CI sets the Supabase variables here). Locally the
-    // dev server loads .env.local itself, and variables already set here take precedence over it.
-    // The one override, and the only switch for it in end-to-end runs (CI does not set it): the
-    // live providers are simulated (#131), so their connect flow runs without OAuth apps. Rows a
-    // spec seeds for a live provider stay real connections and are never labeled "Simulated".
-    env: {
-      ...Object.fromEntries(
-        Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
-      ),
-      DEVMACRO_SIMULATE_PROVIDERS: "1",
+  webServer: [
+    {
+      name: "fake-resend",
+      command: "npm run email:fake",
+      url: `${FAKE_RESEND.url}/fake/emails`,
+      reuseExistingServer: false,
+      env: { ...inherited, ...fakeResendEnv },
     },
-  },
+    {
+      name: "app",
+      // CI tests the production build: it is what users get, it caught the nonce CSP blocking
+      // hydration that dev mode hides, and it has no on-demand route compilation to race the first
+      // test that reaches a route. Local runs keep the dev server for fast iteration.
+      command: process.env.CI ? `npm run build && npm run start -- --port ${port}` : `npm run dev -- --port ${port}`,
+      url: baseURL,
+      reuseExistingServer: false,
+      timeout: process.env.CI ? 300_000 : 120_000,
+      // Alert email goes to the fake Resend API, as above (fakeResendEnv).
+      // A synthetic operator, and the only switch for it in end-to-end runs (CI does not set it):
+      // it publishes /privacy and /terms (#339), e2e/fixtures/operator.ts.
+      // Simulated providers, and the only switch for it in end-to-end runs (CI does not set it):
+      // the live providers are simulated (#131), so their connect flow runs without OAuth apps.
+      // Rows a spec seeds for a live provider stay real connections and are never labeled
+      // "Simulated".
+      // The public origin is the server's own, whatever .env.local says, so absolute metadata URLs
+      // (canonical addresses, og:url, og:image: #338) and alert links point at this server.
+      // The e2e owner is the instance's super admin (#250) and the viewer is not, whatever
+      // .env.local says, so e2e/admin.spec.ts can check both sides of the gate.
+      env: {
+        ...inherited,
+        ...fakeResendEnv,
+        ...E2E_OPERATOR,
+        DEVMACRO_SIMULATE_PROVIDERS: "1",
+        NEXT_PUBLIC_SITE_URL: baseURL,
+        DEVMACRO_SUPER_ADMIN_EMAILS: E2E_USERS.owner.email,
+      },
+    },
+  ],
 });

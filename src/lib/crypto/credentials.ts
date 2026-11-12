@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, hkdfSync, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { z } from "zod";
 
@@ -131,6 +131,63 @@ export function currentKeyId(): string {
 /** True when a record sealed with `keyId` should be re-encrypted under the current key. */
 export function needsRotation(keyId: string): boolean {
   return keyId !== loadKeyring().currentKeyId;
+}
+
+// HKDF info prefixes (RFC 5869, `crypto.hkdfSync`): one namespace per kind of derived key, each
+// versioned, so a key derived for one purpose never equals an encryption key or a key derived for
+// another purpose, and changing what a key is used for is a version bump, not a key rotation. The
+// two prefixes differ in the first word after the shared `devmacro `, so no purpose string makes
+// them collide. The signing prefix is fixed: changing it would invalidate every signature already
+// sent.
+const SIGNING_INFO_PREFIX = "devmacro signing v1:";
+const DERIVED_INFO_PREFIX = "devmacro key v1:";
+
+/** The one HKDF derivation in this file: a 32 byte key from `key` for the purpose `info` names. */
+function hkdfKey(key: Buffer, info: string): Buffer {
+  return Buffer.from(hkdfSync("sha256", key, Buffer.alloc(0), info, KEY_BYTES));
+}
+
+/**
+ * A key for one purpose other than sealing credentials or signing messages, derived from the
+ * current key, so the deployment needs no second secret and the derived key reveals nothing about
+ * the encryption key. Rotating the encryption key changes it, so only use it where that is
+ * harmless, such as hashing client IPs for a one minute rate limit window (#149).
+ */
+export function derivedKey(purpose: string): Buffer {
+  const { currentKeyId: keyId, keys } = loadKeyring();
+  const key = keys.get(keyId);
+  if (key === undefined) throw new UnknownEncryptionKeyError(keyId);
+  return hkdfKey(key, `${DERIVED_INFO_PREFIX}${purpose}`);
+}
+
+function signingKey(key: Buffer, purpose: string): Buffer {
+  return hkdfKey(key, `${SIGNING_INFO_PREFIX}${purpose}`);
+}
+
+/**
+ * Signs `message` for `purpose` (such as "unsubscribe") with HMAC-SHA256 under a key derived from
+ * the current encryption key. Returns `<keyId>.<base64url signature>`, so a signature made before a
+ * rotation still verifies while the old key is in DEVMACRO_ENCRYPTION_KEYS_PREVIOUS.
+ */
+export function signMessage(purpose: string, message: string): string {
+  const { currentKeyId: keyId, keys } = loadKeyring();
+  const key = keys.get(keyId);
+  if (key === undefined) throw new UnknownEncryptionKeyError(keyId);
+  const signature = createHmac("sha256", signingKey(key, purpose)).update(message, "utf8").digest("base64url");
+  return `${keyId}.${signature}`;
+}
+
+/** True when `signed` is a `signMessage` result for `purpose` and `message` under a configured key. */
+export function verifyMessage(purpose: string, message: string, signed: string): boolean {
+  const separator = signed.indexOf(".");
+  if (separator <= 0) return false;
+  const key = loadKeyring().keys.get(signed.slice(0, separator));
+  if (key === undefined) return false;
+  // Compared as text, not decoded bytes: base64url decoding ignores the spare bits of the last
+  // character, so several spellings decode alike, and only the canonical one is accepted.
+  const given = Buffer.from(signed.slice(separator + 1), "utf8");
+  const expected = Buffer.from(createHmac("sha256", signingKey(key, purpose)).update(message, "utf8").digest("base64url"), "utf8");
+  return given.length === expected.length && timingSafeEqual(given, expected);
 }
 
 /** Associated data for a stored connection credential; binds the ciphertext to its row. */

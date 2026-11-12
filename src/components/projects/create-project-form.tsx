@@ -3,7 +3,9 @@
 import { useActionState, useId, useState } from "react";
 
 import { createProject, type ProjectActionResult } from "@/app/w/[workspace]/projects/actions";
+import { GuardedButton } from "@/components/guarded-button";
 import { FormErrorSummary, ProjectNameField, failureOf } from "@/components/projects/project-form-parts";
+import { buttonClass } from "@/components/ui/button";
 
 /**
  * Create form for owners and admins. On the empty state it takes focus as the first action.
@@ -48,13 +50,13 @@ export function CreateProjectForm({
           error={failure?.fieldErrors?.name}
           autoFocus={autoFocus}
         />
-        <button
+        <GuardedButton
           type="submit"
-          disabled={pending}
-          className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85 disabled:opacity-60"
+          unavailable={pending}
+          className={`shrink-0 ${buttonClass("primary")}`}
         >
           {pending ? "Creating" : "Create project"}
-        </button>
+        </GuardedButton>
       </div>
       <FormErrorSummary failure={failure} fieldId={inputId} />
     </form>

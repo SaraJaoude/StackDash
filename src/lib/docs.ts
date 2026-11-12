@@ -7,29 +7,62 @@ import { cache } from "react";
 /**
  * Repository docs published on the website. Every Markdown file under `docs/` becomes a page at
  * `/docs/<folder>/<file>`, read with `fs` at build time (synchronous reads complete during the
- * prerender, so the pages stay fully static).
+ * prerender, so the pages stay fully static), except the files under `docs/internal/`.
  */
 const DOCS_DIR = path.join(process.cwd(), "docs");
 export const DOCS_ROUTE = "/docs";
+
+// Runbooks for the people who operate the hosted instance. They stay in the repository and are
+// never published: no /docs page, no entry in the docs list, no link target.
+const INTERNAL_FOLDER = "internal";
 
 // One URL segment per folder or file name. Anything else (`..`, `/`, `\`, `%`, uppercase, an empty
 // segment) is refused before a path is ever built from it.
 const SEGMENT = /^[a-z0-9-]+$/;
 
-// Index order for the folders under docs/. A new folder still publishes, after these.
-const GROUP_ORDER = ["providers", "operations", "architecture"];
-const ROOT_GROUP = "general";
+// The top-level pages written for people using DevMacro, in reading order. They lead the index.
+// Any other top-level page is for people working on DevMacro's code and is listed under
+// Developers.
+const GUIDE_PAGES = ["getting-started", "api", "mcp"];
+const GUIDES_GROUP = "guides";
+const DEVELOPERS_GROUP = "developers";
+const PROVIDERS_GROUP = "providers";
+
+// Index order and label of each group. A folder under docs/ that is not listed here still
+// publishes, after these, labeled from its name.
+const GROUPS: readonly { id: string; label: string }[] = [
+  { id: GUIDES_GROUP, label: "Using DevMacro" },
+  { id: PROVIDERS_GROUP, label: "Providers" },
+  { id: "operations", label: "Self-hosting and operations" },
+  { id: "architecture", label: "Architecture" },
+  { id: DEVELOPERS_GROUP, label: "Developers" },
+];
+
+/**
+ * How far a provider page's claims have been checked, from its `Verification:` lead sentence:
+ * against the provider's documentation only, or with a real account.
+ */
+export type DocVerification = "documentation" | "real-account";
+
+// The words a provider page's lead line uses for each status. Anything else fails the build.
+const VERIFICATION_PHRASES: Readonly<Record<string, DocVerification>> = {
+  "documentation only": "documentation",
+  "tested with a real account": "real-account",
+};
+const VERIFICATION_SENTENCE = /(?:^|\s)Verification: ([^.]+)\./;
 
 export interface DocPage {
   /** URL segments under /docs, the file path without `.md`. */
   slug: readonly string[];
   href: string;
-  /** Folder under docs/, or "general" for a file at the top level. */
+  /** Folder under docs/; a file at the top level is in "guides" or "developers" (GUIDE_PAGES). */
   group: string;
   /** Plain text of the first heading. */
   title: string;
   /** Plain text of the first prose paragraph, for the index and the page description. */
   description: string;
+  /** Provider pages only: how far the page's claims have been checked. */
+  verification: DocVerification | null;
   source: string;
 }
 
@@ -78,9 +111,10 @@ export function toPlainText(markdown: string): string {
     .trim();
 }
 
-// Lead sentences that only carry tracking details for the repository (provider id, issue numbers,
-// the date the research was checked). They say nothing about the page, so the description skips them.
-const TRACKING_SENTENCE = /^(?:Provider id|Issues|Docs checked)\b[\s\S]*?\.(?:\s+|$)/;
+// Lead sentences that only carry tracking details for the repository (provider id, verification
+// status, the date the research was checked). They say nothing about the page, so the description
+// skips them.
+const TRACKING_SENTENCE = /^(?:Provider id|Verification|Docs checked)\b[\s\S]*?\.(?:\s+|$)/;
 
 // Lines that start a block other than a paragraph: heading, list, table, quote, HTML, rule.
 const NON_PARAGRAPH = /^\s*(?:#|[-*+]\s|\d+[.)]\s|\||>|<|-{3,}|\*{3,}|_{3,})/;
@@ -93,19 +127,23 @@ function parseTitle(lines: readonly string[]): string | null {
   return null;
 }
 
-function parseDescription(lines: readonly string[]): string {
+/** Prose paragraphs in order, each joined into one line. Headings, lists, tables, and quotes end one. */
+function paragraphs(lines: readonly string[]): string[] {
   let paragraph: string[] = [];
-  const candidates: string[] = [];
+  const found: string[] = [];
   for (const line of [...lines, ""]) {
     if (line.trim() === "" || NON_PARAGRAPH.test(line)) {
-      if (paragraph.length > 0) candidates.push(paragraph.join(" "));
+      if (paragraph.length > 0) found.push(paragraph.join(" "));
       paragraph = [];
       continue;
     }
     paragraph.push(line.trim());
   }
+  return found;
+}
 
-  for (const candidate of candidates) {
+function parseDescription(lines: readonly string[]): string {
+  for (const candidate of paragraphs(lines)) {
     let text = candidate;
     for (let match = TRACKING_SENTENCE.exec(text); match; match = TRACKING_SENTENCE.exec(text)) {
       text = text.slice(match[0].length);
@@ -114,6 +152,37 @@ function parseDescription(lines: readonly string[]): string {
     if (plain !== "") return plain;
   }
   return "";
+}
+
+/**
+ * The status a provider page states in a `Verification: <phrase>.` sentence of its lead paragraph
+ * (the first prose paragraph outside code), or null when the lead paragraph states none or a
+ * phrase that is not one of `VERIFICATION_PHRASES`. A sentence further down never counts, so a
+ * note in the body cannot change the badge.
+ */
+export function parseVerification(source: string): DocVerification | null {
+  const lead = paragraphs(proseLines(source))[0];
+  const phrase = lead === undefined ? undefined : VERIFICATION_SENTENCE.exec(lead)?.[1];
+  if (phrase === undefined) return null;
+  // `hasOwn`, so a phrase such as "constructor" never resolves to an Object prototype member.
+  return Object.hasOwn(VERIFICATION_PHRASES, phrase) ? (VERIFICATION_PHRASES[phrase] ?? null) : null;
+}
+
+function requireVerification(relativeFile: string, source: string): DocVerification {
+  const verification = parseVerification(source);
+  if (verification !== null) return verification;
+  const phrases = Object.keys(VERIFICATION_PHRASES).map((phrase) => `"Verification: ${phrase}."`);
+  throw new Error(`docs/${relativeFile}: add one of ${phrases.join(" or ")} to the lead line`);
+}
+
+/**
+ * The index group of the doc at this slug: its folder, or for a top-level page "guides" when
+ * GUIDE_PAGES lists it and "developers" otherwise.
+ */
+export function docGroup(slug: readonly string[]): string {
+  const [first = ""] = slug;
+  if (slug.length > 1) return first;
+  return GUIDE_PAGES.includes(first) ? GUIDES_GROUP : DEVELOPERS_GROUP;
 }
 
 function readDoc(relativeFile: string): DocPage {
@@ -128,32 +197,42 @@ function readDoc(relativeFile: string): DocPage {
   const title = parseTitle(lines);
   if (title === null) throw new Error(`docs/${relativeFile}: add a "# Title" heading, the page title comes from it`);
 
+  const group = docGroup(slug);
   return {
     slug,
     href: docHref(slug),
-    group: slug.length > 1 ? (slug[0] ?? ROOT_GROUP) : ROOT_GROUP,
+    group,
     title,
     description: parseDescription(lines),
+    verification: group === PROVIDERS_GROUP ? requireVerification(relativeFile, source) : null,
     source,
   };
 }
 
 function groupRank(group: string): number {
-  const index = GROUP_ORDER.indexOf(group);
-  return index === -1 ? GROUP_ORDER.length : index;
+  const index = GROUPS.findIndex((known) => known.id === group);
+  return index === -1 ? GROUPS.length : index;
 }
 
-/** Every doc, ordered by folder (GROUP_ORDER first) and then by title. */
+/** Reading order inside a group: the guides as GUIDE_PAGES lists them, every other page by title. */
+function guideRank(doc: DocPage): number {
+  return doc.group === GUIDES_GROUP ? GUIDE_PAGES.indexOf(doc.slug[0] ?? "") : 0;
+}
+
+/** Every published doc, ordered by group (GROUPS first) and then by reading order or title. */
 export const listDocs = cache((): readonly DocPage[] => {
   const files = fs
     .readdirSync(DOCS_DIR, { recursive: true, encoding: "utf8" })
-    .filter((file) => file.endsWith(".md"));
+    .filter((file) => file.endsWith(".md") && file.split(path.sep)[0] !== INTERNAL_FOLDER);
 
   return files
     .map(readDoc)
     .sort(
       (a, b) =>
-        groupRank(a.group) - groupRank(b.group) || a.group.localeCompare(b.group) || a.title.localeCompare(b.title),
+        groupRank(a.group) - groupRank(b.group) ||
+        a.group.localeCompare(b.group) ||
+        guideRank(a) - guideRank(b) ||
+        a.title.localeCompare(b.title),
     );
 });
 
@@ -165,6 +244,8 @@ export function getDoc(slug: readonly string[]): DocPage | null {
 }
 
 function groupLabel(group: string): string {
+  const known = GROUPS.find(({ id }) => id === group);
+  if (known !== undefined) return known.label;
   const words = group.replace(/-/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }

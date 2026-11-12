@@ -6,15 +6,17 @@ import { Suspense } from "react";
 import { PageSkeleton } from "@/components/app/page-skeleton";
 import { PageHeader } from "@/components/app/page-header";
 import { FeedbackBanner } from "@/components/connections/feedback-banner";
-import { ProviderMark } from "@/components/connections/provider-mark";
 import { SimulatedBadge } from "@/components/connections/simulated-badge";
 import { LockIcon } from "@/components/icons";
+import { buttonClass } from "@/components/ui/button";
+import { ProviderMark } from "@/components/ui/provider-mark";
 import { getAdapter, isFakeProviderEnabled, loadOAuthClient } from "@/lib/adapters/registry";
 import { isSimulatedAdapter } from "@/lib/adapters/simulated";
 import { ProviderIdSchema } from "@/lib/adapters/types";
 import { connectErrorMessage, reconnectMismatch } from "@/lib/connections/oauth-state";
 import { getConnection, isConnectionId } from "@/lib/data/connections";
-import { requireWorkspace, workspacePath } from "@/lib/workspaces/access";
+import { requireWorkspace } from "@/lib/workspaces/access";
+import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 
 export const metadata: Metadata = { title: "Connect a provider" };
@@ -23,7 +25,7 @@ export const metadata: Metadata = { title: "Connect a provider" };
 // has an instant shell; access checks and data reads stream in behind it.
 export default function ConnectProviderPage(props: PageProps<"/w/[workspace]/connections/new/[provider]">) {
   return (
-    <Suspense fallback={<PageSkeleton />}>
+    <Suspense fallback={<PageSkeleton label="Loading the connection form" />}>
       <ConnectProviderContent {...props} />
     </Suspense>
   );
@@ -190,13 +192,13 @@ async function ConnectProviderContent({
           <div className="mt-6 flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              className="inline-flex min-h-10 items-center justify-center rounded-md bg-accent px-4 py-2 text-sm font-medium text-background transition-opacity hover:opacity-85"
+              className={buttonClass("primary")}
             >
               Continue to {adapter.displayName}
             </button>
             <Link
               href={reconnect === null ? connectionsPath : `${connectionsPath}/${reconnect.id}`}
-              className="inline-flex min-h-10 items-center rounded-md border border-line-strong px-4 py-2 text-sm"
+              className={buttonClass("outline")}
             >
               Cancel
             </Link>
