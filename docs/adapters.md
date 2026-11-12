@@ -61,7 +61,7 @@ An adapter is one object implementing `ProviderAdapter` (`src/lib/adapters/types
 | `projectedSpend` | Estimated spend metric keys that are a projection for the whole billing period. Every reading of spend leaves them out. Omit when none |
 | `signupDailyTotals` | Usage metric keys that hold one UTC day's signups, for a provider that reports a daily total instead of one event per signup. Omit when none |
 | `beta` | A one sentence reason shown beside a "Beta" badge on the provider's card. Omit when not in beta |
-| `oauth` | Authorize, token, and revoke URLs, the requested scopes, whether PKCE is used, and the names (never the values) of the environment variables holding the client id and secret |
+| `oauth` | Authorize, token, and revoke URLs, the requested scopes, whether PKCE is used, and the names (never the values) of the environment variables holding the client id and secret, plus `extraEnv` for any other app setting the provider needs (an integration slug, an app's private key) and `optionalExtraKeys` for the ones an instance may leave unset |
 | `pollIntervalSeconds` | How often to sync. Hourly (3600) unless the provider's limits or retention need otherwise. At least 60 |
 | `buildAuthorizeUrl` | The URL the user is sent to. Always sends the scopes explicitly, the `state`, and the PKCE challenge |
 | `exchangeCode` | Swaps the callback's code for a credential. Callback parameters are untrusted: verify them |
@@ -71,7 +71,7 @@ An adapter is one object implementing `ProviderAdapter` (`src/lib/adapters/types
 | `detectMissingPermissions` | The requested scopes absent from a grant. Empty means nothing is missing |
 | `sync` | Reads one external account and returns metrics, events, an optional cursor, and partial errors |
 
-Every method receives a context instead of reaching for globals: `ctx.fetch` for every request, `ctx.now()` for the time, `ctx.timeoutMs`, `ctx.logger`, and for OAuth calls the client id and secret. An adapter sees exactly one credential, the one it is handed.
+Every method receives a context instead of reaching for globals: `ctx.fetch` for every request, `ctx.now()` for the time, `ctx.timeoutMs`, `ctx.logger`, and for OAuth calls the client id, the secret, and those extra settings, each a `Secret` in `ctx.client.extra`. An adapter sees exactly one credential, the one it is handed.
 
 ## Capabilities
 
@@ -206,7 +206,7 @@ expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([]);
 - `createAdapterHarness` answers each request from `routes`, keyed by method, origin, and path. A function route reads the query from the request. A request with no recording gets a `404` and is reported. `harness.requests` and `harness.logs` hold everything the adapter sent and logged. Pass `extra` when the adapter reads settings beyond the client id and secret (keyed like `oauth.extraEnv`, for example an app's private key): the adapter receives each one as a `Secret` in `ctx.client.extra`. `clientId` and `timeoutMs` replace the harness defaults when a test needs particular values.
 - `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, capabilities, projections, the poll interval, and environment variable names.
 - `checkSyncResult` applies the sync runner's own gates (every metric and event valid, every key owned by the adapter, nothing for another account) plus the capability, projection, and partial error rules.
-- `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret, one of its `extra` values, or the secrets you pass.
+- `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret, one of its `extra` values, or the secrets you pass, including a multi line value and a secret inside a logged error's message or cause.
 
 Each check returns a list of problems in plain words, so a failing test prints all of them at once.
 
