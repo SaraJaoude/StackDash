@@ -133,7 +133,7 @@ DEVMACRO_SIMULATE_PROVIDERS=1
 Leave the provider variables empty. Every variable is described in
 [Environment variables](#environment-variables) and in `.env.example`.
 
-### 5. Apply migrations
+### 5. Apply migrations and seed data
 
 ```bash
 supabase migration up
@@ -179,7 +179,13 @@ public page links and a one-time sign-in link. Open the sign-in link in the brow
 the demo workspace's dashboard, signed in as the demo account. The landing page at
 <http://localhost:3000> works without signing in. Leave `npm run demo` running to keep data
 arriving live, and press Ctrl+C to stop it. The link works once and expires after an hour; run the
-command again for a new one. Step 11 describes what the command builds and its options.
+command again for a new one, which deletes the demo workspace and builds it again from scratch, so
+anything you added to it is gone. Step 11 describes what the command builds and its options.
+
+The links assume the app is on port 3000. If `npm run dev` reports another port because 3000 is
+taken, set `NEXT_PUBLIC_SITE_URL=http://localhost:<port>` in `.env.local`, restart `npm run dev` on
+that port (`npm run dev -- --port <port>`), and run `npm run demo` again so the printed links point
+at it.
 
 ### 7. Sign in with your own GitHub account
 
@@ -203,8 +209,10 @@ the email is in `public.access_invites`. Invite the primary verified email of yo
 npm run invite -- you@example.com
 ```
 
-With `npm run dev` running, open <http://localhost:3000/sign-in> and continue with GitHub. After
-sign-in you land on your personal workspace timeline.
+Step 6 left the browser signed in as the demo account, and the sign-in page sends a signed-in
+visitor straight back to the app. Choose **Sign out** in the header first. Then, with `npm run dev`
+running, open <http://localhost:3000/sign-in> and continue with GitHub. After sign-in you land on
+your personal workspace timeline.
 
 ### 8. Connect the fake provider
 
