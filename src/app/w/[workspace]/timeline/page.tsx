@@ -11,11 +11,12 @@ import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
-import { EventInspector } from "@/components/timeline/event-inspector";
+import { EventInspector, type InspectorEvent } from "@/components/timeline/event-inspector";
 import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
-import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
+import { ActiveFilterChips, TimelineFilters, TimelineToolbar } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
+import { eventTypeName } from "@/lib/adapters/registry";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
@@ -24,7 +25,15 @@ import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
 import { formatDateTime } from "@/lib/format";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
-import { hasActiveFilters, parseTimelineEventId, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
+import {
+  eventFilterHrefs,
+  hasActiveFilters,
+  parseTimelineEventId,
+  parseTimelineSearchParams,
+  timelineHref,
+  timelineStatus,
+  timelineTotal,
+} from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -38,9 +47,16 @@ const HEADING_ID = "timeline-title";
 // Per-member hidden event types arrive with #119; the query already excludes whatever is listed.
 const HIDDEN_TYPE_IDS: readonly string[] = [];
 
-// Written on the server, as the row's own time is: browsers name the London zone differently.
-function inspected(event: TimelineEvent) {
-  return { ...event, londonTime: formatDateTime(event.occurred_at) };
+// Written on the server, as the row's own time is: browsers name the London zone differently. The
+// type's declared name comes from the adapter registry, which is server-only (#294), and the filter
+// links from `timelineHref`, so the client panel never builds a query string of its own.
+function inspected(event: TimelineEvent, basePath: string): InspectorEvent {
+  return {
+    ...event,
+    londonTime: formatDateTime(event.occurred_at),
+    typeName: eventTypeName(event.type_id),
+    filterHrefs: eventFilterHrefs(basePath, event),
+  };
 }
 
 // Every section renders inside its own Suspense boundary so navigating between sections
@@ -73,8 +89,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
   const inspectorProps = {
-    events: page.events.map(inspected),
-    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent),
+    events: page.events.map((event) => inspected(event, basePath)),
+    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent, basePath),
     baseHref: timelineHref(basePath, query, query.cursor),
     fallbackFocusId: HEADING_ID,
   };
@@ -140,11 +156,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const olderPage = query.cursor !== null;
   const showNewestLink = olderPage && count > 0;
   const scopeOptions = buildScopeOptions(workspaceScope, query.scope);
-  const scopeDescription = describeScope(query.scope, scopeOptions);
-  const shown =
-    count === 0 ? "Showing no events" : `Showing ${count} ${olderPage ? "older " : ""}${count === 1 ? "event" : "events"}`;
-  const matching = query.search === null ? shown : `${shown} with “${query.search}” in the title`;
-  const status = scopeDescription === null ? matching : `${matching} for ${scopeDescription}`;
+  const status = timelineStatus({
+    count,
+    total: timelineTotal(activity, query.timeRange),
+    olderPage,
+    search: query.search,
+    scopeDescription: describeScope(query.scope, scopeOptions),
+  });
   // Events with a connection are the connections in view; DevMacro's own events have none (#269).
   const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
@@ -154,7 +172,13 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         id={HEADING_ID}
         title="Timeline"
         description={DESCRIPTION}
-        titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
+        titleAside={
+          // The chips count every page, so the page cursor is not part of what they show: only a
+          // filter change resets their comparison (#403).
+          <ArrivalScope scope={timelineHref(basePath, query, null)}>
+            <ProviderBadges counts={connectionCounts} action={basePath} query={query} />
+          </ArrivalScope>
+        }
       />
       {rawQuery[SAMPLE_DATA_ADDED_PARAM] === "added" ? (
         <FeedbackBanner tone="success" title="Sample data added">
@@ -171,7 +195,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           </p>
         </FeedbackBanner>
       ) : null}
-      <SeverityLinks action={basePath} query={query} />
+      <TimelineToolbar action={basePath} query={query} />
       <TimelineFilters
         action={basePath}
         query={query}
@@ -179,6 +203,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
+      <ActiveFilterChips action={basePath} query={query} scopeOptions={scopeOptions} />
       <ActivityOverview buckets={activity} query={query} basePath={basePath} />
 
       {count === 0 ? (

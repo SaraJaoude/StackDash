@@ -296,6 +296,14 @@ export function SearchIcon(props: IconProps) {
   );
 }
 
+export function CloseIcon(props: IconProps) {
+  return (
+    <svg {...base(props)}>
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
 /** The same triangle ConnectionStatusBadge shows for "Needs attention". */
 export function AlertIcon(props: IconProps) {
   return (

@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import type { Locator, Page } from "@playwright/test";
+import { z } from "zod";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
@@ -7,7 +8,9 @@ import { expect, ownerTest, viewerTest } from "./fixtures/auth";
 import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { expectHydrated } from "./fixtures/hydration";
 import { tabTo } from "./fixtures/keyboard";
+import { openWith } from "./fixtures/palette";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 type AccountInsert = Database["public"]["Tables"]["external_accounts"]["Insert"];
@@ -112,6 +115,12 @@ function eventHeading(page: Page, index: number) {
   return page.getByRole("heading", { name: `Synthetic event ${index}`, exact: true });
 }
 
+// The row surface's backgrounds: none at rest, `--panel-raised` under the pointer, and the
+// `--accent-soft` wash while its event is open (src/app/globals.css).
+const ROW_AT_REST = "rgba(0, 0, 0, 0)";
+const ROW_HOVERED = "rgb(22, 22, 26)";
+const ROW_OPEN = "rgba(255, 93, 59, 0.12)";
+
 function providerBadges(page: Page) {
   return page.getByRole("list", { name: "Events by provider", exact: true });
 }
@@ -143,7 +152,7 @@ ownerTest.describe("timeline as the owner", () => {
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Timeline");
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(50);
       await expect(eventHeading(page, 0)).toBeVisible();
       await expect(eventHeading(page, 49)).toBeVisible();
@@ -162,7 +171,7 @@ ownerTest.describe("timeline as the owner", () => {
       await inspector.getByRole("button", { name: "Close event" }).click();
 
       await page.getByRole("link", { name: "Load older events" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events of 60" })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(10);
       await expect(eventHeading(page, 50)).toBeVisible();
       await expect(eventHeading(page, 59)).toBeVisible();
@@ -170,7 +179,7 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(page.getByRole("link", { name: "Load older events" })).toHaveCount(0);
 
       await page.getByRole("link", { name: "Show newest events" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -196,6 +205,20 @@ ownerTest.describe("timeline as the owner", () => {
         const time = rows.first().locator("time");
         await expect(time).toHaveAttribute("datetime", "2026-06-15T22:30:00.000Z");
         await expect(time).toHaveAttribute("title", "2026-06-15 23:30 BST");
+        // #385: the gutter shows hours and minutes; the time's accessible text keeps the date and zone.
+        await expect(time.locator('[aria-hidden="true"]')).toHaveText("23:30");
+        await expect(time).toContainText("2026-06-15 23:30 BST");
+        // "London time" is said once for the feed, not under every day heading.
+        await expect(region.getByText("London time")).toHaveCount(1);
+        await expect(region.getByText("London time")).toBeVisible();
+        // An info row prints no pill; its word is screen-reader text, which is clipped to 1px.
+        // A critical row keeps its visible pill.
+        const infoWord = rows.first().getByText("Event", { exact: true });
+        await expect(infoWord).toHaveCount(1);
+        expect((await infoWord.boundingBox())?.width).toBeLessThanOrEqual(1);
+        const criticalPill = region.getByRole("list", { name: "Tuesday, 2026-06-16", exact: true }).getByText("Critical", { exact: true });
+        await expect(criticalPill).toBeVisible();
+        expect((await criticalPill.boundingBox())?.width).toBeGreaterThan(1);
         const title = page.getByRole("heading", { name: longTitle, exact: true });
         await expect(title).toBeVisible();
         const timeBox = await time.boundingBox();
@@ -260,7 +283,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.getByRole("button", { name: "Apply filters" }).click();
 
       await expect(page).toHaveURL(/severity=critical/);
-      await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 6 of 6 events" })).toBeVisible();
       for (const index of [0, 10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
       await expect(eventHeading(page, 1)).toHaveCount(0);
       // The badge counts the matching events, not the connection's total.
@@ -284,7 +307,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.getByLabel("To date", { exact: true }).fill("2026-06-15");
       await page.getByRole("button", { name: "Apply filters" }).click();
 
-      await expect(page.getByRole("status").filter({ hasText: "Showing 24 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 24 of 24 events" })).toBeVisible();
       // 23:30 UTC on June 15 is already June 16 in London; 23:30 UTC on June 14 is the 15th.
       await expect(eventHeading(page, 0)).toHaveCount(0);
       await expect(eventHeading(page, 1)).toBeVisible();
@@ -309,7 +332,7 @@ ownerTest.describe("timeline as the owner", () => {
 
       await page.getByRole("link", { name: "Clear filters" }).first().click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
       await openFilters(page);
       await expect(page.getByRole("checkbox", { name: "Success" })).not.toBeChecked();
     } finally {
@@ -322,7 +345,7 @@ ownerTest.describe("timeline as the owner", () => {
     try {
       await page.goto(`/w/${workspace.slug}/timeline?severity=bogus&type=DROP&from=2026-02-30&cursor=not-a-cursor`);
       await expect(page.getByRole("heading", { level: 1 })).toHaveText("Timeline");
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
       await expect(eventHeading(page, 0)).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
@@ -360,7 +383,7 @@ ownerTest.describe("timeline as the owner", () => {
       await page.getByRole("button", { name: "Apply filters" }).click();
 
       await expect(page).toHaveURL(/type=vercel\.deployment\.failed/);
-      await expect(page.getByRole("status").filter({ hasText: "Showing 1 event" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 1 of 1 event" })).toBeVisible();
       await expect(page.getByRole("heading", { name: "Rare failed deployment", exact: true })).toBeVisible();
     } finally {
       await deleteTestWorkspace(workspace);
@@ -453,7 +476,7 @@ viewerTest.describe("timeline as a viewer", () => {
     const workspace = await seedTimeline("Timeline viewer");
     try {
       await page.goto(`/w/${workspace.slug}/timeline`);
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
       await expect(eventHeading(page, 0)).toBeVisible();
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(eventHeading(page, 59)).toBeVisible();
@@ -533,7 +556,7 @@ ownerTest.describe("timeline scope filters", () => {
       await seedGitHubProject(workspace);
       await page.goto(`/w/${workspace.slug}/timeline`);
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
-      await expect(status).toHaveText("Showing 50 events");
+      await expect(status).toHaveText("Showing 50 of 63 events");
       // Every page's events count, and the repeated event only once: 60, not the 50 on screen.
       await expectProviderBadges(page, [
         "Show only Vercel: 60 events from 1 connection",
@@ -548,7 +571,7 @@ ownerTest.describe("timeline scope filters", () => {
       await filters.getByRole("group", { name: "Provider" }).getByRole("checkbox", { name: "GitHub" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
-      await expect(status).toHaveText("Showing 3 events for provider GitHub");
+      await expect(status).toHaveText("Showing 3 of 3 events for provider GitHub");
       await expect(eventItems(page)).toHaveCount(3);
       // The provider filter makes GitHub's badge the current view, linking back to every provider.
       await expectProviderBadges(page, ["Show every provider. Now showing only GitHub: 3 events from 1 connection"]);
@@ -557,7 +580,7 @@ ownerTest.describe("timeline scope filters", () => {
 
       await openFilters(page);
       await filters.getByRole("link", { name: "Clear filters" }).click();
-      await expect(status).toHaveText("Showing 50 events");
+      await expect(status).toHaveText("Showing 50 of 63 events");
 
       // Keyboard only: open the filters, tick the Unassigned project, and submit with Enter.
       await openFilters(page, "keyboard");
@@ -567,14 +590,14 @@ ownerTest.describe("timeline scope filters", () => {
       await filters.getByRole("button", { name: "Apply filters" }).focus();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/[?&]project=unassigned(&|$)/);
-      await expect(status).toHaveText("Showing 50 events for project Unassigned");
+      await expect(status).toHaveText("Showing 50 of 60 events for project Unassigned");
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
       await expect(eventHeading(page, 0)).toBeVisible();
       await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
 
       // Paging keeps the filter.
       await page.getByRole("link", { name: "Load older events" }).click();
-      await expect(status).toHaveText("Showing 10 older events for project Unassigned");
+      await expect(status).toHaveText("Showing 10 older events of 60 for project Unassigned");
       // An older page counts the same events: the cursor narrows the list, not the badges.
       await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
 
@@ -583,12 +606,12 @@ ownerTest.describe("timeline scope filters", () => {
       await filters.getByRole("group", { name: "Project" }).getByRole("checkbox", { name: "Checkout" }).check();
       await filters.getByRole("button", { name: "Apply filters" }).click();
       await expect(page).toHaveURL(/[?&]project=[0-9a-f-]{36}(&|$)/);
-      await expect(status).toHaveText("Showing 3 events for project Checkout");
+      await expect(status).toHaveText("Showing 3 of 3 events for project Checkout");
       await expect(eventItems(page)).toHaveCount(3);
 
       // The filtered view is bookmarkable: reloading the URL shows the same result.
       await page.reload();
-      await expect(status).toHaveText("Showing 3 events for project Checkout");
+      await expect(status).toHaveText("Showing 3 of 3 events for project Checkout");
 
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
@@ -631,17 +654,24 @@ ownerTest.describe("timeline scope filters", () => {
 
       await page.goto(`/w/${workspace.slug}/timeline`);
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
-      await expect(status).toHaveText("Showing 50 events");
+      await expect(status).toHaveText("Showing 50 of 65 events");
       await expectProviderBadges(page, [
         "Show only Vercel: 62 events from 2 connections",
         "Show only GitHub: 3 events from 1 connection",
       ]);
       await expectBadgesBesideTitle(page);
+      // Each chip prints its provider and event count without a hover; the connection count is in
+      // the name only.
+      const chips = providerBadges(page).getByRole("listitem");
+      for (const [index, [name, count]] of ([["Vercel", "62"], ["GitHub", "3"]] as const).entries()) {
+        await expect(chips.nth(index).getByText(name, { exact: true })).toBeVisible();
+        await expect(chips.nth(index).getByText(count, { exact: true })).toBeVisible();
+      }
 
       // A click shows only that provider.
       await providerBadges(page).getByRole("link", { name: /^Show only GitHub/ }).click();
       await expect(page).toHaveURL(/[?&]provider=github(&|$)/);
-      await expect(status).toHaveText("Showing 3 events for provider GitHub");
+      await expect(status).toHaveText("Showing 3 of 3 events for provider GitHub");
       const current = providerBadges(page).getByRole("link");
       await expect(current).toHaveAttribute("aria-current", "page");
 
@@ -649,8 +679,81 @@ ownerTest.describe("timeline scope filters", () => {
       await current.focus();
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
-      await expect(status).toHaveText("Showing 50 events");
+      await expect(status).toHaveText("Showing 50 of 65 events");
 
+      const scan = await new AxeBuilder({ page }).analyze();
+      expect(scan.violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("wraps ten provider chips, each with its name and count, without overflowing", async ({ page }) => {
+    const workspace = await createTestWorkspace("Timeline ten providers");
+    try {
+      const providers = [
+        ["vercel", "Vercel"],
+        ["github", "GitHub"],
+        ["resend", "Resend"],
+        ["stripe", "Stripe"],
+        ["supabase", "Supabase"],
+        ["digitalocean", "DigitalOcean"],
+        ["posthog", "PostHog"],
+        ["polar", "Polar"],
+        ["sentry", "Sentry"],
+        ["railway", "Railway"],
+      ] as const;
+      const events: EventInsert[] = [];
+      // Ten events for the first provider down to one for the last, so the order is fixed.
+      for (const [index, [provider]] of providers.entries()) {
+        const { connectionId, accountId } = await seedAccount(workspace, {
+          provider,
+          connectionName: `${provider} e2e connection`,
+          externalId: `e2e_${provider}`,
+          accountName: `${provider} e2e account`,
+          kind: "account",
+        });
+        for (let event = 0; event < providers.length - index; event += 1) {
+          events.push({
+            workspace_id: workspace.id,
+            connection_id: connectionId,
+            external_account_id: accountId,
+            provider,
+            type_id: `${provider}.e2e_event`,
+            severity: "info",
+            title: `${provider} event ${event}`,
+            occurred_at: new Date(NEWEST_MS - (index * 10 + event) * HOUR_MS).toISOString(),
+            dedupe_key: `e2e-ten-${provider}-${event}`,
+          });
+        }
+      }
+      const { error } = await adminClient().from("activity_events").insert(events);
+      if (error) throw new Error(`Seeding events failed (code ${error.code}).`);
+
+      for (const width of [1280, 375]) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 50 of 55 events");
+        const chips = providerBadges(page).getByRole("listitem");
+        await expect(chips).toHaveCount(10);
+        const tops = new Set<number>();
+        for (const [index, chip] of (await chips.all()).entries()) {
+          await expect(chip.getByText(String(providers.length - index), { exact: true })).toBeVisible();
+          // The name is printed from `sm` up; on a phone the logo and the count remain.
+          const name = chip.getByText(providers[index]?.[1] ?? "", { exact: true });
+          if (width >= 640) await expect(name).toBeVisible();
+          else await expect(name).toBeHidden();
+          const box = await chip.boundingBox();
+          if (box === null) throw new Error("A provider chip is not rendered.");
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+          tops.add(Math.round(box.y));
+        }
+        expect(tops.size, "the chips wrap onto more than one row").toBeGreaterThan(1);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      }
+      await expect(providerBadges(page).getByRole("link").first()).toHaveAccessibleName(
+        "Show only Vercel: 10 events from 1 connection",
+      );
       const scan = await new AxeBuilder({ page }).analyze();
       expect(scan.violations).toEqual([]);
     } finally {
@@ -679,7 +782,7 @@ ownerTest.describe("timeline scope filters", () => {
       // A phone: one filter is enough.
       await page.setViewportSize({ width: 375, height: 667 });
       await page.goto(`/w/${workspace.slug}/timeline?provider=vercel`);
-      await expect(status).toHaveText("Showing 50 events for provider Vercel");
+      await expect(status).toHaveText("Showing 50 of 60 events for provider Vercel");
       await expectClosedFilterBarOneRow(page);
       await openFilters(page, "keyboard");
       await expectFormBelowWrappedStatus(page);
@@ -747,7 +850,7 @@ ownerTest.describe("timeline bursts and search", () => {
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ reducedMotion: "reduce" });
         await page.goto(`/w/${workspace.slug}/timeline`);
-        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
+        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 of 11 events");
         const rows = eventItems(page);
         await expect(rows).toHaveCount(5);
 
@@ -787,8 +890,13 @@ ownerTest.describe("timeline bursts and search", () => {
         await expect(inspector.getByRole("heading", { name: "Payment succeeded: $13.00", exact: true })).toBeVisible();
         await expect(inspector).toContainText("This event has no additional details.");
         await expect(inspector.getByRole("link", { name: /View in/ })).toHaveCount(0);
+        // The open event is marked inside its expanded run, over the run's own wash (#399).
+        const member = members.getByRole("listitem").filter({ has: page.getByRole("link", { name: "Payment succeeded: $13.00", exact: true }) });
+        await expect(member).toHaveCSS("background-color", ROW_OPEN);
+        await expect(burst.getByRole("article")).toHaveCSS("background-color", ROW_OPEN);
         await page.keyboard.press("Escape");
         await expect(memberLink).toBeFocused();
+        await expect(member).toHaveCSS("background-color", ROW_AT_REST);
         await expect(members).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
         const scan = await new AxeBuilder({ page }).analyze();
@@ -804,38 +912,93 @@ ownerTest.describe("timeline bursts and search", () => {
     });
   }
 
-  ownerTest("searches event titles, narrowing the list and the badges together and across pages", async ({ page }) => {
+  // #294: Stripe declares "Payment succeeded" for `stripe.charge.succeeded`; its id reads "Charge succeeded".
+  ownerTest("names event types by their adapters' declared labels in the filter, its chips, and the details", async ({ page }) => {
+    const workspace = await seedBursts("Timeline declared labels");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      // The details name the type as the collapsed run's heading does.
+      const burst = eventItems(page).nth(0);
+      await burst.getByRole("link", { name: "Payment succeeded", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Payment succeeded: $10.00", exact: true })).toBeVisible();
+      await expect(inspector.getByRole("definition").first()).toHaveText("Payment succeeded");
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+
+      await openFilters(page);
+      const types = page.getByRole("group", { name: "Event type" }).getByRole("checkbox");
+      await expect(types).toHaveCount(2);
+      await expect(types.nth(0)).toHaveAccessibleName("Stripe: Payment refunded");
+      await expect(types.nth(1)).toHaveAccessibleName("Stripe: Payment succeeded");
+      await types.nth(1).check();
+      await page.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]type=stripe\.charge\.succeeded(&|$)/);
+      // The chip names the type exactly as the box that set it.
+      const chips = activeFilterChips(page).getByRole("link");
+      await expect(chips).toHaveCount(1);
+      await expect(chips.first()).toHaveAccessibleName("Remove filter: event type Stripe: Payment succeeded");
+      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 10 of 10 events");
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("searches event titles from the visible search box, keeping every other filter and starting from the newest events", async ({ page }) => {
     const workspace = await seedTimeline("Timeline search");
     try {
       await seedGitHubProject(workspace);
-      await page.goto(`/w/${workspace.slug}/timeline`);
+      // Info only: 54 of the Vercel events and the 3 GitHub releases.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=info`);
       const status = page.getByRole("status").filter({ hasText: /^Showing/ });
-      await expect(status).toHaveText("Showing 50 events");
+      await expect(status).toHaveText("Showing 50 of 57 events");
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(status).toHaveText("Showing 7 older events of 57");
+      await expect(page).toHaveURL(/[?&]cursor=/);
 
-      // Keyboard only: open the filters, type a search in any case, and submit with Enter.
-      await openFilters(page, "keyboard");
-      const search = page.getByRole("searchbox", { name: "Search event titles" });
-      await search.focus();
+      // The one search box is in view with the filter form closed.
+      const filters = page.getByRole("region", { name: "Filters", exact: true });
+      await expect(filters.getByRole("button", { name: "Apply filters" })).toBeHidden();
+      await expect(page.getByRole("searchbox")).toHaveCount(1);
+      const search = page.getByRole("search").getByRole("searchbox", { name: "Search event titles" });
+      await expect(search).toBeVisible();
+
+      // Keyboard only: Tab to the box, type a search in any case, and submit with Enter.
+      await page.getByRole("heading", { level: 1 }).focus();
+      await tabTo(page, search, 20);
       await page.keyboard.type("SYNTHETIC");
       await page.keyboard.press("Enter");
       await expect(page).toHaveURL(/[?&]q=SYNTHETIC(&|$)/);
-      await expect(status).toHaveText("Showing 50 events with “SYNTHETIC” in the title");
+      // It keeps the severity and drops the older page's cursor.
+      expect(new URL(page.url()).searchParams.getAll("severity")).toEqual(["info"]);
+      expect(new URL(page.url()).searchParams.has("cursor")).toBe(false);
+      await expect(status).toHaveText("Showing 50 of 54 events with “SYNTHETIC” in the title");
+      await expect(eventHeading(page, 1)).toBeVisible();
       await expect(page.getByRole("heading", { name: "GitHub release 0", exact: true })).toHaveCount(0);
       // The badges count the same matches across every page: the GitHub releases drop out.
-      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
+      await expectProviderBadges(page, ["Show only Vercel: 54 events from 1 connection"]);
+      await expect(search).toHaveValue("SYNTHETIC");
 
       // Paging keeps the search.
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(page).toHaveURL(/[?&]q=SYNTHETIC(&|$)/);
-      await expect(status).toHaveText("Showing 10 older events with “SYNTHETIC” in the title");
+      await expect(status).toHaveText("Showing 4 older events of 54 with “SYNTHETIC” in the title");
       await expect(eventHeading(page, 59)).toBeVisible();
-      await expectProviderBadges(page, ["Show only Vercel: 60 events from 1 connection"]);
+      await expectProviderBadges(page, ["Show only Vercel: 54 events from 1 connection"]);
+
+      // The collapsed form carries the search too, so applying other filters does not drop it.
       await openFilters(page);
+      await filters.getByRole("checkbox", { name: "Critical" }).check();
+      await filters.getByRole("button", { name: "Apply filters" }).click();
+      await expect(page).toHaveURL(/[?&]severity=critical(&|$)/);
+      expect(new URL(page.url()).searchParams.get("q")).toBe("SYNTHETIC");
+      expect(new URL(page.url()).searchParams.getAll("severity").sort()).toEqual(["critical", "info"]);
+      await expect(status).toHaveText("Showing 50 of 60 events with “SYNTHETIC” in the title");
       await expect(search).toHaveValue("SYNTHETIC");
 
       // A narrower search: "event 5" is in events 5 and 50 to 59.
       await page.goto(`/w/${workspace.slug}/timeline?q=event+5`);
-      await expect(status).toHaveText("Showing 11 events with “event 5” in the title");
+      await expect(status).toHaveText("Showing 11 of 11 events with “event 5” in the title");
       await expect(eventItems(page)).toHaveCount(11);
       await expectProviderBadges(page, ["Show only Vercel: 11 events from 1 connection"]);
       const scan = await new AxeBuilder({ page }).analyze();
@@ -851,7 +1014,228 @@ ownerTest.describe("timeline bursts and search", () => {
   });
 });
 
+function activeFilterChips(page: Page) {
+  return page.getByRole("list", { name: "Active filters", exact: true });
+}
+
+ownerTest.describe("timeline active filters", () => {
+  ownerTest("names each active filter in a chip and removes only that one, from the keyboard", async ({ page }) => {
+    const workspace = await seedTimeline("Timeline filter chips");
+    try {
+      await seedGitHubProject(workspace);
+      const { data: account, error } = await adminClient().from("external_accounts").select("id")
+        .eq("workspace_id", workspace.id).eq("external_id", "team_e2e").single();
+      if (error) throw new Error(`Finding the synthetic account failed (code ${error.code}).`);
+
+      // No filter: no chip row.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 50 of 63 events");
+      await expect(activeFilterChips(page)).toHaveCount(0);
+
+      // One of every filter. Critical Vercel events on the London days June 13 to 15 are 10 to 50;
+      // the hand-written period, 01:00 to 13:00 in London on June 15, holds only event 20. The period
+      // is not one bar of the overview, so the status has no total to give.
+      const params = new URLSearchParams([
+        ["q", "Synthetic"],
+        ["type", "vercel.deployment_ready"],
+        ["severity", "critical"],
+        ["from", "2026-06-13"],
+        ["to", "2026-06-15"],
+        ["start", "2026-06-15T00:00:00.000Z"],
+        ["until", "2026-06-15T12:00:00.000Z"],
+        ["provider", "vercel"],
+        ["project", "unassigned"],
+        ["account", account.id],
+      ]);
+      await page.goto(`/w/${workspace.slug}/timeline?${params}`);
+      // Before hydration a chip is a plain anchor: Enter would load the page and move no focus.
+      await expectHydrated(page);
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+      await expect(status).toHaveText(
+        "Showing 1 event with “Synthetic” in the title for provider Vercel, project Unassigned, account Acme e2e team (Vercel e2e connection)",
+      );
+      // The filter form stays closed: every filter is named without opening it.
+      await expect(page.getByRole("button", { name: "Apply filters" })).toBeHidden();
+      const chips = activeFilterChips(page).getByRole("link");
+      const names = [
+        "Remove filter: search “Synthetic”",
+        "Remove filter: event type Vercel: Deployment ready",
+        "Remove filter: severity Critical",
+        "Remove filter: from date 2026-06-13",
+        "Remove filter: to date 2026-06-15",
+        "Remove filter: period 2026-06-15 01:00 BST to before 2026-06-15 13:00 BST",
+        "Remove filter: provider Vercel",
+        "Remove filter: project Unassigned",
+        "Remove filter: account Acme e2e team (Vercel e2e connection)",
+      ];
+      await expect(chips).toHaveCount(names.length);
+      for (const [index, name] of names.entries()) await expect(chips.nth(index)).toHaveAccessibleName(name);
+      await expect(chips.first()).toHaveText("Search “Synthetic”");
+
+      // Keyboard only: removing the provider keeps every other filter, and focus moves to the chip
+      // that took its place rather than falling to the page.
+      const provider = activeFilterChips(page).getByRole("link", { name: "Remove filter: provider Vercel", exact: true });
+      await provider.focus();
+      await page.keyboard.press("Enter");
+      await expect(provider).toHaveCount(0);
+      const kept = new URL(page.url()).searchParams;
+      expect(kept.has("provider")).toBe(false);
+      params.delete("provider");
+      expect([...kept].sort()).toEqual([...params].sort());
+      await expect(chips).toHaveCount(8);
+      await expect(activeFilterChips(page).getByRole("link", { name: "Remove filter: project Unassigned", exact: true })).toBeFocused();
+
+      // Removing the period gives a total again: events 10 to 50 in the dated range.
+      await activeFilterChips(page).getByRole("link", { name: /^Remove filter: period / }).click();
+      await expect(status).toHaveText(
+        "Showing 5 of 5 events with “Synthetic” in the title for project Unassigned, account Acme e2e team (Vercel e2e connection)",
+      );
+      expect(new URL(page.url()).searchParams.has("start")).toBe(false);
+      expect(new URL(page.url()).searchParams.get("q")).toBe("Synthetic");
+
+      // Removing the search empties the search box too.
+      await activeFilterChips(page).getByRole("link", { name: "Remove filter: search “Synthetic”", exact: true }).click();
+      await expect(page.getByRole("searchbox", { name: "Search event titles" })).toHaveValue("");
+      await expect(chips).toHaveCount(6);
+
+      // Keyboard only: removing the last chip moves focus to the chip before it.
+      await activeFilterChips(page).getByRole("link", { name: /^Remove filter: account / }).focus();
+      await page.keyboard.press("Enter");
+      await expect(chips).toHaveCount(5);
+      await expect(chips.last()).toHaveAccessibleName("Remove filter: project Unassigned");
+      await expect(chips.last()).toBeFocused();
+
+      // Removing the rest one by one from the first chip, from the keyboard, ends with no chip row and
+      // the bare timeline. Each removal focuses the chip that took its place, and the last one the
+      // result sentence.
+      await chips.first().focus();
+      for (let remaining = 5; remaining > 0; remaining -= 1) {
+        await expect(chips).toHaveCount(remaining);
+        await expect(chips.first()).toBeFocused();
+        await page.keyboard.press("Enter");
+      }
+      await expect(activeFilterChips(page)).toHaveCount(0);
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
+      await expect(status).toHaveText("Showing 50 of 63 events");
+      await expect(status).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  for (const width of [1280, 375, 320]) {
+    ownerTest(`keeps the search, the severity links, and the chips usable at ${width}px`, async ({ page }) => {
+      const workspace = await seedTimeline("Timeline toolbar fit");
+      try {
+        await seedGitHubProject(workspace);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline?q=Synthetic&severity=critical&provider=vercel&from=2026-06-13`);
+        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText(
+          "Showing 6 of 6 events with “Synthetic” in the title for provider Vercel",
+        );
+        const severity = page.getByRole("navigation", { name: "Severity" });
+        const links = severity.getByRole("link");
+        await expect(links).toHaveCount(5);
+        // The current view's link starts wholly in view before anything is focused, even below `sm`,
+        // where the row scrolls sideways and Critical, the last link, is past its right edge.
+        const critical = severity.getByRole("link", { name: "Critical", exact: true });
+        await expect(critical).toHaveAttribute("aria-current", "page");
+        await expect(critical).toBeInViewport({ ratio: 1 });
+        const search = page.getByRole("searchbox", { name: "Search event titles" });
+        await expect(search).toBeVisible();
+        await expect(search).toHaveValue("Synthetic");
+        const severityBox = await severity.boundingBox();
+        const searchBox = await page.getByRole("search").boundingBox();
+        if (severityBox === null || searchBox === null) throw new Error("The toolbar is not rendered.");
+        // The five severity links stay on one row; below `sm` that row scrolls sideways.
+        const tops = await links.evaluateAll((elements) => elements.map((element) => Math.round(element.getBoundingClientRect().top)));
+        expect(new Set(tops).size).toBe(1);
+        if (width >= 768) {
+          // The search shares the severity links' row.
+          expect(Math.abs(searchBox.y + searchBox.height / 2 - (severityBox.y + severityBox.height / 2))).toBeLessThan(2);
+        } else {
+          expect(searchBox.y).toBeGreaterThanOrEqual(severityBox.y + severityBox.height);
+        }
+        // The last severity link is reachable: scrolled into view when focused.
+        await links.last().focus();
+        await expect(links.last()).toBeInViewport();
+        // A client navigation keeps the row and where it is scrolled to, and the current link is still
+        // brought into view: All scrolls the row back to its start, then Back makes Critical current.
+        const all = severity.getByRole("link", { name: "All", exact: true });
+        await all.click();
+        await expect(all).toHaveAttribute("aria-current", "page");
+        await page.goBack();
+        await expect(critical).toHaveAttribute("aria-current", "page");
+        await expect(critical).toBeInViewport({ ratio: 1 });
+
+        const chips = activeFilterChips(page).getByRole("link");
+        await expect(chips).toHaveCount(4);
+        for (const chip of await chips.all()) {
+          const box = await chip.boundingBox();
+          if (box === null) throw new Error("A chip is not rendered.");
+          expect(box.height).toBeGreaterThanOrEqual(24);
+          expect(box.width).toBeGreaterThanOrEqual(24);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(scan.violations).toEqual([]);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+});
+
 const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+/**
+ * The middle of the page's "Timeline" heading: on the dimmed page beside the open details panel or
+ * the command palette at 1280px, and over no row. Read it before a dialog opens.
+ */
+async function headingCenter(page: Page): Promise<{ x: number; y: number }> {
+  const box = await page.getByRole("heading", { level: 1, name: "Timeline", exact: true }).boundingBox();
+  if (box === null) throw new Error("The timeline heading is not rendered.");
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+const MOTION = z.array(z.object({ moved: z.string(), durationMs: z.number(), loops: z.boolean() }));
+
+/**
+ * Records every CSS transition and animation that starts on the given elements, from the first
+ * document on (#399): what moved, as "element property" (`dialog::backdrop opacity` for a dialog's
+ * backdrop, or the keyframes' name in place of the property), how long one run takes, and whether
+ * it repeats forever. The returned function hands over what started since it was last called.
+ * Call before navigating.
+ */
+async function recordMotion(page: Page, elements: readonly string[]): Promise<() => Promise<z.infer<typeof MOTION>>> {
+  await page.addInitScript((watched) => {
+    const started: unknown[] = [];
+    const seen = new WeakSet<Animation>();
+    Reflect.set(window, "__motion", started);
+    const record = () => {
+      for (const animation of document.getAnimations()) {
+        if (seen.has(animation)) continue;
+        seen.add(animation);
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect)) continue;
+        const element = `${effect.target?.tagName.toLowerCase() ?? "none"}${effect.pseudoElement ?? ""}`;
+        if (!watched.includes(element)) continue;
+        const property = animation instanceof CSSTransition ? animation.transitionProperty : animation instanceof CSSAnimation ? animation.animationName : "script";
+        const timing = effect.getComputedTiming();
+        started.push({ moved: `${element} ${property}`, durationMs: Number(timing.duration), loops: timing.iterations === Infinity });
+      }
+    };
+    document.addEventListener("transitionrun", record, true);
+    document.addEventListener("animationstart", record, true);
+  }, elements);
+  return async () => MOTION.parse(await page.evaluate(() => {
+    const started: unknown = Reflect.get(window, "__motion");
+    return Array.isArray(started) ? started.splice(0) : [];
+  }));
+}
 
 ownerTest.describe("timeline event inspector", () => {
   for (const width of [1280, 375]) {
@@ -947,6 +1331,155 @@ ownerTest.describe("timeline event inspector", () => {
     });
   }
 
+  // #399: the panel slides in and out, and the row lightens under the pointer and takes the accent
+  // wash while its event is open: each change runs once, within 200ms. Under reduced motion the
+  // same states change at once. Closing never waits for the motion: focus and the URL move at once.
+  for (const reducedMotion of ["no-preference", "reduce"] as const) {
+    const moves = reducedMotion === "reduce" ? "moves nothing under reduced motion" : "moves the panel and the row once, within 200ms,";
+    ownerTest(`${moves} as the details open and close`, async ({ page }) => {
+      const workspace = await seedTimeline(`Inspector motion ${reducedMotion}`);
+      try {
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await page.emulateMedia({ reducedMotion });
+        const motion = await recordMotion(page, ["article", "dialog", "dialog::backdrop"]);
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+        const row = eventItems(page).filter({ has: trigger }).getByRole("article");
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        await motion();
+
+        await trigger.hover();
+        await expect(row).toHaveCSS("background-color", ROW_HOVERED);
+        // The hovered row's text keeps its contrast on the lighter surface.
+        await expectNoAxeViolations(page);
+        // Away from the feed, so the open row shows its own state rather than the hover.
+        const beside = await headingCenter(page);
+        await page.mouse.move(beside.x, beside.y);
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const hovered = await motion();
+
+        await trigger.focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("button", { name: "Close event" })).toBeFocused();
+        await expect(inspector).toHaveCSS("opacity", "1");
+        await expect(inspector).toHaveCSS("transform", "none");
+        await expect(row).toHaveCSS("background-color", ROW_OPEN);
+        const opened = await motion();
+
+        await page.keyboard.press("Escape");
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+        await expect(inspector).toBeHidden();
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const closed = await motion();
+
+        // A click beside the panel closes it the same way (#407).
+        await page.keyboard.press("Enter");
+        await expect(inspector).toHaveCSS("opacity", "1");
+        await expect(row).toHaveCSS("background-color", ROW_OPEN);
+        const reopened = await motion();
+        await page.mouse.click(beside.x, beside.y);
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+        await expect(inspector).toBeHidden();
+        await expect(row).toHaveCSS("background-color", ROW_AT_REST);
+        const clickedAway = await motion();
+
+        const all = [...hovered, ...opened, ...closed, ...reopened, ...clickedAway];
+        expect(all.filter((entry) => entry.loops || entry.durationMs > 200)).toEqual([]);
+        if (reducedMotion === "reduce") {
+          expect(all).toEqual([]);
+          return;
+        }
+        expect(hovered.map((entry) => entry.moved)).toEqual(expect.arrayContaining(["article background-color"]));
+        for (const step of [opened, closed, reopened, clickedAway]) {
+          expect(step.map((entry) => entry.moved)).toEqual(expect.arrayContaining([
+            "article background-color",
+            "dialog opacity",
+            "dialog transform",
+            "dialog::backdrop opacity",
+          ]));
+        }
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  // #407: a click on the dimmed timeline beside the panel closes it exactly as Escape does. A press
+  // that starts or ends on the panel, such as selecting its text, and a click on its own padding
+  // keep it open.
+  ownerTest("closes the details on a click beside the panel, and only there, at 1280px", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector outside click");
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expectHydrated(page);
+      const beside = await headingCenter(page);
+      const trigger = page.getByRole("link", { name: "Synthetic event 1", exact: true });
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(inspector.getByRole("button", { name: "Close event" })).toBeFocused();
+      await expectNoAxeViolations(page);
+      const opened = page.url();
+      const panel = await inspector.boundingBox();
+      const title = await inspector.getByRole("heading", { name: "Synthetic event 1", exact: true }).boundingBox();
+      if (panel === null || title === null) throw new Error("The inspector is not rendered.");
+      expect(beside.x).toBeLessThan(panel.x);
+
+      // Selecting the title and releasing over the timeline, and the reverse.
+      await page.mouse.move(title.x + 1, title.y + title.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(beside.x, beside.y, { steps: 5 });
+      await page.mouse.up();
+      await page.mouse.down();
+      await page.mouse.move(title.x + 1, title.y + title.height / 2, { steps: 5 });
+      await page.mouse.up();
+      // The panel's own padding: beside its left edge and in its bottom-right corner.
+      await page.mouse.click(panel.x + 1, panel.y + panel.height / 2);
+      await page.mouse.click(panel.x + panel.width - 2, panel.y + panel.height - 2);
+      await expect(inspector).toHaveJSProperty("open", true);
+      await expect(page).toHaveURL(opened);
+
+      await page.mouse.click(beside.x, beside.y);
+      await expect(inspector).toBeHidden();
+      await expect(trigger).toBeFocused();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      // Closing went back past the entry the details pushed, so Back leaves the timeline rather than
+      // showing it again without them.
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // #407: light dismiss is the details panel's alone. Every other dialog, the command palette
+  // among them, stays open on a click outside it, so a click never discards what someone typed.
+  ownerTest("keeps the command palette open on a click outside it", async ({ page }) => {
+    const workspace = await createTestWorkspace("Inspector palette outside click");
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const beside = await headingCenter(page);
+      const palette = page.getByRole("dialog", { name: "Command palette" });
+      await openWith(palette, () => page.getByRole("button", { name: "Jump to" }).click());
+      const box = await palette.boundingBox();
+      if (box === null) throw new Error("The palette is not rendered.");
+      expect(beside.x).toBeLessThan(box.x);
+      await page.mouse.click(beside.x, beside.y);
+      await expect(palette).toHaveJSProperty("open", true);
+      await expect(palette).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(palette).toBeHidden();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   ownerTest("opens a shared event outside the loaded page and filters, including after reload", async ({ page }) => {
     const workspace = await seedTimeline("Inspector shared link");
     try {
@@ -964,7 +1497,7 @@ ownerTest.describe("timeline event inspector", () => {
       // A shared link has no opener and its event is not on this page, so focus goes to the page's heading.
       await expect(page.getByRole("heading", { level: 1, name: "Timeline", exact: true })).toBeFocused();
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
-      await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 6 of 6 events" })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(6);
 
       // When the shared event is on the loaded page, focus returns to its row.
@@ -976,6 +1509,127 @@ ownerTest.describe("timeline event inspector", () => {
       await page.keyboard.press("Escape");
       await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
       await expect(page.getByRole("link", { name: "Synthetic event 10", exact: true })).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  // #394: the details offer the timeline narrowed to the event's type, account, or time.
+  ownerTest("links from the details to the timeline for the event's type, account, and time, and Back reopens them", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector filter links");
+    try {
+      await seedGitHubProject(workspace);
+      const admin = adminClient();
+      const { data: github, error: githubError } = await admin.from("external_accounts").select("id")
+        .eq("workspace_id", workspace.id).eq("external_id", "org_e2e").single();
+      if (githubError) throw new Error(`Finding the synthetic account failed (code ${githubError.code}).`);
+      // DevMacro's own event: no connection and no account, and microseconds, as Postgres keeps them.
+      const { data: summary, error: summaryError } = await admin.from("activity_events").insert({
+        workspace_id: workspace.id,
+        connection_id: null,
+        external_account_id: null,
+        provider: null,
+        type_id: "devmacro.daily_summary",
+        severity: "info",
+        title: "Microsecond summary",
+        occurred_at: "2026-06-15T12:00:00.123456Z",
+        dedupe_key: "e2e-timeline-microsecond",
+      }).select("id").single();
+      if (summaryError) throw new Error(`Seeding the summary failed (code ${summaryError.code}).`);
+      const { data: oldest, error: oldestError } = await admin.from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-59").single();
+      if (oldestError) throw new Error(`Finding the synthetic event failed (code ${oldestError.code}).`);
+
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const related = inspector.getByRole("region", { name: "Related events" });
+      const status = page.getByRole("status").filter({ hasText: /^Showing/ });
+
+      // Keyboard only, from a filtered timeline: the type link drops the other filters.
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical`);
+      const trigger = page.getByRole("link", { name: "Synthetic event 10", exact: true });
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await expect(related.getByRole("link")).toHaveText([
+        "Show only this event type",
+        "Show only this account",
+        "Show events around this time",
+      ]);
+      const byType = related.getByRole("link", { name: "Show only this event type", exact: true });
+      await tabTo(page, byType, 10);
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?type=vercel.deployment_ready`);
+      await expect(inspector).toBeHidden();
+      await expect(status).toHaveText("Showing 50 of 60 events");
+      await expect(activeFilterChips(page).getByRole("link")).toHaveAccessibleName("Remove filter: event type Vercel: Deployment ready");
+
+      // Back returns to the open details; closing them then adds no entry, so Back leaves the timeline.
+      await page.goBack();
+      await expect(page).toHaveURL(new RegExp(`/timeline\\?severity=critical&event=`));
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+
+      // The account link narrows to that account alone.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "GitHub release 0", exact: true }).click();
+      await related.getByRole("link", { name: "Show only this account", exact: true }).click();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?account=${github.id}`);
+      await expect(inspector).toBeHidden();
+      await expect(status).toHaveText("Showing 3 of 3 events for account Acme e2e organization (GitHub e2e connection)");
+
+      // An event with no account has no account link, and its window keeps it despite microseconds:
+      // 11:00:00.123 to before 13:00:00.123 UTC holds it and events 11 and 12.
+      await page.goto(`/w/${workspace.slug}/timeline?event=${summary.id}`);
+      await expect(inspector.getByRole("heading", { name: "Microsecond summary", exact: true })).toBeVisible();
+      await expect(related.getByRole("link")).toHaveText(["Show only this event type", "Show events around this time"]);
+      await related.getByRole("link", { name: "Show events around this time", exact: true }).click();
+      await expect(page).toHaveURL(
+        `/w/${workspace.slug}/timeline?start=2026-06-15T11%3A00%3A00.123Z&until=2026-06-15T13%3A00%3A00.123Z`,
+      );
+      await expect(inspector).toBeHidden();
+      await expect(eventItems(page)).toHaveCount(3);
+      await expect(page.getByRole("heading", { name: "Microsecond summary", exact: true })).toBeVisible();
+      await expect(activeFilterChips(page).getByRole("link")).toHaveAccessibleName(
+        "Remove filter: period 2026-06-15 12:00 BST to before 2026-06-15 14:00 BST",
+      );
+
+      // A shared event outside the loaded page and the current filters: its links still show it.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${oldest.id}`);
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await related.getByRole("link", { name: "Show events around this time", exact: true }).click();
+      await expect(inspector).toBeHidden();
+      await expect(eventItems(page)).toHaveCount(1);
+      await expect(eventHeading(page, 59)).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("keeps the details' related event links usable at every width", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector related widths");
+    try {
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const links = inspector.getByRole("region", { name: "Related events" }).getByRole("link");
+      await expect(links).toHaveCount(3);
+      for (const width of [1280, 375, 320]) {
+        await page.setViewportSize({ width, height: 900 });
+        for (const link of await links.all()) {
+          const box = await link.boundingBox();
+          if (box === null) throw new Error("A related event link is not rendered.");
+          expect(box.height).toBeGreaterThanOrEqual(24);
+          expect(box.width).toBeGreaterThanOrEqual(24);
+        }
+        expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+      }
     } finally {
       await deleteTestWorkspace(workspace);
     }
@@ -1090,6 +1744,7 @@ ownerTest.describe("timeline event inspector", () => {
 
 // #377: the activity overview counts every matching event in at most 12 equal buckets.
 const SEEDED_VERCEL_MS = Array.from({ length: EVENT_COUNT }, (_, index) => NEWEST_MS - index * HOUR_MS);
+const SEEDED_CRITICAL_MS = SEEDED_VERCEL_MS.filter((_, index) => index % 10 === 0);
 const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const MINUTE_MS = 60 * 1000;
 const LONDON_MINUTE = String.raw`\d{4}-\d{2}-\d{2} \d{2}:\d{2} BST`;
@@ -1099,7 +1754,7 @@ function activityOverview(page: Page) {
 }
 
 function bucketLinks(page: Page) {
-  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events? from / });
+  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events?(,| from )/ });
 }
 
 /** "1 event" or "60 events", the way the overview counts a bucket. */
@@ -1107,14 +1762,30 @@ function eventCount(count: number): string {
   return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
 }
 
-/** The London start and exclusive end a bucket link names, as the page prints them. */
-async function bucketPeriod(link: Locator): Promise<Readonly<{ from: string; until: string }>> {
+/** "5 events" or "5 events, 1 critical, 2 warnings,": a bucket's counts as its link names them. */
+function bucketSummary(events: number, critical = 0, warnings = 0): string {
+  const severities = [
+    ...(critical > 0 ? [`${critical.toLocaleString("en-US")} critical`] : []),
+    ...(warnings > 0 ? [`${warnings.toLocaleString("en-US")} ${warnings === 1 ? "warning" : "warnings"}`] : []),
+  ];
+  return severities.length === 0 ? eventCount(events) : `${eventCount(events)}, ${severities.join(", ")},`;
+}
+
+/**
+ * The counts, London start, and exclusive end a bucket link names, as the page prints them:
+ * `count` is "5 events", and `summary` adds the critical and warning counts when there are any.
+ */
+async function bucketPeriod(link: Locator): Promise<Readonly<{ count: string; summary: string; from: string; until: string }>> {
   const name = await link.getAttribute("aria-label");
-  const match = name?.match(new RegExp(` from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
-  const from = match?.[1];
-  const until = match?.[2];
-  if (from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
-  return { from, until };
+  const match = name?.match(new RegExp(`^Show (([\\d,]+ events?)(?:, [^,]+(?:, [^,]+)?,)?) from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
+  const summary = match?.[1];
+  const count = match?.[2];
+  const from = match?.[3];
+  const until = match?.[4];
+  if (summary === undefined || count === undefined || from === undefined || until === undefined) {
+    throw new Error(`The bucket link names no period: ${name}`);
+  }
+  return { count, summary, from, until };
 }
 
 /** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
@@ -1156,9 +1827,10 @@ function firstAndLast<T>(items: readonly T[], what: string): readonly [T, T] {
 
 /**
  * At most 12 contiguous buckets of one whole-minute width; only the last may be clipped. Each link
- * names how many of `times` its range holds, with London times and their zone.
+ * names how many of `times` its range holds, and how many of those are in `criticalTimes`, with
+ * London times and their zone.
  */
-async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[]): Promise<void> {
+async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[], criticalTimes: readonly number[]): Promise<void> {
   expect(buckets.length).toBeLessThanOrEqual(12);
   const [first] = firstAndLast(buckets, "buckets");
   const width = first.until - first.start;
@@ -1174,7 +1846,8 @@ async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly num
       expect(next.start).toBe(bucket.until);
     }
     // The seeded week is summer, so London times carry British Summer Time.
-    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${eventCount(countIn(times, bucket))} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+    const summary = bucketSummary(countIn(times, bucket), countIn(criticalTimes, bucket));
+    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${summary} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
   }
 }
 
@@ -1194,7 +1867,8 @@ async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0
 
 /**
  * Which bucket is current, and the selection's live region: mounted and empty with nothing
- * selected, and naming the selected period otherwise.
+ * selected, and naming the selected period and its counts otherwise, so a touch user, who cannot
+ * hover a bar, still reads how many events it holds and how many are critical or warnings.
  */
 async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
   const selected = activityOverview(page).locator('[aria-current="true"]');
@@ -1209,8 +1883,8 @@ async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> 
   await expect(selected).toHaveCount(1);
   const link = bucketLinks(page).nth(bucket.position);
   await expect(link).toHaveAttribute("aria-current", "true");
-  const { from, until } = await bucketPeriod(link);
-  await expect(status).toHaveText(`Selected: ${from} to before ${until}`);
+  const { summary, from, until } = await bucketPeriod(link);
+  await expect(status).toHaveText(`Selected: ${summary} from ${from} to before ${until}`);
   await expect(clear).toBeVisible();
 }
 
@@ -1243,9 +1917,9 @@ async function expectOverviewFits(page: Page, width: number): Promise<void> {
   }
 }
 
-/** The period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
-function shownPeriod(page: Page, from: string): Locator {
-  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(from, { exact: true }) });
+/** The count and period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
+function shownPeriod(page: Page, { count, from }: Readonly<{ count: string; from: string }>): Locator {
+  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(`${count} from ${from}`, { exact: true }) });
 }
 
 /**
@@ -1266,6 +1940,45 @@ async function expectPeriodCoversCaption(page: Page, period: Locator, at: string
   }
 }
 
+/** A CSS color as computed ("rgb(239, 68, 68)") or declared as a token ("#ef4444"), as 0 to 255 channels. */
+function rgbChannels(color: string): readonly [number, number, number] {
+  const hex = color.trim().match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  const channels = hex === null ? color.match(/[\d.]+/g)?.slice(0, 3).map(Number) : hex.slice(1, 4).map((pair) => Number.parseInt(pair, 16));
+  const [red, green, blue] = channels ?? [];
+  if (red === undefined || green === undefined || blue === undefined) throw new Error(`Not an opaque color: ${color}`);
+  return [red, green, blue];
+}
+
+/** WCAG 2 contrast ratio between two opaque colors. */
+function contrastRatio(one: string, other: string): number {
+  const luminance = (color: string) => {
+    const [red, green, blue] = rgbChannels(color).map((channel) => {
+      const srgb = channel / 255;
+      return srgb <= 0.04045 ? srgb / 12.92 : ((srgb + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * (red ?? 0) + 0.7152 * (green ?? 0) + 0.0722 * (blue ?? 0);
+  };
+  const [lighter, darker] = [luminance(one), luminance(other)].sort((a, b) => b - a);
+  return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
+}
+
+/** Every segment in `link` has a background of at least 3:1 against the panel and the raised panel a hovered or selected bar sits on. */
+async function expectSegmentContrast(page: Page, link: Locator): Promise<void> {
+  const panels = await page.evaluate(() => {
+    const root = getComputedStyle(document.documentElement);
+    return [root.getPropertyValue("--panel"), root.getPropertyValue("--panel-raised")];
+  });
+  const segments = link.getByTestId(/^activity-segment-/);
+  expect(await segments.count()).toBeGreaterThan(0);
+  for (const segment of await segments.all()) {
+    const name = await segment.getAttribute("data-testid");
+    const color = await segment.evaluate((element) => getComputedStyle(element).backgroundColor);
+    for (const panel of panels) {
+      expect(contrastRatio(color, panel), `${name} ${color} against ${panel}`).toBeGreaterThanOrEqual(3);
+    }
+  }
+}
+
 const overviewEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
 
 ownerTest.describe("timeline activity overview", () => {
@@ -1277,7 +1990,7 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
       await expect(eventItems(page)).toHaveCount(50);
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS);
+      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS, SEEDED_CRITICAL_MS);
       // No dates chosen: the bounds are the oldest event's UTC hour and the hour after the newest.
       const oldest = NEWEST_MS - (EVENT_COUNT - 1) * HOUR_MS;
       const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
@@ -1287,7 +2000,7 @@ ownerTest.describe("timeline activity overview", () => {
       const hrefs = buckets.map((bucket) => bucket.href);
 
       await page.getByRole("link", { name: "Load older events" }).click();
-      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events of 60" })).toBeVisible();
       await expect(page).toHaveURL(/[?&]cursor=/);
       await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
       expect((await readBuckets(page)).map((bucket) => bucket.href)).toEqual(hrefs);
@@ -1309,7 +2022,7 @@ ownerTest.describe("timeline activity overview", () => {
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(page).toHaveURL(/[?&]cursor=/);
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, allTimes);
+      await expectEvenBuckets(buckets, allTimes, SEEDED_CRITICAL_MS);
       const [oldest, newest] = firstAndLast(buckets, "buckets");
       const oldestIndexes = vercelIndexesIn(oldest);
       const newestIndexes = vercelIndexesIn(newest);
@@ -1384,7 +2097,7 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(eventItems(page)).toHaveCount(5);
       const buckets = await readBuckets(page);
       const criticalTimes = SEEDED_VERCEL_MS.filter((_, index) => critical(index));
-      await expectEvenBuckets(buckets, criticalTimes);
+      await expectEvenBuckets(buckets, criticalTimes, criticalTimes);
       // Chosen dates are the bounds: London midnight June 13 to London midnight June 16, zero buckets included.
       const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
       expect(firstBucket.start).toBe(Date.UTC(2026, 5, 12, 23));
@@ -1427,7 +2140,7 @@ ownerTest.describe("timeline activity overview", () => {
       await page.goto(`/w/${workspace.slug}/timeline?severity=success&from=2026-06-15&to=2026-06-15`);
       await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
       const buckets = await readBuckets(page);
-      await expectEvenBuckets(buckets, []);
+      await expectEvenBuckets(buckets, [], []);
       expect(buckets).toHaveLength(12);
       const [quiet] = firstAndLast(buckets, "buckets");
       await quiet.link.focus();
@@ -1441,13 +2154,15 @@ ownerTest.describe("timeline activity overview", () => {
       await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
       await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
       await expect(overview.locator('[aria-current="true"]')).toHaveCount(0);
+      // No bar is selected, so there is no count to repeat, only the period.
+      await expect(overview.getByRole("status")).toHaveText("Selected: 2020-01-01 00:00 GMT to before 2020-01-01 01:00 GMT");
       await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
       await expect(eventItems(page)).toHaveCount(50);
 
       // An unordered pair selects nothing.
       await page.goto(`/w/${workspace.slug}/timeline?start=2026-06-15T00:00:00.000Z&until=2026-06-14T00:00:00.000Z`);
-      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 of 60 events" })).toBeVisible();
       await expectSelected(page, null);
     } finally {
       await deleteTestWorkspace(workspace);
@@ -1465,7 +2180,7 @@ ownerTest.describe("timeline activity overview", () => {
       expect(buckets).toHaveLength(12);
       const third = buckets.at(2);
       if (third === undefined) throw new Error("There is no third bucket.");
-      const thirdPeriod = shownPeriod(page, (await bucketPeriod(third.link)).from);
+      const thirdPeriod = shownPeriod(page, await bucketPeriod(third.link));
       await expect(thirdPeriod).toBeHidden();
       await tabTo(page, third.link, 120);
       await expectPeriodCoversCaption(page, thirdPeriod, "375px");
@@ -1477,8 +2192,8 @@ ownerTest.describe("timeline activity overview", () => {
       // With the newest bar focused, hovering the oldest shows the oldest bar's period on top.
       await page.setViewportSize({ width: 375, height: 900 });
       const [oldest, newest] = firstAndLast(buckets, "buckets");
-      const newestPeriod = shownPeriod(page, (await bucketPeriod(newest.link)).from);
-      const oldestPeriod = shownPeriod(page, (await bucketPeriod(oldest.link)).from);
+      const newestPeriod = shownPeriod(page, await bucketPeriod(newest.link));
+      const oldestPeriod = shownPeriod(page, await bucketPeriod(oldest.link));
       await tabTo(page, newest.link, 120);
       await expect(newestPeriod).toBeVisible();
       await expect(oldestPeriod).toBeHidden();
@@ -1510,6 +2225,73 @@ ownerTest.describe("timeline activity overview", () => {
     }
   });
 
+  ownerTest("stacks critical and warning events in each bar, says their counts, and keeps 3:1 contrast", async ({ page }) => {
+    const workspace = await seedTimeline("Overview severity");
+    try {
+      // Two warnings in the two hour bar that holds events 9 and 10 (13:30 UTC, critical) on the
+      // London day June 15: 4 events, 1 critical, 2 warnings.
+      const warningMs = [NEWEST_MS - 10 * HOUR_MS + 10 * MINUTE_MS, NEWEST_MS - 10 * HOUR_MS + 20 * MINUTE_MS];
+      const { error } = await adminClient().from("activity_events").insert(warningMs.map((occurredMs, index) => ({
+        workspace_id: workspace.id,
+        provider: null,
+        type_id: "devmacro.sync_failed",
+        severity: "warning" as const,
+        title: `Synthetic warning ${index}`,
+        occurred_at: new Date(occurredMs).toISOString(),
+        dedupe_key: `e2e-timeline-warning-${index}`,
+      })));
+      if (error) throw new Error(`Seeding warnings failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-15&to=2026-06-15`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("26 matching events across all pages", { exact: true })).toBeVisible();
+      const buckets = await readBuckets(page);
+      expect(buckets).toHaveLength(12);
+      const burst = buckets.find((bucket) => countIn(warningMs, bucket) === 2);
+      const [quiet] = firstAndLast(buckets, "buckets");
+      if (burst === undefined) throw new Error("No bucket holds the warnings.");
+      expect(countIn(SEEDED_CRITICAL_MS, quiet)).toBe(0);
+
+      // The name says the severity counts; the bar stacks a segment for each.
+      const { from, until } = await bucketPeriod(burst.link);
+      await expect(burst.link).toHaveAccessibleName(`Show 4 events, 1 critical, 2 warnings, from ${from} to before ${until}`);
+      for (const key of ["other", "warning", "critical"]) await expect(burst.link.getByTestId(`activity-segment-${key}`)).toHaveCount(1);
+      await expect(quiet.link.getByTestId(/^activity-segment-(warning|critical)$/)).toHaveCount(0);
+      await expect(quiet.link.getByTestId("activity-segment-other")).toHaveCount(1);
+      // The caption names the colors.
+      const caption = overview.getByTestId("activity-caption");
+      await expect(caption.getByText("Critical", { exact: true })).toBeVisible();
+      await expect(caption.getByText("Warning", { exact: true })).toBeVisible();
+      await expectSegmentContrast(page, burst.link);
+
+      // Keyboard: the focused bar's period row says its severity counts, or that it has none.
+      const quietPeriod = shownPeriod(page, await bucketPeriod(quiet.link));
+      await tabTo(page, quiet.link, 120);
+      await expect(quietPeriod.getByText("No critical or warning events", { exact: true })).toBeVisible();
+      const burstPeriod = shownPeriod(page, { count: "4 events", from });
+      await tabTo(page, burst.link, 120);
+      await expect(burstPeriod.getByText("1 critical, 2 warnings", { exact: true })).toBeVisible();
+      await expectPeriodCoversCaption(page, burstPeriod, "the default viewport");
+      await expectSegmentContrast(page, burst.link);
+
+      // Selected, the bar keeps its severity colors and the sentence repeats its counts.
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new URL(burst.href, page.url()).href);
+      await expectSelected(page, burst);
+      await expect(overview.getByRole("status")).toHaveText(`Selected: 4 events, 1 critical, 2 warnings, from ${from} to before ${until}`);
+      await expectSegmentContrast(page, bucketLinks(page).nth(burst.position));
+      await expectNoAxeViolations(page);
+
+      // A severity filter counts only what it keeps: no severity segment and no legend.
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-15&to=2026-06-15&severity=info`);
+      await expect(overview.getByText("22 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview.getByTestId(/^activity-segment-(warning|critical)$/)).toHaveCount(0);
+      await expect(caption.getByText("Critical", { exact: true })).toHaveCount(0);
+      await expect(bucketLinks(page).first()).toHaveAccessibleName(new RegExp(`^Show [\\d,]+ events? from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
   for (const width of [1280, 375, 320]) {
     overviewEvidenceTest(`fits the overview at ${width}px with 24px keyboard targets and no axe violations`, async ({ page }) => {
       // The same label, clock, and viewport as the baseline feed capture, so before and after compare.
@@ -1529,14 +2311,17 @@ ownerTest.describe("timeline activity overview", () => {
           await page.screenshot({ path: `pr-evidence/after/overview-${width}.png`, animations: "disabled" });
         }
 
-        // Tab to the newest bucket: the chart scrolls it into view, its period shows in the
-        // caption row, and Enter selects it.
+        // Tab to the newest bucket: the chart scrolls it into view, its count and period show in
+        // the caption row, and Enter selects it.
         const buckets = await readBuckets(page);
         const [, newest] = firstAndLast(buckets, "buckets");
-        const { from, until } = await bucketPeriod(newest.link);
-        // The period is the link's sibling, so the link's visible text stays inside its name.
-        const period = shownPeriod(page, from);
-        const periodStart = period.getByText(from, { exact: true });
+        const named = await bucketPeriod(newest.link);
+        const { count, from, until } = named;
+        // The period is the link's sibling, so the bar itself prints nothing at rest and the
+        // link's name is all it says.
+        await expect(newest.link).toHaveText("");
+        const period = shownPeriod(page, named);
+        const periodStart = period.getByText(`${count} from ${from}`, { exact: true });
         const periodEnd = period.getByText(`Before ${until}`, { exact: true });
         await expect(periodStart).toBeHidden();
         await expect(periodEnd).toBeHidden();

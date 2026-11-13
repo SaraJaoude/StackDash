@@ -18,10 +18,12 @@ import { GuardedButton } from "@/components/guarded-button";
 import { buttonClass } from "./button";
 import {
   createDialogController,
+  dismissedByClick,
   type ClosedDialog,
   type CloseReason,
   type DialogController,
   type FocusTarget,
+  type Point,
 } from "./dialog-controller";
 
 /**
@@ -33,7 +35,8 @@ import {
  *
  * `useModalDialog` gives the handle a trigger opens it with; `ModalDialog` renders it. Inside,
  * `DialogCloseButton` dismisses it and, unless told otherwise, takes focus when it opens, so Enter
- * right after opening a destructive confirmation cancels rather than confirms.
+ * right after opening a destructive confirmation cancels rather than confirms. `lightDismiss` also
+ * closes it on a click outside it, as Escape does: only for a dialog with nothing to lose.
  */
 
 export type ModalDialogHandle = Readonly<{
@@ -120,8 +123,11 @@ const SIZES = {
   lg: `m-auto max-h-[calc(100%-2rem)] w-[min(40rem,calc(100%-2rem))] overflow-y-auto border-line p-6 ${FRAME}`,
   /** Near the top and edge to edge inside, for a search box with results under it. */
   palette: `mx-auto mt-[12vh] w-[calc(100%-2rem)] max-w-xl border-line-strong p-0 shadow-xl shadow-black/40 ${FRAME}`,
-  /** Full-screen on phones; a right-hand panel leaves the timeline visible on wider screens. */
-  inspector: "fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-none overflow-y-auto overscroll-contain border-0 border-l border-line-strong bg-panel p-5 text-foreground shadow-xl backdrop:bg-black/30 sm:w-[28rem] sm:p-6",
+  /**
+   * Full-screen on phones; a right-hand panel leaves the timeline visible on wider screens. It
+   * slides in and out (`panel-slide` in globals.css), and not under reduced motion.
+   */
+  inspector: "panel-slide fixed inset-y-0 right-0 left-auto m-0 h-dvh max-h-none w-full max-w-none overflow-y-auto overscroll-contain border-0 border-l border-line-strong bg-panel p-5 text-foreground shadow-xl backdrop:bg-black/30 sm:w-[28rem] sm:p-6",
 } as const;
 
 export function ModalDialog({
@@ -134,6 +140,7 @@ export function ModalDialog({
   size = "md",
   content = "each-open",
   onClose,
+  lightDismiss = false,
   children,
 }: {
   dialog: ModalDialogHandle;
@@ -154,11 +161,18 @@ export function ModalDialog({
    */
   content?: "each-open" | "after-first-open" | "always";
   onClose?: (closed: ClosedDialog) => void;
+  /**
+   * Closes on a click outside the dialog, on its backdrop, exactly as Escape does (#407). Off by
+   * default: an outside click must never discard what someone typed into a form or confirmation.
+   */
+  lightDismiss?: boolean;
   children: ReactNode;
 }) {
   const titleId = useId();
   const descriptionId = useId();
   const { ref, openCount } = dialog;
+  // Where the last press on the dialog or its backdrop started, for `dismissedByClick`.
+  const pressedAt = useRef<Point | null>(null);
 
   // After each open commits, so content mounted by this open is there to focus.
   useEffect(() => {
@@ -175,6 +189,12 @@ export function ModalDialog({
 
   return (
     <ModalDialogContext value={dialog}>
+      {/* Light dismiss checks the pointer against the dialog's box rather than using the native
+          `closedby="any"`: @types/react accepts it, but Safari ships it only from 27.3 (MDN
+          browser-compat-data, html.elements.dialog.closedby) and Next.js 16 supports Safari 16.4
+          and up (node_modules/next/dist/docs/03-architecture/supported-browsers.md). A click on
+          the backdrop targets the dialog itself, as a click on its padding does, so only the box
+          tells them apart. Escape closes it from the keyboard. */}
       <dialog
         ref={ref}
         aria-labelledby={titleId}
@@ -187,6 +207,15 @@ export function ModalDialog({
           })
         }
         onKeyDown={keepTabInside}
+        onPointerDown={lightDismiss ? (event) => { pressedAt.current = { x: event.clientX, y: event.clientY }; } : undefined}
+        onClick={lightDismiss ? (event) => {
+          const pressed = pressedAt.current;
+          pressedAt.current = null;
+          const released = { x: event.clientX, y: event.clientY };
+          if (event.target === event.currentTarget && dismissedByClick(event.currentTarget.getBoundingClientRect(), pressed, released)) {
+            dialog.close("dismissed");
+          }
+        } : undefined}
         className={SIZES[size]}
       >
         {titleAction === undefined ? (

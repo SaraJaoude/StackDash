@@ -4,12 +4,17 @@ import type { Severity } from "@/components/severity-badge";
 import { ANOMALY_TYPE_ID } from "@/lib/alerts/anomaly";
 import {
   appendScopeParams,
+  EMPTY_SCOPE,
   hasScopeFilters,
   paramValues,
   repeatedParam,
   ScopeSearchParamsSchema,
   type ScopeFilters,
+  type ScopeOption,
+  type ScopeOptions,
 } from "@/lib/filters/scope";
+import { formatDateTime } from "@/lib/format";
+import { providerName, typeOwnerName } from "@/lib/providers";
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
@@ -36,8 +41,10 @@ export const MAX_TYPE_FILTERS = 100;
 
 export const EVENT_SEVERITIES = ["info", "success", "warning", "critical"] as const satisfies readonly EventSeverity[];
 
-// The badge vocabulary shared with the landing page; the filter uses the same words so what a
-// person ticks is what they then see on each event.
+// The badge vocabulary shared with the landing page. The filter uses the same words as each event
+// row: success, warning, and critical rows show theirs as a pill, while an info row's "Event" is
+// screen-reader text only, so quiet rows carry no pill (#385). The event details show the pill for
+// every severity.
 const SEVERITY_BADGE: Record<EventSeverity, Severity> = {
   info: "Event",
   success: "Success",
@@ -305,8 +312,12 @@ export function hasActiveFilters(query: TimelineQuery): boolean {
   );
 }
 
-/** Link to `basePath` carrying the filters in `query`, and `cursor` when given. */
-export function timelineHref(basePath: string, query: TimelineQuery, cursor: TimelineCursor | null): string {
+/**
+ * The search params for the filters in `query`, and `cursor` when given: the shape
+ * `parseTimelineSearchParams` reads. Links use it through `timelineHref`; the search form writes
+ * the same entries as hidden inputs, so a link and a form submission carry the same filters.
+ */
+export function timelineParams(query: TimelineQuery, cursor: TimelineCursor | null): URLSearchParams {
   const params = new URLSearchParams();
   for (const type of query.types) params.append("type", type);
   for (const severity of query.severities) params.append("severity", severity);
@@ -319,6 +330,186 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   if (query.search !== null) params.set("q", query.search);
   appendScopeParams(params, query.scope);
   if (cursor !== null) params.set("cursor", encodeCursor(cursor));
-  const search = params.toString();
+  return params;
+}
+
+/** Link to `basePath` carrying the filters in `query`, and `cursor` when given. */
+export function timelineHref(basePath: string, query: TimelineQuery, cursor: TimelineCursor | null): string {
+  const search = timelineParams(query, cursor).toString();
   return search === "" ? basePath : `${basePath}?${search}`;
+}
+
+/** How far either side of an event "Show events around this time" reaches. */
+export const AROUND_EVENT_WINDOW_MINUTES = 60;
+
+const NO_FILTERS: TimelineQuery = {
+  types: [],
+  severities: [],
+  from: null,
+  to: null,
+  timeRange: null,
+  search: null,
+  cursor: null,
+  scope: EMPTY_SCOPE,
+};
+
+/** Links from an event's details to the timeline narrowed by one of the event's own values. */
+export type EventFilterHrefs = Readonly<{
+  type: string;
+  /** null for an event with no account, such as DevMacro's own. */
+  account: string | null;
+  /** The half-open period `AROUND_EVENT_WINDOW_MINUTES` either side of the event, as `start` and `until`. */
+  around: string;
+}>;
+
+/**
+ * The event's type, its account, and the time around it, each as the only filter: a shared event
+ * can be open outside the current filters, so keeping them could show a timeline without it.
+ */
+export function eventFilterHrefs(
+  basePath: string,
+  event: Readonly<{ type_id: string; external_account_id: string | null; occurred_at: string }>,
+): EventFilterHrefs {
+  // Postgres keeps microseconds and the URL's instants stop at milliseconds. Truncating moves the
+  // instant back by under a millisecond, far less than the window, so the event stays inside it.
+  const occurredMs = Date.parse(event.occurred_at.replace(/(\.\d{3})\d+/, "$1"));
+  const windowMs = AROUND_EVENT_WINDOW_MINUTES * 60_000;
+  const timeRange = {
+    from: new Date(occurredMs - windowMs).toISOString(),
+    toExclusive: new Date(occurredMs + windowMs).toISOString(),
+  };
+  return {
+    type: timelineHref(basePath, { ...NO_FILTERS, types: [event.type_id] }, null),
+    account: event.external_account_id === null
+      ? null
+      : timelineHref(basePath, { ...NO_FILTERS, scope: { ...EMPTY_SCOPE, accounts: [event.external_account_id] } }, null),
+    around: timelineHref(basePath, { ...NO_FILTERS, timeRange }, null),
+  };
+}
+
+/** One active filter value, named so it can be removed on its own. */
+export type ActiveFilter = Readonly<{
+  /** Unique among the filters of one query, for React keys. */
+  key: string;
+  /** What is filtered, in sentence case: "Provider", "Event type". */
+  kind: string;
+  /** The value as the filter form names it: "GitHub", "Vercel: Deployment ready". */
+  value: string;
+  /** What activating it does: "Remove filter: provider GitHub". */
+  name: string;
+  /** The same filters without this one value, starting from the newest events. */
+  query: TimelineQuery;
+}>;
+
+function optionLabel(value: string, options: readonly ScopeOption[], unknown: string): string {
+  return options.find((option) => option.value === value)?.label ?? unknown;
+}
+
+/**
+ * Every active filter value, one entry each, in the order the page describes them: search, event
+ * types, severities, dates, the selected period, then providers, projects, and accounts. Event
+ * types are named as the filter form names them, with `typeName` (the adapters' declared names live
+ * on the server, #294), and scope values by the form's options, so a chip reads the same as the box
+ * that set it. Each entry's query drops only its own value and the cursor.
+ */
+export function activeFilters(query: TimelineQuery, options: ScopeOptions, typeName: (typeId: string) => string): ActiveFilter[] {
+  const base = { ...query, cursor: null };
+  const filters: ActiveFilter[] = [];
+  const add = (key: string, kind: string, value: string, without: Partial<TimelineQuery>) => {
+    filters.push({ key, kind, value, name: `Remove filter: ${kind.toLowerCase()} ${value}`, query: { ...base, ...without } });
+  };
+  if (query.search !== null) add("q", "Search", `“${query.search}”`, { search: null });
+  for (const type of query.types) {
+    add(`type=${type}`, "Event type", `${typeOwnerName(type)}: ${typeName(type)}`, {
+      types: query.types.filter((other) => other !== type),
+    });
+  }
+  for (const severity of query.severities) {
+    add(`severity=${severity}`, "Severity", severityBadge(severity), {
+      severities: query.severities.filter((other) => other !== severity),
+    });
+  }
+  if (query.from !== null) add("from", "From date", query.from, { from: null });
+  if (query.to !== null) add("to", "To date", query.to, { to: null });
+  if (query.timeRange !== null) {
+    add("period", "Period", `${formatDateTime(query.timeRange.from)} to before ${formatDateTime(query.timeRange.toExclusive)}`, {
+      timeRange: null,
+    });
+  }
+  const { scope } = query;
+  for (const provider of scope.providers) {
+    add(`provider=${provider}`, "Provider", optionLabel(provider, options.providers, providerName(provider)), {
+      scope: { ...scope, providers: scope.providers.filter((other) => other !== provider) },
+    });
+  }
+  for (const project of scope.projects) {
+    add(`project=${project}`, "Project", optionLabel(project, options.projects, "Unknown project"), {
+      scope: { ...scope, projects: scope.projects.filter((other) => other !== project) },
+    });
+  }
+  for (const account of scope.accounts) {
+    add(`account=${account}`, "Account", optionLabel(account, options.accounts, "Unknown account"), {
+      scope: { ...scope, accounts: scope.accounts.filter((other) => other !== account) },
+    });
+  }
+  return filters;
+}
+
+/** The fields of an activity overview bar that matching and totals read. */
+export type ActivityCount = Readonly<{ bucket_start: string; bucket_end: string; events: number }>;
+
+/**
+ * The overview bar that is exactly the selected period, or undefined: a hand-written range, or one
+ * whose bars shifted after new events arrived, is not one bar.
+ */
+export function selectedActivityBucket<T extends ActivityCount>(
+  buckets: readonly T[],
+  range: TimelineTimeRange | null,
+): T | undefined {
+  if (range === null) return undefined;
+  return buckets.find((bucket) =>
+    new Date(bucket.bucket_start).toISOString() === range.from && new Date(bucket.bucket_end).toISOString() === range.toExclusive);
+}
+
+/**
+ * How many events match the filters across every page, from the overview's bars: all of them with
+ * no period selected, the selected bar's with one. null when the selected period is not one bar,
+ * because then no bar holds its count.
+ */
+export function timelineTotal(buckets: readonly ActivityCount[], range: TimelineTimeRange | null): number | null {
+  if (range === null) return buckets.reduce((sum, bucket) => sum + bucket.events, 0);
+  return selectedActivityBucket(buckets, range)?.events ?? null;
+}
+
+const FULL_COUNT = new Intl.NumberFormat("en-US");
+
+/**
+ * The feed's result in words, announced as a live region: "Showing 50 of 60 events with “deploy”
+ * in the title for provider Vercel". An older page says "Showing 10 older events of 60". The list
+ * and the total are separate reads, so an event arriving between them can leave the total behind
+ * the list; a total below the count shown, or no total, falls back to the count alone rather than
+ * printing a number that cannot be true.
+ */
+export function timelineStatus({
+  count,
+  total,
+  olderPage,
+  search,
+  scopeDescription,
+}: Readonly<{
+  count: number;
+  total: number | null;
+  olderPage: boolean;
+  search: string | null;
+  scopeDescription: string | null;
+}>): string {
+  const older = olderPage ? "older " : "";
+  const noun = (n: number) => (n === 1 ? "event" : "events");
+  let shown: string;
+  if (count === 0) shown = "Showing no events";
+  else if (total === null || total < count) shown = `Showing ${FULL_COUNT.format(count)} ${older}${noun(count)}`;
+  else if (olderPage) shown = `Showing ${FULL_COUNT.format(count)} older ${noun(count)} of ${FULL_COUNT.format(total)}`;
+  else shown = `Showing ${FULL_COUNT.format(count)} of ${FULL_COUNT.format(total)} ${noun(total)}`;
+  const matching = search === null ? shown : `${shown} with “${search}” in the title`;
+  return scopeDescription === null ? matching : `${matching} for ${scopeDescription}`;
 }

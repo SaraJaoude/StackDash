@@ -13,10 +13,14 @@ import { DialogCloseButton, ModalDialog, useModalDialog } from "@/components/ui/
 import { ProviderMark } from "@/components/ui/provider-mark";
 import type { TimelineEvent } from "@/lib/data/timeline";
 import { providerName } from "@/lib/providers";
-import { eventTypeLabel, parseTimelineEventId, severityBadge } from "@/lib/timeline/query";
+import { parseTimelineEventId, severityBadge, type EventFilterHrefs } from "@/lib/timeline/query";
 
-/** An event with its London time, written on the server: browsers name the London zone differently. */
-export type InspectorEvent = TimelineEvent & Readonly<{ londonTime: string }>;
+/**
+ * An event with what the server writes for it: its London time, since browsers name the London
+ * zone differently, its type's declared name, from the server-only adapter registry (#294), and
+ * its filter links, built with `timelineHref` so the panel never writes a query string itself.
+ */
+export type InspectorEvent = TimelineEvent & Readonly<{ londonTime: string; typeName: string; filterHrefs: EventFilterHrefs }>;
 
 const InspectorContext = createContext<{
   baseHref: string;
@@ -26,6 +30,21 @@ const InspectorContext = createContext<{
 
 function eventHref(baseHref: string, id: string): string {
   return `${baseHref}${baseHref.includes("?") ? "&" : "?"}event=${encodeURIComponent(id)}`;
+}
+
+// `select` marks the history entry it pushes, so closing still goes back to the entry before it
+// after the route was hidden and shown again, as Back from a related event link does (#394). Next
+// keeps custom history state when it traverses to an entry (`preserveCustomHistoryState`).
+const PUSHED_ENTRY = "devmacroInspectorPushed";
+
+function onPushedEntry(): boolean {
+  const state: unknown = window.history.state;
+  return typeof state === "object" && state !== null && PUSHED_ENTRY in state && state[PUSHED_ENTRY] === true;
+}
+
+/** Shows `href` in place of the current entry, keeping the mark `select` put on it. */
+function replaceEntry(href: string): void {
+  window.history.replaceState(onPushedEntry() ? { [PUSHED_ENTRY]: true } : null, "", href);
 }
 
 /**
@@ -42,16 +61,21 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
 }) {
   const searchParams = useSearchParams();
   const selectedId = parseTimelineEventId(searchParams.get("event") ?? undefined);
+  const open = selectedId !== null;
   const selected = events.find((event) => event.id === selectedId)
     ?? (linkedEvent?.id === selectedId ? linkedEvent : null);
-  const selectedIndex = events.findIndex((event) => event.id === selectedId);
+  // The panel fades out after closing (#399), by which time the URL no longer names the event, so
+  // it keeps showing the event it showed rather than "Event unavailable" until it opens again.
+  const [shown, setShown] = useState(selected);
+  if (open && shown !== selected) setShown(selected);
+  const current = open ? selected : shown;
+  const selectedIndex = current === null ? -1 : events.findIndex((event) => event.id === current.id);
   const newer = selectedIndex > 0 ? events[selectedIndex - 1] : undefined;
   const older = selectedIndex >= 0 ? events[selectedIndex + 1] : undefined;
   const dialog = useModalDialog({ fallbackFocusId });
   const opener = useRef<HTMLAnchorElement | null>(null);
   // True while the open inspector is the history entry `select` pushed, so closing goes back to it.
   const pushed = useRef(false);
-  const open = selectedId !== null;
 
   const syncDialog = useEffectEvent(() => {
     if (open && !dialog.ref.current?.open) {
@@ -64,7 +88,8 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
 
   // With cacheComponents, Next hides a route it leaves instead of unmounting it, and an open modal
   // under `display: none` keeps the visible page inert. Close it on hide; the URL reopens it. The
-  // entry `select` pushed may be gone by the time the route shows again, so closing then replaces.
+  // current entry may not be the one `select` pushed when the route shows again, so closing then
+  // reads the entry's own mark (`onPushedEntry`) rather than this ref.
   useLayoutEffect(() => {
     const element = dialog.ref.current;
     return () => {
@@ -89,11 +114,11 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
     // than `pushed`: a click between Escape and its popstate would leave `pushed` set on an entry
     // `select` did not push, and the next close would go back out of the timeline.
     if (new URL(window.location.href).searchParams.has("event")) {
-      window.history.replaceState(null, "", eventHref(baseHref, id));
+      replaceEntry(eventHref(baseHref, id));
       return;
     }
     pushed.current = true;
-    window.history.pushState(null, "", eventHref(baseHref, id));
+    window.history.pushState({ [PUSHED_ENTRY]: true }, "", eventHref(baseHref, id));
   }
 
   function closeSelection() {
@@ -104,8 +129,9 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
       pushed.current = false;
       return;
     }
-    // Going back to the entry before the pushed one leaves no duplicate timeline entry behind.
-    if (pushed.current) {
+    // Going back to the entry before the pushed one leaves no duplicate timeline entry behind. The
+    // ref survives a refresh, which drops the entry's mark; the mark survives the route being hidden.
+    if (pushed.current || onPushedEntry()) {
       pushed.current = false;
       window.history.back();
       return;
@@ -116,7 +142,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
 
   function moveTo(event: InspectorEvent | undefined) {
     if (event === undefined) return;
-    window.history.replaceState(null, "", eventHref(baseHref, event.id));
+    replaceEntry(eventHref(baseHref, event.id));
     dialog.ref.current?.scrollTo({ top: 0, behavior: "instant" });
   }
 
@@ -128,9 +154,10 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
         title="Event details"
         titleAction={<DialogCloseButton className={buttonClass("secondary", "sm")}>Close event</DialogCloseButton>}
         size="inspector"
+        lightDismiss
         onClose={closeSelection}
       >
-        {selected === null ? (
+        {current === null ? (
           <div className="mt-6 space-y-3">
             <h3 className="text-lg font-semibold">Event unavailable</h3>
             <p className="text-sm leading-6 text-muted">
@@ -139,7 +166,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
           </div>
         ) : (
           <>
-            <EventDetails key={selected.id} event={selected} href={eventHref(baseHref, selected.id)} />
+            <EventDetails key={current.id} event={current} href={eventHref(baseHref, current.id)} />
             <nav aria-label="Events on this page" className="mt-6 flex flex-wrap gap-2 border-t border-line pt-4">
               <GuardedButton type="button" unavailable={newer === undefined} onClick={() => moveTo(newer)} className={buttonClass("secondary", "sm")}>
                 Newer event
@@ -149,7 +176,7 @@ export function EventInspector({ events, linkedEvent, baseHref, fallbackFocusId,
               </GuardedButton>
             </nav>
             <p className="mt-2 text-xs text-muted">Navigation follows the events on this page.</p>
-            <LiveRegion tone="status" className="sr-only">Viewing {selected.title}</LiveRegion>
+            <LiveRegion tone="status" className="sr-only">Viewing {current.title}</LiveRegion>
           </>
         )}
       </ModalDialog>
@@ -180,7 +207,7 @@ export function EventInspectorLink({ eventId, children }: { eventId: string; chi
         event.preventDefault();
         inspector.select(eventId, ref.current);
       }}
-      className="after:absolute after:inset-0 after:rounded-xl hover:text-accent aria-[current=location]:text-accent focus-visible:after:outline-2 focus-visible:after:outline-accent"
+      className="after:absolute after:inset-0 after:rounded-md hover:text-accent aria-[current=location]:text-accent focus-visible:after:outline-2 focus-visible:after:outline-accent"
     >
       {children}
     </Link>
@@ -217,7 +244,7 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
       </div>
       <h3 className="break-words text-xl font-semibold leading-7">{event.title}</h3>
       <dl className="grid gap-3 text-sm">
-        <div><dt className="text-muted">Event type</dt><dd className="mt-1 break-words">{eventTypeLabel(event.type_id)}</dd></div>
+        <div><dt className="text-muted">Event type</dt><dd className="mt-1 break-words">{event.typeName}</dd></div>
         {source === null ? null : <div><dt className="text-muted">Source account</dt><dd className="mt-1 break-words">{source}</dd></div>}
         <div><dt className="text-muted">London time</dt><dd className="mt-1 font-mono text-xs">{event.londonTime}</dd></div>
         <div><dt className="text-muted">Exact timestamp (UTC)</dt><dd className="mt-1 break-all font-mono text-xs"><time dateTime={event.occurred_at}>{event.occurred_at}</time></dd></div>
@@ -243,6 +270,35 @@ function EventDetails({ event, href }: { event: InspectorEvent; href: string }) 
           <input id={linkId} readOnly value={manualLink} onFocus={(event) => event.currentTarget.select()} className="mt-2 min-h-10 w-full rounded-md border border-line-strong bg-background px-3 text-sm" />
         </div>
       )}
+      <RelatedEvents hrefs={event.filterHrefs} />
     </div>
+  );
+}
+
+/**
+ * Next steps from one event: the timeline showing only its type, its account, or the time around
+ * it. Each is a plain navigation, so the panel closes once the URL drops `event`, and Back returns
+ * to the open panel.
+ */
+function RelatedEvents({ hrefs }: { hrefs: EventFilterHrefs }) {
+  const headingId = useId();
+  const links = [
+    { href: hrefs.type, label: "Show only this event type" },
+    ...(hrefs.account === null ? [] : [{ href: hrefs.account, label: "Show only this account" }]),
+    { href: hrefs.around, label: "Show events around this time" },
+  ];
+  return (
+    <section aria-labelledby={headingId} className="border-t border-line pt-4">
+      <h4 id={headingId} className="text-sm font-semibold">Related events</h4>
+      <ul className="mt-2 flex flex-wrap gap-2">
+        {links.map((link) => (
+          <li key={link.label}>
+            <Link href={link.href} prefetch={false} className={buttonClass("secondary", "sm")}>
+              {link.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
