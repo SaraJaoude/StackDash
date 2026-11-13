@@ -11,17 +11,20 @@ import { FeedbackBanner } from "@/components/connections/feedback-banner";
 import { SimulatedNotice } from "@/components/connections/simulated-badge";
 import { ArrowRightIcon, TimelineIcon } from "@/components/icons";
 import { EventList } from "@/components/timeline/event-list";
+import { EventInspector } from "@/components/timeline/event-inspector";
+import { ActivityOverview } from "@/components/timeline/activity-overview";
 import { ProviderBadges } from "@/components/timeline/provider-badges";
 import { SeverityLinks, TimelineFilters } from "@/components/timeline/timeline-filters";
 import { buttonClass } from "@/components/ui/button";
 import { isProviderSimulationEnabled } from "@/lib/adapters/simulated";
 import { everySimulated } from "@/lib/adapters/simulated/marker";
 import { getWorkspaceScope } from "@/lib/data/dashboard";
-import { listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds } from "@/lib/data/timeline";
+import { getTimelineEvent, listTimelineActivity, listTimelineConnectionCounts, listTimelineEvents, listTimelineTypeIds, type TimelineEvent } from "@/lib/data/timeline";
 import { SAMPLE_DATA_ADDED_PARAM, sampleDataRefusal } from "@/lib/demo/workspace";
 import { buildScopeOptions, describeScope } from "@/lib/filters/scope";
+import { formatDateTime } from "@/lib/format";
 import { timelineEmptyKind } from "@/lib/timeline/empty-state";
-import { hasActiveFilters, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
+import { hasActiveFilters, parseTimelineEventId, parseTimelineSearchParams, timelineHref } from "@/lib/timeline/query";
 import { requireWorkspace } from "@/lib/workspaces/access";
 import { workspacePath } from "@/lib/workspaces/paths";
 import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
@@ -29,9 +32,16 @@ import { actionDeniedReason, canPerform } from "@/lib/workspaces/permissions";
 export const metadata: Metadata = { title: "Timeline" };
 
 const DESCRIPTION = "Deploys, payments, alerts, and other activity from every provider, newest first.";
+// The inspector returns focus here when nothing on the page opened it.
+const HEADING_ID = "timeline-title";
 
 // Per-member hidden event types arrive with #119; the query already excludes whatever is listed.
 const HIDDEN_TYPE_IDS: readonly string[] = [];
+
+// Written on the server, as the row's own time is: browsers name the London zone differently.
+function inspected(event: TimelineEvent) {
+  return { ...event, londonTime: formatDateTime(event.occurred_at) };
+}
 
 // Every section renders inside its own Suspense boundary so navigating between sections
 // has an instant shell; access checks and data reads stream in behind it.
@@ -48,17 +58,26 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const { workspace, role } = await requireWorkspace(slug, "viewer");
   const rawQuery = await searchParams;
   const query = parseTimelineSearchParams(rawQuery);
+  const selectedEventId = parseTimelineEventId(rawQuery.event);
   const basePath = workspacePath(workspace.slug, "timeline");
 
   const filters = { ...query, hiddenTypeIds: HIDDEN_TYPE_IDS };
-  const [page, connectionCounts, typeIds, workspaceScope] = await Promise.all([
+  const [page, connectionCounts, typeIds, workspaceScope, linkedEvent, activity] = await Promise.all([
     listTimelineEvents(workspace.id, filters),
     listTimelineConnectionCounts(workspace.id, filters),
     listTimelineTypeIds(workspace.id),
     getWorkspaceScope(workspace.id),
+    selectedEventId === null ? null : getTimelineEvent(workspace.id, selectedEventId),
+    listTimelineActivity(workspace.id, filters),
   ]);
   // Read after the request data above, so prerendering never sees the clock.
   const now = new Date();
+  const inspectorProps = {
+    events: page.events.map(inspected),
+    linkedEvent: linkedEvent === null ? null : inspected(linkedEvent),
+    baseHref: timelineHref(basePath, query, query.cursor),
+    fallbackFocusId: HEADING_ID,
+  };
 
   // The type ids come from the daily event count rollup, which its triggers keep equal to every
   // event the workspace has, so they are empty only when there are no events at all.
@@ -69,8 +88,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
     if (emptyKind !== "no_connections") {
       const connectionsPath = workspacePath(workspace.slug, "connections");
       return (
-        <>
-          <PageHeader title="Timeline" description={DESCRIPTION} />
+        <EventInspector {...inspectorProps}>
+          <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
           {emptyKind === "first_sync" ? (
             <EmptyState
               icon={<TimelineIcon width={20} height={20} />}
@@ -86,7 +105,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
               action={{ href: connectionsPath, label: "Check connections" }}
             />
           )}
-        </>
+        </EventInspector>
       );
     }
     const canConnect = canPerform(role, "manage_connections");
@@ -98,8 +117,8 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         connectionCount: workspaceScope.connections.length,
       }) === null;
     return (
-      <>
-        <PageHeader title="Timeline" description={DESCRIPTION} />
+      <EventInspector {...inspectorProps}>
+        <PageHeader id={HEADING_ID} title="Timeline" description={DESCRIPTION} />
         <EmptyState
           icon={<TimelineIcon width={20} height={20} />}
           title="No activity yet"
@@ -112,7 +131,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           deniedReason={canConnect ? undefined : actionDeniedReason("manage_connections")}
           secondaryAction={offerSampleData ? <SampleDataForm workspaceSlug={workspace.slug} /> : undefined}
         />
-      </>
+      </EventInspector>
     );
   }
 
@@ -130,8 +149,9 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
   const allSimulated = everySimulated(page.events.filter((event) => event.connectionName !== null));
 
   return (
-    <>
+    <EventInspector {...inspectorProps}>
       <PageHeader
+        id={HEADING_ID}
         title="Timeline"
         description={DESCRIPTION}
         titleAside={<ProviderBadges counts={connectionCounts} action={basePath} query={query} />}
@@ -159,6 +179,7 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
         scopeOptions={scopeOptions}
         status={status}
       />
+      <ActivityOverview buckets={activity} query={query} basePath={basePath} />
 
       {count === 0 ? (
         filtered ? (
@@ -207,6 +228,6 @@ async function TimelineContent({ params, searchParams }: PageProps<"/w/[workspac
           )}
         </nav>
       )}
-    </>
+    </EventInspector>
   );
 }

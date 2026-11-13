@@ -17,6 +17,10 @@ badges, and cards, read a workspace from your own scripts through a read-only RE
 an AI assistant through a read-only MCP server, and see spend and allowances where each provider
 reports them.
 
+The timeline groups events by London day, opens any event's details from its row with a link you
+can share, and charts every matching event over time so you can narrow the feed to one period
+([Getting started](docs/getting-started.md#4-read-the-timeline-and-the-dashboard)).
+
 **Status:** MVP for invited testers. Sign-in is GitHub only and limited to emails on the invite
 list. Inbound provider webhooks come after the MVP; data arrives by scheduled sync. Every built
 integration comes from the provider's documentation and none has been tried with a real account
@@ -659,7 +663,7 @@ src/
     connections/               connection status and controls
     projects/                  project forms and rules
     public-metrics/            publish, unpublish, self-reported value, and project page controls; the share dialog; history charts
-    timeline/                  event list and filters
+    timeline/                  event list and filters, the event inspector, and the activity overview
     admin/                     instance overview tables and status pills
     alerts/                    alert rules, budgets, triggered alerts
     docs/                      Markdown rendering and the docs list for /docs

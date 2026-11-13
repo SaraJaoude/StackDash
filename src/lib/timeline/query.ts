@@ -13,10 +13,13 @@ import {
 import type { Database } from "@/lib/supabase/database.types";
 
 /**
- * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&q=..&cursor=..`) and its
- * keyset cursor. Nothing here touches the database, so every boundary is unit tested. Anything
- * invalid in the URL is dropped rather than failing the page: a hand-edited or stale link still
- * shows the timeline.
+ * Pure parsing for the timeline URL (`?type=..&severity=..&from=..&to=..&start=..&until=..&q=..&cursor=..&event=..`)
+ * and its keyset cursor. `start` and `until` are a half-open pair of instants (the activity
+ * overview's selected period) that counts only when both are valid and `start` is before `until`.
+ * `event` selects the event shown in the inspector and is not a filter: it never changes the feed,
+ * its counts, or its cursor. Nothing here touches the database, so every boundary is unit tested.
+ * Anything invalid in the URL is dropped rather than failing the page: a hand-edited or stale link
+ * still shows the timeline.
  */
 
 export type EventSeverity = Database["public"]["Enums"]["event_severity"];
@@ -141,6 +144,23 @@ export function occurredRange(from: string | null, to: string | null): OccurredR
   };
 }
 
+/** A selected histogram bucket, half open and independent of the whole-day filters. */
+export type TimelineTimeRange = { from: string; toExclusive: string };
+
+/** Intersect, never replace, the calendar dates with the selected time bucket. */
+export function timelineOccurredRange(
+  filters: Pick<TimelineQuery, "from" | "to" | "timeRange">,
+): OccurredRange {
+  const dates = occurredRange(filters.from, filters.to);
+  if (filters.timeRange === null) return dates;
+  return {
+    from: dates.from === null || Date.parse(dates.from) < Date.parse(filters.timeRange.from)
+      ? filters.timeRange.from : dates.from,
+    toExclusive: dates.toExclusive === null || Date.parse(dates.toExclusive) > Date.parse(filters.timeRange.toExclusive)
+      ? filters.timeRange.toExclusive : dates.toExclusive,
+  };
+}
+
 export type TimelineCursor = {
   /** `occurred_at` exactly as the database returned it, so microseconds survive the round trip. */
   occurredAt: string;
@@ -202,6 +222,7 @@ export type TimelineQuery = {
   from: string | null;
   /** London calendar date `YYYY-MM-DD`, inclusive. */
   to: string | null;
+  timeRange: TimelineTimeRange | null;
   /** Text every event title must contain, ignoring case; trimmed and never empty. */
   search: string | null;
   cursor: TimelineCursor | null;
@@ -220,8 +241,29 @@ function one<T>(parse: (value: string) => T | null) {
   });
 }
 
+const EventIdParamSchema = one((value) => (UUID_PATTERN.test(value) ? value.toLowerCase() : null));
+
+/** Inspector selection is not a feed filter and never changes its counts or cursor. */
+export function parseTimelineEventId(value: SearchParamValue): string | null {
+  return EventIdParamSchema.parse(value);
+}
+
 const isSeverity = (value: string): value is EventSeverity =>
   (EVENT_SEVERITIES as readonly string[]).includes(value);
+
+// Bucket boundaries have millisecond precision or less. Normalize offsets once so comparisons
+// and shared URLs use the same UTC representation; Zod rejects impossible calendar dates.
+const InstantSchema = z.iso.datetime({ offset: true }).refine(
+  (value) => !/\.\d{4}/.test(value),
+);
+const instantParam = one((value) => {
+  const result = InstantSchema.safeParse(value);
+  if (!result.success) return null;
+  const date = new Date(result.data);
+  // PostgreSQL has no year zero; keep URL instants in its common four-digit AD range.
+  if (!Number.isFinite(date.getTime()) || date.getUTCFullYear() < 1 || date.getUTCFullYear() > 9999) return null;
+  return date.toISOString();
+});
 
 // One schema for the whole URL: the shared scope filter plus the timeline's own keys.
 const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
@@ -229,6 +271,8 @@ const TimelineSearchParamsSchema = ScopeSearchParamsSchema.extend({
   severity: repeatedParam(isSeverity, EVENT_SEVERITIES.length),
   from: one((value) => (isIsoDate(value) ? value : null)),
   to: one((value) => (isIsoDate(value) ? value : null)),
+  start: instantParam,
+  until: instantParam,
   q: one((value) => (value.length <= MAX_SEARCH_LENGTH ? value : null)),
   cursor: one(decodeCursor),
 });
@@ -241,6 +285,8 @@ export function parseTimelineSearchParams(searchParams: RawSearchParams): Timeli
     severities: parsed.severity,
     from: parsed.from,
     to: parsed.to,
+    timeRange: parsed.start !== null && parsed.until !== null && parsed.start < parsed.until
+      ? { from: parsed.start, toExclusive: parsed.until } : null,
     search: parsed.q,
     cursor: parsed.cursor,
     scope: { providers: parsed.provider, projects: parsed.project, accounts: parsed.account },
@@ -253,6 +299,7 @@ export function hasActiveFilters(query: TimelineQuery): boolean {
     query.severities.length > 0 ||
     query.from !== null ||
     query.to !== null ||
+    query.timeRange !== null ||
     query.search !== null ||
     hasScopeFilters(query.scope)
   );
@@ -265,6 +312,10 @@ export function timelineHref(basePath: string, query: TimelineQuery, cursor: Tim
   for (const severity of query.severities) params.append("severity", severity);
   if (query.from !== null) params.set("from", query.from);
   if (query.to !== null) params.set("to", query.to);
+  if (query.timeRange !== null) {
+    params.set("start", query.timeRange.from);
+    params.set("until", query.timeRange.toExclusive);
+  }
   if (query.search !== null) params.set("q", query.search);
   appendScopeParams(params, query.scope);
   if (cursor !== null) params.set("cursor", encodeCursor(cursor));

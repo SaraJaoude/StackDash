@@ -1,11 +1,13 @@
 import AxeBuilder from "@axe-core/playwright";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 
 import type { Database } from "../src/lib/supabase/database.types";
 
 import { expect, ownerTest, viewerTest } from "./fixtures/auth";
+import { expectNoAxeViolations } from "./fixtures/axe";
 import { adminClient, createTestWorkspace, deleteTestWorkspace, type TestWorkspace } from "./fixtures/db";
 import { checkEvery, expectClosedFilterBarOneRow, expectFormBelowWrappedStatus, openFilters } from "./fixtures/filters";
+import { tabTo } from "./fixtures/keyboard";
 
 type EventInsert = Database["public"]["Tables"]["activity_events"]["Insert"];
 type AccountInsert = Database["public"]["Tables"]["external_accounts"]["Insert"];
@@ -152,9 +154,12 @@ ownerTest.describe("timeline as the owner", () => {
       await expect(newest).toContainText("Acme e2e team");
       await expect(newest).toContainText("Critical");
       await expect(newest.locator("time")).toHaveAttribute("datetime", "2026-06-15T23:30:00.000Z");
-      const link = newest.getByRole("link", { name: /View in Vercel/ });
+      await newest.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      const link = inspector.getByRole("link", { name: /View in Vercel/ });
       await expect(link).toHaveAttribute("href", "https://example.com/deployments/0");
       await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+      await inspector.getByRole("button", { name: "Close event" }).click();
 
       await page.getByRole("link", { name: "Load older events" }).click();
       await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
@@ -170,6 +175,64 @@ ownerTest.describe("timeline as the owner", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+
+  for (const width of [1280, 375, 320]) {
+    ownerTest(`keeps timeline times aligned and day labels visible while scrolling at ${width}px`, async ({ page }) => {
+      const workspace = await seedTimeline("Timeline spine");
+      try {
+        const longTitle = `Deployment ${"with-a-long-unbroken-name".repeat(8)}`;
+        const { error } = await adminClient().from("activity_events")
+          .update({ title: longTitle })
+          .eq("workspace_id", workspace.id)
+          .eq("dedupe_key", "e2e-timeline-1");
+        if (error) throw new Error(`Updating the synthetic title failed (code ${error.code}).`);
+
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const region = page.getByRole("region", { name: "Events", exact: true });
+        const day = region.getByRole("list", { name: "Monday, 2026-06-15", exact: true });
+        const rows = day.getByRole("listitem");
+        const time = rows.first().locator("time");
+        await expect(time).toHaveAttribute("datetime", "2026-06-15T22:30:00.000Z");
+        await expect(time).toHaveAttribute("title", "2026-06-15 23:30 BST");
+        const title = page.getByRole("heading", { name: longTitle, exact: true });
+        await expect(title).toBeVisible();
+        const timeBox = await time.boundingBox();
+        const nextTimeBox = await rows.nth(1).locator("time").boundingBox();
+        const titleBox = await title.boundingBox();
+        if (!timeBox || !nextTimeBox || !titleBox) throw new Error("Timeline content is not rendered.");
+        expect(Math.abs(timeBox.x - nextTimeBox.x)).toBeLessThan(1);
+        if (width >= 1024) {
+          expect(timeBox.x + timeBox.width).toBeLessThan(titleBox.x);
+        } else {
+          expect(timeBox.y + timeBox.height).toBeLessThan(titleBox.y);
+        }
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+
+        // Scroll within a long day, then into the next one: the active label stays below the shell.
+        const heading = region.getByRole("heading", { name: "Monday, 2026-06-15", exact: true });
+        await rows.nth(5).evaluate((row) => row.scrollIntoView({ block: "start", behavior: "instant" }));
+        const header = await page.getByRole("banner").boundingBox();
+        const headingBox = await heading.boundingBox();
+        if (!header || !headingBox) throw new Error("The sticky heading or shell is not rendered.");
+        expect(headingBox.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(headingBox.y).toBeLessThan(header.y + header.height + 24);
+        const nextDay = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
+        await nextDay.getByRole("listitem").nth(3).evaluate((row) => row.scrollIntoView({ block: "start", behavior: "instant" }));
+        const nextHeading = await region.getByRole("heading", { name: "Sunday, 2026-06-14", exact: true }).boundingBox();
+        if (!nextHeading) throw new Error("The next day heading is not rendered.");
+        expect(nextHeading.y).toBeGreaterThanOrEqual(header.y + header.height);
+        expect(nextHeading.y).toBeLessThan(header.y + header.height + 24);
+
+        await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(scan.violations).toEqual([]);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   ownerTest("shows an event ingested twice only once", async ({ page }) => {
     const workspace = await seedTimeline("Timeline dedupe");
@@ -423,6 +486,9 @@ viewerTest.describe("timeline as a viewer", () => {
   });
 });
 
+/** When `seedGitHubProject`'s releases happened: 23:00, 22:00, and 21:00 UTC on June 15. */
+const GITHUB_RELEASE_MS = [0, 1, 2].map((index) => NEWEST_MS - (index * 2 + 1) * (HOUR_MS / 2));
+
 /**
  * Adds a project "Checkout" holding a GitHub organization with three release events, beside the
  * 60 unassigned Vercel events from `seedTimeline`.
@@ -443,7 +509,7 @@ async function seedGitHubProject(workspace: TestWorkspace): Promise<void> {
     kind: "organization",
     projectId: project.id,
   });
-  const events: EventInsert[] = [0, 1, 2].map((index) => ({
+  const events: EventInsert[] = GITHUB_RELEASE_MS.map((occurredMs, index) => ({
     workspace_id: workspace.id,
     connection_id: connectionId,
     external_account_id: accountId,
@@ -453,7 +519,7 @@ async function seedGitHubProject(workspace: TestWorkspace): Promise<void> {
     title: `GitHub release ${index}`,
     body: null,
     url: null,
-    occurred_at: new Date(NEWEST_MS - (index * 2 + 1) * (HOUR_MS / 2)).toISOString(),
+    occurred_at: new Date(occurredMs).toISOString(),
     dedupe_key: `e2e-timeline-github-${index}`,
   }));
   const { error } = await admin.from("activity_events").insert(events);
@@ -674,53 +740,69 @@ async function seedBursts(label: string): Promise<TestWorkspace> {
 }
 
 ownerTest.describe("timeline bursts and search", () => {
-  ownerTest("collapses a run of identical events into one row that opens to each event", async ({ page }) => {
-    const workspace = await seedBursts("Timeline bursts");
-    try {
-      await page.goto(`/w/${workspace.slug}/timeline`);
-      await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
-      const rows = eventItems(page);
-      await expect(rows).toHaveCount(5);
+  for (const width of [1280, 375]) {
+    ownerTest(`collapses a run of identical events into one row that opens to each event at ${width}px`, async ({ page }) => {
+      const workspace = await seedBursts("Timeline bursts");
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        await expect(page.getByRole("status").filter({ hasText: /^Showing/ })).toHaveText("Showing 11 events");
+        const rows = eventItems(page);
+        await expect(rows).toHaveCount(5);
 
-      // The first burst: one row named by the type Stripe's adapter declares, "Payment succeeded"
-      // rather than its id's "Charge succeeded", since the amounts differ, with the count, account,
-      // and latest time.
-      const burst = rows.nth(0);
-      await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
-      await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
-      await expect(burst).toContainText("Acme e2e Stripe account");
-      // The first time is the row's own; each event inside the closed disclosure has one too.
-      await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
-      // The refund in between breaks the run, so the three payments after it are a run of their own.
-      await expect(rows.nth(1).getByRole("heading", { name: "Payment refunded: $20.00", exact: true })).toBeVisible();
-      await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
-      // One minute apart, but either side of London midnight: one row under each day.
-      const region = page.getByRole("region", { name: "Events", exact: true });
-      await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
-      await expect(rows.nth(3).getByRole("heading", { name: "Payment succeeded: $18.00", exact: true })).toBeVisible();
-      const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
-      await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
-      await expect(dayBefore.getByRole("heading", { name: "Payment succeeded: $19.00", exact: true })).toBeVisible();
+        // The first burst: one row named by the type Stripe's adapter declares, "Payment succeeded"
+        // rather than its id's "Charge succeeded", since the amounts differ, with the count, account,
+        // and latest time.
+        const burst = rows.nth(0);
+        await expect(burst.getByRole("heading", { name: "Payment succeeded", exact: true })).toBeVisible();
+        await expect(burst.getByText("5 events", { exact: true })).toBeVisible();
+        await expect(burst).toContainText("Acme e2e Stripe account");
+        // The first time is the row's own; each event inside the closed disclosure has one too.
+        await expect(burst.locator("time").first()).toHaveAttribute("datetime", new Date(BURST_MS).toISOString());
+        // The refund in between breaks the run, so the three payments after it are a run of their own.
+        await expect(rows.nth(1).getByRole("heading", { name: "Payment refunded: $20.00", exact: true })).toBeVisible();
+        await expect(rows.nth(2).getByText("3 events", { exact: true })).toBeVisible();
+        // One minute apart, but either side of London midnight: one row under each day.
+        const region = page.getByRole("region", { name: "Events", exact: true });
+        await expect(region.getByRole("heading", { level: 2 })).toHaveText(["Monday, 2026-06-15", "Sunday, 2026-06-14"]);
+        await expect(rows.nth(3).getByRole("heading", { name: "Payment succeeded: $18.00", exact: true })).toBeVisible();
+        const dayBefore = region.getByRole("list", { name: "Sunday, 2026-06-14", exact: true });
+        await expect(dayBefore.getByRole("listitem")).toHaveCount(1);
+        await expect(dayBefore.getByRole("heading", { name: "Payment succeeded: $19.00", exact: true })).toBeVisible();
 
-      // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
-      const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
-      await expect(members).toBeHidden();
-      await burst.locator("summary").focus();
-      await page.keyboard.press("Enter");
-      await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
-      await expect(members.getByRole("heading", { level: 4 })).toHaveText(
-        [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
-      );
-      const scan = await new AxeBuilder({ page }).analyze();
-      expect(scan.violations).toEqual([]);
+        // The individual events stay closed until asked for. Keyboard only: focus and press Enter.
+        const members = burst.getByRole("list", { name: "Payment succeeded: 5 events", exact: true });
+        await expect(members).toBeHidden();
+        await burst.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        await expect(burst.getByText("Hide the 5 events", { exact: true })).toBeVisible();
+        await expect(members.getByRole("heading", { level: 4 })).toHaveText(
+          [10, 11, 12, 13, 14].map((amount) => `Payment succeeded: $${amount}.00`),
+        );
+        const memberLink = members.getByRole("link", { name: "Payment succeeded: $13.00", exact: true });
+        await memberLink.focus();
+        await page.keyboard.press("Enter");
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        await expect(inspector.getByRole("heading", { name: "Payment succeeded: $13.00", exact: true })).toBeVisible();
+        await expect(inspector).toContainText("This event has no additional details.");
+        await expect(inspector.getByRole("link", { name: /View in/ })).toHaveCount(0);
+        await page.keyboard.press("Escape");
+        await expect(memberLink).toBeFocused();
+        await expect(members).toBeVisible();
+        expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+        const scan = await new AxeBuilder({ page }).analyze();
+        expect(scan.violations).toEqual([]);
 
-      await page.keyboard.press("Enter");
-      await expect(members).toBeHidden();
-      await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
-    } finally {
-      await deleteTestWorkspace(workspace);
-    }
-  });
+        await burst.locator("summary").focus();
+        await page.keyboard.press("Enter");
+        await expect(members).toBeHidden();
+        await expect(burst.getByText("Show the 5 events", { exact: true })).toBeVisible();
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 
   ownerTest("searches event titles, narrowing the list and the badges together and across pages", async ({ page }) => {
     const workspace = await seedTimeline("Timeline search");
@@ -767,4 +849,724 @@ ownerTest.describe("timeline bursts and search", () => {
       await deleteTestWorkspace(workspace);
     }
   });
+});
+
+const inspectorEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+ownerTest.describe("timeline event inspector", () => {
+  for (const width of [1280, 375]) {
+    inspectorEvidenceTest(`opens, shares, navigates, and restores the timeline from the keyboard at ${width}px`, async ({ page, context }) => {
+      const workspace = await seedTimeline("Event inspector");
+      try {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const trigger = page.getByRole("link", { name: "Synthetic event 0", exact: true });
+        const href = await trigger.getAttribute("href");
+        if (href === null) throw new Error("The event has no shareable link.");
+        await trigger.focus();
+        const scrollBefore = await page.evaluate(() => window.scrollY);
+        await page.keyboard.press("Enter");
+
+        const inspector = page.getByRole("dialog", { name: "Event details" });
+        const close = inspector.getByRole("button", { name: "Close event" });
+        await expect(inspector).toBeVisible();
+        await expect(close).toBeFocused();
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+        await expect(inspector).toContainText("Synthetic body 0");
+        await expect(inspector).toContainText("2026-06-16 00:30 BST");
+        await expect(inspector.locator("time")).toHaveAttribute("datetime", /^2026-06-15T23:30:00/);
+        const source = inspector.getByRole("link", { name: /View in Vercel/ });
+        await expect(source).toHaveAttribute("href", "https://example.com/deployments/0");
+        await expect(source).toHaveAttribute("rel", "noopener noreferrer");
+        await expect(page).toHaveURL(new RegExp(`event=${new URL(href, page.url()).searchParams.get("event")}$`));
+        // The open event's row is marked in the feed, for sight as well as for assistive tech.
+        const currentRow = page.locator('a[aria-haspopup="dialog"][aria-current="location"]');
+        await expect(currentRow).toHaveText(["Synthetic event 0"]);
+        const otherColor = await page.locator('a[aria-haspopup="dialog"]:not([aria-current])').first()
+          .evaluate((element) => getComputedStyle(element).color);
+        await expect(currentRow).not.toHaveCSS("color", otherColor);
+
+        const box = await inspector.boundingBox();
+        if (box === null) throw new Error("The inspector is not rendered.");
+        expect(box.y).toBe(0);
+        expect(box.height).toBe(900);
+        expect(Math.round(box.x + box.width)).toBe(width);
+        if (width < 640) expect(box.width).toBe(width);
+        else expect(box.width).toBeLessThan(width / 2);
+        expect(await inspector.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await page.screenshot({ path: `pr-evidence/after/inspector-${width}.png`, animations: "disabled" });
+        }
+
+        // Both ends of the modal tab order stay in the inspector.
+        await page.keyboard.press("Shift+Tab");
+        await expect(inspector.getByRole("button", { name: "Older event" })).toBeFocused();
+        await page.keyboard.press("Tab");
+        await expect(close).toBeFocused();
+        await inspector.getByRole("button", { name: "Copy event link" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("status").filter({ hasText: "Copied the event link." })).toBeVisible();
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(new URL(href, page.url()).href);
+
+        await inspector.getByRole("button", { name: "Older event" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 1", exact: true })).toBeVisible();
+        await expect(currentRow).toHaveText(["Synthetic event 1"]);
+        await inspector.getByRole("button", { name: "Newer event" }).focus();
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 0", exact: true })).toBeVisible();
+
+        await page.goBack();
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+        await page.goForward();
+        await expect(inspector).toBeVisible();
+        await page.keyboard.press("Escape");
+        await expect(inspector).toBeHidden();
+        await expect(trigger).toBeFocused();
+        await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+
+        // Opening a scrolled row must not jump to the top on either open or close.
+        const scrolled = page.getByRole("link", { name: "Synthetic event 15", exact: true });
+        await scrolled.focus();
+        const scrolledY = await page.evaluate(() => window.scrollY);
+        expect(scrolledY).toBeGreaterThan(0);
+        await page.keyboard.press("Enter");
+        await expect(inspector.getByRole("heading", { name: "Synthetic event 15", exact: true })).toBeVisible();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrolledY);
+        await page.keyboard.press("Escape");
+        await expect(scrolled).toBeFocused();
+        expect(await page.evaluate(() => window.scrollY)).toBe(scrolledY);
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
+
+  ownerTest("opens a shared event outside the loaded page and filters, including after reload", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector shared link");
+    try {
+      const { data: event, error } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-59").single();
+      if (error) throw new Error(`Finding the synthetic event failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${event.id}`);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await expect(inspector).toContainText("Synthetic body 59");
+      await expect(inspector.getByRole("button", { name: "Older event" })).toHaveAttribute("aria-disabled", "true");
+      await page.reload();
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 59", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      // A shared link has no opener and its event is not on this page, so focus goes to the page's heading.
+      await expect(page.getByRole("heading", { level: 1, name: "Timeline", exact: true })).toBeFocused();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await expect(page.getByRole("status").filter({ hasText: "Showing 6 events" })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(6);
+
+      // When the shared event is on the loaded page, focus returns to its row.
+      const { data: onPage, error: onPageError } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-10").single();
+      if (onPageError) throw new Error(`Finding the synthetic event failed (code ${onPageError.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&event=${onPage.id}`);
+      await expect(inspector.getByRole("heading", { name: "Synthetic event 10", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline?severity=critical`);
+      await expect(page.getByRole("link", { name: "Synthetic event 10", exact: true })).toBeFocused();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows a winter event in GMT as its row does, and closing leaves no extra Back entry", async ({ page }) => {
+    const workspace = await createTestWorkspace("Inspector winter event");
+    try {
+      const { connectionId, accountId } = await seedAccount(workspace, {
+        provider: "vercel",
+        connectionName: "Vercel e2e connection",
+        externalId: "team_e2e",
+        accountName: "Acme e2e team",
+        kind: "team",
+      });
+      // 11:59 UTC on November 12 is 11:59 in London, which is on Greenwich Mean Time in winter.
+      const { error } = await adminClient().from("activity_events").insert({
+        ...syntheticEvent(workspace, connectionId, accountId, 0),
+        title: "Winter deployment",
+        occurred_at: "2026-11-12T11:59:00.000Z",
+        dedupe_key: "e2e-timeline-winter",
+      });
+      if (error) throw new Error(`Seeding the winter event failed (code ${error.code}).`);
+      await page.goto(`/w/${workspace.slug}/connections`);
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await expect(page.locator('time[title="2026-11-12 11:59 GMT"]')).toHaveCount(1);
+      await page.getByRole("link", { name: "Winter deployment", exact: true }).click();
+
+      // Written on the server like the row's time: a browser would name the zone "GMT+0".
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByText("2026-11-12 11:59 GMT", { exact: true })).toBeVisible();
+
+      // Closing goes back to the entry opening pushed, so Back then leaves the timeline.
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+
+      // A second activation can land before the dialog opens; it must not stack a second entry,
+      // or closing would go back to the first and leave the selection in the URL. Two clicks in
+      // one browser task always land before React renders, so the race is forced, not hoped for.
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.getByRole("link", { name: "Winter deployment", exact: true }).evaluate((link: HTMLElement) => {
+        link.click();
+        link.click();
+      });
+      await expect(inspector).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(inspector).toBeHidden();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/timeline`);
+      await page.goBack();
+      await expect(page).toHaveURL(`/w/${workspace.slug}/connections`);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("does not expose an event from another workspace or a deleted event", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector private source");
+    const other = await createTestWorkspace("Inspector empty target");
+    try {
+      const { data: event, error } = await adminClient().from("activity_events").select("id")
+        .eq("workspace_id", workspace.id).eq("dedupe_key", "e2e-timeline-0").single();
+      if (error) throw new Error(`Finding the synthetic event failed (code ${error.code}).`);
+      await page.goto(`/w/${other.slug}/timeline?event=${event.id}`);
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await expect(inspector.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+      await expect(page.getByText("Synthetic body 0", { exact: true })).toHaveCount(0);
+      await expect(inspector.getByRole("button", { name: "Copy event link" })).toHaveCount(0);
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("heading", { name: "No activity yet" })).toBeVisible();
+      const { error: deleteError } = await adminClient().from("activity_events").delete()
+        .eq("workspace_id", workspace.id).eq("id", event.id);
+      if (deleteError) throw new Error(`Removing the synthetic event failed (code ${deleteError.code}).`);
+      await page.goto(`/w/${workspace.slug}/timeline?event=${event.id}`);
+      await expect(inspector.getByRole("heading", { name: "Event unavailable" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await page.goto(`/w/${workspace.slug}/timeline?event=not-a-uuid`);
+      await expect(inspector).toBeHidden();
+      await expect(page.getByRole("heading", { name: "Timeline", exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(other);
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("offers a selectable event link when clipboard access is denied", async ({ page }) => {
+    const workspace = await seedTimeline("Inspector clipboard");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      await page.evaluate(() => {
+        Object.defineProperty(navigator, "clipboard", {
+          configurable: true,
+          value: { writeText: () => Promise.reject(new DOMException("Permission denied", "NotAllowedError")) },
+        });
+      });
+      await page.getByRole("link", { name: "Synthetic event 0", exact: true }).click();
+      const inspector = page.getByRole("dialog", { name: "Event details" });
+      await inspector.getByRole("button", { name: "Copy event link" }).click();
+      await expect(inspector.getByRole("alert")).toContainText("Could not copy the event link.");
+      const manual = inspector.getByRole("textbox", { name: "Event link", exact: true });
+      await expect(manual).toHaveValue(page.url());
+      await manual.focus();
+      expect(await manual.evaluate((input: HTMLInputElement) => input.selectionEnd === input.value.length && input.selectionStart === 0)).toBe(true);
+      expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+});
+
+// #377: the activity overview counts every matching event in at most 12 equal buckets.
+const SEEDED_VERCEL_MS = Array.from({ length: EVENT_COUNT }, (_, index) => NEWEST_MS - index * HOUR_MS);
+const CANONICAL_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const MINUTE_MS = 60 * 1000;
+const LONDON_MINUTE = String.raw`\d{4}-\d{2}-\d{2} \d{2}:\d{2} BST`;
+
+function activityOverview(page: Page) {
+  return page.getByRole("region", { name: "Activity overview", exact: true });
+}
+
+function bucketLinks(page: Page) {
+  return activityOverview(page).getByRole("link", { name: /^Show [\d,]+ events? from / });
+}
+
+/** "1 event" or "60 events", the way the overview counts a bucket. */
+function eventCount(count: number): string {
+  return `${count.toLocaleString("en-US")} ${count === 1 ? "event" : "events"}`;
+}
+
+/** The London start and exclusive end a bucket link names, as the page prints them. */
+async function bucketPeriod(link: Locator): Promise<Readonly<{ from: string; until: string }>> {
+  const name = await link.getAttribute("aria-label");
+  const match = name?.match(new RegExp(` from (${LONDON_MINUTE}) to before (${LONDON_MINUTE})$`));
+  const from = match?.[1];
+  const until = match?.[2];
+  if (from === undefined || until === undefined) throw new Error(`The bucket link names no period: ${name}`);
+  return { from, until };
+}
+
+/** A bucket link, its position among the bucket links, and the half-open range its URL selects. */
+type Bucket = Readonly<{ link: Locator; position: number; href: string; start: number; until: number }>;
+
+/**
+ * Reads every bucket link, oldest first. Each selects a canonical millisecond UTC `start` and an
+ * exclusive `until`, and never carries the feed's cursor.
+ */
+async function readBuckets(page: Page): Promise<Bucket[]> {
+  await expect(bucketLinks(page).first()).toBeVisible();
+  const buckets: Bucket[] = [];
+  for (const [position, link] of (await bucketLinks(page).all()).entries()) {
+    const href = await link.getAttribute("href");
+    if (href === null) throw new Error(`Bucket ${position} has no link.`);
+    const params = new URL(href, page.url()).searchParams;
+    const start = params.get("start");
+    const until = params.get("until");
+    if (start === null || until === null) throw new Error(`Bucket ${position} selects no time range: ${href}`);
+    expect(start).toMatch(CANONICAL_INSTANT);
+    expect(until).toMatch(CANONICAL_INSTANT);
+    expect(params.has("cursor"), `bucket ${position} keeps the cursor`).toBe(false);
+    buckets.push({ link, position, href, start: Date.parse(start), until: Date.parse(until) });
+  }
+  return buckets.sort((a, b) => a.start - b.start);
+}
+
+function countIn(times: readonly number[], bucket: Pick<Bucket, "start" | "until">): number {
+  return times.filter((time) => time >= bucket.start && time < bucket.until).length;
+}
+
+/** The first and last items, failing when there are none. */
+function firstAndLast<T>(items: readonly T[], what: string): readonly [T, T] {
+  const first = items.at(0);
+  const last = items.at(-1);
+  if (first === undefined || last === undefined) throw new Error(`There are no ${what}.`);
+  return [first, last];
+}
+
+/**
+ * At most 12 contiguous buckets of one whole-minute width; only the last may be clipped. Each link
+ * names how many of `times` its range holds, with London times and their zone.
+ */
+async function expectEvenBuckets(buckets: readonly Bucket[], times: readonly number[]): Promise<void> {
+  expect(buckets.length).toBeLessThanOrEqual(12);
+  const [first] = firstAndLast(buckets, "buckets");
+  const width = first.until - first.start;
+  expect(width).toBeGreaterThanOrEqual(MINUTE_MS);
+  expect(width % MINUTE_MS).toBe(0);
+  for (const [index, bucket] of buckets.entries()) {
+    const next = buckets[index + 1];
+    if (next === undefined) {
+      expect(bucket.until).toBeGreaterThan(bucket.start);
+      expect(bucket.until - bucket.start).toBeLessThanOrEqual(width);
+    } else {
+      expect(bucket.until - bucket.start).toBe(width);
+      expect(next.start).toBe(bucket.until);
+    }
+    // The seeded week is summer, so London times carry British Summer Time.
+    await expect(bucket.link).toHaveAccessibleName(new RegExp(`^Show ${eventCount(countIn(times, bucket))} from ${LONDON_MINUTE} to before ${LONDON_MINUTE}$`));
+  }
+}
+
+/** The seeded Vercel event indexes, newest first, whose time falls in the bucket. */
+function vercelIndexesIn(bucket: Pick<Bucket, "start" | "until">, keep: (index: number) => boolean = () => true): number[] {
+  return SEEDED_VERCEL_MS.flatMap((time, index) => (time >= bucket.start && time < bucket.until && keep(index) ? [index] : []));
+}
+
+/** Exactly these seeded Vercel events are listed, and their neighbors outside the bucket are not. */
+async function expectFeedHolds(page: Page, indexes: readonly number[], extra = 0): Promise<void> {
+  await expect(eventItems(page)).toHaveCount(indexes.length + extra);
+  for (const index of indexes) await expect(eventHeading(page, index)).toBeVisible();
+  const [newest, oldest] = firstAndLast(indexes, "expected events");
+  const outside = [newest - 1, oldest + 1].filter((index) => index >= 0 && index < EVENT_COUNT);
+  for (const index of outside) await expect(eventHeading(page, index)).toHaveCount(0);
+}
+
+/**
+ * Which bucket is current, and the selection's live region: mounted and empty with nothing
+ * selected, and naming the selected period otherwise.
+ */
+async function expectSelected(page: Page, bucket: Bucket | null): Promise<void> {
+  const selected = activityOverview(page).locator('[aria-current="true"]');
+  const clear = activityOverview(page).getByRole("link", { name: "Clear time selection", exact: true });
+  const status = activityOverview(page).getByRole("status");
+  if (bucket === null) {
+    await expect(selected).toHaveCount(0);
+    await expect(clear).toHaveCount(0);
+    await expect(status).toBeEmpty();
+    return;
+  }
+  await expect(selected).toHaveCount(1);
+  const link = bucketLinks(page).nth(bucket.position);
+  await expect(link).toHaveAttribute("aria-current", "true");
+  const { from, until } = await bucketPeriod(link);
+  await expect(status).toHaveText(`Selected: ${from} to before ${until}`);
+  await expect(clear).toBeVisible();
+}
+
+/** The URL's filters, ignoring the time selection and the page. */
+function filterParams(url: string): string[] {
+  return [...new URL(url).searchParams.entries()]
+    .filter(([key]) => !["start", "until", "cursor"].includes(key))
+    .map(([key, value]) => `${key}=${value}`)
+    .sort();
+}
+
+/**
+ * The page never scrolls sideways and the overview region does not overflow (on a narrow screen
+ * only its chart scrolls, inside the region); every bucket link and the clear link are at least
+ * 24 by 24 pixels.
+ */
+async function expectOverviewFits(page: Page, width: number): Promise<void> {
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+  const overview = activityOverview(page);
+  expect(await overview.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const targets = [
+    ...(await bucketLinks(page).all()),
+    ...(await overview.getByRole("link", { name: "Clear time selection", exact: true }).all()),
+  ];
+  for (const [index, target] of targets.entries()) {
+    const box = await target.boundingBox();
+    if (box === null) throw new Error(`Overview link ${index} is not rendered.`);
+    expect(box.width, `overview link ${index} width`).toBeGreaterThanOrEqual(24);
+    expect(box.height, `overview link ${index} height`).toBeGreaterThanOrEqual(24);
+  }
+}
+
+/** The period a bucket shows over the caption row while its link is hovered or has keyboard focus. */
+function shownPeriod(page: Page, from: string): Locator {
+  return activityOverview(page).getByTestId("activity-period").filter({ has: page.getByText(from, { exact: true }) });
+}
+
+/**
+ * The period lies exactly over the caption row, so its opaque box hides the whole caption and never
+ * grows over the chart, and neither overflows its own box.
+ */
+async function expectPeriodCoversCaption(page: Page, period: Locator, at: string): Promise<void> {
+  const caption = activityOverview(page).getByTestId("activity-caption");
+  await expect(period).toBeVisible();
+  const periodBox = await period.boundingBox();
+  const captionBox = await caption.boundingBox();
+  if (periodBox === null || captionBox === null) throw new Error(`The period or the caption is not rendered at ${at}.`);
+  for (const side of ["x", "y", "width", "height"] as const) {
+    expect(periodBox[side], `period ${side} at ${at}`).toBeCloseTo(captionBox[side], 1);
+  }
+  for (const [name, box] of [["period", period], ["caption", caption]] as const) {
+    expect(await box.evaluate((element) => element.scrollWidth <= element.clientWidth), `${name} overflows at ${at}`).toBe(true);
+  }
+}
+
+const overviewEvidenceTest = ownerTest.extend({ video: process.env.PW_PR_EVIDENCE === "1" ? "on" : "off" });
+
+ownerTest.describe("timeline activity overview", () => {
+  ownerTest("counts all 60 matching events beyond the first page and stays the same while paging", async ({ page }) => {
+    const workspace = await seedTimeline("Overview counts");
+    try {
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(50);
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, SEEDED_VERCEL_MS);
+      // No dates chosen: the bounds are the oldest event's UTC hour and the hour after the newest.
+      const oldest = NEWEST_MS - (EVENT_COUNT - 1) * HOUR_MS;
+      const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
+      expect(firstBucket.start).toBe(oldest - (oldest % HOUR_MS));
+      expect(lastBucket.until).toBe(NEWEST_MS - (NEWEST_MS % HOUR_MS) + HOUR_MS);
+      await expectSelected(page, null);
+      const hrefs = buckets.map((bucket) => bucket.href);
+
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(page.getByRole("status").filter({ hasText: "Showing 10 older events" })).toBeVisible();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      expect((await readBuckets(page)).map((bucket) => bucket.href)).toEqual(hrefs);
+      await expectSelected(page, null);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("selects a bucket from the keyboard, narrowing the feed and badges, across reload, Back, and Forward", async ({ page }) => {
+    const workspace = await seedTimeline("Overview selection");
+    try {
+      await seedGitHubProject(workspace);
+      const allTimes = [...SEEDED_VERCEL_MS, ...GITHUB_RELEASE_MS];
+      await page.goto(`/w/${workspace.slug}/timeline`);
+      const overview = activityOverview(page);
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+      // Start on an older page: selecting a bucket must drop the cursor.
+      await page.getByRole("link", { name: "Load older events" }).click();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, allTimes);
+      const [oldest, newest] = firstAndLast(buckets, "buckets");
+      const oldestIndexes = vercelIndexesIn(oldest);
+      const newestIndexes = vercelIndexesIn(newest);
+      expect(oldestIndexes.length).toBeGreaterThan(0);
+      expect(countIn(GITHUB_RELEASE_MS, oldest)).toBe(0);
+      const newestReleases = countIn(GITHUB_RELEASE_MS, newest);
+      expect(newestReleases).toBeGreaterThan(0);
+      expect(newestIndexes.length).toBeGreaterThan(newestReleases);
+
+      // Keyboard only: the oldest bucket shows exactly its events, on the first page. The
+      // selection's live region is already mounted, so selecting only changes its text.
+      const selection = overview.getByRole("status");
+      await selection.evaluate((element) => {
+        element.dataset.e2eMounted = "true";
+      });
+      await oldest.link.focus();
+      await page.keyboard.press("Enter");
+      const oldestUrl = new URL(oldest.href, page.url()).href;
+      await expect(page).toHaveURL(oldestUrl);
+      await expectFeedHolds(page, oldestIndexes);
+      await expectSelected(page, oldest);
+      await expect(selection).toHaveAttribute("data-e2e-mounted", "true");
+      // The overview keeps its full context; the badges count only the selected range.
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(bucketLinks(page)).toHaveCount(buckets.length);
+      await expectProviderBadges(page, [`Show only Vercel: ${oldestIndexes.length} events from 1 connection`]);
+
+      await bucketLinks(page).nth(newest.position).click();
+      const newestUrl = new URL(newest.href, page.url()).href;
+      await expect(page).toHaveURL(newestUrl);
+      await expectFeedHolds(page, newestIndexes, newestReleases);
+      await expectSelected(page, newest);
+      const newestBadges = [
+        `Show only Vercel: ${newestIndexes.length} events from 1 connection`,
+        `Show only GitHub: ${newestReleases} events from 1 connection`,
+      ];
+      await expectProviderBadges(page, newestBadges);
+
+      // The selection is the URL: reload, Back, and Forward restore it.
+      await page.reload();
+      await expect(page).toHaveURL(newestUrl);
+      await expectFeedHolds(page, newestIndexes, newestReleases);
+      await expectSelected(page, newest);
+      await expectProviderBadges(page, newestBadges);
+      await page.goBack();
+      await expect(page).toHaveURL(oldestUrl);
+      await expectFeedHolds(page, oldestIndexes);
+      await expectSelected(page, oldest);
+      await expectProviderBadges(page, [`Show only Vercel: ${oldestIndexes.length} events from 1 connection`]);
+      await page.goForward();
+      await expect(page).toHaveURL(newestUrl);
+      await expectSelected(page, newest);
+      await page.goBack();
+      await page.goBack();
+      await expect(page).toHaveURL(/[?&]cursor=/);
+      await expectSelected(page, null);
+      await expect(overview.getByText("63 matching events across all pages", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("clears only the time selection, keeping the search, severity, provider, and date filters", async ({ page }) => {
+    const workspace = await seedTimeline("Overview clear");
+    try {
+      // London June 13 to 15 holds events 1 to 59; the critical ones are 10, 20, 30, 40, and 50.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=critical&from=2026-06-13&to=2026-06-15&q=Synthetic&provider=vercel`);
+      const filters = filterParams(page.url());
+      const critical = (index: number) => index % 10 === 0 && index > 0;
+      const overview = activityOverview(page);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(eventItems(page)).toHaveCount(5);
+      const buckets = await readBuckets(page);
+      const criticalTimes = SEEDED_VERCEL_MS.filter((_, index) => critical(index));
+      await expectEvenBuckets(buckets, criticalTimes);
+      // Chosen dates are the bounds: London midnight June 13 to London midnight June 16, zero buckets included.
+      const [firstBucket, lastBucket] = firstAndLast(buckets, "buckets");
+      expect(firstBucket.start).toBe(Date.UTC(2026, 5, 12, 23));
+      expect(lastBucket.until).toBe(Date.UTC(2026, 5, 15, 23));
+      expect(buckets).toHaveLength(12);
+
+      const busy = buckets.find((bucket) => countIn(criticalTimes, bucket) > 0);
+      if (busy === undefined) throw new Error("No bucket holds a critical event.");
+      await busy.link.click();
+      await expect(page).toHaveURL(new URL(busy.href, page.url()).href);
+      expect(filterParams(page.url())).toEqual(filters);
+      await expectFeedHolds(page, vercelIndexesIn(busy, critical));
+      await expectSelected(page, busy);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+
+      await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
+      await expect(page).not.toHaveURL(/[?&](start|until)=/);
+      expect(filterParams(page.url())).toEqual(filters);
+      await expect(eventItems(page)).toHaveCount(5);
+      for (const index of [10, 20, 30, 40, 50]) await expect(eventHeading(page, index)).toBeVisible();
+      await expectSelected(page, null);
+      await expect(overview.getByText("5 matching events across all pages", { exact: true })).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("shows zero matching events, selects an empty period, and ignores an unordered time pair", async ({ page }) => {
+    const workspace = await seedTimeline("Overview empty");
+    try {
+      const overview = activityOverview(page);
+
+      // Nothing matches and no dates bound the overview: no buckets, and a way forward.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=success`);
+      await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview).toContainText("No activity matches these filters. Change or clear the filters to see activity.");
+      await expect(bucketLinks(page)).toHaveCount(0);
+
+      // Chosen dates bound it: every bucket is an empty, selectable period.
+      await page.goto(`/w/${workspace.slug}/timeline?severity=success&from=2026-06-15&to=2026-06-15`);
+      await expect(overview.getByText("0 matching events across all pages", { exact: true })).toBeVisible();
+      const buckets = await readBuckets(page);
+      await expectEvenBuckets(buckets, []);
+      expect(buckets).toHaveLength(12);
+      const [quiet] = firstAndLast(buckets, "buckets");
+      await quiet.link.focus();
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new URL(quiet.href, page.url()).href);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expectSelected(page, quiet);
+
+      // A quiet period outside every bucket: the feed is empty, the overview keeps its context.
+      await page.goto(`/w/${workspace.slug}/timeline?start=2020-01-01T00:00:00.000Z&until=2020-01-01T01:00:00.000Z`);
+      await expect(page.getByRole("heading", { name: "No events match these filters" })).toBeVisible();
+      await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+      await expect(overview.locator('[aria-current="true"]')).toHaveCount(0);
+      await overview.getByRole("link", { name: "Clear time selection", exact: true }).click();
+      await expect(page).toHaveURL(new RegExp(`/w/${workspace.slug}/timeline$`));
+      await expect(eventItems(page)).toHaveCount(50);
+
+      // An unordered pair selects nothing.
+      await page.goto(`/w/${workspace.slug}/timeline?start=2026-06-15T00:00:00.000Z&until=2026-06-14T00:00:00.000Z`);
+      await expect(page.getByRole("status").filter({ hasText: "Showing 50 events" })).toBeVisible();
+      await expectSelected(page, null);
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  ownerTest("covers the caption row with a bar's period at every width, and shows a hovered bar's over a focused bar's", async ({ page }) => {
+    const workspace = await seedTimeline("Overview period");
+    try {
+      // Three London days in 12 six-hour bars: on a phone the caption's whole days wrap to two
+      // lines while a six-hour period would fit on one, unless both share one layout.
+      await page.setViewportSize({ width: 375, height: 900 });
+      await page.goto(`/w/${workspace.slug}/timeline?from=2026-06-13&to=2026-06-15`);
+      const buckets = await readBuckets(page);
+      expect(buckets).toHaveLength(12);
+      const third = buckets.at(2);
+      if (third === undefined) throw new Error("There is no third bucket.");
+      const thirdPeriod = shownPeriod(page, (await bucketPeriod(third.link)).from);
+      await expect(thirdPeriod).toBeHidden();
+      await tabTo(page, third.link, 120);
+      await expectPeriodCoversCaption(page, thirdPeriod, "375px");
+      for (const width of [320, 640, 1280]) {
+        await page.setViewportSize({ width, height: 900 });
+        await expectPeriodCoversCaption(page, thirdPeriod, `${width}px`);
+      }
+
+      // With the newest bar focused, hovering the oldest shows the oldest bar's period on top.
+      await page.setViewportSize({ width: 375, height: 900 });
+      const [oldest, newest] = firstAndLast(buckets, "buckets");
+      const newestPeriod = shownPeriod(page, (await bucketPeriod(newest.link)).from);
+      const oldestPeriod = shownPeriod(page, (await bucketPeriod(oldest.link)).from);
+      await tabTo(page, newest.link, 120);
+      await expect(newestPeriod).toBeVisible();
+      await expect(oldestPeriod).toBeHidden();
+      await oldest.link.hover();
+      await expect(newest.link).toBeFocused();
+      await expect(newestPeriod).toBeVisible();
+      await expectPeriodCoversCaption(page, oldestPeriod, "375px while hovered");
+      // Periods let the pointer through, which hit testing skips, so let them take it just for this check.
+      const periods = activityOverview(page).getByTestId("activity-period");
+      await periods.evaluateAll((elements) => {
+        for (const element of elements) if (element instanceof HTMLElement) element.style.pointerEvents = "auto";
+      });
+      const hoveredOnTop = await oldestPeriod.evaluate((element) => {
+        const box = element.getBoundingClientRect();
+        const topmost = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+        return topmost !== null && element.contains(topmost);
+      });
+      await periods.evaluateAll((elements) => {
+        for (const element of elements) if (element instanceof HTMLElement) element.style.removeProperty("pointer-events");
+      });
+      expect(hoveredOnTop, "the hovered bar's period is the topmost element at its center").toBe(true);
+
+      // Moving the pointer away leaves the focused bar's period.
+      await page.mouse.move(0, 0);
+      await expect(oldestPeriod).toBeHidden();
+      await expect(newestPeriod).toBeVisible();
+    } finally {
+      await deleteTestWorkspace(workspace);
+    }
+  });
+
+  for (const width of [1280, 375, 320]) {
+    overviewEvidenceTest(`fits the overview at ${width}px with 24px keyboard targets and no axe violations`, async ({ page }) => {
+      // The same label, clock, and viewport as the baseline feed capture, so before and after compare.
+      const workspace = await seedTimeline("Activity overview");
+      try {
+        await page.clock.setFixedTime(new Date("2026-11-12T12:00:00Z"));
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: "reduce" });
+        await page.goto(`/w/${workspace.slug}/timeline`);
+        const overview = activityOverview(page);
+        await expect(overview.getByText("60 matching events across all pages", { exact: true })).toBeVisible();
+        await expectOverviewFits(page, width);
+        expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          // Unselected, before any paging, scrolled to the top like the baseline.
+          await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
+          await page.screenshot({ path: `pr-evidence/after/overview-${width}.png`, animations: "disabled" });
+        }
+
+        // Tab to the newest bucket: the chart scrolls it into view, its period shows in the
+        // caption row, and Enter selects it.
+        const buckets = await readBuckets(page);
+        const [, newest] = firstAndLast(buckets, "buckets");
+        const { from, until } = await bucketPeriod(newest.link);
+        // The period is the link's sibling, so the link's visible text stays inside its name.
+        const period = shownPeriod(page, from);
+        const periodStart = period.getByText(from, { exact: true });
+        const periodEnd = period.getByText(`Before ${until}`, { exact: true });
+        await expect(periodStart).toBeHidden();
+        await expect(periodEnd).toBeHidden();
+        await tabTo(page, newest.link, 120);
+        const focused = await newest.link.boundingBox();
+        if (focused === null) throw new Error("The focused bucket is not rendered.");
+        expect(focused.x).toBeGreaterThanOrEqual(0);
+        expect(focused.x + focused.width).toBeLessThanOrEqual(width);
+        for (const shown of [periodStart, periodEnd]) {
+          await expect(shown).toBeVisible();
+          const box = await shown.boundingBox();
+          if (box === null) throw new Error("The focused bucket's period is not rendered.");
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(width);
+        }
+        await expectPeriodCoversCaption(page, period, `${width}px`);
+        await expectOverviewFits(page, width);
+        await page.keyboard.press("Enter");
+        await expect(page).toHaveURL(new URL(newest.href, page.url()).href);
+        await expectSelected(page, newest);
+        await expectFeedHolds(page, vercelIndexesIn(newest));
+        await expectOverviewFits(page, width);
+        await expectNoAxeViolations(page);
+        if (process.env.PW_PR_EVIDENCE === "1") {
+          await overview.scrollIntoViewIfNeeded();
+          await page.screenshot({ path: `pr-evidence/after/overview-selected-${width}.png`, animations: "disabled" });
+        }
+      } finally {
+        await deleteTestWorkspace(workspace);
+      }
+    });
+  }
 });

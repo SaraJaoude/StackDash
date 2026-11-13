@@ -10,9 +10,11 @@ import {
   MAX_TYPE_FILTERS,
   occurredRange,
   TIMELINE_PAGE_SIZE,
+  timelineOccurredRange,
   titleSearchPattern,
   type EventSeverity,
   type TimelineCursor,
+  type TimelineTimeRange,
 } from "@/lib/timeline/query";
 
 type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
@@ -43,6 +45,7 @@ export type TimelineFilters = {
   /** London calendar dates, inclusive; converted to UTC instants here. */
   from: string | null;
   to: string | null;
+  timeRange: TimelineTimeRange | null;
   /** Text the title must contain, ignoring case. */
   search: string | null;
   /** Event types the viewer chose to hide (#119); excluded from every page. */
@@ -57,6 +60,27 @@ export type TimelinePage = {
   /** Position after the last event, or null when this is the oldest page. */
   nextCursor: TimelineCursor | null;
 };
+
+const EVENT_COLUMNS = "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)";
+
+/** A shared event link can point outside the loaded page, but never outside this workspace. */
+export async function getTimelineEvent(workspaceId: string, eventId: string): Promise<TimelineEvent | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.from("activity_events")
+    .select(EVENT_COLUMNS)
+    .eq("workspace_id", workspaceId)
+    .eq("id", eventId)
+    .maybeSingle();
+  if (error) throw new Error("Failed to load the timeline event", { cause: error });
+  if (data === null) return null;
+  const { external_accounts, connections, ...event } = data;
+  return {
+    ...event,
+    accountName: external_accounts?.display_name ?? null,
+    connectionName: connections?.display_name ?? null,
+    simulated: connections !== null && isSimulatedConnection(connections),
+  };
+}
 
 // Postgres timestamps hold commas and colons, so the values in the `or` filter are quoted. The
 // cursor was validated by `decodeCursor`, so it never contains a quote.
@@ -117,9 +141,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (scope.accountIds !== null && scope.accountIds.length === 0) return { events: [], nextCursor: null };
   let query = supabase
     .from("activity_events")
-    .select(
-      "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)",
-    )
+    .select(EVENT_COLUMNS)
     .eq("workspace_id", workspaceId);
 
   if (filters.types.length > 0) query = query.in("type_id", [...filters.types]);
@@ -128,7 +150,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   if (scope.providers.length > 0) query = query.in("provider", [...scope.providers]);
   if (scope.accountIds !== null) query = query.in("external_account_id", [...scope.accountIds]);
   if (filters.search !== null) query = query.regexIMatch("title", titleSearchPattern(filters.search));
-  const range = occurredRange(filters.from, filters.to);
+  const range = timelineOccurredRange(filters);
   if (range.from !== null) query = query.gte("occurred_at", range.from);
   if (range.toExclusive !== null) query = query.lt("occurred_at", range.toExclusive);
   if (filters.cursor !== null) query = query.or(olderThan(filters.cursor));
@@ -177,7 +199,7 @@ export async function listTimelineConnectionCounts(
   const scope = await resolveTimelineScope(workspaceId, filters.scope);
   // No account can match, so no event can either.
   if (scope.accountIds !== null && scope.accountIds.length === 0) return [];
-  const range = occurredRange(filters.from, filters.to);
+  const range = timelineOccurredRange(filters);
   const supabase = await createClient();
   const { data, error } = await supabase
     .rpc("timeline_connection_event_counts", {
@@ -199,6 +221,32 @@ export async function listTimelineConnectionCounts(
     .order("provider", { ascending: true })
     .limit(CONNECTION_COUNT_LIMIT);
   if (error) throw new Error("Failed to load timeline event counts per connection", { cause: error });
+  return data;
+}
+
+export type ActivityBucket = Database["public"]["Functions"]["timeline_activity_buckets"]["Returns"][number];
+
+/** Complete filtered counts, before pagination or bucket selection, in at most 12 time buckets. */
+export async function listTimelineActivity(
+  workspaceId: string,
+  filters: Omit<TimelineFilters, "cursor">,
+): Promise<ActivityBucket[]> {
+  const scope = await resolveTimelineScope(workspaceId, filters.scope);
+  if (scope.accountIds !== null && scope.accountIds.length === 0) return [];
+  const range = occurredRange(filters.from, filters.to);
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("timeline_activity_buckets", {
+    p_workspace_id: workspaceId,
+    p_type_ids: [...filters.types],
+    p_hidden_type_ids: [...filters.hiddenTypeIds],
+    p_severities: [...filters.severities],
+    p_providers: [...scope.providers],
+    ...(scope.accountIds === null ? {} : { p_account_ids: [...scope.accountIds] }),
+    ...(range.from === null ? {} : { p_from: range.from }),
+    ...(range.toExclusive === null ? {} : { p_until: range.toExclusive }),
+    ...(filters.search === null ? {} : { p_title_pattern: titleSearchPattern(filters.search) }),
+  }).select("bucket_start, bucket_end, events").order("bucket_start").limit(12);
+  if (error) throw new Error("Failed to load timeline activity", { cause: error });
   return data;
 }
 
