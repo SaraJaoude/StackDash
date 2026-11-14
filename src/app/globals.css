@@ -526,6 +526,91 @@ summary {
   }
 }
 
+/*
+ * Hero data-flow constellation (src/components/sections/data-flow.tsx). The stage is drawn at
+ * 700 by 520 because offset-path takes pixels, then scaled to the frame's width: tan(atan2())
+ * turns the length ratio 100cqw / 700px into a plain number.
+ */
+.flow-frame {
+  position: relative;
+  container-type: inline-size;
+  max-width: 700px;
+  aspect-ratio: 700 / 520;
+  margin-inline: auto;
+}
+
+.flow-stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 700px;
+  height: 520px;
+  transform-origin: 0 0;
+  scale: tan(atan2(100cqw, 700px));
+}
+
+/* A packet rides the line from its node's center to the center circle's. The dot sits on the line
+ * and the label beside it, upright, on the side facing the center. The packet stays hidden until
+ * 24% and is fully shown at 32%: by then it is clear of its own card, and on the line straight
+ * down from the top it is below the neighboring cards' row. It fades out from 58% to 68%. The
+ * label runs ahead of the dot, so on every line its leading end reaches the center circle while
+ * the label is still fully shown. Moving packets paint under the circle (z-index 10 under the
+ * circle's z-20 in data-flow.tsx), so the label slides into the hub and the wordmark stays
+ * readable. */
+.flow-packet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 10;
+  offset-rotate: 0deg;
+  offset-anchor: 4px 50%;
+  opacity: 0;
+  animation: flow-packet 4s linear infinite both;
+}
+
+.flow-packet[data-label-side="left"] {
+  flex-direction: row-reverse;
+  offset-anchor: calc(100% - 4px) 50%;
+}
+
+@keyframes flow-packet {
+  0% {
+    offset-distance: 0%;
+    opacity: 0;
+  }
+  24% {
+    opacity: 0;
+  }
+  32% {
+    opacity: 1;
+  }
+  58% {
+    opacity: 1;
+  }
+  68% {
+    opacity: 0;
+  }
+  100% {
+    offset-distance: 100%;
+    opacity: 0;
+  }
+}
+
+.flow-packet-dot {
+  box-shadow: 0 0 8px 1px currentColor;
+}
+
+.flow-core {
+  box-shadow: 0 0 24px 0 var(--accent-soft);
+  animation: flow-breathe 3s ease-in-out infinite;
+}
+
+@keyframes flow-breathe {
+  50% {
+    box-shadow: 0 0 48px 6px color-mix(in srgb, var(--accent) 28%, transparent);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rise,
   .rise-late,
@@ -549,8 +634,34 @@ summary {
   .arrival-count,
   .arrival-bar,
   .arrival-draw,
-  .slide-enter {
+  .slide-enter,
+  .flow-packet,
+  .flow-core {
     animation: none;
+  }
+  /* Every packet parks with its label showing, so the picture still reads, at the first point on
+   * its line clear of its own card (--park, from parkDistance in data-flow.tsx; on a mostly
+   * vertical line, below the neighboring cards' row). Parked packets paint above the center
+   * circle, so no label is cut off at its edge. A line's second packet would stack on its first,
+   * so it moves one label up or down (data-stack, set from the line's angle) and sits beside it.
+   * On a mostly horizontal line it also moves 6px toward the center, so its dot clears its own
+   * card. e2e/data-flow.spec.ts fails if a parked packet covers a card or another label. */
+  .flow-packet {
+    z-index: 30;
+    offset-distance: var(--park);
+    opacity: 1;
+  }
+  .flow-packet[data-stack="up"] {
+    translate: 0 -24px;
+  }
+  .flow-packet[data-stack="down"] {
+    translate: 0 24px;
+  }
+  .flow-packet[data-axis="horizontal"][data-stack="up"][data-label-side="left"] {
+    translate: -6px -24px;
+  }
+  .flow-packet[data-axis="horizontal"][data-stack="up"][data-label-side="right"] {
+    translate: 6px -24px;
   }
   /* The rings only exist while they animate; a list row's "Receiving" label stays without them. */
   .live-ready,
