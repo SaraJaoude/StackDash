@@ -7,6 +7,7 @@ export {};
 declare module "react" {
   interface CSSProperties {
     "--count-to"?: number;
+    "--count-steps"?: number;
     "--park"?: string;
   }
 }

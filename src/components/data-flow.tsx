@@ -1,11 +1,7 @@
-import {
-  FlowCore,
-  FlowSourceMark,
-  FlowStage,
-  type FlowEvent,
-  type FlowNode,
-} from "@/components/data-flow-stage";
+import { FlowSourceMark, FlowStage, type FlowEvent, type FlowNode } from "@/components/data-flow-stage";
 import { CENTER, ORBIT } from "@/components/data-flow-geometry";
+import { PausableMotion } from "@/components/pausable-motion";
+import { Wordmark } from "@/components/wordmark";
 import { SOURCE_PLATFORMS, sourceIds, type SourceId } from "@/lib/sources";
 import { site } from "@/lib/site";
 
@@ -193,30 +189,87 @@ const pictureLabel = `Events from ${sourceNames} flow into one ${site.name} time
 // restated here.
 const ILLUSTRATIVE_EVENT_COUNT = 1287;
 
-// Below sm the scaled stage would shrink its labels past reading, so phones get the same story
-// as one static picture, without motion or controls: every source, an arrow, and the timeline
-// they land on.
+// Below sm the scaled stage would shrink its labels past reading, so phones get the same story as
+// one readable picture: every source, a stream, and the timeline they land on. It moves in CSS
+// alone (.compact-* in globals.css), on one beat of COMPACT_BEAT_S: each beat a source card
+// lights, a dot runs down the stream, and as it lands the center rings and counts one more event.
+// Every delay below is a whole number of beats from load, so the parts stay in step, and the
+// Pause control holds them all at once.
+const COMPACT_BEAT_S = 1.2;
+// A dot leaves the stream this long after its card lights, and lands this long after that. The
+// .compact-dot keyframes run over three beats and encode the same two times as percentages.
+const COMPACT_DOT_LEAVE_S = 0.4;
+const COMPACT_DOT_TRAVEL_S = 1;
+const COMPACT_LAND_S = COMPACT_DOT_LEAVE_S + COMPACT_DOT_TRAVEL_S;
+const compactDots = ["bg-success text-success", "bg-warning text-warning", "bg-danger text-danger"] as const;
+// The hub counts one event a beat for this many beats (20 minutes), then holds its last number.
+// CSS cannot loop a count without it jumping back, and nobody watches a placeholder that long.
+const COMPACT_COUNT_STEPS = 1000;
+
+const eventCount = new Intl.NumberFormat("en-US");
+
 function CompactFlow() {
   return (
-    <div role="img" aria-label={pictureLabel} className="flex flex-col items-center gap-4 sm:hidden">
-      <ul className="grid w-full grid-cols-2 gap-2">
-        {nodes.map((node) => (
-          <li key={node.id} className="flex items-center gap-2 rounded-xl border border-line-strong bg-panel px-3 py-2">
-            <FlowSourceMark platform={node.platform} />
-            <div className="min-w-0 leading-none">
-              <p className="text-[13px] font-medium">{node.name}</p>
-              <p className="mt-1 font-mono text-[10px] leading-4 text-muted">{node.caption}</p>
-            </div>
-          </li>
-        ))}
-      </ul>
-      <svg width="16" height="32" viewBox="0 0 16 32" fill="none" className="stroke-accent">
-        <path d="M8 0v30M2 24l6 6 6-6" strokeWidth="1.5" />
-      </svg>
-      <div className="flow-core flex size-[150px] items-center justify-center rounded-full border border-line-strong bg-panel">
-        <FlowCore count={ILLUSTRATIVE_EVENT_COUNT} />
+    <PausableMotion className="sm:hidden">
+      <div role="img" aria-label={pictureLabel} className="flex flex-col items-center gap-4">
+        <ul className="grid w-full grid-cols-2 gap-2">
+          {nodes.map((node, slot) => (
+            <li
+              key={node.id}
+              className="compact-source flex items-center gap-2 rounded-xl border border-line-strong bg-panel px-3 py-2"
+              style={{
+                animationDuration: `${nodes.length * COMPACT_BEAT_S}s`,
+                animationDelay: `${slot * COMPACT_BEAT_S}s`,
+              }}
+            >
+              <FlowSourceMark platform={node.platform} />
+              <div className="min-w-0 leading-none">
+                <p className="text-[13px] font-medium">{node.name}</p>
+                <p className="mt-1 font-mono text-[10px] leading-4 text-muted">{node.caption}</p>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="relative h-14 w-4">
+          <svg width="16" height="56" viewBox="0 0 16 56" fill="none" className="stroke-accent">
+            <path d="M8 0v54M2 48l6 6 6-6" strokeWidth="1.5" />
+          </svg>
+          {compactDots.map((color, index) => (
+            <span
+              key={color}
+              className={`compact-dot absolute left-1 top-0 size-2 rounded-full ${color}`}
+              style={{
+                animationDuration: `${compactDots.length * COMPACT_BEAT_S}s`,
+                animationDelay: `${index * COMPACT_BEAT_S}s`,
+              }}
+            />
+          ))}
+        </div>
+        <div className="flow-core relative flex size-[150px] items-center justify-center rounded-full border border-line-strong bg-panel">
+          <span
+            className="compact-ring"
+            style={{ animationDuration: `${COMPACT_BEAT_S}s`, animationDelay: `${COMPACT_LAND_S}s` }}
+          />
+          <div className="flex flex-col items-center gap-1.5 text-center">
+            <Wordmark loading="lazy" />
+            <p className="font-mono text-xs tabular-nums text-foreground">
+              <span
+                className="compact-count"
+                data-value={`${eventCount.format(ILLUSTRATIVE_EVENT_COUNT)} events`}
+                style={{
+                  "--count-to": ILLUSTRATIVE_EVENT_COUNT,
+                  "--count-steps": COMPACT_COUNT_STEPS,
+                  animationDuration: `${COMPACT_COUNT_STEPS * COMPACT_BEAT_S}s`,
+                  animationDelay: `${COMPACT_LAND_S}s`,
+                  animationTimingFunction: `steps(${COMPACT_COUNT_STEPS}, jump-start)`,
+                }}
+              />
+            </p>
+            <p className="font-mono text-[10px] text-muted">Illustrative</p>
+          </div>
+        </div>
       </div>
-    </div>
+    </PausableMotion>
   );
 }
 
