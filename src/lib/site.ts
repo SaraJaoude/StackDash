@@ -1,0 +1,18 @@
+const audience = "solo developers running side projects and small products";
+
+/** Single source of truth for the placeholder's copy. */
+export const site = {
+  name: "StackDash",
+  domain: "stackda.sh",
+  /** The promise: the hero heading. */
+  headline: "One timeline and one alert for your whole developer stack",
+  audience,
+  description: `StackDash is an open-source dashboard for ${audience}, coming soon: one timeline and one alert for your whole developer stack. Deploys, stars, signups, payments, and errors in one feed, alerts by email, Slack, Discord, or webhook, and the stats you choose to publish.`,
+  founder: {
+    name: "Eddie Jaoude",
+    url: "https://github.com/eddiejaoude",
+  },
+} as const;
+
+/** Every platform the hero preview and its live feed show a brand mark for. */
+export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase";
