@@ -14,5 +14,18 @@ export const site = {
   },
 } as const;
 
-/** Every platform the hero preview and its live feed show a brand mark for. */
-export type Platform = "Vercel" | "GitHub" | "GitHub Actions" | "GitHub Copilot" | "Resend" | "Stripe" | "Supabase";
+/** Every platform with a brand mark: the hero's data-flow sources, preview, and live feed. */
+export type Platform =
+  | "Vercel"
+  | "GitHub"
+  | "GitHub Actions"
+  | "GitHub Copilot"
+  | "Resend"
+  | "Stripe"
+  | "Supabase"
+  | "DigitalOcean"
+  | "PostHog"
+  | "Polar"
+  | "Sentry"
+  | "Railway"
+  | "GitLab";

@@ -1,5 +1,6 @@
 import Image from "next/image";
 
+import { DataFlow } from "@/components/data-flow";
 import { HeroPreview } from "@/components/hero-preview";
 import { BellIcon, EyeIcon, GaugeIcon, TimelineIcon } from "@/components/icons";
 import { site } from "@/lib/site";
@@ -49,36 +50,42 @@ export default function Home() {
             className="pointer-events-none absolute left-1/2 top-[-10%] h-[560px] w-[min(960px,100vw)] -translate-x-1/2 rounded-full bg-accent/10 blur-[140px]"
           />
           <div className="relative mx-auto w-full max-w-6xl px-6 pb-24 pt-14 sm:pt-20">
-            <div className="mx-auto max-w-3xl text-center">
-              <p className="rise inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
-                <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
-                Coming soon · Open source
-              </p>
+            <div className="grid items-center gap-16 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-10">
+              <div className="mx-auto max-w-3xl text-center lg:mx-0 lg:text-left">
+                <p className="rise inline-flex items-center gap-2 rounded-full border border-line px-3 py-1 font-mono text-xs text-muted">
+                  <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+                  Coming soon · Open source
+                </p>
 
-              <h1
-                id="hero-title"
-                className="rise mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl"
-              >
-                {site.headline}.
-              </h1>
+                <h1
+                  id="hero-title"
+                  className="rise mt-6 text-balance text-4xl font-semibold leading-[1.05] tracking-tight sm:text-6xl lg:text-5xl"
+                >
+                  {site.headline}.
+                </h1>
 
-              <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted">
-                Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
-                from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
-                usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
-                source. Spend shows where the provider reports it.
-              </p>
+                <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted lg:mx-0 lg:text-base lg:leading-7">
+                  Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
+                  from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
+                  usage or spend crosses a line you set, and publishes the stats you choose, each labeled with its
+                  source. Spend shows where the provider reports it.
+                </p>
 
-              <div className="rise-late mx-auto mt-10 max-w-xl rounded-xl border border-accent/40 bg-accent-soft px-6 py-5">
-                <p className="text-base font-medium">{site.name} is coming soon.</p>
-                <p className="mt-2 text-sm leading-6 text-muted">
-                  It will be open source, so you can read the code, contribute, and host it yourself. A hosted version is
-                  planned too.
+                <div className="rise-late mx-auto mt-10 max-w-xl rounded-xl border border-accent/40 bg-accent-soft px-6 py-5 lg:mx-0">
+                  <p className="text-base font-medium">{site.name} is coming soon.</p>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    It will be open source, so you can read the code, contribute, and host it yourself. A hosted version
+                    is planned too.
+                  </p>
+                </div>
+                <p className="rise-late mt-3 font-mono text-xs text-muted">
+                  Read-only access where providers allow it · self-hostable · hosted version planned
                 </p>
               </div>
-              <p className="rise-late mt-3 font-mono text-xs text-muted">
-                Read-only access where providers allow it · self-hostable · hosted version planned
-              </p>
+
+              <div className="rise-late">
+                <DataFlow />
+              </div>
             </div>
 
             <div className="mt-16">
