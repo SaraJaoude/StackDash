@@ -2,7 +2,10 @@ import "server-only";
 
 import { cache } from "react";
 
+import { ACHIEVEMENT_EARNED_TYPE_ID, parseAchievementEventDedupeKey } from "@/lib/achievements/events";
+import type { AchievementRef } from "@/lib/achievements/private";
 import { isSimulatedConnection } from "@/lib/adapters/simulated/marker";
+import { ProviderIdSchema, type ProviderId } from "@/lib/adapters/types";
 import { projectSelection, timelineScope, type ScopeFilters, type TimelineScope } from "@/lib/filters/scope";
 import type { Database } from "@/lib/supabase/database.types";
 import { createClient } from "@/lib/supabase/server";
@@ -16,6 +19,7 @@ import {
   type TimelineCursor,
   type TimelineTimeRange,
 } from "@/lib/timeline/query";
+import { eventEmoji } from "@/lib/timeline/event-emoji";
 
 type ActivityEventRow = Database["public"]["Tables"]["activity_events"]["Row"];
 
@@ -37,6 +41,18 @@ export type TimelineEvent = Pick<
   // True when the event's connection was made by the provider simulator (#131), so the event is
   // made up. DevMacro's own events about such a connection, such as a sync failure, count too.
   simulated: boolean;
+  /**
+   * For an "Achievement earned" entry (#413), the project and achievement it is about, read from
+   * its dedupe key: the event row has no project column, and its `url` holds only https links out.
+   */
+  achievement: AchievementRef | null;
+  /**
+   * The logo the row shows: the event's provider, or for an achievement the provider that earned it
+   * (its id is adapter-scoped, `vercel.deployments.10`). Null is DevMacro's own empty frame.
+   */
+  markProvider: ProviderId | null;
+  /** The emoji in the corner of that logo (`eventEmoji`). */
+  emoji: string;
 };
 
 export type TimelineFilters = {
@@ -61,7 +77,33 @@ export type TimelinePage = {
   nextCursor: TimelineCursor | null;
 };
 
-const EVENT_COLUMNS = "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, external_accounts(display_name), connections(display_name, granted_scopes)";
+const EVENT_COLUMNS = "id, type_id, severity, title, body, url, occurred_at, provider, external_account_id, connection_id, dedupe_key, external_accounts(display_name), connections(display_name, granted_scopes)";
+
+// The shape EVENT_COLUMNS selects; the embeds are many-to-one, so each is one row or none.
+type EventRow = Pick<ActivityEventRow, Exclude<keyof TimelineEvent, "accountName" | "connectionName" | "simulated" | "achievement" | "markProvider" | "emoji"> | "dedupe_key"> &
+  Readonly<{
+    external_accounts: Readonly<{ display_name: string }> | null;
+    connections: Readonly<{ display_name: string; granted_scopes: readonly string[] }> | null;
+  }>;
+
+function timelineEvent({ external_accounts, connections, dedupe_key, ...event }: EventRow): TimelineEvent {
+  // Only DevMacro writes this type, so a provider's event can never pass for an achievement.
+  const achievement = event.type_id === ACHIEVEMENT_EARNED_TYPE_ID && event.provider === null ? parseAchievementEventDedupeKey(dedupe_key) : null;
+  return {
+    ...event,
+    accountName: external_accounts?.display_name ?? null,
+    connectionName: connections?.display_name ?? null,
+    simulated: connections !== null && isSimulatedConnection(connections),
+    achievement,
+    markProvider: achievement === null ? event.provider : achievementProvider(achievement.achievementId),
+    emoji: eventEmoji(event.type_id),
+  };
+}
+
+function achievementProvider(achievementId: string): ProviderId | null {
+  const parsed = ProviderIdSchema.safeParse(achievementId.split(".")[0]);
+  return parsed.success ? parsed.data : null;
+}
 
 /** A shared event link can point outside the loaded page, but never outside this workspace. */
 export async function getTimelineEvent(workspaceId: string, eventId: string): Promise<TimelineEvent | null> {
@@ -72,14 +114,7 @@ export async function getTimelineEvent(workspaceId: string, eventId: string): Pr
     .eq("id", eventId)
     .maybeSingle();
   if (error) throw new Error("Failed to load the timeline event", { cause: error });
-  if (data === null) return null;
-  const { external_accounts, connections, ...event } = data;
-  return {
-    ...event,
-    accountName: external_accounts?.display_name ?? null,
-    connectionName: connections?.display_name ?? null,
-    simulated: connections !== null && isSimulatedConnection(connections),
-  };
+  return data === null ? null : timelineEvent(data);
 }
 
 // Postgres timestamps hold commas and colons, so the values in the `or` filter are quoted. The
@@ -165,12 +200,7 @@ export async function listTimelineEvents(workspaceId: string, filters: TimelineF
   const page = data.slice(0, TIMELINE_PAGE_SIZE);
   const last = page.at(-1);
   return {
-    events: page.map(({ external_accounts, connections, ...event }) => ({
-      ...event,
-      accountName: external_accounts?.display_name ?? null,
-      connectionName: connections?.display_name ?? null,
-      simulated: connections !== null && isSimulatedConnection(connections),
-    })),
+    events: page.map(timelineEvent),
     nextCursor:
       data.length > TIMELINE_PAGE_SIZE && last !== undefined ? { occurredAt: last.occurred_at, id: last.id } : null,
   };

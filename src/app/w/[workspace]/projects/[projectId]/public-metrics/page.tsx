@@ -19,6 +19,7 @@ import {
 } from "@/components/public-metrics/publication-controls";
 import { SELF_REPORTED_LIVE_MAX } from "@/components/public-metrics/self-reported-rules";
 import { ShareDialog } from "@/components/public-metrics/share-dialog";
+import { achievementsPath } from "@/lib/achievements/private";
 import { requestPublicOrigin } from "@/lib/connections/oauth-state";
 import { loadProjectPageSettings } from "@/lib/data/project-pages";
 import { countLivePublications, loadProjectPublications, VIEW_WINDOW_DAYS, type ProjectMetricStatus } from "@/lib/data/published-metrics";
@@ -89,7 +90,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
   if (!z.guid().safeParse(projectId).success) notFound();
   // Read after the request data above, so the clock never runs during prerendering.
   const now = new Date();
-  const [publications, liveCount, pageSettings, origin] = await Promise.all([
+  const [publications, liveCounts, pageSettings, origin] = await Promise.all([
     loadProjectPublications(workspace.id, projectId, now),
     countLivePublications(workspace.id),
     loadProjectPageSettings(workspace.id, projectId),
@@ -145,7 +146,7 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
               badges, and cards read the same values.
             </p>
           ) : (
-            <p className="mt-2 leading-6 text-muted">Nothing from this project is public.</p>
+            <p className="mt-2 leading-6 text-muted">No metric or self-reported value from this project is public.</p>
           )}
           <p className="mt-2 leading-6 text-muted">
             Every formula is on the{" "}
@@ -154,12 +155,19 @@ async function PublicMetricsContent({ params }: PageProps<"/w/[workspace]/projec
             </Link>
             .
           </p>
-          {canPublish && liveCount > 0 ? (
+          <p className="mt-2 leading-6 text-muted">
+            Achievements this project has earned are published one at a time on its{" "}
+            <Link href={achievementsPath(workspace.slug, project.id)} className="font-medium text-foreground underline underline-offset-4">
+              Achievements page
+            </Link>
+            .
+          </p>
+          {canPublish && liveCounts.metrics + liveCounts.achievements > 0 ? (
             <div className="mt-4 border-t border-line pt-4">
               <p className="mb-3 leading-6 text-muted">
-                Unpublish every metric and self-reported value of every project in this workspace at once.
+                Unpublish every metric, self-reported value, and achievement of every project in this workspace at once.
               </p>
-              <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCount={liveCount} focusId={METRICS_HEADING_ID} />
+              <UnpublishEverythingButton workspaceSlug={workspace.slug} liveCounts={liveCounts} focusId={METRICS_HEADING_ID} />
             </div>
           ) : null}
         </section>

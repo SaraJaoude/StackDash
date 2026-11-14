@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Logger } from "@/lib/log/logger";
+import type { Achievement } from "./achievements";
 import type { PermissionMissingError } from "./errors";
 import type { ActivityEvent, EventType } from "./events";
 import type { AdapterMetric } from "./metrics";
@@ -216,10 +217,21 @@ export interface ProviderAdapter<Id extends string = ProviderId> {
   // Plain-language list for the connect screen, e.g. "Emails sent per day".
   readonly dataCollected: readonly string[];
   readonly eventTypes: readonly EventType[];
+  // Achievements this provider's data can prove, evaluated per project (#413). Before adding or
+  // changing one, read the achievements of adapters of the same kind (deployment hosts: Vercel,
+  // Railway, DigitalOcean, GitLab, Render; payments: Stripe, Polar; signups: Supabase, PostHog)
+  // and keep the ids, thresholds, and wording parallel, so a member sees the same ladder
+  // whichever provider they use. docs/adapters.md, "Achievements", has the rules.
+  readonly achievements?: readonly Achievement[];
   // Usage metric keys whose reading is the signups of one whole UTC day (its timeframe is that
   // day), for a provider that reports a daily total rather than one event per signup. The
   // dashboard headline (#173) sums these readings as the provider's signups. Omitted when none.
   readonly signupDailyTotals?: readonly string[];
+  // Usage metric keys whose reading is the total of one whole UTC day (its timeframe is that day)
+  // and which are not signups, such as GitHub's new stars per day. `daily_total_threshold`
+  // achievement rules read a key from `dailyTotals` or `signupDailyTotals`. They feed achievements,
+  // not usage to watch, so anomaly detection and its mute list leave them out. Omitted when none.
+  readonly dailyTotals?: readonly string[];
   // Estimated spend metric keys whose reading is a projection for the whole billing period (what
   // the period is expected to cost), not money spent so far. Every reading of spend (dashboard,
   // headline, digests, alerts, anomaly detection, projections, daily summary) leaves them out,

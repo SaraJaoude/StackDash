@@ -1,31 +1,34 @@
 import { formatPercent } from "@/lib/format";
 
-import type { PublishedEngineMetric } from "./published";
-import { badgeAltText, shareableMetric } from "./share";
+import type { PublishedAchievement, PublishedEngineMetric } from "./published";
+import { achievementBadgeAltText, achievementEarnedText, badgeAltText, shareableMetric } from "./share";
 
 /*
- * The SVG badge of a published metric (#149), in the two-part shields style a README expects:
- * the metric's label on the left, its value and provenance on the right. Pure, so it is tested
- * without a server, and the route only adds headers.
+ * The SVG badge of a published metric (#149) or a published achievement (#413), in the two-part
+ * shields style a README expects: the metric's label and its value and provenance, or the
+ * provider's name and the achievement's public title. Pure, so it is tested without a server, and
+ * the route only adds headers.
  *
  * The SVG is safe to embed anywhere: text only, every string XML-escaped, no script, no link, no
  * external reference, and `role="img"` with a `<title>` so assistive tech reads one sentence.
  */
 
-export type BadgeTone = "verified" | "estimated" | "simulated" | "neutral";
+export type BadgeTone = "verified" | "estimated" | "simulated" | "neutral" | "achievement";
 
 export type BadgeContent = Readonly<{ label: string; message: string; tone: BadgeTone; title: string }>;
 
 const NUMBER_FORMAT = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 // Fills chosen for at least 4.5:1 contrast with the white text, so the badge reads on any README
-// background. Never color alone: the message says verified, estimated, or simulated in words.
+// background. Never color alone: the message says verified, estimated, or simulated in words, and
+// an achievement's says its title, followed by "(simulated)" when simulator data earned it.
 const LABEL_FILL = "#3f3f46";
 const TONE_FILLS: Record<BadgeTone, string> = {
   verified: "#15803d",
   estimated: "#1d4ed8",
   simulated: "#a16207",
   neutral: "#52525b",
+  achievement: "#6d28d9",
 };
 
 const UNPUBLISHED: BadgeContent = {
@@ -46,7 +49,7 @@ export const UNAVAILABLE_BADGE: BadgeContent = {
   label: "DevMacro",
   message: "Temporarily unavailable",
   tone: "neutral",
-  title: "DevMacro could not read this metric. Try again in a moment.",
+  title: "DevMacro could not read this badge. Try again in a moment.",
 };
 
 /** What the badge of `metric` says; null is a metric that is not published (or never existed). */
@@ -64,18 +67,39 @@ export function badgeContent(metric: PublishedEngineMetric | null): BadgeContent
   return { label: metric.label, message: `${shown} ${tone}`, tone, title };
 }
 
+/**
+ * What the badge of a published achievement says: a trophy and the provider's name, then the public
+ * title, never the private one. One earned from the provider simulator's data (#131) takes the
+ * simulated fill and says "(simulated)" after its title, as a simulated metric's badge does. Null
+ * (unknown, not earned, not published, or a malformed id) is the same neutral Unpublished badge a
+ * metric gets, titled for an achievement.
+ */
+export function achievementBadgeContent(achievement: PublishedAchievement | null): BadgeContent {
+  if (achievement === null) return { ...UNPUBLISHED, title: "This achievement is not published on DevMacro." };
+  return {
+    label: `🏆 ${achievement.providerName}`,
+    message: achievement.simulated ? `${achievement.publicTitle} (simulated)` : achievement.publicTitle,
+    tone: achievement.simulated ? "simulated" : "achievement",
+    title: `${achievementBadgeAltText(achievement)} ${achievementEarnedText(achievement)}.`,
+  };
+}
+
 // Approximate advance widths of Verdana at 11px, the shields font. `textLength` below fits the
 // text to these widths exactly, so a renderer with a different fallback font never overflows.
 const NARROW = new Set("ijl'|!.,:;");
 const SEMI_NARROW = new Set("frt()[] -/");
 const WIDE = new Set("mwMW%");
-const CHAR_WIDTHS_PX = { narrow: 3.4, semiNarrow: 4.3, lower: 6.3, upper: 7.5, digit: 7, wide: 10, plus: 9.2 } as const;
+const CHAR_WIDTHS_PX = { narrow: 3.4, semiNarrow: 4.3, lower: 6.3, upper: 7.5, digit: 7, wide: 10, plus: 9.2, emoji: 14 } as const;
+const EMOJI = /\p{Extended_Pictographic}/u;
+const VARIATION_SELECTOR = "\uFE0F";
 
 /** Approximate rendered width of `text` in the badge font, in pixels. */
 export function textWidth(text: string): number {
   let width = 0;
   for (const char of text) {
-    if (NARROW.has(char)) width += CHAR_WIDTHS_PX.narrow;
+    if (char === VARIATION_SELECTOR) continue;
+    if (EMOJI.test(char)) width += CHAR_WIDTHS_PX.emoji;
+    else if (NARROW.has(char)) width += CHAR_WIDTHS_PX.narrow;
     else if (SEMI_NARROW.has(char)) width += CHAR_WIDTHS_PX.semiNarrow;
     else if (WIDE.has(char)) width += CHAR_WIDTHS_PX.wide;
     else if (char === "+") width += CHAR_WIDTHS_PX.plus;

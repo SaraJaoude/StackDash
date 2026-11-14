@@ -204,11 +204,13 @@ describe("isProviderSimulationEnabled", () => {
 });
 
 describe("simulated adapter declarations", () => {
-  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, daily signup totals, projections, beta, and capabilities", (id) => {
+  it.each(liveProviderIds)("%s mirrors the real adapter's id, event types, achievements, daily signup totals, projections, beta, and capabilities", (id) => {
     const simulated = simulatedAdapters[id];
     expect(simulated.id).toBe(REAL[id].id);
     expect(simulated.displayName).toBe(REAL[id].displayName);
     expect(simulated.eventTypes).toBe(REAL[id].eventTypes);
+    expect(simulated.achievements).toBeDefined();
+    expect(simulated.achievements).toBe(REAL[id].achievements);
     expect(simulated.signupDailyTotals).toBe(REAL[id].signupDailyTotals);
     expect(simulated.projectedSpend).toBe(REAL[id].projectedSpend);
     expect(simulated.beta).toBe(REAL[id].beta);
@@ -847,6 +849,11 @@ describe("simulated numbers", () => {
     const repos = metrics.filter((item) => /^github\.stars\.repo_\d+$/.test(item.metricKey));
     expect(repos).toHaveLength(3);
     expect(quantity(metric(metrics, "github.stars.total"))).toBe(repos.reduce((sum, item) => sum + quantity(item), 0));
+    // Yesterday's new stars across the three repositories (240, 24, and 6 a day), dated to yesterday.
+    expect(metric(metrics, "github.stars.gained.daily")).toMatchObject({
+      value: 270,
+      timeframe: { type: "period", start: new Date("2026-11-19T00:00:00Z"), end: new Date("2026-11-20T00:00:00Z") },
+    });
     expect(quantity(metric(metrics, "github.usage.actions.minutes"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions"))).toBeGreaterThan(0);
     expect(amount(metric(metrics, "github.spend.actions.actions_linux"))).toBe(amount(metric(metrics, "github.spend.actions")));

@@ -8,28 +8,35 @@ import type { Platform } from "@/lib/site";
 interface FeedEvent {
   platform: Platform;
   severity: Severity;
+  // What happened, in the corner of the logo, as on the app timeline: 🏆 for an achievement.
+  emoji: string;
   text: string;
 }
 
 // Illustrative events only, labeled as such in the UI. Every event is one a planned integration
-// can collect (issues #11, #46, #47, #51, #62, #111, #118). Ordered so neighbors come from
-// different platforms, because the point of the feed is many sources in one place.
+// can collect (issues #11, #46, #47, #51, #62, #111, #118, #413). Ordered so neighbors come from
+// different platforms, because the point of the feed is many sources in one place. Three
+// achievements sit among the rows shown at load, inside the COMPACT_ROWS a phone shows.
 const feedEvents: readonly FeedEvent[] = [
-  { platform: "Vercel", severity: "Success", text: "Production deployment of acme-web is ready" },
-  { platform: "Supabase", severity: "Success", text: "New signup on acme-app" },
-  { platform: "Stripe", severity: "Success", text: "Payment of $49.00 received for the Pro plan" },
-  { platform: "GitHub", severity: "Success", text: "acme/cli reached 1,000 stars" },
-  { platform: "Resend", severity: "Alert", text: "Monthly email allowance passed 75%" },
-  { platform: "Supabase", severity: "Summary", text: "Yesterday: 312 logins from 148 active users" },
-  { platform: "Stripe", severity: "Success", text: "New customer subscribed to the Team plan" },
-  { platform: "Vercel", severity: "Failed", text: "Preview deployment failed for acme-docs" },
-  { platform: "GitHub Actions", severity: "Alert", text: "Included minutes passed 50%" },
-  { platform: "Supabase", severity: "Success", text: "New signup on acme-docs" },
-  { platform: "GitHub", severity: "Success", text: "Pull request #128 merged in acme/api" },
-  { platform: "Stripe", severity: "Failed", text: "Renewal payment failed for an annual plan" },
-  { platform: "Vercel", severity: "Alert", text: "Spending passed 90% of your $25 budget" },
-  { platform: "GitHub", severity: "Success", text: "New fork of acme/api" },
-  { platform: "Resend", severity: "Event", text: "Monthly email allowance reset for the new period" },
+  { platform: "Vercel", severity: "Success", emoji: "🚀", text: "Production deployment of acme-web is ready" },
+  { platform: "Supabase", severity: "Success", emoji: "👋", text: "New signup on acme-app" },
+  { platform: "Stripe", severity: "Success", emoji: "💳", text: "Payment of $49.00 received for the Pro plan" },
+  { platform: "GitHub", severity: "Success", emoji: "🌟", text: "acme/cli reached 1,000 stars" },
+  { platform: "Vercel", severity: "Achievement", emoji: "🏆", text: "100 Vercel deployments recorded" },
+  { platform: "Resend", severity: "Alert", emoji: "⚠️", text: "Monthly email allowance passed 75%" },
+  { platform: "Supabase", severity: "Summary", emoji: "📋", text: "Yesterday: 312 logins from 148 active users" },
+  { platform: "Stripe", severity: "Achievement", emoji: "🏆", text: "Payday: 10 payments in one day" },
+  { platform: "Vercel", severity: "Failed", emoji: "💥", text: "Preview deployment failed for acme-docs" },
+  { platform: "Supabase", severity: "Achievement", emoji: "🏆", text: "Rush hour: 10 signups in one hour" },
+  { platform: "GitHub Actions", severity: "Alert", emoji: "⚠️", text: "Included minutes passed 50%" },
+  { platform: "Stripe", severity: "Success", emoji: "🔁", text: "New customer subscribed to the Team plan" },
+  { platform: "GitHub", severity: "Success", emoji: "🔀", text: "Pull request #128 merged in acme/api" },
+  { platform: "Supabase", severity: "Success", emoji: "👋", text: "New signup on acme-docs" },
+  { platform: "Stripe", severity: "Failed", emoji: "🚫", text: "Renewal payment failed for an annual plan" },
+  { platform: "GitHub", severity: "Achievement", emoji: "🏆", text: "Kilostar: 1,024 GitHub stars" },
+  { platform: "Vercel", severity: "Alert", emoji: "💸", text: "Spending passed 90% of your $25 budget" },
+  { platform: "GitHub", severity: "Success", emoji: "🍴", text: "New fork of acme/api" },
+  { platform: "Resend", severity: "Event", emoji: "🔄", text: "Monthly email allowance reset for the new period" },
 ];
 
 // Ten rows match the height of the alerts, allowances, and spend column beside the feed. Below
@@ -38,7 +45,7 @@ const feedEvents: readonly FeedEvent[] = [
 // layout.
 const VISIBLE_ROWS = 10;
 const COMPACT_ROWS = 6;
-const TICK_SECONDS = 3;
+const TICK_SECONDS = 2;
 const EVENTS_TODAY_BEFORE_FEED = 1278;
 
 // The first render shows the first VISIBLE_ROWS events, newest on top. Server and client agree
@@ -161,7 +168,7 @@ export function LiveEventFeed() {
                       : undefined
                   }
                 >
-                  <ProviderMark platform={event.platform} size="sm" className="mt-0.5" />
+                  <ProviderMark platform={event.platform} emoji={event.emoji} size="sm" className="mt-0.5" />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-3">
                       <span className="font-mono text-xs text-muted">{event.platform}</span>

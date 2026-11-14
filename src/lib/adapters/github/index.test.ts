@@ -1,13 +1,17 @@
 import { createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { evaluateAchievements } from "@/lib/achievements/evaluate";
+import { toSnapshotRow } from "@/lib/jobs/ingest";
+import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, RateLimitedError } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkSyncResult } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
-import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
+import { Secret, type FetchLike, type OAuthContext, type OAuthCredential, type SyncResult } from "../types";
 import { monthsToSync } from "./billing";
 import { buildUserAuthorizeUrl, githubAdapter, readCallback, type GitHubCallback } from "./index";
-import { starMilestones, type Cursor } from "./repositories";
+import { starMetricNames, starMilestones, type Cursor } from "./repositories";
 
 // Every fixture below is from documentation (docs/providers/github.md, "Sample responses"), not
 // recorded: trimmed, with synthetic ids, logins, tokens, and amounts.
@@ -460,6 +464,13 @@ describe("sync", () => {
     });
     expect(metric(result.metrics, "github.stars.repo_5000001")).toMatchObject({ value: 95, unit: "stars" });
     expect(metric(result.metrics, "github.stars.total")).toMatchObject({ value: 95 });
+    // The harness checks only that an achievement's metric key has the adapter's prefix; this
+    // proves every key the achievements read is one a sync emits, so none waits on a misspelling.
+    // New stars per day are reported once a baseline day closes, so the next day's first sync counts too.
+    const achievementKeys = new Set((githubAdapter.achievements ?? []).flatMap((achievement) => achievementRuleMetricKey(achievement.rule) ?? []));
+    expect([...achievementKeys]).toEqual(["github.stars.total", "github.stars.gained.daily"]);
+    const nextDay = await githubAdapter.sync(syncInput(result.cursor), harness({}, { now: new Date("2026-11-01T00:10:00Z") }).ctx);
+    for (const key of achievementKeys) expect(metric([...result.metrics, ...nextDay.metrics], key), key).toBeDefined();
 
     // First sync sets baselines without backfilling old forks or milestones.
     expect(result.events).toEqual([]);
@@ -504,7 +515,8 @@ describe("sync", () => {
         },
       },
     };
-    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) });
+    // Closed at 00:10, within the bound a day's star event needs (`DAY_CLOSE_MAX_DELAY_MS`).
+    const { ctx } = harness({ [`GET ${api(`${repoPath}/stargazers/count`)}`]: json({ count: 105 }) }, { now: new Date("2026-10-31T00:10:00Z") });
     const result = await githubAdapter.sync(syncInput(JSON.stringify(previous)), ctx);
 
     expect(validateAdapterEvents(githubAdapter.eventTypes, result.events).ok).toBe(true);
@@ -733,5 +745,152 @@ describe("sync", () => {
       callsTo("GET", api(`${orgBilling}/usage/summary`)).map((call) => call.url.searchParams.get("month")),
     ).toEqual(["10", "11"]);
     expect(validateAdapterMetrics("github", result.metrics).ok).toBe(true);
+  });
+});
+
+describe("sync: new stars over one UTC day", () => {
+  const GAINED = starMetricNames.gainedDaily.metricKey;
+  const YESTERDAY = "2026-10-30";
+  // The first sync of 2026-10-31, ten minutes after 2026-10-30 ended, so it closes that day.
+  const CLOSED_AT = new Date("2026-10-31T00:10:00Z");
+
+  type StarRepo = Readonly<{ id: number; name: string; count: number }>;
+
+  function baseline(day: string, dayCount: number): Cursor["repos"][string] {
+    return { day, dayCount, milestone: 0, forksSeenAt: null, forkIdsAtSeenAt: [] };
+  }
+
+  /** One sync over `repos` from the cursor `previous` at `now`. */
+  async function syncStars(repos: readonly StarRepo[], previous: Cursor["repos"], now: Date): Promise<SyncResult> {
+    const repositories = repos.map((repo) => ({
+      ...installationRepositories.repositories[0],
+      id: repo.id,
+      name: repo.name,
+      full_name: `example-org/${repo.name}`,
+      html_url: `https://github.com/example-org/${repo.name}`,
+    }));
+    const routes: Routes = { [`GET ${api("/installation/repositories")}`]: json({ total_count: repos.length, repositories }) };
+    for (const repo of repos) {
+      routes[`GET ${api(`/repos/example-org/${repo.name}/stargazers/count`)}`] = json({ count: repo.count });
+      routes[`GET ${api(`/repos/example-org/${repo.name}/forks`)}`] = json([]);
+    }
+    const cursor: Cursor = { v: 1, repos: previous };
+    const result = await githubAdapter.sync(syncInput(JSON.stringify(cursor)), harness(routes, { now }).ctx);
+    // The sync runner's gates, including that a new stars reading covers one whole UTC day.
+    expect(checkSyncResult(githubAdapter, ACCOUNT_ID, result)).toEqual([]);
+    return result;
+  }
+
+  /** The new stars readings of the sync at `CLOSED_AT`. */
+  async function gained(repos: readonly StarRepo[], previous: Cursor["repos"]): Promise<AdapterMetric[]> {
+    return (await syncStars(repos, previous, CLOSED_AT)).metrics.filter((item) => item.metricKey === GAINED);
+  }
+
+  it("adds the repositories' new stars into one reading of the closed day, which earns Trending on that day", async () => {
+    const readings = await gained(
+      [
+        { id: 5000001, name: "api", count: 96 },
+        { id: 5000002, name: "web", count: 44 },
+      ],
+      { "5000001": baseline(YESTERDAY, 90), "5000002": baseline(YESTERDAY, 40) },
+    );
+    expect(readings).toEqual([
+      {
+        kind: "usage",
+        metricKey: "github.stars.gained.daily",
+        label: "New stars over one UTC day",
+        value: 10,
+        unit: "stars",
+        timeframe: { type: "period", start: new Date("2026-10-30T00:00:00Z"), end: new Date("2026-10-31T00:00:00Z") },
+        externalAccountId: ACCOUNT_ID,
+        retrievedAt: CLOSED_AT,
+        provenance: { source: "provider_api", endpoint: "/repos/{owner}/{repo}/stargazers/count" },
+      },
+    ]);
+
+    // Stored in today's row and read back the way `loadReadings` does, it is dated to the day it counts.
+    const [reading] = readings;
+    if (reading === undefined) throw new Error("expected a reading");
+    const row = toSnapshotRow(reading, { id: "connection-1", workspace_id: "workspace-1" }, { id: "account-1" });
+    expect(row).toMatchObject({ snapshot_date: "2026-10-31", period_start: "2026-10-30T00:00:00.000Z", point_at: null });
+    const earned = evaluateAchievements({
+      achievements: (githubAdapter.achievements ?? []).filter((achievement) => achievement.id === "github.stars.hot_day"),
+      earnedIds: new Set(),
+      events: [],
+      readings: [
+        {
+          accountId: row.external_account_id,
+          metricKey: row.metric_key,
+          snapshotDate: row.snapshot_date,
+          value: row.value ?? 0,
+          observedAt: new Date(row.retrieved_at),
+          periodStart: row.period_start === null ? null : new Date(row.period_start),
+        },
+      ],
+    });
+    expect(earned).toMatchObject([{ achievementId: "github.stars.hot_day", earnedAt: new Date("2026-10-30T00:00:00Z"), earnedPrecision: "day" }]);
+  });
+
+  it("counts nothing for a repository newly added to the installation, however many stars it has (boundary: no baseline)", async () => {
+    const newRepo = { id: 5000002, name: "popular", count: 5000 };
+    // Beside a repository that closed the day with no new stars: a stored 0, not the new stars.
+    expect(await gained([{ id: 5000001, name: "api", count: 90 }, newRepo], { "5000001": baseline(YESTERDAY, 90) })).toMatchObject([
+      { value: 0 },
+    ]);
+    // On its own: no repository closed a day, so nothing is reported.
+    expect(await gained([newRepo], {})).toEqual([]);
+  });
+
+  it("adds 0 for a repository that lost stars, so it does not cancel another's gain (boundary: unstars)", async () => {
+    const readings = await gained(
+      [
+        { id: 5000001, name: "api", count: 80 },
+        { id: 5000002, name: "web", count: 52 },
+      ],
+      { "5000001": baseline(YESTERDAY, 90), "5000002": baseline(YESTERDAY, 40) },
+    );
+    expect(readings).toMatchObject([{ value: 12 }]);
+  });
+
+  it("adds nothing for a repository whose baseline is older than yesterday, because its change spans several days (boundary: missed syncs)", async () => {
+    const stale = { id: 5000001, name: "api", count: 80 };
+    const readings = await gained([stale, { id: 5000002, name: "web", count: 43 }], {
+      "5000001": baseline("2026-10-28", 50),
+      "5000002": baseline(YESTERDAY, 40),
+    });
+    expect(readings).toMatchObject([{ value: 3 }]);
+    // On its own it closes no single day, so nothing is reported rather than a 0 or a 30.
+    expect(await gained([stale], { "5000001": baseline("2026-10-28", 50) })).toEqual([]);
+  });
+
+  it.each<{ closedAt: string; counted: boolean }>([
+    { closedAt: "2026-10-31T01:59:00Z", counted: true },
+    { closedAt: "2026-10-31T02:00:00Z", counted: true },
+    { closedAt: "2026-10-31T02:01:00Z", counted: false },
+    { closedAt: "2026-10-31T23:50:00Z", counted: false },
+  ])(
+    "closes a day at $closedAt only within two poll intervals of its end: $counted (boundary: late first sync)",
+    async ({ closedAt, counted }) => {
+      const now = new Date(closedAt);
+      const repos = [
+        { id: 5000001, name: "api", count: 96 },
+        { id: 5000002, name: "web", count: 44 },
+      ];
+      const previous = { "5000001": baseline(YESTERDAY, 90), "5000002": baseline(YESTERDAY, 40) };
+      const result = await syncStars(repos, previous, now);
+      // A late close would take in the next day's stars too, so it reports neither a total nor the
+      // per-repository day events, which Weekend stargazers and Steady glow read, rather than up to
+      // ~48 hours as one day.
+      expect(result.metrics.filter((item) => item.metricKey === GAINED)).toEqual(
+        counted ? [expect.objectContaining({ value: 10, retrievedAt: now })] : [],
+      );
+      expect(result.events.map((event) => event.dedupeKey)).toEqual(
+        counted ? ["github.stars.daily:5000001:2026-10-30", "github.stars.daily:5000002:2026-10-30"] : [],
+      );
+    },
+  );
+
+  it("reports nothing on a later sync the same day, so the first sync's total stands (boundary: hourly polls)", async () => {
+    expect(await gained([{ id: 5000001, name: "api", count: 120 }], { "5000001": baseline("2026-10-31", 90) })).toEqual([]);
   });
 });

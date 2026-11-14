@@ -58,8 +58,10 @@ An adapter is one object implementing `ProviderAdapter` (`src/lib/adapters/types
 | `permissions` | One entry per requested scope for the connect screen: what it is for in plain words, and for a scope that can also write, `access: "full"` with the reason it is needed |
 | `dataCollected` | One plain line per kind of data read, shown before the user grants access |
 | `eventTypes` | Every event type the adapter can emit (see [Events](#events)) |
+| `achievements` | The permanent outcomes the provider's data can prove for a project (see [Achievements](#achievements)). Omit when none |
 | `projectedSpend` | Estimated spend metric keys that are a projection for the whole billing period. Every reading of spend leaves them out. Omit when none |
 | `signupDailyTotals` | Usage metric keys that hold one UTC day's signups, for a provider that reports a daily total instead of one event per signup. Omit when none |
+| `dailyTotals` | Usage metric keys that hold the total of one whole UTC day and are not signups (GitHub's `github.stars.gained.daily`). The reading's timeframe is that day. Such a key feeds achievements, not usage to watch: the unusual spend and usage checks never read it, and alert settings does not offer it to mute. Omit when none |
 | `beta` | A one sentence reason shown beside a "Beta" badge on the provider's card. Omit when not in beta |
 | `oauth` | Authorize, token, and revoke URLs, the requested scopes, whether PKCE is used, and the names (never the values) of the environment variables holding the client id and secret, plus `extraEnv` for any other app setting the provider needs (an integration slug, an app's private key) and `optionalExtraKeys` for the ones an instance may leave unset |
 | `pollIntervalSeconds` | How often to sync. Hourly (3600) unless the provider's limits or retention need otherwise. At least 60 |
@@ -127,13 +129,61 @@ The dashboard labels figures verified or estimated from the kind, so never repor
 
 ## Events
 
-An event type is declared once, in `eventTypes`, with a stable id (`acme.deploy.failed`), a label, a description, whether it is shown by default, and optionally a category (`signup`, `deploy_succeeded`, or `deploy_failed`) so the dashboard headline counts it. An event emitted with an undeclared type id rejects the whole batch. The label is the type's name everywhere the app names it: the timeline's event type filter and its chips, a collapsed run of events, **Event details**, and the command palette. Write it the way a person would say it (`Payment succeeded`, not `Charge succeeded`), since the id's own words are shown only for a type no adapter declares any more.
+An event type is declared once, in `eventTypes`, with a stable id (`acme.deploy.failed`), a label, a description, whether it is shown by default, an emoji, and optionally a category (`signup`, `deploy_succeeded`, or `deploy_failed`) so the dashboard headline counts it. An event emitted with an undeclared type id rejects the whole batch. The label is the type's name everywhere the app names it: the timeline's event type filter and its chips, a collapsed run of events, **Event details**, and the command palette. Write it the way a person would say it (`Payment succeeded`, not `Charge succeeded`), since the id's own words are shown only for a type no adapter declares any more.
+
+The `emoji` is one emoji for what happened (`🚀` a deployment went live, `💳` a payment), shown in the corner of the provider's logo on every timeline row; it is decorative, so the label still says it in words, and a new type reuses the emoji similar adapters use for the same kind of event (`💥` for a failed deployment, `👋` for a signup).
 
 Each event carries a type id, when it happened, a severity (`info`, `success`, `warning`, `critical`), a title of at most 200 characters, an optional body, the external account, and a dedupe key that is the same every time the same event is read, so reading it twice never stores it twice. An optional link must be `https`: an event with any other link fails validation, and that rejects the whole batch. Drop a link that is not `https` before the event reaches the batch, as the example's `httpsUrl` does.
 
 The event model has no field for a person, on purpose: no names, emails, usernames, or avatars. Count a signup; never record who signed up.
 
 Read events with a cursor: an opaque string the adapter returns from one sync and receives in the next. Bound every read: a page size and a maximum number of pages per sync, with the cursor set to where the read stopped, so a busy account catches up over several syncs instead of one sync running without end. On the first sync, read a short backfill window (the example reads 7 days), not the whole history. If the cursor comes back unreadable, log it and start again from the backfill window rather than failing every future sync.
+
+## Achievements
+
+An achievement is a permanent outcome a project earns from its providers' data, such as "10 Vercel deployments recorded" or "Kilostar: 1,024 GitHub stars". Each adapter declares its own in `achievements`, beside `eventTypes`. After each successful sync, DevMacro evaluates that provider's achievements for every project the connection's accounts are assigned to, from the events and metric snapshots it has stored for all of the project's accounts of that provider. A project earns each achievement once, and members publish the ones they want to show. An achievement earned while any of those accounts is on a simulated connection is stored as simulated.
+
+Before you add or change achievements, read the achievements of adapters of the same kind and keep ids, thresholds, and wording parallel.
+
+The kinds today are deployment hosts (Vercel, Railway, DigitalOcean, GitLab, and Render to come), payments (Stripe and Polar), and signups (Supabase and PostHog). A member who switches provider then sees the same ladder. `src/lib/adapters/achievements.test.ts` compares the ladders each kind shares and lists every adapter's ids, so a change to one is a change to the test. Achievements count per provider: a project that deploys through two hosts earns each host's ladder separately.
+
+| Field | Rule |
+|---|---|
+| `id` | The adapter id, then a stable name: `vercel.deployments.10`. It is stored on every earned row, so it never changes. Use the same name as adapters of the same kind |
+| `title` | What members see in the project's Achievements section and on the timeline. At most 80 characters (`ACHIEVEMENT_TITLE_MAX`), so it fits a card and a badge |
+| `publicTitle` | What a public page, card, badge, and share text show once it is published. Never an account name, a repository name, or an amount. The same as `title` unless the title says something private |
+| `description` | One sentence on how it is earned, such as "Earned when DevMacro records the 10th successful Vercel deployment." |
+| `rule` | One rule from the set below |
+
+Rules are a closed set (`src/lib/adapters/achievements.ts`), so an adapter composes them rather than writing code:
+
+| Rule | Earned by |
+|---|---|
+| `event_count` | The `count`th recorded event of `typeIds`, dated to that event |
+| `metric_threshold` | The first stored reading of `metricKey` at or above `value` |
+| `event_streak` | `count` events of `successTypeIds` in a row with no event of `failureTypeIds` between them, dated to the event that completes the run |
+| `events_in_window` | `count` events of `typeIds` within one London calendar day or clock hour (`window`), dated to the event that reached the count |
+| `event_at_local_time` | An event of `typeIds` recorded from `fromHour` to before `toHour` London time (24 is midnight at the end of the day), on one of `weekdays` when given |
+| `consecutive_days` | Events of `typeIds` on `days` consecutive London calendar days, starting on `startWeekday` when given |
+| `daily_total_threshold` | A daily total declared in `signupDailyTotals` or `dailyTotals` reaching `value`, summed day by day (`cumulative`) or in one day (`single_day`), dated to the day |
+
+The evidence decides the wording and the date:
+
+- An event achievement says "recorded", because an adapter may backfill limited history or set a baseline on its first sync. DevMacro never claims it saw a project's first-ever deployment, signup, payment, or fork.
+- An event threshold is dated to the event that reached it.
+- A snapshot threshold is dated to the first stored reading that proves it. When no earlier reading below the threshold is stored, its evidence is "at least" and it is shown as "Recorded at least 100" (for a threshold of 100), rather than claiming the crossing happened then.
+- A daily total threshold is dated to the day, never to a time.
+- Once earned, an achievement stays earned when a rolling window moves on, and keeps its stored title if its definition is later removed from the adapter.
+
+"In one day" and "in one hour" mean a Europe/London calendar day and clock hour (`TIMELINE_TIME_ZONE` in `src/lib/timeline/query.ts`, the activity heatmap's zone), never rolling windows: ten deployments from 23:30 to 00:30 do not earn a "one hour" achievement. This was decided on 2026-11-14, so they match the activity heatmap. Weekdays and local hours are read in the same zone. Check when your adapter dates an event: GitHub dates `github.stars.daily` to the end of its UTC day, which is always the next London date, so its weekend achievement starts its run on a Sunday.
+
+Metric rules are the exception. `usage_snapshots` keeps one reading per account, metric, and UTC day (`snapshot_date`), and each sync that day overwrites it, so a metric rule's day is that stored UTC day, not a London calendar day: one reading per day cannot prove anything finer. A UTC day is the London day in winter and 01:00 to 01:00 London time in summer. A `daily_total_threshold` reading names its own UTC day in its timeframe, so it is dated to that day whichever day it was stored on.
+
+A daily total covers one whole UTC day: its timeframe is a period from 00:00 UTC to 00:00 UTC the next day, and the test harness rejects any other reading of a key declared in `dailyTotals` or `signupDailyTotals`. Count only what happened that day. A running total can rise without anything new happening (adding a repository to a GitHub installation raises `github.stars.total` by every star it already has), so GitHub's Trending reads `github.stars.gained.daily`: the new stars of repositories the adapter already followed, written only when a sync closes the day by 02:00 UTC, so a late sync never reports two days as one.
+
+`checkAdapterDeclaration` rejects an achievement whose id is not unique or not prefixed with the adapter id, whose rule names an event type the adapter does not declare (a type with no category is fine) or a metric key without the adapter's prefix, whose `daily_total_threshold` sums a key missing from both `signupDailyTotals` and `dailyTotals`, or whose threshold is not positive or title is too long. It also rejects a `dailyTotals` key without the adapter's prefix, `dailyTotals` without the `usage` capability, and a key declared in both `dailyTotals` and `signupDailyTotals`, which would count it as signups too.
+
+No achievement counts amounts, spend, quota, email volume, failed operations, logins, or connections.
 
 ## Errors and partial results
 
@@ -204,8 +254,8 @@ expect(checkTraffic(harness, ["synthetic-access-token-1"])).toEqual([]);
 ```
 
 - `createAdapterHarness` answers each request from `routes`, keyed by method, origin, and path. A function route reads the query from the request. A request with no recording gets a `404` and is reported. `harness.requests` and `harness.logs` hold everything the adapter sent and logged. Pass `extra` when the adapter reads settings beyond the client id and secret (keyed like `oauth.extraEnv`, for example an app's private key): the adapter receives each one as a `Secret` in `ctx.client.extra`. `clientId` and `timeoutMs` replace the harness defaults when a test needs particular values.
-- `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, capabilities, projections, the poll interval, and environment variable names.
-- `checkSyncResult` applies the sync runner's own gates (every metric and event valid, every key owned by the adapter, nothing for another account) plus the capability, projection, and partial error rules.
+- `checkAdapterDeclaration` checks what the app reads before any sync: the id, permissions for every requested scope, event types, achievements, capabilities, projections, daily totals, the poll interval, and environment variable names.
+- `checkSyncResult` applies the sync runner's own gates (every metric and event valid, every key owned by the adapter, nothing for another account) plus the capability, projection, daily total (usage over exactly one whole UTC day), and partial error rules.
 - `checkTraffic` reports requests with no recording, requests over plain `http`, requests without a timeout, and any log line containing the harness's client secret, one of its `extra` values, or the secrets you pass, including a multi line value and a secret inside a logged error's message or cause.
 
 Each check returns a list of problems in plain words, so a failing test prints all of them at once.
@@ -235,6 +285,7 @@ Registering makes the adapter available to users, and it touches files across th
 | `e2e/<id>.spec.ts` | Connecting the simulated provider end to end |
 | `e2e/docs.spec.ts` | The provider page in the docs index, its card count, and its accessibility scan |
 | `docs/providers/<id>.md` | The provider page (see [Provider page template](#provider-page-template)) |
+| `src/lib/adapters/achievements.test.ts` | The provider's achievement ids in `CATALOG`, and the provider in its kind's shared ladder (deployment hosts, payments, signups) when it has one (see [Achievements](#achievements)) |
 | `docs/operations/oauth-apps.md` | The registration row, its section, and the number of registrations |
 | `docs/operations/deploy.md` | The environment variable rows |
 | `docs/architecture/concepts.md` | What an external account is for this provider |
@@ -252,7 +303,7 @@ When the provider reports deployments, also:
 | `src/lib/public-metrics/definitions.ts` | Its success and failure types in `DEPLOYMENT_OUTCOMES`, with `definitions.test.ts`. The provider then joins the provider list in the year in review's deployment sentence ("Connect ... to count your deployments."), so update that sentence where `src/lib/public-metrics/yearly.test.ts` and `e2e/year-in-review.spec.ts` assert it |
 | `docs/architecture/public-metrics.md` | The provider in the deployment metrics' event lists |
 
-Event categories, capabilities, projections, and daily signup totals need no list of their own: the dashboard reads them from the registered adapter.
+Event categories, capabilities, projections, and daily totals need no list of their own: they are read from the registered adapter.
 
 ## Provider page template
 
@@ -311,6 +362,13 @@ DevMacro reads <what, in one sentence>. It asks for <the scopes, and whether the
 ### Timeline events (by polling)
 
 | Event | Endpoint | Rule |
+|---|---|---|
+
+## Achievements
+
+<Each achievement the adapter declares. Copy the ladder of adapters of the same kind first.>
+
+| Id | Title | How it is earned |
 |---|---|---|
 
 ## Verified, estimated, unavailable

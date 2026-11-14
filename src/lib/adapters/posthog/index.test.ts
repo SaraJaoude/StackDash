@@ -1,7 +1,9 @@
 import { generateKeyPairSync, verify, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { achievementRuleMetricKey } from "../achievements";
 import { AuthRevokedError, InvalidResponseError, PermissionMissingError, ProviderUnavailableError } from "../errors";
 import { validateAdapterEvents } from "../events";
+import { checkSyncResult } from "../harness";
 import { validateAdapterMetrics, type AdapterMetric } from "../metrics";
 import { Secret, type FetchLike, type OAuthContext, type OAuthCredential } from "../types";
 import { ASSERTION_AUDIENCE, CLIENT_ASSERTION_TYPE } from "./client-auth";
@@ -388,6 +390,8 @@ describe("sync", () => {
     expect(metrics.ok ? [] : metrics.issues).toEqual([]);
     const events = validateAdapterEvents(postHogAdapter.eventTypes, result.events);
     expect(events.ok ? [] : events.issues).toEqual([]);
+    // The sync runner's gates, including that the daily signup total covers one whole UTC day.
+    expect(checkSyncResult(postHogAdapter, ORG_ID, result)).toEqual([]);
     expect(result.partialErrors).toBeUndefined();
 
     const billingCall = calls.find((call) => call.url.pathname === "/api/billing/");
@@ -449,6 +453,11 @@ describe("sync", () => {
     });
     // Declared as a daily signup total, so the dashboard headline counts it as PostHog's signups (#173).
     expect(postHogAdapter.signupDailyTotals).toEqual(["posthog.signups.daily"]);
+    // The harness checks only that an achievement's metric key has the adapter's prefix; this
+    // proves every key the achievements read is one a sync emits.
+    const achievementKeys = new Set((postHogAdapter.achievements ?? []).flatMap((achievement) => achievementRuleMetricKey(achievement.rule) ?? []));
+    expect([...achievementKeys]).toEqual(["posthog.signups.daily"]);
+    for (const key of achievementKeys) expect(byKey(result.metrics, key).metricKey).toBe(key);
     expect(result.cursor).toBe(JSON.stringify({ v: 1, through: "2026-11-04" }));
   });
 

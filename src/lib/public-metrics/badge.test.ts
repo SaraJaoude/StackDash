@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { badgeContent, escapeXml, RATE_LIMITED_BADGE, renderBadgeSvg, textWidth } from "./badge";
-import type { PublishedEngineMetric, PublishedValue } from "./published";
+import { achievementBadgeContent, badgeContent, escapeXml, RATE_LIMITED_BADGE, renderBadgeSvg, textWidth } from "./badge";
+import type { PublishedAchievement, PublishedEngineMetric, PublishedValue } from "./published";
 
 const AT = new Date("2026-11-05T12:00:00Z");
 
@@ -82,6 +82,55 @@ describe("badgeContent", () => {
   });
 });
 
+describe("achievementBadgeContent (#413)", () => {
+  const achievement: PublishedAchievement = {
+    achievementId: "github.stars.1024",
+    provider: "github",
+    providerName: "GitHub",
+    publicTitle: "Kilostar: 1,024 GitHub stars",
+    earnedAt: AT,
+    earnedPrecision: "instant",
+    evidence: "crossed",
+    threshold: 1024,
+    simulated: false,
+    publishedAt: AT,
+  };
+
+  it("labels the badge with a trophy and the provider and shows the public title, with when it was earned in its title", () => {
+    expect(achievementBadgeContent(achievement)).toEqual({
+      label: "🏆 GitHub",
+      message: "Kilostar: 1,024 GitHub stars",
+      tone: "achievement",
+      title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Earned 2026-11-05 12:00 GMT.",
+    });
+  });
+
+  it("never claims the crossing when DevMacro only saw the value already past it", () => {
+    expect(achievementBadgeContent({ ...achievement, evidence: "at_least" }).title).toBe(
+      "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Recorded at least 1,024 on 2026-11-05 12:00 GMT.",
+    );
+  });
+
+  it("says simulated in words and in the simulated metric's fill when simulator data earned it", () => {
+    const simulated = achievementBadgeContent({ ...achievement, simulated: true });
+    expect(simulated).toEqual({
+      label: "🏆 GitHub",
+      message: "Kilostar: 1,024 GitHub stars (simulated)",
+      tone: "simulated",
+      title: "GitHub achievement on DevMacro: Kilostar: 1,024 GitHub stars. Simulated data, not verified. Earned 2026-11-05 12:00 GMT.",
+    });
+    const fill = (content: Parameters<typeof renderBadgeSvg>[0]) => /<rect x="\d+" width="\d+" height="20" fill="(#[0-9a-f]{6})"\/>/.exec(renderBadgeSvg(content))?.[1];
+    expect(fill(simulated)).toBe(fill(badgeContent(metric(available({ simulated: true })))));
+    expect(fill(simulated)).not.toBe(fill(achievementBadgeContent(achievement)));
+  });
+
+  it("shows the metric's neutral Unpublished badge for anything not published (boundary: null)", () => {
+    const unpublished = achievementBadgeContent(null);
+    expect(unpublished).toMatchObject({ label: "DevMacro", message: "Unpublished", tone: "neutral" });
+    expect(renderBadgeSvg(unpublished)).toBe(renderBadgeSvg({ ...badgeContent(null), title: unpublished.title }));
+  });
+});
+
 describe("renderBadgeSvg", () => {
   it("is an image with a title and no script, link, or external reference", () => {
     const svg = renderBadgeSvg(badgeContent(metric(available())));
@@ -111,6 +160,12 @@ describe("textWidth and escapeXml", () => {
   it("measures nothing as zero and wide letters wider than narrow ones", () => {
     expect(textWidth("")).toBe(0);
     expect(textWidth("mmm")).toBeGreaterThan(textWidth("iii"));
+  });
+
+  it("gives an emoji the room of a wide letter, so the trophy in a label never overflows its half", () => {
+    expect(textWidth("🏆")).toBeGreaterThan(textWidth("W"));
+    // The presentation selector draws nothing of its own.
+    expect(textWidth("⚠️")).toBe(textWidth("⚠"));
   });
 
   it("leaves plain text alone", () => {

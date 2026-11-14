@@ -1,11 +1,14 @@
 // Success marks good news (a signup, a payment, a deploy that went live) so it stands out from
-// neutral events. The word is always printed, so color is never the only signal.
+// neutral events. Achievement marks a project milestone (#413) in gold on a tinted fill, so it reads
+// as rarer than everyday good news and differs from the outlined warning pill in shape too.
+// The word is always printed, so color is never the only signal.
 // "Warning" and "Critical" are the app timeline's words for stored event severities; the landing
 // page keeps its own vocabulary.
-export type Severity = "Success" | "Alert" | "Failed" | "Summary" | "Event" | "Warning" | "Critical";
+export type Severity = "Success" | "Achievement" | "Alert" | "Failed" | "Summary" | "Event" | "Warning" | "Critical";
 
 const SEVERITY_CLASSES: Record<Severity, string> = {
   Success: "border-success/40 text-success",
+  Achievement: "border-gold/50 bg-gold-soft text-gold",
   Alert: "border-warning/40 text-warning",
   Failed: "border-danger/40 text-danger",
   Summary: "border-line text-muted",

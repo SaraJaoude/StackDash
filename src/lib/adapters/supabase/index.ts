@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import { InvalidResponseError, PermissionMissingError, fetchJson } from "../errors";
 import type { ActivityEvent, EventType } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -147,26 +148,85 @@ export const eventTypes = [
     description: "A user signed up to a Supabase project. Only the time is kept.",
     shownByDefault: true,
     category: "signup",
+    emoji: "👋",
   },
   {
     id: "supabase.auth.daily_summary",
     label: "Daily auth summary",
     description: "Logins, signups, logouts, deleted users, and active users for one UTC day.",
     shownByDefault: true,
+    emoji: "📋",
   },
   {
     id: "supabase.project.unhealthy",
     label: "Project unhealthy",
     description: "One or more Supabase services of the project reported unhealthy.",
     shownByDefault: true,
+    emoji: "🚨",
   },
   {
     id: "supabase.project.healthy",
     label: "Project healthy again",
     description: "Every checked Supabase service of the project is healthy again.",
     shownByDefault: true,
+    emoji: "💚",
   },
 ] as const satisfies readonly EventType[];
+
+// Achievements (#413). The signup ladder is shared with PostHog: keep the ids, thresholds, and
+// wording in step with PostHog's (docs/adapters.md, "Achievements"). The hour-based ones are
+// Supabase's own, as PostHog only reports a total per day.
+const achievements: readonly Achievement[] = [
+  {
+    id: "supabase.signups.first",
+    title: "First Supabase signup recorded",
+    publicTitle: "First Supabase signup recorded",
+    description: "Earned when DevMacro records the first Supabase signup.",
+    rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 1 },
+  },
+  {
+    id: "supabase.signups.10",
+    title: "10 Supabase signups recorded",
+    publicTitle: "10 Supabase signups recorded",
+    description: "Earned when DevMacro records the 10th Supabase signup.",
+    rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 10 },
+  },
+  {
+    id: "supabase.signups.100",
+    title: "100 Supabase signups recorded",
+    publicTitle: "100 Supabase signups recorded",
+    description: "Earned when DevMacro records the 100th Supabase signup.",
+    rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 100 },
+  },
+  {
+    id: "supabase.signups.1000",
+    title: "1,000 Supabase signups recorded",
+    publicTitle: "1,000 Supabase signups recorded",
+    description: "Earned when DevMacro records the 1,000th Supabase signup.",
+    rule: { kind: "event_count", typeIds: ["supabase.auth.signup"], count: 1000 },
+  },
+  {
+    id: "supabase.signups.big_day",
+    title: "Big day: 100 signups in one day",
+    publicTitle: "Big day: 100 signups in one day",
+    description: "Earned when DevMacro records 100 Supabase signups on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["supabase.auth.signup"], count: 100, window: "day" },
+  },
+  {
+    id: "supabase.signups.rush_hour",
+    title: "Rush hour: 10 signups in one hour",
+    publicTitle: "Rush hour: 10 signups in one hour",
+    description: "Earned when DevMacro records 10 Supabase signups in one London clock hour.",
+    rule: { kind: "events_in_window", typeIds: ["supabase.auth.signup"], count: 10, window: "hour" },
+  },
+  {
+    id: "supabase.signups.night_owls",
+    title: "Night owls: a signup between midnight and 5 am",
+    publicTitle: "Night owls: a signup between midnight and 5 am",
+    description: "Earned when DevMacro records a Supabase signup between midnight and 5 am London time.",
+    rule: { kind: "event_at_local_time", typeIds: ["supabase.auth.signup"], fromHour: 0, toHour: 5 },
+  },
+];
 
 const HealthStateSchema = z.enum(["healthy", "unhealthy"]);
 type HealthState = z.infer<typeof HealthStateSchema>;
@@ -650,6 +710,7 @@ export const supabaseAdapter: ProviderAdapter = {
     "Daily active users (Pro plan and above)",
   ],
   eventTypes,
+  achievements,
   oauth: {
     authorizeUrl: `${API_ORIGIN}/v1/oauth/authorize`,
     tokenUrl: `${API_ORIGIN}/v1/oauth/token`,

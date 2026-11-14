@@ -1,4 +1,5 @@
 import { PROVIDER_NAMES } from "@/lib/providers";
+import type { Achievement } from "../achievements";
 import { AuthRevokedError, fetchJson, InvalidResponseError, PermissionMissingError } from "../errors";
 import type { ActivityEvent } from "../events";
 import type { AdapterMetric } from "../metrics";
@@ -24,7 +25,7 @@ import {
   requireExtra,
 } from "./api";
 import { collectBilling } from "./billing";
-import { collectRepositories, CursorSchema, eventTypes, type Cursor } from "./repositories";
+import { collectRepositories, CursorSchema, eventTypes, POLL_INTERVAL_SECONDS, starMetricNames, type Cursor } from "./repositories";
 import {
   TokenResponseSchema,
   UserInstallationsPageSchema,
@@ -180,6 +181,108 @@ function parseCursor(cursor: string | undefined, ctx: OAuthContext): Cursor | un
   return parsed.data;
 }
 
+// Achievements (#413). Star thresholds come from the stored `github.stars.total` snapshots,
+// Trending from the `github.stars.gained.daily` daily totals, forks from `github.forks.new` events
+// (docs/adapters.md, "Achievements").
+const achievements: readonly Achievement[] = [
+  {
+    id: "github.stars.10",
+    title: "10 GitHub stars",
+    publicTitle: "10 GitHub stars",
+    description: "Earned when DevMacro records 10 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 10 },
+  },
+  {
+    id: "github.stars.100",
+    title: "100 GitHub stars",
+    publicTitle: "100 GitHub stars",
+    description: "Earned when DevMacro records 100 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 100 },
+  },
+  {
+    id: "github.stars.1000",
+    title: "1,000 GitHub stars",
+    publicTitle: "1,000 GitHub stars",
+    description: "Earned when DevMacro records 1,000 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 1000 },
+  },
+  {
+    id: "github.stars.10000",
+    title: "10,000 GitHub stars",
+    publicTitle: "10,000 GitHub stars",
+    description: "Earned when DevMacro records 10,000 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 10000 },
+  },
+  {
+    id: "github.stars.777",
+    title: "Lucky sevens: 777 GitHub stars",
+    publicTitle: "Lucky sevens: 777 GitHub stars",
+    description: "Earned when DevMacro records 777 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 777 },
+  },
+  {
+    id: "github.stars.1024",
+    title: "Kilostar: 1,024 GitHub stars",
+    publicTitle: "Kilostar: 1,024 GitHub stars",
+    description: "Earned when DevMacro records 1,024 or more stars across the connected GitHub repositories.",
+    rule: { kind: "metric_threshold", metricKey: "github.stars.total", value: 1024 },
+  },
+  {
+    id: "github.stars.hot_day",
+    title: "Trending: 10 new stars in one day",
+    publicTitle: "Trending: 10 new stars in one day",
+    description: "Earned when GitHub repositories DevMacro already followed gain 10 or more new stars between them over one UTC day.",
+    // A daily total rather than the rise in `github.stars.total`: adding a repository to the
+    // installation raises the total without a single new star.
+    rule: { kind: "daily_total_threshold", metricKey: starMetricNames.gainedDaily.metricKey, value: 10, sum: "single_day" },
+  },
+  {
+    id: "github.stars.steady_glow",
+    title: "Steady glow: new stars on 7 days in a row",
+    publicTitle: "Steady glow: new stars on 7 days in a row",
+    description: "Earned when DevMacro records new stars on a connected GitHub repository on each of 7 consecutive days.",
+    rule: { kind: "consecutive_days", typeIds: ["github.stars.daily"], days: 7 },
+  },
+  {
+    id: "github.stars.weekend",
+    title: "Weekend stargazers: new stars on a Saturday and the Sunday after it",
+    publicTitle: "Weekend stargazers: new stars on a Saturday and the Sunday after it",
+    description: "Earned when DevMacro records new stars on a connected GitHub repository on a Saturday and on the Sunday after it.",
+    // `github.stars.daily` is dated to the end of its UTC day (00:00 UTC the next day, always the
+    // next London date), so Saturday's and Sunday's stars arrive as Sunday and Monday events and
+    // the run starts on a Sunday.
+    rule: { kind: "consecutive_days", typeIds: ["github.stars.daily"], days: 2, startWeekday: "sunday" },
+  },
+  {
+    id: "github.forks.first",
+    title: "First fork recorded",
+    publicTitle: "First fork recorded",
+    description: "Earned when DevMacro records the first new fork of a connected GitHub repository.",
+    rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 1 },
+  },
+  {
+    id: "github.forks.10",
+    title: "10 forks recorded",
+    publicTitle: "10 forks recorded",
+    description: "Earned when DevMacro records the 10th new fork of a connected GitHub repository.",
+    rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 10 },
+  },
+  {
+    id: "github.forks.100",
+    title: "100 forks recorded",
+    publicTitle: "100 forks recorded",
+    description: "Earned when DevMacro records the 100th new fork of a connected GitHub repository.",
+    rule: { kind: "event_count", typeIds: ["github.forks.new"], count: 100 },
+  },
+  {
+    id: "github.forks.party",
+    title: "Fork party: 5 forks in one day",
+    publicTitle: "Fork party: 5 forks in one day",
+    description: "Earned when DevMacro records 5 new forks of the connected GitHub repositories on one London calendar day.",
+    rule: { kind: "events_in_window", typeIds: ["github.forks.new"], count: 5, window: "day" },
+  },
+];
+
 export const githubAdapter: ProviderAdapter = {
   id: "github",
   displayName: PROVIDER_NAMES.github,
@@ -221,6 +324,8 @@ export const githubAdapter: ProviderAdapter = {
     "New forks per repository (counts only, never who forked)",
   ],
   eventTypes,
+  achievements,
+  dailyTotals: [starMetricNames.gainedDaily.metricKey],
   oauth: {
     authorizeUrl: OAUTH_AUTHORIZE_URL,
     tokenUrl: OAUTH_TOKEN_URL,
@@ -234,7 +339,7 @@ export const githubAdapter: ProviderAdapter = {
       privateKey: "GITHUB_APP_PRIVATE_KEY",
     },
   },
-  pollIntervalSeconds: 3600,
+  pollIntervalSeconds: POLL_INTERVAL_SECONDS,
 
   /** Leg 1: the app install URL. The setup URL is fixed in the app registration, not sent here. */
   buildAuthorizeUrl({ client, state }) {
