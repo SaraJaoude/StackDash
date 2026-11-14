@@ -3,6 +3,7 @@ import Image from "next/image";
 import { DataFlow } from "@/components/data-flow";
 import { HeroPreview } from "@/components/hero-preview";
 import { BellIcon, EyeIcon, GaugeIcon, TimelineIcon } from "@/components/icons";
+import { SignupForm } from "@/components/signup-form";
 import { site } from "@/lib/site";
 
 interface HeroFeature {
@@ -69,6 +70,11 @@ export default function Home() {
                   <p className="mt-2 text-sm leading-6 text-muted">
                     It will be open source, so you can read the code, contribute, and host it yourself. A hosted version
                     is planned too.
+                  </p>
+                  <SignupForm purpose="Get the launch email and occasional progress updates" />
+                  <p className="mt-3 text-left text-xs leading-5 text-muted">
+                    Your email address is kept with Resend, our email provider, and used only for these emails. Every
+                    email has an unsubscribe link.
                   </p>
                 </div>
 
