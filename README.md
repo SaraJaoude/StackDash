@@ -5,7 +5,7 @@ product preview, the StackDash logo, a note that StackDash will be open source, 
 for the launch list.
 
 This branch has its own history and is never merged to `main`. The product itself lives on `main`.
-Tracked in [#438](https://github.com/eddiejaoude/DevMacro/issues/438).
+Tracked in issue #438.
 
 ## Run it
 
@@ -18,9 +18,8 @@ npm run dev
 
 ## Launch list
 
-The signup form saves each address as a Resend contact in one segment
-([#440](https://github.com/eddiejaoude/DevMacro/issues/440)). Set these in the Vercel project, never
-in the repository:
+The signup form saves each address as a Resend contact in one segment (issue #440). Set these in
+the Vercel project, never in the repository:
 
 | Variable | Value |
 | --- | --- |
