@@ -1,3 +1,4 @@
+import { Analytics } from "@vercel/analytics/next";
 import type { Metadata, Viewport } from "next";
 import { site } from "@/lib/site";
 import { documentClassName } from "./fonts";
@@ -16,7 +17,11 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={documentClassName}>
-      <body className="flex min-h-full flex-col">{children}</body>
+      <body className="flex min-h-full flex-col">
+        {children}
+        {/* Vercel Web Analytics: page views only, no cookies. On Vercel it loads from this origin. */}
+        <Analytics />
+      </body>
     </html>
   );
 }

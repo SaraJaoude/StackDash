@@ -115,13 +115,16 @@ export default function Home() {
       </main>
 
       <footer className="border-t border-line">
-        <p className="mx-auto w-full max-w-6xl px-6 py-8 text-sm text-muted">
-          {site.name} by{" "}
-          <a href={site.founder.url} className="text-foreground underline underline-offset-4 hover:text-accent">
-            {site.founder.name}
-          </a>
-          .
-        </p>
+        <div className="mx-auto w-full max-w-6xl px-6 py-8 text-sm text-muted">
+          <p>
+            {site.name} by{" "}
+            <a href={site.founder.url} className="text-foreground underline underline-offset-4 hover:text-accent">
+              {site.founder.name}
+            </a>
+            .
+          </p>
+          <p className="mt-2 text-xs">This page counts visits with Vercel Web Analytics, which sets no cookies.</p>
+        </div>
       </footer>
     </>
   );
