@@ -64,6 +64,14 @@ export default function Home() {
                   {site.headline}.
                 </h1>
 
+                <div className="rise mx-auto mt-6 max-w-xl rounded-xl border border-accent/40 bg-accent-soft px-6 py-5 lg:mx-0">
+                  <p className="text-base font-medium">{site.name} is coming soon.</p>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    It will be open source, so you can read the code, contribute, and host it yourself. A hosted version
+                    is planned too.
+                  </p>
+                </div>
+
                 <p className="rise-late mx-auto mt-6 max-w-2xl text-lg leading-8 text-muted lg:mx-0 lg:text-base lg:leading-7">
                   Built for {site.audience}. {site.name} puts the deploys, stars, signups, logins, payments, and errors
                   from the services you build on into one feed, sends an alert by email, Slack, Discord, or webhook when
@@ -71,14 +79,7 @@ export default function Home() {
                   source. Spend shows where the provider reports it.
                 </p>
 
-                <div className="rise-late mx-auto mt-10 max-w-xl rounded-xl border border-accent/40 bg-accent-soft px-6 py-5 lg:mx-0">
-                  <p className="text-base font-medium">{site.name} is coming soon.</p>
-                  <p className="mt-2 text-sm leading-6 text-muted">
-                    It will be open source, so you can read the code, contribute, and host it yourself. A hosted version
-                    is planned too.
-                  </p>
-                </div>
-                <p className="rise-late mt-3 font-mono text-xs text-muted">
+                <p className="rise-late mt-4 font-mono text-xs text-muted">
                   Read-only access where providers allow it · self-hostable · hosted version planned
                 </p>
               </div>
