@@ -170,11 +170,12 @@ export default function PrivacyPage() {
           <p>
             {site.name} counts page views with Vercel Web Analytics, which sets no cookies. For each page you open, it
             records the page address without anything after a <LegalCode>?</LegalCode> or <LegalCode>#</LegalCode>,
-            so the address of a page inside a workspace includes the workspace handle. With it, Vercel records the site
-            that linked you here, your country and city, which it works out from your IP address, and your browser,
-            operating system, and type of device. Vercel tells one visitor from another by a hash of the request and
-            discards that hash after 24 hours. {site.name} runs no advertising or other tracking scripts, and serves
-            its fonts itself, so your browser sends no requests to a font service.
+            so the address of a page inside a workspace includes the workspace handle. With it, Vercel records your
+            country, region, and city, which it works out from your IP address, and your browser, operating system,
+            and type of device. When you arrive from another site, it also records the address of the page that linked
+            you here, as much of it as your browser reports. Vercel tells one visitor from another by a hash of the
+            request and discards that hash after 24 hours. {site.name} runs no advertising or other tracking scripts,
+            and serves its fonts itself, so your browser sends no requests to a font service.
           </p>
         ) : (
           <p>

@@ -101,9 +101,9 @@ describe("with an operator configured", () => {
   });
 
   it.each([
-    ["on Vercel", true],
-    ["self-hosted", false],
-  ])("the privacy policy describes page view counts only %s, where the root layout loads them", (_title, vercel) => {
+    ["on Vercel, the policy describes the page view counts the root layout loads", true],
+    ["self-hosted, the policy says no analytics run, because the root layout loads none", false],
+  ])("%s", (_title, vercel) => {
     stubOperator(OPERATOR);
     stubHosting({ vercel, email: false });
     const html = renderToStaticMarkup(createElement(PrivacyPage));
