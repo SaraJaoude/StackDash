@@ -37,7 +37,9 @@ install it; self-hosters register their own ([Sentry provider page](docs/provide
   syncs, run locally with the Supabase CLI
 - Vitest for unit tests, pgTAP (`supabase test db`) for database tests, Playwright with axe for
   end-to-end tests
-- Hosted on Vercel with a Supabase project, see [Deploy](docs/operations/deploy.md)
+- Hosted on Vercel with a Supabase project, see [Deploy](docs/operations/deploy.md). Vercel Web
+  Analytics counts page views on Vercel deployments only, so a self-hosted install loads no
+  analytics script
 
 ## Run it locally
 
