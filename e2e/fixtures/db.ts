@@ -101,8 +101,8 @@ export async function personalWorkspace(userId: string): Promise<Readonly<{ id: 
  * service role inserts directly.
  */
 export function seededKey(): { key: string; token_hash: string; token_prefix: string } {
-  const key = `dmk_${randomBytes(32).toString("base64url")}`;
-  return { key, token_hash: createHash("sha256").update(key, "utf8").digest("hex"), token_prefix: key.slice(0, 12) };
+  const key = `sd_${randomBytes(32).toString("base64url")}`;
+  return { key, token_hash: createHash("sha256").update(key, "utf8").digest("hex"), token_prefix: key.slice(0, "sd_".length + 8) };
 }
 
 /** Inserts `count` usage-only keys the owner created, named "Seeded key 1" onward, for limit tests. */
