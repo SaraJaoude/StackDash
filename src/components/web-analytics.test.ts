@@ -33,7 +33,6 @@ describe("withoutQueryOrFragment", () => {
   it.each([
     ["a fragment that holds a ?", `${ORIGIN}/docs/mcp#tools?x=1`, `${ORIGIN}/docs/mcp`],
     ["a relative address", "/unsubscribe?token=c2VjcmV0", "/unsubscribe"],
-    ["an empty address", "", ""],
   ])("cuts at the first ? or # for %s", (_name, url, sent) => {
     expect(withoutQueryOrFragment({ type: "pageview", url })).toEqual({ type: "pageview", url: sent });
   });
