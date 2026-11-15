@@ -1,6 +1,6 @@
 # Jobs: scheduled syncs, retries, and retention
 
-StackDash runs all background work from one route, `POST /api/jobs/tick`, called once a minute. Hosted (Vercel plus Supabase) and self-hosted installs run the same code; only the caller differs. The design is a Postgres job table plus a `pg_cron` tick, with poll intervals per adapter and 13 months of history.
+StackDash runs all background work from one route, `POST /api/jobs/tick`, called once a minute. Hosted and self-hosted installs run the same code; only the caller differs: `pg_cron` in the Supabase project, another scheduler, or `npm run jobs:tick` locally. The design is a Postgres job table plus a `pg_cron` tick, with poll intervals per adapter and 13 months of history.
 
 ## How a tick works
 
@@ -162,7 +162,7 @@ The `pg_cron` and `pg_net` extensions are installed by migration. The cron job i
 
 ### Self-hosted and local Supabase
 
-The same SQL works on a self-hosted or local Supabase stack. Use a URL the database can reach: for the local Supabase CLI stack and a dev server on your computer, that is `http://host.docker.internal:3000`. Any other scheduler that can send the same `POST` with the bearer header every minute works too.
+A self-hosted install registers the job with the same SQL, in its own Supabase project, with its own app URL and `CRON_SECRET`. For the local Supabase CLI stack and a dev server on your computer, the URL the database can reach is `http://host.docker.internal:3000`. Any other scheduler that can send the same `POST` with the bearer header every minute works too.
 
 Alert email needs a Resend account with a verified sending domain on a self-hosted install too: set `STACKDASH_RESEND_API_KEY` and `STACKDASH_EMAIL_FROM`. Without the key, alerts still show in the app and reach channels.
 
