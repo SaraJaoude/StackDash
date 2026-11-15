@@ -18,10 +18,11 @@ The decision and its reasons are on [#8](https://github.com/eddiejaoude/StackDas
 - Your contribution is licensed under the same terms as the rest of the code.
 - If you run a modified version for other people over a network, the license requires you to offer
   them its source code (section 13 of the license).
-- Contributions need a signed contributor license agreement (CLA), which lets the project relicense
-  or dual-license the code later. The agreement and how to sign it are being set up in
-  [#450](https://github.com/eddiejaoude/StackDash/issues/450). Until then, pull requests from
-  outside contributors are not merged. You can still open an issue and discuss a change first.
+- Contributions need a signed contributor license agreement (CLA). It grants Eddie Jaoude, the
+  copyright holder, the right to license your contribution under other terms as well as the AGPL,
+  so the code can be relicensed or dual-licensed later. The agreement and how to sign it are being
+  set up in [#450](https://github.com/eddiejaoude/StackDash/issues/450). Until then, pull requests
+  from outside contributors are not merged. You can still open an issue and discuss a change first.
 
 ## Before you start
 
