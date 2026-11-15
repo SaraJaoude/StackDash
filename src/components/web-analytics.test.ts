@@ -31,9 +31,10 @@ describe("withoutQueryOrFragment", () => {
   });
 
   it.each([
-    ["an empty address", ""],
-    ["a relative address", "/unsubscribe?token=c2VjcmV0"],
-  ])("drops the event for %s rather than sending it unfiltered", (_name, url) => {
-    expect(withoutQueryOrFragment({ type: "pageview", url })).toBeNull();
+    ["a fragment that holds a ?", `${ORIGIN}/docs/mcp#tools?x=1`, `${ORIGIN}/docs/mcp`],
+    ["a relative address", "/unsubscribe?token=c2VjcmV0", "/unsubscribe"],
+    ["an empty address", "", ""],
+  ])("cuts at the first ? or # for %s", (_name, url, sent) => {
+    expect(withoutQueryOrFragment({ type: "pageview", url })).toEqual({ type: "pageview", url: sent });
   });
 });
