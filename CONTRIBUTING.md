@@ -18,11 +18,17 @@ The decision and its reasons are on [#8](https://github.com/eddiejaoude/StackDas
 - Your contribution is licensed under the same terms as the rest of the code.
 - If you run a modified version for other people over a network, the license requires you to offer
   them its source code (section 13 of the license).
-- Contributions need a signed contributor license agreement (CLA). It grants Eddie Jaoude, the
-  copyright holder, the right to license your contribution under other terms as well as the AGPL,
-  so the code can be relicensed or dual-licensed later. The agreement and how to sign it are being
-  set up in [#450](https://github.com/eddiejaoude/StackDash/issues/450). Until then, pull requests
-  from outside contributors are not merged. You can still open an issue and discuss a change first.
+- Contributions need a signed
+  [contributor license agreement](https://gist.github.com/eddiejaoude/f62aa5c24c7979993471e99385567506)
+  (CLA), based on the Apache Individual CLA. It grants Eddie Jaoude, the copyright holder, the
+  right to license your contribution under other terms as well as the AGPL, so the code can be
+  relicensed or dual-licensed later. You keep the copyright in your contribution.
+- To sign, open your pull request. The CLA Assistant bot comments with a link: follow it, sign in
+  with GitHub, and accept. You sign once, and it covers your present and future contributions. The
+  `license/cla` check then passes without a new push. A pull request cannot be merged until it
+  passes.
+- Contributing as part of your job? Check that your employer allows it before you sign: section 4
+  of the agreement covers this.
 
 ## Before you start
 
